@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mechbench-core"
+version = "0.1.0"
+description = "Composable mechanistic-interpretability primitives: hook-aware forward, interventions, activation cache, logit lens, probes, and geometry."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Benji Smith", email = "benji@shaxpir.com" }]
+keywords = ["interpretability", "mechanistic-interpretability", "mlx", "transformers", "gemma"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "mlx>=0.20",
+    "mlx-lm>=0.20",
+    "mlx-vlm>=0.4.4",
+    "numpy>=1.26",
+    "transformers>=4.40",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+# The schema contract is a soft dependency today — core emits plain dicts/arrays
+# and callers can wrap them. When the emission layer is formalized, this becomes
+# a hard dependency.
+schema = ["mechbench-schema>=0.1"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.urls]
+Homepage = "https://github.com/mechbench/mechbench-core"
+"Meta repo" = "https://github.com/mechbench/mechbench"
+
+[tool.setuptools.packages.find]
+include = ["mechbench_core*"]
+exclude = ["tests*"]
