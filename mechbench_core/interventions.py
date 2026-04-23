@@ -359,6 +359,23 @@ class Capture:
         )
 
     @staticmethod
+    def attn_out(layers: int | Iterable[int]) -> Intervention:
+        """Capture the attention branch's contribution to the residual stream
+        at the given layers, shape [B, L, d_model]. Post o_proj and
+        post_attention_layernorm."""
+        return _Captures(
+            names=tuple(f"blocks.{i}.attn_out" for i in _norm_layers(layers))
+        )
+
+    @staticmethod
+    def mlp_out(layers: int | Iterable[int]) -> Intervention:
+        """Capture the MLP branch's contribution to the residual stream at the
+        given layers, shape [B, L, d_model]. Post post_feedforward_layernorm."""
+        return _Captures(
+            names=tuple(f"blocks.{i}.mlp_out" for i in _norm_layers(layers))
+        )
+
+    @staticmethod
     def per_head_out(layers: int | Iterable[int]) -> Intervention:
         """Capture the per-head attention output BEFORE o_proj concatenation.
 

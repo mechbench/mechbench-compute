@@ -89,6 +89,12 @@ from .head_weights import (
     ov_circuit,
     qk_circuit,
 )
+from .attribution import (
+    accumulated_resid,
+    decompose_resid,
+    head_results,
+    logit_attrs,
+)
 from .probes import Probe
 from .hooks import HookFn, HookInfo, parse_hook_name
 from .interventions import Ablate, Capture, Intervention, Patch, compose
@@ -135,6 +141,11 @@ __all__ = [
     # Logit lens
     "logit_lens_final",
     "logit_lens_per_position",
+    # Direct logit attribution + residual decomposition
+    "accumulated_resid",
+    "decompose_resid",
+    "head_results",
+    "logit_attrs",
     # Fact vectors + geometry
     "fact_vectors",
     "fact_vectors_at",
