@@ -21,6 +21,7 @@ from mlx_vlm.utils import prepare_inputs
 
 from . import _arch
 from ._forward import run_forward
+from ._forward_gemma3 import run_forward_gemma3
 from .cache import ActivationCache
 from .hooks import HookFn, parse_hook_name
 from .interventions import Intervention, compose
@@ -116,15 +117,13 @@ class Model:
         """
         m, p = load(model_id)
         arch = _arch.Arch.from_mlx_model(m, model_id=model_id)
-        if arch.model_type != "gemma4":
+        if arch.model_type not in ("gemma4", "gemma3"):
             raise NotImplementedError(
-                f"mechbench-core's hook-aware forward path supports Gemma 4 "
-                f"only; loaded model {model_id!r} reports model_type="
-                f"{arch.model_type!r}. Gemma 3 family support is staged "
-                f"under task 000192 — until that lands, the bin-script "
-                f"probe (lm.layers[i] = identity) is the workaround for "
-                f"whole-layer ablation. Hook-system features (capture, "
-                f"sublayer ablation, DLA) are unavailable on this variant."
+                f"mechbench-core's hook-aware forward path supports Gemma 3 "
+                f"and Gemma 4 only; loaded model {model_id!r} reports "
+                f"model_type={arch.model_type!r}. Other families "
+                f"(Qwen 2.5 → 000201, Qwen 3.5 → 000202, "
+                f"DeepSeek V3 / Kimi-VL → 000203) are tracked as future work."
             )
         return cls(m, p, arch=arch)
 
@@ -194,7 +193,12 @@ class Model:
             interventions, hooks=hooks, capture=capture,
         )
         self._validate_hook_names(set(final_hooks.keys()) | set(final_capture))
-        logits, cache = run_forward(
+        forward = (
+            run_forward_gemma3
+            if self.arch.model_type == "gemma3"
+            else run_forward
+        )
+        logits, cache = forward(
             self._model, input_ids, hooks=final_hooks, capture=final_capture,
             arch=self.arch,
         )
@@ -217,6 +221,11 @@ class Model:
         lm = self._model.language_model
         tm = lm.model
         h = tm.norm(residual)
+        if self.arch.model_type == "gemma3":
+            # Gemma 3 has a separate lm_head Linear (whose weights are
+            # tied to embed_tokens at load time via the model's sanitize
+            # hook). No final_logit_softcapping in the Gemma 3 line.
+            return lm.lm_head(h)
         logits = tm.embed_tokens.as_linear(h)
         if lm.final_logit_softcapping is not None:
             logits = logit_softcap(lm.final_logit_softcapping, logits)
