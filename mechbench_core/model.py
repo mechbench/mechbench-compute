@@ -116,6 +116,16 @@ class Model:
         """
         m, p = load(model_id)
         arch = _arch.Arch.from_mlx_model(m, model_id=model_id)
+        if arch.model_type != "gemma4":
+            raise NotImplementedError(
+                f"mechbench-core's hook-aware forward path supports Gemma 4 "
+                f"only; loaded model {model_id!r} reports model_type="
+                f"{arch.model_type!r}. Gemma 3 family support is staged "
+                f"under task 000192 — until that lands, the bin-script "
+                f"probe (lm.layers[i] = identity) is the workaround for "
+                f"whole-layer ablation. Hook-system features (capture, "
+                f"sublayer ablation, DLA) are unavailable on this variant."
+            )
         return cls(m, p, arch=arch)
 
     @property

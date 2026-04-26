@@ -91,6 +91,11 @@ class Arch:
     hidden_size_per_layer_input: int
     global_layers: tuple[int, ...]
     first_kv_shared_layer: int
+    # Family discriminator: "gemma4" or "gemma3". Drives forward-path
+    # dispatch in `_forward.run_forward`. Defaults to "gemma4" because
+    # every existing call site loads a Gemma 4 variant; Gemma 3 support
+    # is being staged in under task 000192.
+    model_type: str = "gemma4"
 
     @property
     def last_fresh_kv_global(self) -> int:
@@ -129,20 +134,40 @@ class Arch:
         """Read architecture facts from a loaded mlx-vlm model.
 
         Reads model.config.text_config — which is the same data structure
-        HuggingFace uses for these checkpoints. Works for any Gemma 4
-        variant; raises if the config doesn't have the expected fields.
+        HuggingFace uses for these checkpoints. Handles both Gemma 4
+        (per-layer `layer_types` array, optional `num_kv_shared_layers`,
+        MatFormer per-layer-input side-channel) and Gemma 3 (modular
+        `sliding_window_pattern`, no KV-sharing, no side-channel).
         """
         cfg = model.config.text_config
-        layer_types = list(cfg.layer_types)
-        n_layers = len(layer_types)
-        global_layers = tuple(
-            i for i, t in enumerate(layer_types) if t == "full_attention"
-        )
+        cfg_model_type = (getattr(cfg, "model_type", "") or "").lower()
+        family = "gemma3" if cfg_model_type.startswith("gemma3") else "gemma4"
+
+        if hasattr(cfg, "layer_types") and cfg.layer_types is not None:
+            # Gemma 4: layer_types is a per-layer list.
+            layer_types = list(cfg.layer_types)
+            n_layers = len(layer_types)
+            global_layers = tuple(
+                i for i, t in enumerate(layer_types) if t == "full_attention"
+            )
+        else:
+            # Gemma 3: globals at i where (i+1) % sliding_window_pattern == 0,
+            # i.e. the last layer of each group of `pattern` is global.
+            n_layers = int(cfg.num_hidden_layers)
+            pattern = int(
+                getattr(cfg, "sliding_window_pattern", 6)
+            )
+            global_layers = tuple(
+                i for i in range(n_layers)
+                if (i + 1) % pattern == 0
+            )
+
         # num_kv_shared_layers is the count of trailing layers that share
-        # K/V from an earlier layer. So the first shared layer index is
-        # n_layers - num_kv_shared_layers.
+        # K/V from an earlier layer. Gemma 3 doesn't have this; default to 0
+        # which makes first_kv_shared = n_layers (i.e. no KV-shared region).
         num_kv_shared = int(getattr(cfg, "num_kv_shared_layers", 0) or 0)
         first_kv_shared = n_layers - num_kv_shared
+
         return cls(
             model_id=model_id or getattr(cfg, "_name_or_path", "") or "",
             n_layers=n_layers,
@@ -155,6 +180,7 @@ class Arch:
             ),
             global_layers=global_layers,
             first_kv_shared_layer=first_kv_shared,
+            model_type=family,
         )
 
 
