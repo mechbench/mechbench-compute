@@ -146,20 +146,25 @@ class Model:
         """The underlying tokenizer (processor.tokenizer or processor itself)."""
         return getattr(self._processor, "tokenizer", self._processor)
 
-    def tokenize(self, prompt: str) -> mx.array:
-        """Apply the chat template and tokenize a prompt.
+    def tokenize(self, prompt: str, *, chat_template: bool = True) -> mx.array:
+        """Apply the chat template (default) and tokenize a prompt.
 
-        Returns input_ids of shape [1, seq_len], int32. The chat template
-        emits <bos> on its own, so we set add_special_tokens=False to avoid
-        a duplicate (matching mlx_vlm.generate's behavior).
+        Pass `chat_template=False` for base (non-instruct) models — they
+        complete prompts as raw text and adding a chat wrapper distorts
+        the next-token distribution. Instruct models (Gemma 3/4 -it,
+        Qwen 2.5 -Instruct) want the default.
+
+        Returns input_ids of shape [1, seq_len], int32.
         """
         if self.arch.model_type == "qwen2":
-            # mlx-lm tokenizer wrapper exposes apply_chat_template directly.
-            rendered = self._processor.apply_chat_template(
-                [{"role": "user", "content": prompt}],
-                tokenize=False,
-                add_generation_prompt=True,
-            )
+            if chat_template:
+                rendered = self._processor.apply_chat_template(
+                    [{"role": "user", "content": prompt}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            else:
+                rendered = prompt
             ids = self._processor.encode(rendered)
             return mx.array([ids], dtype=mx.int32)
 
