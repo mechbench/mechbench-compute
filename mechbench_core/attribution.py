@@ -222,7 +222,7 @@ def logit_attrs(
     # reads per-component contributions, and the final norm would mix
     # components nonlinearly. Per-family dispatch on where the unembed
     # weights live (mlx-vlm Gemma vs mlx-lm Qwen).
-    if model.arch.model_type == "qwen2":
+    if model.arch.model_type in ("qwen2", "llama"):
         if model._model.args.tie_word_embeddings:
             logits = model._model.model.embed_tokens.as_linear(v)
         else:

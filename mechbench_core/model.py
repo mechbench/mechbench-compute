@@ -22,6 +22,7 @@ from mlx_vlm.utils import prepare_inputs
 from . import _arch
 from ._forward import run_forward
 from ._forward_gemma3 import run_forward_gemma3
+from ._forward_llama import run_forward_llama
 from ._forward_qwen import run_forward_qwen
 from .cache import ActivationCache
 from .hooks import HookFn, parse_hook_name
@@ -131,11 +132,11 @@ class Model:
                 raise
 
         arch = _arch.Arch.from_mlx_model(m, model_id=model_id)
-        if arch.model_type not in ("gemma4", "gemma3", "qwen2"):
+        if arch.model_type not in ("gemma4", "gemma3", "qwen2", "llama"):
             raise NotImplementedError(
                 f"mechbench-core's hook-aware forward path supports Gemma 3, "
-                f"Gemma 4, and Qwen 2.x; loaded model {model_id!r} reports "
-                f"model_type={arch.model_type!r}. Other families "
+                f"Gemma 4, Qwen 2.x, and Llama 3.x; loaded model {model_id!r} "
+                f"reports model_type={arch.model_type!r}. Other families "
                 f"(Qwen 3.5 → 000202, DeepSeek V3 / Kimi-VL → 000203) are "
                 f"tracked as future work."
             )
@@ -156,7 +157,8 @@ class Model:
 
         Returns input_ids of shape [1, seq_len], int32.
         """
-        if self.arch.model_type == "qwen2":
+        if self.arch.model_type in ("qwen2", "llama"):
+            # mlx-lm tokenizer wrapper exposes apply_chat_template directly.
             if chat_template:
                 rendered = self._processor.apply_chat_template(
                     [{"role": "user", "content": prompt}],
@@ -225,6 +227,7 @@ class Model:
         forward = {
             "gemma3": run_forward_gemma3,
             "qwen2": run_forward_qwen,
+            "llama": run_forward_llama,
         }.get(self.arch.model_type, run_forward)
         logits, cache = forward(
             self._model, input_ids, hooks=final_hooks, capture=final_capture,
@@ -246,9 +249,10 @@ class Model:
         of the network were a no-op. Accepts any tensor whose last dimension
         is D_MODEL; the projection is applied along that axis.
         """
-        if self.arch.model_type == "qwen2":
-            # mlx-lm-loaded Qwen: model.model holds the tower; tied vs
-            # untied unembed selected by args.tie_word_embeddings.
+        if self.arch.model_type in ("qwen2", "llama"):
+            # mlx-lm-loaded models share a shape: model.model holds the
+            # tower; tied vs untied unembed selected by
+            # args.tie_word_embeddings.
             tm = self._model.model
             h = tm.norm(residual)
             if self._model.args.tie_word_embeddings:

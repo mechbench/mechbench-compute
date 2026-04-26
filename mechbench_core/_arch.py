@@ -192,17 +192,30 @@ class Arch:
 
     @classmethod
     def _from_mlx_lm_args(cls, args, model_id: str | None) -> "Arch":
-        """Adapter path for mlx-lm-loaded models. Currently scoped to
-        Qwen 2.x, where every layer is full-attention (no hybrid pattern)
-        and there's no KV-sharing or MatFormer side-channel."""
+        """Adapter path for mlx-lm-loaded models. Currently supports
+        Qwen 2.x (000201) and Llama 3.x (000208). Both lack KV-sharing
+        and MatFormer side-channels; Llama 3.2 may have a hybrid
+        attention pattern via `args.layer_types`."""
         n_layers = int(args.num_hidden_layers)
         family_raw = (getattr(args, "model_type", "") or "").lower()
-        if family_raw not in ("qwen2",):
+        if family_raw not in ("qwen2", "llama"):
             raise NotImplementedError(
                 f"mlx-lm model_type {family_raw!r} not yet supported. "
-                f"Currently: qwen2 (000201). Other Qwen / DeepSeek "
-                f"families tracked under 000202 / 000203."
+                f"Currently: qwen2 (000201), llama (000208). Other Qwen / "
+                f"DeepSeek families tracked under 000202 / 000203."
             )
+
+        # Llama 3.2 may declare a hybrid attention pattern via
+        # args.layer_types; Llama 3.1 doesn't and is pure full-attention.
+        # Qwen 2 has no layer_types attribute → all layers global.
+        layer_types = getattr(args, "layer_types", None)
+        if layer_types:
+            global_layers = tuple(
+                i for i, t in enumerate(layer_types) if t == "full_attention"
+            )
+        else:
+            global_layers = tuple(range(n_layers))
+
         return cls(
             model_id=model_id or "",
             n_layers=n_layers,
@@ -211,7 +224,7 @@ class Arch:
             n_kv_heads=int(args.num_key_value_heads),
             vocab_size=int(args.vocab_size),
             hidden_size_per_layer_input=0,
-            global_layers=tuple(range(n_layers)),
+            global_layers=global_layers,
             first_kv_shared_layer=n_layers,
             model_type=family_raw,
         )
