@@ -131,14 +131,21 @@ class Arch:
 
     @classmethod
     def from_mlx_model(cls, model: Any, model_id: str | None = None) -> "Arch":
-        """Read architecture facts from a loaded mlx-vlm model.
+        """Read architecture facts from a loaded model.
 
-        Reads model.config.text_config — which is the same data structure
-        HuggingFace uses for these checkpoints. Handles both Gemma 4
-        (per-layer `layer_types` array, optional `num_kv_shared_layers`,
-        MatFormer per-layer-input side-channel) and Gemma 3 (modular
-        `sliding_window_pattern`, no KV-sharing, no side-channel).
+        Handles three sources:
+          - mlx-vlm Gemma 4 (model.config.text_config with `layer_types`
+            and optional `num_kv_shared_layers`).
+          - mlx-vlm Gemma 3 (model.config.text_config with
+            `sliding_window_pattern`; no KV-sharing).
+          - mlx-lm Qwen 2.x (model.args ModelArgs dataclass; no hybrid
+            attention, no KV-sharing).
         """
+        # mlx-lm models expose `args` and don't have `language_model`.
+        # Dispatch on that signature before touching mlx-vlm-specific paths.
+        if hasattr(model, "args") and not hasattr(model, "language_model"):
+            return cls._from_mlx_lm_args(model.args, model_id)
+
         cfg = model.config.text_config
         cfg_model_type = (getattr(cfg, "model_type", "") or "").lower()
         family = "gemma3" if cfg_model_type.startswith("gemma3") else "gemma4"
@@ -181,6 +188,32 @@ class Arch:
             global_layers=global_layers,
             first_kv_shared_layer=first_kv_shared,
             model_type=family,
+        )
+
+    @classmethod
+    def _from_mlx_lm_args(cls, args, model_id: str | None) -> "Arch":
+        """Adapter path for mlx-lm-loaded models. Currently scoped to
+        Qwen 2.x, where every layer is full-attention (no hybrid pattern)
+        and there's no KV-sharing or MatFormer side-channel."""
+        n_layers = int(args.num_hidden_layers)
+        family_raw = (getattr(args, "model_type", "") or "").lower()
+        if family_raw not in ("qwen2",):
+            raise NotImplementedError(
+                f"mlx-lm model_type {family_raw!r} not yet supported. "
+                f"Currently: qwen2 (000201). Other Qwen / DeepSeek "
+                f"families tracked under 000202 / 000203."
+            )
+        return cls(
+            model_id=model_id or "",
+            n_layers=n_layers,
+            d_model=int(args.hidden_size),
+            n_heads=int(args.num_attention_heads),
+            n_kv_heads=int(args.num_key_value_heads),
+            vocab_size=int(args.vocab_size),
+            hidden_size_per_layer_input=0,
+            global_layers=tuple(range(n_layers)),
+            first_kv_shared_layer=n_layers,
+            model_type=family_raw,
         )
 
 
