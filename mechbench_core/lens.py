@@ -18,11 +18,21 @@ from typing import Iterable, Optional
 import mlx.core as mx
 import numpy as np
 
-from ._arch import N_LAYERS
+from .attribution import _layers_from_cache
 
 
-def _resolve_layers(layers: Optional[Iterable[int]]) -> list[int]:
-    return list(range(N_LAYERS)) if layers is None else list(layers)
+def _resolve_layers(
+    layers: Optional[Iterable[int]], cache=None
+) -> list[int]:
+    """Use `layers` if given; else infer from the cache. No
+    module-level E4B-default fallback (000193)."""
+    if layers is not None:
+        return list(layers)
+    if cache is None:
+        raise ValueError(
+            "_resolve_layers needs `layers` or a `cache` to infer from"
+        )
+    return _layers_from_cache(cache, point="resid_post")
 
 
 def logit_lens_final(
@@ -48,7 +58,7 @@ def logit_lens_final(
         ranks[k] is the rank of target_id at layers[k] (0 = top-1).
         logprobs[k] is the normalized log-probability of target_id.
     """
-    layers_list = _resolve_layers(layers)
+    layers_list = _resolve_layers(layers, cache)
     n = len(layers_list)
     ranks = np.zeros(n, dtype=np.int64)
     logprobs = np.zeros(n, dtype=np.float64)
@@ -90,7 +100,7 @@ def logit_lens_per_position(
     Returns:
         (ranks, logprobs) — np.ndarray of shape [len(layers), seq_len].
     """
-    layers_list = _resolve_layers(layers)
+    layers_list = _resolve_layers(layers, cache)
     # Read seq_len from the first layer's cache entry.
     first = cache[f"blocks.{layers_list[0]}.resid_post"]
     seq_len = first.shape[1]

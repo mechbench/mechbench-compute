@@ -21,7 +21,6 @@ from typing import Any, Iterable, Iterator, Optional
 import mlx.core as mx
 import numpy as np
 
-from ._arch import D_MODEL
 from .interventions import Capture
 
 
@@ -93,7 +92,7 @@ def fact_vectors(
         np.ndarray of shape [n_prompts, D_MODEL], dtype float32.
     """
     n = len(validated)
-    out = np.zeros((n, D_MODEL), dtype=np.float32)
+    out = np.zeros((n, model.arch.d_model), dtype=np.float32)
     cap = Capture.residual(layer, point="post")
     key = f"blocks.{layer}.resid_post"
     for j, vp in enumerate(validated):
@@ -136,7 +135,7 @@ def fact_vectors_at(
     """
     layers_list = list(layers)
     n = len(validated)
-    out = {L: np.zeros((n, D_MODEL), dtype=np.float32) for L in layers_list}
+    out = {L: np.zeros((n, model.arch.d_model), dtype=np.float32) for L in layers_list}
     cap = Capture.residual(layers_list, point="post")
     extra = list(interventions)
     for j, vp in enumerate(validated):
@@ -258,7 +257,7 @@ def fact_vectors_pooled(
     """
     layers_list = list(layers)
     n = len(validated)
-    out = {L: np.zeros((n, D_MODEL), dtype=np.float32) for L in layers_list}
+    out = {L: np.zeros((n, model.arch.d_model), dtype=np.float32) for L in layers_list}
     cap = Capture.residual(layers_list, point="post")
     extra = list(interventions)
     for j, vp in enumerate(validated):

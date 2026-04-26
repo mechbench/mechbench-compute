@@ -42,13 +42,48 @@ from typing import Iterable, Optional, Sequence
 import mlx.core as mx
 import numpy as np
 
-from ._arch import N_LAYERS
 from .cache import ActivationCache
 from .errors import CacheKeyError
 
 
-def _resolve_layers(layers: Optional[Iterable[int]]) -> list[int]:
-    return list(range(N_LAYERS)) if layers is None else list(layers)
+def _layers_from_cache(
+    cache: ActivationCache, *, point: str = "resid_post"
+) -> list[int]:
+    """Infer which layer indices the cache contains by counting
+    `blocks.{i}.{point}` keys. The default probes `resid_post` because
+    every layer-iterating helper assumes that's captured; pass a
+    different point if the helper iterates a different one."""
+    indices: list[int] = []
+    prefix = "blocks."
+    suffix = f".{point}"
+    for k in cache.keys():
+        if k.startswith(prefix) and k.endswith(suffix):
+            try:
+                i = int(k[len(prefix) : -len(suffix)])
+            except ValueError:
+                continue
+            indices.append(i)
+    if not indices:
+        raise CacheKeyError(f"blocks.*.{point}", cache.keys())
+    return sorted(set(indices))
+
+
+def _resolve_layers(
+    layers: Optional[Iterable[int]],
+    cache: Optional[ActivationCache] = None,
+    *,
+    point: str = "resid_post",
+) -> list[int]:
+    """If `layers` is given, use it. Otherwise infer from the cache —
+    no module-level E4B-default fallback. (Previously defaulted to
+    `range(N_LAYERS)` where N_LAYERS was hardcoded to 42.)"""
+    if layers is not None:
+        return list(layers)
+    if cache is None:
+        raise ValueError(
+            "_resolve_layers needs `layers` or a `cache` to infer from"
+        )
+    return _layers_from_cache(cache, point=point)
 
 
 def _require(cache: ActivationCache, key: str) -> mx.array:
@@ -83,7 +118,7 @@ def accumulated_resid(
     Requires `blocks.{i}.resid_post` captured for each `i` in `layers` (and
     `blocks.{layers[0]}.resid_pre` when `include_pre=True`).
     """
-    layer_list = _resolve_layers(layers)
+    layer_list = _resolve_layers(layers, cache, point="resid_post")
     tensors: list[mx.array] = []
     if include_pre:
         tensors.append(_require(cache, f"blocks.{layer_list[0]}.resid_pre"))
@@ -108,7 +143,7 @@ def decompose_resid(
     side-channel. It is load-bearing at global-attention layers (see
     finding 03) and should not be omitted from decomposition.
     """
-    layer_list = _resolve_layers(layers)
+    layer_list = _resolve_layers(layers, cache, point="attn_out")
     out: dict[str, np.ndarray] = {}
     for branch in ("attn_out", "mlp_out", "gate_out"):
         tensors = [_require(cache, f"blocks.{i}.{branch}") for i in layer_list]

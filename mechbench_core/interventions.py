@@ -46,7 +46,7 @@ from typing import Iterable, Protocol, runtime_checkable
 
 import mlx.core as mx
 
-from ._arch import N_LAYERS
+from ._arch import E4B_DEFAULT
 from .cache import ActivationCache
 from .hooks import HookFn
 
@@ -308,7 +308,13 @@ class Ablate:
         ablation.
         """
         if layers is None:
-            layers = range(N_LAYERS)
+            # side_channel is MatFormer-specific (Gemma 4 only); using the
+            # E4B default here is intentional for the "ablate everywhere"
+            # convenience. When called on a non-Gemma-4 variant, the
+            # gate_out hooks won't exist and this will raise at run time
+            # with a helpful CacheKeyError. Variant-aware validation lives
+            # under task 000192.
+            layers = range(E4B_DEFAULT.n_layers)
         ls = _norm_layers(layers)
         return _NamedZeroHook(names=tuple(f"blocks.{i}.gate_out" for i in ls))
 
