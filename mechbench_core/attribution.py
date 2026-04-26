@@ -216,11 +216,26 @@ def logit_attrs(
     leading_shape = stack_at_pos.shape[:-1]
     d_model = stack_at_pos.shape[-1]
     flat = stack_at_pos.reshape(-1, d_model)  # [N, d_model]
-
-    lm = model._model.language_model
-    tm = lm.model
     v = mx.array(flat, dtype=mx.bfloat16)
-    logits = tm.embed_tokens.as_linear(v).astype(mx.float32)
+
+    # Project through the unembed without applying the final norm — DLA
+    # reads per-component contributions, and the final norm would mix
+    # components nonlinearly. Per-family dispatch on where the unembed
+    # weights live (mlx-vlm Gemma vs mlx-lm Qwen).
+    if model.arch.model_type == "qwen2":
+        if model._model.args.tie_word_embeddings:
+            logits = model._model.model.embed_tokens.as_linear(v)
+        else:
+            logits = model._model.lm_head(v)
+    else:
+        lm = model._model.language_model
+        tm = lm.model
+        if model.arch.model_type == "gemma3":
+            logits = lm.lm_head(v)
+        else:  # gemma4: tied embed.as_linear
+            logits = tm.embed_tokens.as_linear(v)
+
+    logits = logits.astype(mx.float32)
     mx.eval(logits)
     logits_np = np.array(logits)  # [N, vocab]
 
