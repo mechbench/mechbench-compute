@@ -173,7 +173,17 @@ def head_results(model, cache: ActivationCache, layer: int) -> np.ndarray:
 
     block = model._model.language_model.model.layers[layer]
     head_dim = int(block.self_attn.head_dim)
-    W_O_full = np.array(block.self_attn.o_proj.weight.astype(mx.float32))
+    # Dequantize o_proj if the model is quantized (the only published 12B
+    # conversions are 8-bit, whose .weight is uint32-packed); otherwise the
+    # column-slicing below would index into packed data and corrupt the result.
+    o_proj = block.self_attn.o_proj
+    o_weight = o_proj.weight
+    if hasattr(o_proj, "scales"):
+        o_weight = mx.dequantize(
+            o_weight, o_proj.scales, o_proj.biases,
+            group_size=o_proj.group_size, bits=o_proj.bits,
+        )
+    W_O_full = np.array(o_weight.astype(mx.float32))
     # W_O_full shape: [d_model, n_heads * head_dim]
     n_heads = per_head_np.shape[0]
     seq_len = per_head_np.shape[1]

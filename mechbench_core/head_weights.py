@@ -46,7 +46,7 @@ Caveats:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from typing import Optional
 
 import mlx.core as mx
 import numpy as np
@@ -70,6 +70,7 @@ class HeadSpec:
     W_O: np.ndarray    # [d_model, head_dim]  (slice of o_proj for this Q-head)
     is_global: bool
     is_kv_shared: bool
+    use_k_eq_v: bool = False  # global layers of 12B/26B: V reuses the k_proj map
 
 
 @dataclass(frozen=True)
@@ -103,10 +104,28 @@ def _as_np_f32(mx_tensor: mx.array) -> np.ndarray:
     return np.array(mx_tensor.astype(mx.float32))
 
 
+def _dense_weight_f32(module) -> np.ndarray:
+    """Dense weight of a Linear/Embedding as float32 numpy, dequantizing
+    QuantizedLinear / QuantizedEmbedding first.
+
+    Static weight-circuit analysis needs the real [out, in] (or [vocab,
+    d_model]) matrix. A quantized module's `.weight` is uint32-PACKED, so
+    reading it raw yields a wrong-shaped, meaningless array — and the only
+    Gemma 4 12B conversions published so far are quantized (8-bit / nvfp4),
+    so this path is load-bearing for the 12B, not hypothetical.
+    """
+    w = module.weight
+    if hasattr(module, "scales"):
+        w = mx.dequantize(
+            w, module.scales, module.biases,
+            group_size=module.group_size, bits=module.bits,
+        )
+    return _as_np_f32(w)
+
+
 def _embed_matrix_f32(model) -> np.ndarray:
     """Vocab x d_model token embedding matrix as float32 numpy."""
-    e = model._model.language_model.model.embed_tokens.weight
-    return _as_np_f32(e)
+    return _dense_weight_f32(model._model.language_model.model.embed_tokens)
 
 
 def _unit_normalized_embed(model) -> np.ndarray:
@@ -134,10 +153,15 @@ def get_head_spec(model, layer: int, head: int) -> HeadSpec:
     n_kv_heads = int(attn.n_kv_heads)
     kv_group = head * n_kv_heads // n_heads
 
-    W_Q_full = _as_np_f32(attn.q_proj.weight)   # [n_heads*head_dim, d_model]
-    W_K_full = _as_np_f32(attn.k_proj.weight)   # [n_kv_heads*head_dim, d_model]
-    W_V_full = _as_np_f32(attn.v_proj.weight)
-    W_O_full = _as_np_f32(attn.o_proj.weight)   # [d_model, n_heads*head_dim]
+    use_k_eq_v = bool(getattr(attn, "use_k_eq_v", False))
+    W_Q_full = _dense_weight_f32(attn.q_proj)   # [n_heads*head_dim, d_model]
+    W_K_full = _dense_weight_f32(attn.k_proj)   # [n_kv_heads*head_dim, d_model]
+    # k_eq_v (12B/26B global layers): there is no v_proj — values reuse the
+    # k_proj map. K and V then diverge only by their post-projection norm
+    # (k_norm with scale vs v_norm without), which static weight-circuit
+    # analysis ignores, so the V projection weight IS the k_proj weight.
+    W_V_full = W_K_full if use_k_eq_v else _dense_weight_f32(attn.v_proj)
+    W_O_full = _dense_weight_f32(attn.o_proj)   # [d_model, n_heads*head_dim]
 
     W_Q = W_Q_full[head * head_dim:(head + 1) * head_dim, :]
     W_K = W_K_full[kv_group * head_dim:(kv_group + 1) * head_dim, :]
@@ -150,6 +174,7 @@ def get_head_spec(model, layer: int, head: int) -> HeadSpec:
         W_Q=W_Q, W_K=W_K, W_V=W_V, W_O=W_O,
         is_global=(attn.layer_type == "full_attention"),
         is_kv_shared=bool(attn.is_kv_shared_layer),
+        use_k_eq_v=use_k_eq_v,
     )
 
 
