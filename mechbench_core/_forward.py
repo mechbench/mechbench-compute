@@ -9,11 +9,19 @@ setup that mlx_vlm.generate performs. Every existing experiment script
 worked around it by reimplementing the layer loop inline. This module
 consolidates those reimplementations into the single source of truth.
 
-The forward pass mirrors:
+The forward pass mirrors mlx-vlm 0.6.x:
   - mlx_vlm/utils.py prepare_inputs (handled by Model.tokenize, not here)
   - mlx_vlm/models/gemma4/gemma4.py Model.__call__ (embeddings + per-layer)
   - mlx_vlm/models/gemma4/language.py Gemma4TextModel.__call__ (the layer loop)
   - mlx_vlm/models/gemma4/language.py LanguageModel.__call__ (norm + unembed)
+
+The 0.4.x → 0.6.x bump rewrote the cache/mask/layer-loop contract this file
+mirrors (task 000223): the deduplicated per-type KV cache is gone; KV sharing
+is now threaded layer-to-layer via Gemma4TextModel.previous_kvs + an
+`intermediates` array of ((keys, values), offset); Attention/DecoderLayer
+return that state; and masks come from Gemma4TextModel._make_masks. The manual
+attention path therefore carries a new obligation — it must emit a K/V tuple
+byte-identical to the fused path so a downstream sharing layer stays bit-exact.
 
 Two attention paths are supported. The fused path uses MLX's
 scaled_dot_product_attention kernel (faster). The manual path computes
@@ -27,7 +35,6 @@ from __future__ import annotations
 import mlx.core as mx
 import mlx.nn as nn
 from mlx_vlm.models import cache as cache_mod
-from mlx_vlm.models.base import create_attention_mask
 from mlx_vlm.models.gemma4.language import logit_softcap
 
 from . import _arch
@@ -66,17 +73,31 @@ def _attention_with_internals(
     mask,
     c,
     *,
+    shared_kv,
+    offset,
     hooks: dict[str, HookFn],
     capture_set: set[str],
     cache: ActivationCache,
     layer_idx: int,
-) -> mx.array:
+) -> tuple[mx.array, tuple[mx.array, mx.array], mx.array]:
     """Manually computed attention exposing weights and per-head output.
 
     Mirrors Attention.__call__ in mlx_vlm/models/gemma4/language.py exactly,
     but replaces the fused scaled_dot_product_attention with a manual softmax
     so the post-softmax weights are inspectable. Keep this function in lock-
     step with the upstream Attention implementation if mlx-vlm ever changes.
+
+    Per the 0.6.x contract, returns ``(o_proj_out, (keys, values), offset)``.
+    KV sharing is threaded through return values, not a shared cache object:
+    ``shared_kv`` (when not None) carries the post-RoPE/post-norm K/V from the
+    source layer, and this function must emit a K/V tuple whose layout is
+    identical to the fused ``Attention.__call__`` so a downstream sharing layer
+    stays bit-exact. The returned K/V are the post-hook, pre-GQA-repeat tensors.
+
+    All head geometry (head_dim, n_kv_heads), the RoPE regime, the attention
+    scale, and the k==v flag are read from per-layer ``attn`` attributes, so
+    this path adapts to the sliding-vs-global asymmetry (256/8 vs 512/1 heads,
+    dual RoPE) without branching here.
     """
     attn = layer.self_attn
     B, L, _ = x_normed.shape
@@ -84,27 +105,25 @@ def _attention_with_internals(
     queries = attn.q_proj(x_normed).reshape(B, L, attn.n_heads, attn.head_dim)
     queries = attn.q_norm(queries)
 
-    offset = 0
-    if attn.is_kv_shared_layer and c is not None:
-        # Shared layer: read keys/values from the cache populated by an
-        # earlier non-shared layer. Don't recompute or rewrite the cache.
-        state = c.state
-        keys, values = state[0], state[1]
-        offset = c.offset
+    if shared_kv is not None:
+        # Shared layer: K/V come from an earlier layer of the same type
+        # (already post-RoPE, post-norm, post-cache-update). Don't recompute.
+        keys, values = shared_kv
     else:
-        if c is not None:
-            offset = c.offset
+        offset = mx.array(c.offset) if c is not None else 0
         keys = attn.k_proj(x_normed).reshape(B, L, attn.n_kv_heads, attn.head_dim)
+        # k_eq_v (global layers of 12B/26B): values are the raw k_proj output,
+        # before k_norm; k_norm and v_norm then diverge the two.
         values = (
             keys
             if attn.use_k_eq_v
             else attn.v_proj(x_normed).reshape(B, L, attn.n_kv_heads, attn.head_dim)
         )
         keys = attn.k_norm(keys)
-        values = attn.v_norm(values)
-        values = values.transpose(0, 2, 1, 3)
         keys = keys.transpose(0, 2, 1, 3)
         keys = attn.rope(keys, offset=offset)
+        values = attn.v_norm(values)
+        values = values.transpose(0, 2, 1, 3)
         if c is not None:
             keys, values = c.update_and_fetch(keys, values)
 
@@ -127,13 +146,17 @@ def _attention_with_internals(
         hooks, capture_set, cache,
     )
 
-    # Grouped-query attention: repeat KV heads to match query heads.
+    # Grouped-query attention: repeat KV heads to match query heads. Keep the
+    # pre-repeat keys/values to return for KV sharing; repeat copies are local.
     if attn.n_heads != attn.n_kv_heads:
         repeats = attn.n_heads // attn.n_kv_heads
-        keys = mx.repeat(keys, repeats, axis=1)
-        values = mx.repeat(values, repeats, axis=1)
+        keys_rep = mx.repeat(keys, repeats, axis=1)
+        values_rep = mx.repeat(values, repeats, axis=1)
+    else:
+        keys_rep = keys
+        values_rep = values
 
-    scores = (queries @ keys.transpose(0, 1, 3, 2)) * attn.scale
+    scores = (queries @ keys_rep.transpose(0, 1, 3, 2)) * attn.scale
 
     # Apply attention mask. create_attention_mask can return None, a string
     # ('causal'), or an mx.array. The fused scaled_dot_product_attention
@@ -179,7 +202,7 @@ def _attention_with_internals(
         cache,
     )
 
-    per_head_out = weights @ values  # [B, n_heads, L, head_dim]
+    per_head_out = weights @ values_rep  # [B, n_heads, L, head_dim]
     per_head_out = _dispatch(
         f"blocks.{layer_idx}.attn.per_head_out",
         layer_idx,
@@ -191,7 +214,7 @@ def _attention_with_internals(
     )
 
     output = per_head_out.transpose(0, 2, 1, 3).reshape(B, L, -1)
-    return attn.o_proj(output)
+    return attn.o_proj(output), (keys, values), offset
 
 
 def run_forward(
@@ -237,25 +260,27 @@ def run_forward(
         per_layer_inputs = tm.project_per_layer_inputs(h, per_layer_inputs)
 
     # ---- KV cache + hybrid attention masks ----
-    kv_cache = cache_mod.make_prompt_cache(lm)
-    global_mask = create_attention_mask(
-        h,
-        kv_cache[tm.first_full_cache_idx]
-        if tm.first_full_cache_idx < len(kv_cache)
-        else None,
-    )
-    sliding_mask = create_attention_mask(
-        h,
-        kv_cache[tm.first_sliding_cache_idx]
-        if tm.first_sliding_cache_idx < len(kv_cache)
-        else None,
-        window_size=tm.window_size,
-    )
+    # 0.6.x: make_cache returns one cache per NON-shared layer; pad to full
+    # length with None for the KV-shared tail. KV sharing is threaded
+    # layer-to-layer via `previous_kvs` + an `intermediates` array carrying
+    # ((keys, values), offset), not via a deduplicated shared cache object.
+    # Masks are built per-layer by the model's own _make_masks (text-only:
+    # mm_token_type_ids=None → plain causal / sliding-causal strings).
+    kv_cache = list(cache_mod.make_prompt_cache(lm))
+    kv_cache = kv_cache + [None] * (len(tm.layers) - len(kv_cache))
+    masks = tm._make_masks(h, kv_cache, None)
+    previous_kvs = tm.previous_kvs
+    intermediates: list[tuple] = [(None, None)] * len(tm.layers)
 
     for i, layer in enumerate(tm.layers):
-        c = kv_cache[tm.layer_idx_to_cache_idx[i]]
-        is_global = layer.layer_type == "full_attention"
-        local_mask = global_mask if is_global else sliding_mask
+        if getattr(layer, "enable_moe", False):
+            raise NotImplementedError(
+                "MoE decoder layers (Gemma 4 26B) are not supported by the "
+                "canonical forward. Only dense variants (E2B/E4B/12B) are wired."
+            )
+        c = kv_cache[i]
+        local_mask = masks[i]
+        shared_kv, offset = intermediates[previous_kvs[i]]
         per_layer_input = (
             per_layer_inputs[:, :, i, :] if per_layer_inputs is not None else None
         )
@@ -269,12 +294,16 @@ def run_forward(
         # ---- Attention branch ----
         x_normed = layer.input_layernorm(h)
         if i in manual_attn_layer_set:
-            a = _attention_with_internals(
+            a, new_kv, new_offset = _attention_with_internals(
                 layer, x_normed, local_mask, c,
+                shared_kv=shared_kv, offset=offset,
                 hooks=hooks, capture_set=capture_set, cache=cache, layer_idx=i,
             )
         else:
-            a = layer.self_attn(x_normed, local_mask, c)
+            a, new_kv, new_offset = layer.self_attn(
+                x_normed, local_mask, c, shared_kv=shared_kv, offset=offset,
+            )
+        intermediates[i] = (new_kv, new_offset)
         a = layer.post_attention_layernorm(a)
         a = _dispatch(
             f"blocks.{i}.attn_out", i, "attn_out", a, hooks, capture_set, cache,
