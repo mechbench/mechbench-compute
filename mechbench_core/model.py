@@ -17,7 +17,7 @@ import numpy as np
 from mlx_vlm import load
 from mlx_vlm.models.gemma4.language import logit_softcap
 from mlx_vlm.prompt_utils import apply_chat_template
-from mlx_vlm.utils import prepare_inputs
+from mlx_vlm.utils import get_model_path, load_config, prepare_inputs
 
 from . import _arch
 from ._forward import run_forward
@@ -27,6 +27,26 @@ from ._forward_qwen import run_forward_qwen
 from .cache import ActivationCache
 from .hooks import HookFn, parse_hook_name
 from .interventions import Intervention, compose
+
+# Text-only families whose hook-aware forward (_forward_qwen / _forward_llama)
+# mirrors mlx-lm's model structure. mlx-vlm 0.6.x added a `text_only` wrapper
+# that now loads these too, but with an incompatible shape (no `.args`, empty
+# text_config), so they must be routed to mlx-lm explicitly rather than letting
+# mlx-vlm's `load` claim them.
+_MLX_LM_FAMILIES: frozenset[str] = frozenset({"qwen2", "llama"})
+
+
+def _peek_model_type(model_id: str) -> str:
+    """Top-level `model_type` from a checkpoint's config.json, without loading
+    weights — used to route text-only families to mlx-lm. Returns "" if the
+    config can't be read (callers fall back to the normal load path)."""
+    try:
+        path = get_model_path(model_id)
+        if isinstance(path, tuple):
+            path = path[0]
+        return (load_config(path).get("model_type") or "").lower()
+    except Exception:
+        return ""
 
 
 @dataclass(frozen=True)
@@ -118,18 +138,26 @@ class Model:
         that should adapt.
         """
         # mlx-vlm covers Gemma 3 and Gemma 4 (multimodal-shaped models).
-        # mlx-lm covers Qwen 2.x and other text-only families. Try mlx-vlm
-        # first; on its "Model type X not supported" error, fall back to
-        # mlx-lm.
-        try:
-            m, p = load(model_id)
-        except ValueError as exc:
-            if "not supported" in str(exc):
-                from mlx_lm import load as mlx_lm_load
+        # mlx-lm covers Qwen 2.x / Llama 3.x and other text-only families.
+        # Route by the config's model_type: text-only families go straight to
+        # mlx-lm (mlx-vlm 0.6.x would otherwise claim them via its `text_only`
+        # wrapper, in a shape _forward_qwen/_forward_llama don't mirror). Other
+        # families try mlx-vlm first, then fall back to mlx-lm on "not
+        # supported" (covers checkpoints whose config we couldn't peek).
+        if _peek_model_type(model_id) in _MLX_LM_FAMILIES:
+            from mlx_lm import load as mlx_lm_load
 
-                m, p = mlx_lm_load(model_id)
-            else:
-                raise
+            m, p = mlx_lm_load(model_id)
+        else:
+            try:
+                m, p = load(model_id)
+            except ValueError as exc:
+                if "not supported" in str(exc):
+                    from mlx_lm import load as mlx_lm_load
+
+                    m, p = mlx_lm_load(model_id)
+                else:
+                    raise
 
         arch = _arch.Arch.from_mlx_model(m, model_id=model_id)
         if arch.model_type not in ("gemma4", "gemma3", "qwen2", "llama"):
