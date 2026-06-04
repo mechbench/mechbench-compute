@@ -89,7 +89,7 @@ def main(model_id: str = DEFAULT_MODEL_ID) -> int:
     max_abs = float(np.max(np.abs(stock - mb)))
     exact = bool(np.array_equal(stock, mb))
 
-    print(f"\n[1] unprobed run_forward vs stock upstream loop")
+    print("\n[1] unprobed run_forward vs stock upstream loop")
     print(f"    max|Δlogit| = {max_abs:.3e}   bitwise_equal = {exact}")
     print(f"    stock top1 = {stock_top1}   mechbench top1 = "
           f"{int(np.argmax(mb[0, -1]))}")
@@ -121,7 +121,7 @@ def main(model_id: str = DEFAULT_MODEL_ID) -> int:
           f"top1={top1_src} drift={drift_src:.3e}")
     print(f"[3] control non-source global L{ctrl}: "
           f"top1={top1_ctrl} drift={drift_ctrl:.3e}")
-    print(f"    → both drifts are manual-softmax rounding, not KV corruption")
+    print("    → both drifts are manual-softmax rounding, not KV corruption")
 
     ok = (exact
           and top1_src == stock_top1
