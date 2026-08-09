@@ -119,8 +119,26 @@ from .prompts import (
     ValidatedPrompt,
     ValidatedPromptSet,
 )
+from .distill import (
+    Example,
+    TargetMap,
+    TargetTrie,
+    first_token_metrics,
+    item_metrics,
+    render_chat,
+    score_items,
+    soft_ce,
+)
+from .lora import (
+    LoRALinear,
+    apply_lora,
+    fuse,
+    load_adapter,
+    restore,
+    save_adapter,
+)
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     # Main API
@@ -138,6 +156,21 @@ __all__ = [
     "PromptSet",
     "ValidatedPrompt",
     "ValidatedPromptSet",
+    # Distributional-target training (distill + lora, task 000114)
+    "TargetMap",
+    "TargetTrie",
+    "Example",
+    "soft_ce",
+    "render_chat",
+    "score_items",
+    "item_metrics",
+    "first_token_metrics",
+    "LoRALinear",
+    "apply_lora",
+    "save_adapter",
+    "load_adapter",
+    "fuse",
+    "restore",
     # Logit lens
     "logit_lens_final",
     "logit_lens_per_position",

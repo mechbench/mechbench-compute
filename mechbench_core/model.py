@@ -175,6 +175,21 @@ class Model:
         """The underlying tokenizer (processor.tokenizer or processor itself)."""
         return getattr(self._processor, "tokenizer", self._processor)
 
+    @property
+    def lm(self):
+        """The text decoder, uniform across families: the module to train
+        against (distill/lora) or call directly for plain forwards.
+
+        For mlx-vlm families (Gemma 3/4) this is `language_model`; for
+        mlx-lm families (Qwen 2.x, Llama 3.x) the loaded model itself.
+        Either way the returned module exposes `.model.layers` and is
+        callable on token ids (`lm(mx.array([ids]))`), returning logits
+        (or an output object with `.logits`).
+        """
+        if self.arch.model_type in ("qwen2", "llama"):
+            return self._model
+        return self._model.language_model
+
     def tokenize(self, prompt: str, *, chat_template: bool = True) -> mx.array:
         """Apply the chat template (default) and tokenize a prompt.
 
@@ -278,16 +293,16 @@ class Model:
         is D_MODEL; the projection is applied along that axis.
         """
         if self.arch.model_type in ("qwen2", "llama"):
-            # mlx-lm-loaded models share a shape: model.model holds the
+            # mlx-lm-loaded models share a shape: lm.model holds the
             # tower; tied vs untied unembed selected by
             # args.tie_word_embeddings.
-            tm = self._model.model
+            tm = self.lm.model
             h = tm.norm(residual)
-            if self._model.args.tie_word_embeddings:
+            if self.lm.args.tie_word_embeddings:
                 return tm.embed_tokens.as_linear(h)
-            return self._model.lm_head(h)
+            return self.lm.lm_head(h)
 
-        lm = self._model.language_model
+        lm = self.lm
         tm = lm.model
         h = tm.norm(residual)
         if self.arch.model_type == "gemma3":
