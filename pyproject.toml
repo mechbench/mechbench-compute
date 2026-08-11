@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mechbench-core"
-version = "0.5.0"
+version = "0.5.1"
 description = "Composable mechanistic-interpretability primitives: hook-aware forward, interventions, activation cache, logit lens, probes, and geometry."
 readme = "README.md"
 requires-python = ">=3.11"

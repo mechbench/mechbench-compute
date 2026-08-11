@@ -407,14 +407,24 @@ def soft_ce(lm, batch: list[Example]) -> mx.array:
 # Prompt/envelope helpers
 # ---------------------------------------------------------------------------
 
-def render_chat(tokenizer, system: str, user: str, prefill: str = "") -> str:
+def render_chat(tokenizer, system: str, user: str, prefill: str = "",
+                date_string: str | None = None) -> str:
     """Render a single-turn prompt (system and user merged into one user
     message, matching how the instruction-tuned chat templates here are
-    exercised) plus an assistant prefill (e.g. ``'{ "roll": '``)."""
+    exercised) plus an assistant prefill (e.g. ``'{ "roll": '``).
+
+    Reproducibility hazard: some chat templates (e.g. Llama 3.2) inject
+    the *live* date ("Today Date: ...") into every render, so identical
+    code produces different prompts — and different measurements — on
+    different days. Pass ``date_string`` (e.g. ``"05 Aug 2026"``) to pin
+    it for such templates; templates without a date ignore it. Left
+    unset, the template's own default (usually today) applies.
+    """
     merged = (system + "\n\n" + user) if system else user
+    kwargs = {} if date_string is None else {"date_string": date_string}
     return tokenizer.apply_chat_template(
         [{"role": "user", "content": merged}],
-        tokenize=False, add_generation_prompt=True) + prefill
+        tokenize=False, add_generation_prompt=True, **kwargs) + prefill
 
 
 def encode(tokenizer, text: str) -> list[int]:
