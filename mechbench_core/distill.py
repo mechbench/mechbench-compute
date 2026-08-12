@@ -468,6 +468,45 @@ def score_items(lm, prompt_ids: list[int],
     return out
 
 
+def score_items_batched(lm, prompt_ids: list[int],
+                        sequences: Mapping[str, list[int]],
+                        chunk: int = 16) -> dict[str, float]:
+    """Batched teacher-forced ``log P(sequence)`` — same math as
+    ``score_items``, restructured for throughput on large item sets
+    (e.g. 200-name calibration batteries).
+
+    Items are grouped by tokenized length (one tensor shape per group —
+    keeps the Metal buffer cache stable), stacked into forwards of up to
+    ``chunk`` items, and each item's whole log-prob is reduced on-graph,
+    so the host syncs once per chunk instead of once per token position.
+
+    Numerical note: batched matmuls tile differently than single-item
+    forwards, so results can differ from ``score_items`` at bf16 rounding
+    level — measurable in flat-target KL diagnostics (see the
+    living-experiments RERUN records). Opt in deliberately; don't swap it
+    into an experiment mid-comparison.
+    """
+    L = len(prompt_ids)
+    groups: dict[int, list[str]] = {}
+    for item, seq in sequences.items():
+        groups.setdefault(len(seq), []).append(item)
+    out: dict[str, float] = {}
+    for n, items in sorted(groups.items()):
+        for i in range(0, len(items), chunk):
+            part = items[i:i + chunk]
+            fed = mx.array([prompt_ids + sequences[it][:-1] for it in part]
+                           if n > 1 else [prompt_ids for _ in part])
+            o = lm(fed)
+            logits = o.logits if hasattr(o, "logits") else o
+            rows = logits[:, L - 1: L - 1 + n, :].astype(mx.float32)
+            tgt = mx.array([sequences[it] for it in part])
+            lp = (mx.take_along_axis(rows, tgt[..., None], axis=-1)[..., 0]
+                  - mx.logsumexp(rows, axis=-1))
+            for it, v in zip(part, np.array(lp.sum(axis=1))):
+                out[it] = float(v)
+    return out
+
+
 def item_metrics(logps: Mapping[str, float],
                  target: TargetMap | None = None) -> dict:
     """Distribution diagnostics for teacher-forced item log-probs.

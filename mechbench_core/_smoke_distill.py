@@ -137,7 +137,7 @@ class TinyLM(nn.Module):
         self.table = mx.random.normal((vocab, vocab)) * 2.0
 
     def __call__(self, ids):
-        return self.table[ids[0]][None, :, :]
+        return self.table[ids]  # [B, S] -> [B, S, V]
 
 
 def part1_loss() -> None:
@@ -178,6 +178,13 @@ def part1_loss() -> None:
     lp = distill.score_items(lm, ids, {"x": [4, 5]})
     want = (tbl[3][4] - lse(tbl[3])) + (tbl[4][5] - lse(tbl[4]))
     check("score_items matches", abs(lp["x"] - want) < 1e-4)
+    # batched scorer agrees with the sequential one (mixed lengths)
+    seqs = {"x": [4, 5], "y": [6], "z": [7, 8], "w": [9]}
+    seq_lp = distill.score_items(lm, ids, seqs)
+    bat_lp = distill.score_items_batched(lm, ids, seqs, chunk=2)
+    worst = max(abs(seq_lp[k] - bat_lp[k]) for k in seqs)
+    check("score_items_batched matches sequential", worst < 1e-4,
+          f"max|d|={worst:.2e}")
     met = distill.item_metrics({"a": math.log(0.5), "b": math.log(0.25)})
     check("item_metrics mass", abs(met["captured_mass"] - 0.75) < 1e-9)
     tgt = TargetMap.from_dict({"a": 2.0, "b": 1.0})
