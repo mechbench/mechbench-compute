@@ -107,16 +107,25 @@ script.
 reference oracle; `score_items_batched` adds length-bucketed batching
 (~1.5×); `score_items_fast` additionally splits the forward via
 `Model.trunk_hidden` / `Model.head_logits` and unembeds only the
-supervised rows (~1.5–2.1× vs oracle, family-dependent). Fidelity
-envelope, measured per family (30-item flat battery, fast vs oracle):
-max |ΔlogP| ≤ 0.99 (deep tail) / ≤ 0.24 (mass region, logP > −20),
-renormalized-distribution KL ≤ 6.5e-3 bits — bf16 matmul tiling from
-heading a `[B, n, D]` rows-block instead of the full sequence; same
-rows, same math, verified bit-exact when the head is applied full-shape.
+supervised rows (~1.5–2.1× vs oracle, family-dependent — best when
+items share no prefix, e.g. cross-document scoring);
+`score_items_cached` encodes a shared prompt **once** into a KV cache
+(`Model.prompt_cache`) and scores each item's 1–4 suffix tokens against
+a per-item copy — the tier for shared-prompt batteries. Measured
+(flat name batteries, cached vs oracle): E2B 2.8×, Gemma-3-4B 3.4×,
+Qwen-3B 2.6×, Llama-8B 3.0×; positions/attention exact by construction,
+bf16 envelope from decomposed attention: mass-region |ΔlogP| ≤ 0.45,
+renormalized KL ≤ 2.4e-2 bits, idempotent (0.0 across repeat calls).
+Fast-tier envelope: max |ΔlogP| ≤ 0.99 (deep tail) / ≤ 0.24
+(mass region), renorm KL ≤ 6.5e-3 bits. All of it is bf16 matmul
+tiling — same rows, same math, verified bit-exact where shapes match.
 Flat-target KL diagnostics weight the tail, so switch tiers only
-between comparisons, never mid-experiment. Known limit: shared-prompt
-batteries are trunk-dominated (the prompt is re-encoded per item), so
-the next tier is prefix reuse — tracked in 000227.
+between comparisons, never mid-experiment. Known upstream limit
+(mlx 0.31.2 / mlx-lm 0.31.3 / mlx-vlm 0.6.1): **batched cached decoding
+corrupts every batch row after the first** on both stacks (reproduced
+with natively built B=4 caches and identical rows), which is why the
+cached tier is per-item; batched suffix scoring behind an upstream fix
+is the remaining ~5–10× path.
 
 ## Status
 

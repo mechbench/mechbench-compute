@@ -544,6 +544,70 @@ def score_items_fast(model, prompt_ids: list[int],
     return out
 
 
+def _copy_prefix_cache(cache):
+    """Independent per-item view of a filled prompt cache: shallow-copy
+    each layer cache and re-materialize its batch-1 K/V arrays so the
+    suffix pass can grow them without mutating the shared prefix state.
+
+    Batch-1 only, deliberately: batched (B>1) *cached* decoding is broken
+    upstream at mlx 0.31.2 (mlx-lm 0.31.3 / mlx-vlm 0.6.1) — with a
+    natively built B=4 cache and four identical rows, the batched prompt
+    pass is row-uniform but the cached suffix step corrupts every row
+    after the first (top-1 becomes incoherent). Reproduced on both the
+    mlx-lm and mlx-vlm stacks; revisit batching when upstream fixes land
+    (it is the ~5–10× path for battery scoring)."""
+    import copy as _copy
+    out = []
+    for c in cache:
+        n = _copy.copy(c)
+        for k, v in vars(c).items():
+            if isinstance(v, mx.array) and v.ndim >= 3 and v.shape[0] == 1:
+                setattr(n, k, mx.repeat(v, 1, axis=0))
+        out.append(n)
+    return out
+
+
+def score_items_cached(model, prompt_ids: list[int],
+                       sequences: Mapping[str, list[int]]) -> dict[str, float]:
+    """Teacher-forced ``log P(sequence)`` with prefix reuse (task
+    000227): the shared prompt is encoded **once** into a KV cache, and
+    each item scores by feeding only its own 1–4 suffix tokens against a
+    per-item copy of that cache — ~20× fewer trunk token-positions than
+    the oracle on a 200-item battery, and the head runs only on suffix
+    rows by construction.
+
+    Positions and attention semantics are exact by design (the cache
+    offset supplies real positions; a cached suffix attends the full
+    prompt plus itself causally — precisely teacher forcing). Residual
+    deltas vs the ``score_items`` oracle are the usual bf16 envelope from
+    decomposed attention (measured mass-region ≤ ~0.21 nats on E2B);
+    switch consumers only per the re-run practice.
+    """
+    cache = model.prompt_cache()
+    lm = model.lm
+    o = lm(mx.array([prompt_ids]), cache=cache)
+    prompt_row = (o.logits if hasattr(o, "logits")
+                  else o)[0, -1, :].astype(mx.float32)
+    lse0 = mx.logsumexp(prompt_row)
+    mx.eval(prompt_row)
+    for c in cache:
+        mx.eval([v for v in vars(c).values() if isinstance(v, mx.array)])
+    out: dict[str, float] = {}
+    for item, seq in sequences.items():
+        lp = float(prompt_row[seq[0]] - lse0)
+        if len(seq) > 1:
+            cc = _copy_prefix_cache(cache)
+            o = lm(mx.array([seq[:-1]]), cache=cc)
+            rows = (o.logits if hasattr(o, "logits")
+                    else o)[0].astype(mx.float32)
+            tgt = mx.array(seq[1:])
+            lp += float((mx.take_along_axis(rows, tgt[:, None],
+                                            axis=-1)[:, 0]
+                         - mx.logsumexp(rows, axis=-1)).sum())
+        out[item] = lp
+    return out
+
+
 def item_metrics(logps: Mapping[str, float],
                  target: TargetMap | None = None) -> dict:
     """Distribution diagnostics for teacher-forced item log-probs.

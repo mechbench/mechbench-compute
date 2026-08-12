@@ -190,6 +190,18 @@ class Model:
             return self._model
         return self._model.language_model
 
+    def prompt_cache(self):
+        """A fresh, empty KV cache for `Model.lm`, family-forked: mlx-vlm
+        language models build their own (`lm.make_cache()`, which knows the
+        family's rotating/shared-KV layout); mlx-lm models use
+        `mlx_lm.models.cache.make_prompt_cache`. Feed it via
+        `lm(ids, cache=cache)`; see `distill.score_items_cached` for the
+        prefix-reuse pattern built on it (task 000227)."""
+        if self.arch.model_type in ("qwen2", "llama"):
+            from mlx_lm.models.cache import make_prompt_cache
+            return make_prompt_cache(self._model)
+        return self.lm.make_cache()
+
     def trunk_hidden(self, input_ids: mx.array) -> mx.array:
         """Run the text decoder's embedding + layer stack only — no
         unembedding — returning the hidden states the family's head

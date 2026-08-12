@@ -240,6 +240,11 @@ def part2_model() -> None:
     worst = max(abs(base_lp[k] - fast_lp[k]) for k in base_lp)
     check("score_items_fast ~ oracle on die items", worst < 0.5,
           f"max|d|={worst:.3f}")
+    cached_lp = distill.score_items_cached(model, trie.prompt_ids,
+                                           trie.sequences)
+    worst = max(abs(base_lp[k] - cached_lp[k]) for k in base_lp)
+    check("score_items_cached ~ oracle on die items", worst < 0.5,
+          f"max|d|={worst:.3f}")
     base_kl = distill.item_metrics(base_lp)["kl_from_target_bits"]
     base_logits = np.array(
         distill._forward_logits(lm, trie.prompt_ids)[-1].astype(mx.float32))

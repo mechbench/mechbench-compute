@@ -128,6 +128,7 @@ from .distill import (
     render_chat,
     score_items,
     score_items_batched,
+    score_items_cached,
     score_items_fast,
     soft_ce,
 )
@@ -140,7 +141,7 @@ from .lora import (
     save_adapter,
 )
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     # Main API
@@ -166,6 +167,7 @@ __all__ = [
     "render_chat",
     "score_items",
     "score_items_batched",
+    "score_items_cached",
     "score_items_fast",
     "item_metrics",
     "first_token_metrics",
