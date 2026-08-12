@@ -234,7 +234,13 @@ def part2_model() -> None:
                      distill.suffix_tokens(tok, anchor_prompt, anchor_ids,
                                            "Paris"), None)
 
-    base_kl = distill.item_metrics(trie.score(lm))["kl_from_target_bits"]
+    base_lp = trie.score(lm)
+    fast_lp = distill.score_items_fast(model, trie.prompt_ids,
+                                       trie.sequences)
+    worst = max(abs(base_lp[k] - fast_lp[k]) for k in base_lp)
+    check("score_items_fast ~ oracle on die items", worst < 0.5,
+          f"max|d|={worst:.3f}")
+    base_kl = distill.item_metrics(base_lp)["kl_from_target_bits"]
     base_logits = np.array(
         distill._forward_logits(lm, trie.prompt_ids)[-1].astype(mx.float32))
     paris0 = distill.first_token_metrics(lm, anchor_ids, tok)

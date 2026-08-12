@@ -190,6 +190,44 @@ class Model:
             return self._model
         return self._model.language_model
 
+    def trunk_hidden(self, input_ids: mx.array) -> mx.array:
+        """Run the text decoder's embedding + layer stack only — no
+        unembedding — returning the hidden states the family's head
+        consumes: [B, S, D], post-final-norm in every supported family.
+
+        With `head_logits` this splits the forward so callers can unembed
+        only the rows they need (task 000227): the lm-head over a 262k
+        vocab dominates full forwards whose outputs are read at 3–5
+        positions. Verified per family: applying `head_logits` to this
+        tensor reproduces `lm(input_ids)`'s logits bit-exactly. (Distinct
+        from `project_to_logits`, which takes *pre*-norm residual-stream
+        tensors from capture points and applies the final norm itself.)
+        """
+        h = self.lm.model(input_ids)
+        return h[0] if isinstance(h, tuple) else h
+
+    def head_logits(self, hidden: mx.array) -> mx.array:
+        """Apply the family's unembedding (and softcap where the family
+        has one) to post-norm hidden states from `trunk_hidden` — any
+        leading shape ([B, S, D], [B, n, D], [n, D]).
+
+        Note the tiling caveat that runs through the 0.5.x line: bf16
+        matmuls tile by shape, so heading a sliced rows-block can differ
+        from heading the full sequence at deep-tail rounding level. Same
+        rows, same math; characterized envelope in `distill.score_items_fast`.
+        """
+        if self.arch.model_type in ("qwen2", "llama"):
+            if self.lm.args.tie_word_embeddings:
+                return self.lm.model.embed_tokens.as_linear(hidden)
+            return self.lm.lm_head(hidden)
+        lm = self.lm
+        if self.arch.model_type == "gemma3":
+            return lm.lm_head(hidden)
+        logits = lm.model.embed_tokens.as_linear(hidden)
+        if lm.final_logit_softcapping is not None:
+            logits = logit_softcap(lm.final_logit_softcapping, logits)
+        return logits
+
     def tokenize(self, prompt: str, *, chat_template: bool = True) -> mx.array:
         """Apply the chat template (default) and tokenize a prompt.
 

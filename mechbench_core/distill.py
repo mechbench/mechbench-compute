@@ -507,6 +507,43 @@ def score_items_batched(lm, prompt_ids: list[int],
     return out
 
 
+def score_items_fast(model, prompt_ids: list[int],
+                     sequences: Mapping[str, list[int]],
+                     chunk: int = 16) -> dict[str, float]:
+    """Teacher-forced ``log P(sequence)`` via supervised-rows-only
+    unembedding (task 000227): the trunk runs once per chunk, and the
+    lm-head is applied only to the 1–5 supervised rows per item instead
+    of every position. Same batching/bucketing/sync structure as
+    ``score_items_batched``; takes a ``mechbench_core.Model`` (not a bare
+    module) because the trunk/head split is family-forked.
+
+    Fidelity: the head sees a ``[B, n, D]`` rows-block instead of
+    ``[B, S, D]``, so deep-tail logPs carry the usual bf16 tiling
+    envelope vs the ``score_items`` oracle (characterization table in the
+    README); mass-bearing results are unchanged. Switch consumers only
+    per the re-run practice.
+    """
+    L = len(prompt_ids)
+    groups: dict[int, list[str]] = {}
+    for item, seq in sequences.items():
+        groups.setdefault(len(seq), []).append(item)
+    out: dict[str, float] = {}
+    for n, items in sorted(groups.items()):
+        for i in range(0, len(items), chunk):
+            part = items[i:i + chunk]
+            fed = mx.array([prompt_ids + sequences[it][:-1] for it in part]
+                           if n > 1 else [prompt_ids for _ in part])
+            h = model.trunk_hidden(fed)
+            rows = model.head_logits(
+                h[:, L - 1: L - 1 + n, :]).astype(mx.float32)
+            tgt = mx.array([sequences[it] for it in part])
+            lp = (mx.take_along_axis(rows, tgt[..., None], axis=-1)[..., 0]
+                  - mx.logsumexp(rows, axis=-1))
+            for it, v in zip(part, np.array(lp.sum(axis=1))):
+                out[it] = float(v)
+    return out
+
+
 def item_metrics(logps: Mapping[str, float],
                  target: TargetMap | None = None) -> dict:
     """Distribution diagnostics for teacher-forced item log-probs.

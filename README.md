@@ -103,6 +103,21 @@ adapter into the weights and every instrumented run sees the adapted
 model; `restore` flips it back, so base-vs-adapted comparisons run in one
 script.
 
+**Scoring tiers** (task 000227): `score_items` is the sequential
+reference oracle; `score_items_batched` adds length-bucketed batching
+(~1.5×); `score_items_fast` additionally splits the forward via
+`Model.trunk_hidden` / `Model.head_logits` and unembeds only the
+supervised rows (~1.5–2.1× vs oracle, family-dependent). Fidelity
+envelope, measured per family (30-item flat battery, fast vs oracle):
+max |ΔlogP| ≤ 0.99 (deep tail) / ≤ 0.24 (mass region, logP > −20),
+renormalized-distribution KL ≤ 6.5e-3 bits — bf16 matmul tiling from
+heading a `[B, n, D]` rows-block instead of the full sequence; same
+rows, same math, verified bit-exact when the head is applied full-shape.
+Flat-target KL diagnostics weight the tail, so switch tiers only
+between comparisons, never mid-experiment. Known limit: shared-prompt
+batteries are trunk-dominated (the prompt is re-encoded per item), so
+the next tier is prefix reuse — tracked in 000227.
+
 ## Status
 
 Lifted from `gemma4-mlx-interp/gemma4_mlx_interp/` (the predecessor repo, since renamed to `mechbench-experiments`). The `Arch` adapter now supports both Gemma 4 E4B and E2B; generalization to other architecture families is ongoing — track open work in the meta repo's [`tasks/mechbench-core/`](https://github.com/mechbench/mechbench/tree/main/tasks/mechbench-core) directory.
