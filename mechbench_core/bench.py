@@ -136,6 +136,34 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
     return receipt
 
 
+def register_kind(manifest: Any, *, api_url: str | None = None,
+                  api_key: str | None = None) -> dict:
+    """Register an item-kind manifest (a mechbench_schema.KindManifest
+    or an equivalent dict). Registration is idempotent for identical
+    content; changed content for an existing path is refused by the
+    server (manifest versions are immutable)."""
+    import hashlib
+
+    import mechbench_schema as ms
+
+    url, key = _config(api_url, api_key)
+    obj = (manifest.model_dump(mode="json")
+           if hasattr(manifest, "model_dump") else manifest)
+    body = ms.dump_canonical(obj)
+    digest = hashlib.sha256(body).hexdigest()
+    return _request(
+        "PUT", f"{url}/kinds/{obj['path']}", key, body=body,
+        headers={"Content-Type": "application/cbor",
+                 "X-Content-Hash": f"sha256:{digest}"})
+
+
+def get_kind(kind_path: str, *, api_url: str | None = None,
+             api_key: str | None = None) -> dict:
+    """Fetch a registered kind manifest (decoded)."""
+    url, key = _config(api_url, api_key)
+    return _request("GET", f"{url}/kinds/{kind_path}", key)
+
+
 def fetch(target: str, *, api_url: str | None = None,
           api_key: str | None = None) -> Any:
     """Fetch an object; CBOR objects are decoded, JSON parsed, other
