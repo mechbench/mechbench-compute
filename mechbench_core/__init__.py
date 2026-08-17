@@ -141,7 +141,7 @@ from .lora import (
     save_adapter,
 )
 
-__version__ = "0.8.1"
+__version__ = "0.8.2"
 
 __all__ = [
     # Main API
