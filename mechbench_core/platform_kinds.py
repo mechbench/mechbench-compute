@@ -14,7 +14,44 @@ from __future__ import annotations
 def manifests():
     import mechbench_schema as ms
 
+    series_map = {"rows": "layers", "x": "layer", "y": "entropy_bits",
+                  "label": "top1"}
     return [
+        # v2: series-bound, with a collection-level compare view (task
+        # 000250 — the funnel renders as overlaid curves). v1 remains
+        # registered and immutable; collections opt into v2 by path.
+        ms.KindManifest(
+            path="~canonical/kinds/lens-trajectory/2",
+            title="Logit-lens trajectory",
+            version="2",
+            item_schema={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "x-mechbench-text": True},
+                    "metadata": {
+                        "type": "object",
+                        "properties": {
+                            "layers": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "layer": {"type": "integer"},
+                                        "top1": {"type": "string"},
+                                        "p": {"type": "number"},
+                                        "entropy_bits": {"type": "number"},
+                                    },
+                                },
+                            }
+                        },
+                    },
+                },
+            },
+            renderer=ms.RendererBinding(primitive="series",
+                                        field_map=dict(series_map)),
+            collection_renderer=ms.RendererBinding(
+                primitive="series", field_map=dict(series_map)),
+        ),
         ms.KindManifest(
             path="~canonical/kinds/lens-trajectory",
             title="Logit-lens trajectory",
@@ -52,9 +89,19 @@ def register_all() -> None:
     from mechbench_core import bench
 
     for m in manifests():
-        r = bench.register_kind(m)
-        print(f"registered {r['path']}"
-              + (" (idempotent)" if r.get("idempotent") else ""))
+        try:
+            r = bench.register_kind(m)
+            print(f"registered {r['path']}"
+                  + (" (idempotent)" if r.get("idempotent") else ""))
+        except bench.BenchError as e:
+            if "MANIFEST_PINNED" in str(e):
+                # An earlier registration of this version exists with
+                # different canonical bytes (typically schema evolution
+                # adding optional fields). Pinned versions stay pinned;
+                # changes go to a new version path.
+                print(f"pinned    {m.path} (existing version retained)")
+            else:
+                raise
 
 
 if __name__ == "__main__":
