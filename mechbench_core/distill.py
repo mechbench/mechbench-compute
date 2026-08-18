@@ -649,3 +649,105 @@ def first_token_metrics(lm, prompt_ids: list[int], tokenizer=None) -> dict:
     if tokenizer is not None:
         out["top1"]["token"] = tokenizer.decode([int(order[0])])
     return out
+
+
+def prefill_decision(model, prompt_ids: list[int]):
+    """Encode a prompt once into a KV cache and return
+    ``(cache, last_row)`` where ``last_row`` is the float32 logits row
+    at the decision position (task 000253, on the 000227 cache
+    machinery). One model call serves both the decision-token
+    distribution read and, via ``expand_top_outcomes_cached``, every
+    subsequent expansion forward.
+    """
+    cache = model.prompt_cache()
+    lm = model.lm
+    o = lm(mx.array([prompt_ids]), cache=cache)
+    row = (o.logits if hasattr(o, "logits") else o)[0, -1, :].astype(mx.float32)
+    mx.eval(row)
+    for c in cache:
+        mx.eval([v for v in vars(c).values() if isinstance(v, mx.array)])
+    return cache, row
+
+
+def expand_top_outcomes_cached(model, tokenizer, prompt_ids: list[int],
+                               cfg: Mapping, *, prefill=None) -> dict:
+    """Best-first expansion of complete outcomes with prefix reuse: the
+    prompt is encoded **once** (``prefill_decision``); every expansion
+    node then feeds only its own partial-outcome tokens (a handful)
+    against a per-node copy of the prompt cache, instead of re-encoding
+    the ~hundreds-of-token prompt per forward.
+
+    Semantics — branch floor, terminators, per-node top-50 children,
+    optimality cut against the K-th completed outcome, and the mass
+    accounting — are identical to the uncached expansion this replaces
+    (mechbench-agent's original). ``forwards_used`` counts model calls
+    including the prefill, so cached and uncached numbers stay
+    comparable. Numerics carry the usual cached-suffix bf16 envelope
+    (task 000227): switch consumers only per the re-run practice.
+
+    ``prefill``: optional ``(cache, last_row)`` from a prior
+    ``prefill_decision`` call, so the decision read and the expansion
+    share one prompt encode; computed here when absent.
+    """
+    import heapq
+
+    top_k = int(cfg.get("top_k", 10))
+    max_tokens = int(cfg.get("max_tokens", 8))
+    max_forwards = int(cfg.get("max_forwards", 128))
+    branch_floor = float(cfg.get("floor", 1e-3))
+    terminators = cfg.get("terminators", ['"'])
+
+    cache, root_row = prefill if prefill is not None \
+        else prefill_decision(model, prompt_ids)
+    forwards = 1  # the prefill
+
+    def _dist(row: mx.array) -> np.ndarray:
+        lp = np.array(row - mx.logsumexp(row))
+        return np.exp(lp.astype(np.float64))
+
+    heap: list[tuple[float, list[int]]] = [(0.0, [])]
+    completed: list[tuple[float, str]] = []
+    pruned_mass = 0.0
+    while heap and forwards < max_forwards:
+        neg_lp, partial = heapq.heappop(heap)
+        if (len(completed) >= top_k
+                and -neg_lp <= completed[top_k - 1][0]):
+            heapq.heappush(heap, (neg_lp, partial))
+            break
+        if partial:
+            cc = _copy_prefix_cache(cache)
+            o = model.lm(mx.array([partial]), cache=cc)
+            row = (o.logits if hasattr(o, "logits")
+                   else o)[0, -1, :].astype(mx.float32)
+            forwards += 1
+        else:
+            row = root_row  # the prefill already produced this position
+        probs = _dist(row)
+        order = np.argsort(-probs)
+        for t in order[:50]:
+            p_child = float(probs[t])
+            total = float(np.exp(-neg_lp)) * p_child
+            if total < branch_floor:
+                pruned_mass += float(np.exp(-neg_lp)) * p_child
+                continue
+            piece = tokenizer.decode([int(t)])
+            if any(term in piece for term in terminators):
+                text = tokenizer.decode(partial).strip()
+                if text:
+                    completed.append((total, text))
+                    completed.sort(key=lambda x: -x[0])
+            elif len(partial) < max_tokens:
+                heapq.heappush(
+                    heap,
+                    (neg_lp - float(np.log(max(p_child, 1e-300))),
+                     partial + [int(t)]))
+    frontier_mass = float(sum(np.exp(-h[0]) for h in heap))
+    return {
+        "top_outcomes": [
+            {"text": text, "p": round(p, 5)}
+            for p, text in completed[:top_k]
+        ],
+        "completed_mass": round(float(sum(p for p, _ in completed)), 4),
+        "frontier_mass_bound": round(frontier_mass, 4),
+        "forwards_used": forwards,
+    }
