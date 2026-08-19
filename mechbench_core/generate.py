@@ -210,19 +210,33 @@ def generate_labeled_corpus(
     )
 
 
+_TURN_MARKERS = {"<end_of_turn>", "<turn|>", "<|im_end|>", "<|eot_id|>",
+                 "<|endoftext|>"}
+
+
 def _stop_ids(tokenizer) -> set[int]:
-    """Family-generic stop set: eos plus an end-of-turn token when the
-    vocabulary has one (Gemma's <end_of_turn>, chat-template families)."""
+    """Family-generic stop set: eos plus every special/added token
+    whose surface form is a known turn-end marker. Resolved through the
+    tokenizer's added-tokens table, NOT convert_tokens_to_ids by name —
+    that silently returns the UNK id for unknown names (Gemma 4's
+    marker is `<turn|>`, id 106, not `<end_of_turn>`; trusting the
+    name shipped turn markers into generated story bodies)."""
     stop: set[int] = set()
     eos = getattr(tokenizer, "eos_token_id", None)
     if eos is not None:
         stop.add(int(eos))
-    for marker in ("<end_of_turn>", "<|im_end|>", "<|eot_id|>"):
+    unk = getattr(tokenizer, "unk_token_id", None)
+    added = getattr(tokenizer, "added_tokens_decoder", None) or {}
+    for tid, tok_obj in added.items():
+        content = getattr(tok_obj, "content", str(tok_obj))
+        if content in _TURN_MARKERS:
+            stop.add(int(tid))
+    for marker in _TURN_MARKERS:
         try:
             tid = tokenizer.convert_tokens_to_ids(marker)
         except Exception:  # noqa: BLE001 — tokenizer-family differences
             continue
-        if tid is not None and tid >= 0:
+        if tid is not None and tid >= 0 and tid != unk:
             stop.add(int(tid))
     return stop
 
