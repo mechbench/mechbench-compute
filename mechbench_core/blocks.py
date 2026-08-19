@@ -57,23 +57,34 @@ def _sample_value(gen: Mapping[str, Any], index: int) -> str:
     return wrap.replace("{x}", body)
 
 
-def _factor_levels(factor: Mapping[str, Any]) -> list[dict[str, str]]:
-    """Materialize a factor to its [{key, value}] levels. A factor may
-    carry enumerated `levels`, a `sampled` generator, or both
-    (enumerated first) — the Marcus seed factor is `none` plus sampled
-    instances. (`values` accepted as a legacy spelling of `levels`.)"""
-    out: list[dict[str, str]] = []
+def _factor_levels(factor: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Materialize a factor to its [{key, value, coords}] levels. A
+    factor may carry enumerated `levels`, `sampled` generators (one or
+    a list — the Marcus seed factor uses five), or both (enumerated
+    first). Levels and generators may attach extra `coords` merged
+    into each record (generators stamp a `<name>_kind` coordinate by
+    default, so analysis groups by generator type, never by parsing
+    keys). (`values` accepted as a legacy spelling of `levels`.)"""
+    name = factor.get("name", "")
+    out: list[dict[str, Any]] = []
     enumerated = factor.get("levels", factor.get("values"))
     if enumerated:
-        out += [{"key": v["key"], "value": v.get("value", v["key"])}
+        out += [{"key": v["key"], "value": v.get("value", v["key"]),
+                 "coords": dict(v.get("coords", {}))}
                 for v in enumerated]
-    if "sampled" in factor:
-        gen = factor["sampled"]
-        start = int(gen.get("start", 0))
-        count = int(gen["count"])
-        prefix = gen.get("key_prefix") or f"{gen['kind']}-{gen['size']}"
-        out += [{"key": f"{prefix}-i{i}", "value": _sample_value(gen, i)}
-                for i in range(start, start + count)]
+    sampled = factor.get("sampled")
+    if sampled:
+        gens = sampled if isinstance(sampled, list) else [sampled]
+        for gen in gens:
+            start = int(gen.get("start", 0))
+            count = int(gen["count"])
+            prefix = gen.get("key_prefix") or f"{gen['kind']}-{gen['size']}"
+            kind_coord = gen.get("kind_coord", f"{name}_kind")
+            extra = {kind_coord: prefix, **dict(gen.get("coords", {}))}
+            out += [{"key": f"{prefix}-i{i}",
+                     "value": _sample_value(gen, i),
+                     "coords": dict(extra)}
+                    for i in range(start, start + count)]
     if not out:
         raise ValueError(
             f"factor {factor.get('name')!r} has neither levels nor sampled")
@@ -97,7 +108,8 @@ def factor_cross(params: Mapping[str, Any]) -> list[dict[str, Any]]:
                 nxt.append({
                     "id": "-".join(
                         [p for p in [rec["id"], v["key"]] if p]),
-                    "coords": {**rec["coords"], name: v["key"]},
+                    "coords": {**rec["coords"], name: v["key"],
+                               **v.get("coords", {})},
                     "values": {**rec["values"], name: v["value"]},
                 })
         records = nxt
@@ -117,8 +129,15 @@ def template(records: list[dict[str, Any]],
         fields = {}
         for fname, tmpl in templates.items():
             s = str(tmpl)
-            for axis, value in rec.get("values", {}).items():
-                s = s.replace("{" + axis + "}", str(value))
+            # Fixpoint substitution (bounded): a level's text may itself
+            # contain placeholders (the Marcus elaborate opening embeds
+            # {gender}) — passes repeat while substitutions still fire.
+            for _ in range(4):
+                before = s
+                for axis, value in rec.get("values", {}).items():
+                    s = s.replace("{" + axis + "}", str(value))
+                if s == before:
+                    break
             fields[fname] = s
         out.append({"id": rec["id"], "coords": dict(rec.get("coords", {})),
                     **fields})
