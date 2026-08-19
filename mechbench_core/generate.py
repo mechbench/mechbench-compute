@@ -208,3 +208,59 @@ def generate_labeled_corpus(
         name=name or f"GENERATED_{concept.upper()}",
         prompts=tuple(prompts),
     )
+
+
+def _stop_ids(tokenizer) -> set[int]:
+    """Family-generic stop set: eos plus an end-of-turn token when the
+    vocabulary has one (Gemma's <end_of_turn>, chat-template families)."""
+    stop: set[int] = set()
+    eos = getattr(tokenizer, "eos_token_id", None)
+    if eos is not None:
+        stop.add(int(eos))
+    for marker in ("<end_of_turn>", "<|im_end|>", "<|eot_id|>"):
+        try:
+            tid = tokenizer.convert_tokens_to_ids(marker)
+        except Exception:  # noqa: BLE001 — tokenizer-family differences
+            continue
+        if tid is not None and tid >= 0:
+            stop.add(int(tid))
+    return stop
+
+
+def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
+                             temperature=0.9, top_p=0.95, rng=None,
+                             prefill=None) -> str:
+    """Sample one completion with a KV cache: the prompt is encoded
+    once (or reused via `prefill` — a (cache, last_row) pair from
+    `distill.prefill_decision`, copied per call), then decoding feeds
+    one token per forward. Replaces the O(n^2) full-re-encode loop of
+    `generate_text` for block-scale generation (task 000258 arc D).
+
+    Deterministic in `rng`: pass a seeded numpy Generator; the sampler
+    draws only from it.
+    """
+    import numpy as _np
+
+    from .distill import prefill_decision as _prefill
+    from .distill import _copy_prefix_cache
+
+    rng = rng or _np.random.default_rng()
+    stop = _stop_ids(model.tokenizer)
+
+    if prefill is None:
+        prefill = _prefill(model, list(prompt_ids))
+    cache = _copy_prefix_cache(prefill[0])
+    row = prefill[1]
+
+    lm = model.lm
+    out_ids: list[int] = []
+    for _ in range(int(max_tokens)):
+        next_id = _sample_next(row, temperature=temperature,
+                               top_p=top_p, rng=rng)
+        if next_id in stop:
+            break
+        out_ids.append(int(next_id))
+        o = lm(mx.array([[int(next_id)]]), cache=cache)
+        row = (o.logits if hasattr(o, "logits")
+               else o)[0, -1, :].astype(mx.float32)
+    return model.tokenizer.decode(out_ids)
