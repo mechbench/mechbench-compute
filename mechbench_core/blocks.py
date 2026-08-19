@@ -4,12 +4,14 @@ resolves op refs against.
 
 Design rules these implement:
 
-- **Grid**: axes -> records with coordinates. An axis either
-  enumerates values or samples them from a seeded generator. Records
-  carry {id, coords, values}: `coords` are the axis value KEYS
+- **FactorCross** (nee Grid): factors -> records with coordinates —
+  the fully crossed design of experimental methodology. A factor
+  enumerates its levels or samples them from a seeded generator.
+  Records carry {id, coords, values}: `coords` are the level KEYS
   (structured, for GroupBy/PairedDelta — never parsed from the id),
   `values` the substitution payloads (which carry their own
-  whitespace; there is no hidden joining logic).
+  whitespace; there is no hidden joining logic). "Axis" is reserved
+  for the charting surface, deliberately.
 - **Range-splitting invariance**: sampled axes derive one rng per
   instance from (seed, index), so generate(seed, 0, 1000) equals
   generate(seed, 0, 100) + generate(seed, 100, 900). Incremental
@@ -49,16 +51,18 @@ def _sample_value(gen: Mapping[str, Any], index: int) -> str:
     return wrap.replace("{x}", body)
 
 
-def _axis_values(axis: Mapping[str, Any]) -> list[dict[str, str]]:
-    """Materialize an axis to [{key, value}]. An axis may carry
-    enumerated `values`, a `sampled` generator, or both (enumerated
-    first) — the Marcus seed axis is `none` plus sampled instances."""
+def _factor_levels(factor: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Materialize a factor to its [{key, value}] levels. A factor may
+    carry enumerated `levels`, a `sampled` generator, or both
+    (enumerated first) — the Marcus seed factor is `none` plus sampled
+    instances. (`values` accepted as a legacy spelling of `levels`.)"""
     out: list[dict[str, str]] = []
-    if "values" in axis:
+    enumerated = factor.get("levels", factor.get("values"))
+    if enumerated:
         out += [{"key": v["key"], "value": v.get("value", v["key"])}
-                for v in axis["values"]]
-    if "sampled" in axis:
-        gen = axis["sampled"]
+                for v in enumerated]
+    if "sampled" in factor:
+        gen = factor["sampled"]
         start = int(gen.get("start", 0))
         count = int(gen["count"])
         prefix = gen.get("key_prefix") or f"{gen['kind']}-{gen['size']}"
@@ -66,19 +70,21 @@ def _axis_values(axis: Mapping[str, Any]) -> list[dict[str, str]]:
                 for i in range(start, start + count)]
     if not out:
         raise ValueError(
-            f"axis {axis.get('name')!r} has neither values nor sampled")
+            f"factor {factor.get('name')!r} has neither levels nor sampled")
     return out
 
 
-def grid(params: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Cross-product of axes into coordinate-carrying records."""
-    axes = params.get("axes") or []
+def factor_cross(params: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Fully crossed factors: the Cartesian product of every factor's
+    levels, as coordinate-carrying records. (`axes` accepted as a
+    legacy spelling of `factors` for pre-rename protocol versions.)"""
+    factors = params.get("factors", params.get("axes")) or []
     records: list[dict[str, Any]] = [
         {"id": "", "coords": {}, "values": {}}
     ]
-    for axis in axes:
+    for axis in factors:
         name = axis["name"]
-        vals = _axis_values(axis)
+        vals = _factor_levels(axis)
         nxt = []
         for rec in records:
             for v in vals:
@@ -242,8 +248,11 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
 # lifecycle. Descriptor objects at ~canonical/ops/... arrive with the
 # 000248 registry arc; until then this in-code table is the resolver.
 PURE_BLOCKS: dict[str, Callable[..., Any]] = {
+    "~canonical/ops/factor-cross/1":
+        lambda inputs, params: factor_cross(params),
+    # Alias: protocol versions pinned before the rename still execute.
     "~canonical/ops/grid/1":
-        lambda inputs, params: grid(params),
+        lambda inputs, params: factor_cross(params),
     "~canonical/ops/template/1":
         lambda inputs, params: template(_records(inputs["records"]), params),
     "~canonical/ops/select/1":
