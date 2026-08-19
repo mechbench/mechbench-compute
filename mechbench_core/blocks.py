@@ -50,18 +50,24 @@ def _sample_value(gen: Mapping[str, Any], index: int) -> str:
 
 
 def _axis_values(axis: Mapping[str, Any]) -> list[dict[str, str]]:
-    """Materialize an axis to [{key, value}]."""
+    """Materialize an axis to [{key, value}]. An axis may carry
+    enumerated `values`, a `sampled` generator, or both (enumerated
+    first) — the Marcus seed axis is `none` plus sampled instances."""
+    out: list[dict[str, str]] = []
     if "values" in axis:
-        return [{"key": v["key"], "value": v.get("value", v["key"])}
+        out += [{"key": v["key"], "value": v.get("value", v["key"])}
                 for v in axis["values"]]
     if "sampled" in axis:
         gen = axis["sampled"]
         start = int(gen.get("start", 0))
         count = int(gen["count"])
         prefix = gen.get("key_prefix") or f"{gen['kind']}-{gen['size']}"
-        return [{"key": f"{prefix}-i{i}", "value": _sample_value(gen, i)}
+        out += [{"key": f"{prefix}-i{i}", "value": _sample_value(gen, i)}
                 for i in range(start, start + count)]
-    raise ValueError(f"axis {axis.get('name')!r} has neither values nor sampled")
+    if not out:
+        raise ValueError(
+            f"axis {axis.get('name')!r} has neither values nor sampled")
+    return out
 
 
 def grid(params: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -107,6 +113,128 @@ def template(records: list[dict[str, Any]],
     return out
 
 
+def _records(x: Any) -> list[dict[str, Any]]:
+    """Coerce a node output to its record list: blocks pass bare lists
+    or dicts wrapping them under a conventional key."""
+    if isinstance(x, list):
+        return x
+    if isinstance(x, Mapping):
+        for k in ("records", "conditions", "rows"):
+            if isinstance(x.get(k), list):
+                return x[k]
+    raise ValueError("input is not a record stream")
+
+
+def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Filter records by coords equality; optionally project fields.
+    where: {coord: value | [values]}; fields: [names] keeps id+coords
+    plus the named fields."""
+    recs = _records(records)
+    where: Mapping[str, Any] = params.get("where") or {}
+    out = []
+    for r in recs:
+        coords = r.get("coords", {})
+        ok = all(
+            coords.get(k) in (v if isinstance(v, list) else [v])
+            for k, v in where.items()
+        )
+        if not ok:
+            continue
+        fields = params.get("fields")
+        if fields:
+            out.append({"id": r.get("id"), "coords": dict(coords),
+                        **{f: r.get(f) for f in fields}})
+        else:
+            out.append(r)
+    return out
+
+
+def paired_delta(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """For each non-baseline record, subtract its matched baseline's
+    value. match_on: coords that must agree; baseline_where: coords
+    identifying the baseline records; value: the numeric field.
+    Output records keep coords (minus nothing) plus value/baseline/
+    delta fields — composable straight into group_stats."""
+    recs = _records(records)
+    match_on = params.get("match_on") or []
+    baseline_where: Mapping[str, Any] = params["baseline_where"]
+    value_field = params["value"]
+
+    def is_baseline(r):
+        return all(r.get("coords", {}).get(k) == v
+                   for k, v in baseline_where.items())
+
+    baselines = {}
+    for r in recs:
+        if is_baseline(r):
+            key = tuple(r.get("coords", {}).get(k) for k in match_on)
+            baselines[key] = r
+    out = []
+    for r in recs:
+        if is_baseline(r):
+            continue
+        key = tuple(r.get("coords", {}).get(k) for k in match_on)
+        base = baselines.get(key)
+        if base is None:
+            raise ValueError(f"no baseline for record {r.get('id')!r}")
+        v, b = float(r[value_field]), float(base[value_field])
+        out.append({"id": r.get("id"), "coords": dict(r.get("coords", {})),
+                    "value": v, "baseline": b,
+                    "delta": round(v - b, 6)})
+    return out
+
+
+def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
+    """Group records by coords and summarize a numeric field into
+    MetricTable-shaped rows. by: [coord names] ([] = one overall
+    group); value: field name; stats fixed: n/median/mean/min/max +
+    share_negative (useful for deltas)."""
+    from statistics import mean, median
+    recs = _records(records)
+    by = params.get("by") or []
+    value_field = params["value"]
+    groups: dict[tuple, list[float]] = {}
+    for r in recs:
+        key = tuple(r.get("coords", {}).get(k) for k in by)
+        groups.setdefault(key, []).append(float(r[value_field]))
+    rows = []
+    for key, vals in groups.items():
+        row = {k: key[i] for i, k in enumerate(by)}
+        row.update({
+            "n": len(vals),
+            "median": round(median(vals), 4),
+            "mean": round(mean(vals), 4),
+            "min": round(min(vals), 4),
+            "max": round(max(vals), 4),
+            "share_negative": round(sum(v < 0 for v in vals) / len(vals), 3),
+        })
+        rows.append(row)
+    columns = [{"name": k, "dtype": "string"} for k in by] + [
+        {"name": n, "dtype": "number"}
+        for n in ("n", "median", "mean", "min", "max", "share_negative")
+    ]
+    return {"kind": "metric_table",
+            "name": params.get("name", f"{value_field}-stats"),
+            "description": params.get("description", ""),
+            "row_axis": "condition", "columns": columns, "rows": rows}
+
+
+def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    """Concatenate record streams, structurally recording source
+    segments; each record gains a batch coordinate named after its
+    input port. Collections never mutate — growth is union."""
+    batch_axis = params.get("batch_axis", "batch")
+    segments = []
+    records = []
+    for port in sorted(inputs.keys()):
+        recs = _records(inputs[port])
+        segments.append({"source": port, "count": len(recs)})
+        for r in recs:
+            records.append({**r, "coords": {**r.get("coords", {}),
+                                            batch_axis: port}})
+    return {"kind": "record_set", "segments": segments, "records": records}
+
+
 # --- registry ---------------------------------------------------------------
 
 # Op ref -> callable. Pure blocks take (inputs, params); model blocks
@@ -117,5 +245,13 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "~canonical/ops/grid/1":
         lambda inputs, params: grid(params),
     "~canonical/ops/template/1":
-        lambda inputs, params: template(inputs["records"], params),
+        lambda inputs, params: template(_records(inputs["records"]), params),
+    "~canonical/ops/select/1":
+        lambda inputs, params: select(inputs["records"], params),
+    "~canonical/ops/paired-delta/1":
+        lambda inputs, params: paired_delta(inputs["records"], params),
+    "~canonical/ops/group-stats/1":
+        lambda inputs, params: group_stats(inputs["records"], params),
+    "~canonical/ops/union/1":
+        lambda inputs, params: union(inputs, params),
 }
