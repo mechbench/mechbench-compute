@@ -53,7 +53,8 @@ def _config(api_url: str | None, api_key: str | None) -> tuple[str, str]:
 
 
 def _request(method: str, url: str, key: str, body: bytes | None = None,
-             headers: dict[str, str] | None = None) -> Any:
+             headers: dict[str, str] | None = None,
+             return_headers: bool = False) -> Any:
     req = urllib.request.Request(url, data=body, method=method)
     req.add_header("Authorization", f"Bearer {key}")
     for h, v in (headers or {}).items():
@@ -62,14 +63,16 @@ def _request(method: str, url: str, key: str, body: bytes | None = None,
         with urllib.request.urlopen(req, timeout=60) as resp:
             raw = resp.read()
             ctype = resp.headers.get("content-type", "")
+            resp_headers = {k.lower(): v for k, v in resp.headers.items()}
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]
         raise BenchError(f"{method} {url} -> {e.code}: {detail}") from None
     except urllib.error.URLError as e:
         raise BenchError(f"{method} {url} unreachable: {e.reason}") from None
     if ctype.startswith("application/json"):
-        return json.loads(raw)
-    return raw
+        parsed = json.loads(raw)
+        return (parsed, resp_headers) if return_headers else parsed
+    return (raw, resp_headers) if return_headers else raw
 
 
 def path(owner: str, project: str, *segments: str) -> str:
@@ -173,19 +176,27 @@ def get_kind(kind_path: str, *, api_url: str | None = None,
 
 
 def fetch(target: str, *, api_url: str | None = None,
-          api_key: str | None = None) -> Any:
+          api_key: str | None = None, with_meta: bool = False) -> Any:
     """Fetch an object; CBOR objects are decoded, JSON parsed, other
-    mime types returned as bytes."""
+    mime types returned as bytes. ``with_meta=True`` returns
+    ``(payload, meta)`` where meta carries the server's
+    ``content_hash`` (task 000260 — record what resolved)."""
     import mechbench_schema as ms
 
     url, key = _config(api_url, api_key)
-    raw = _request("GET", f"{url}/objects/{target}", key)
+    raw = _request("GET", f"{url}/objects/{target}", key,
+                   return_headers=with_meta)
+    meta = None
+    if with_meta:
+        raw, headers = raw
+        meta = {"content_hash": headers.get("x-content-hash")}
     if isinstance(raw, (bytes, bytearray)):
         try:
-            return ms.load_raw(bytes(raw))
+            decoded = ms.load_raw(bytes(raw))
+            return (decoded, meta) if with_meta else decoded
         except Exception:
-            return bytes(raw)
-    return raw
+            return (bytes(raw), meta) if with_meta else bytes(raw)
+    return (raw, meta) if with_meta else raw
 
 
 def fetch_items(target: str, offset: int = 0, limit: int = 20, *,

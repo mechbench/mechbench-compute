@@ -129,6 +129,11 @@ class Model:
     def load(cls, model_id: str = _arch.DEFAULT_MODEL_ID) -> "Model":
         """Load a model from the HuggingFace cache.
 
+        `model_id` may pin a revision as ``repo@revision`` (task
+        000260): the pin resolves against the local cache and the model
+        loads from that exact snapshot path; a pin that isn't cached
+        (or is ambiguous) raises rather than silently loading main.
+
         Defaults to Gemma 4 E4B bf16. Any Gemma 4 family checkpoint that
         mlx-vlm can load works (E2B, E4B, future variants); per-model
         dimensions are read from the loaded config and bundled into
@@ -144,6 +149,24 @@ class Model:
         # wrapper, in a shape _forward_qwen/_forward_llama don't mirror). Other
         # families try mlx-vlm first, then fall back to mlx-lm on "not
         # supported" (covers checkpoints whose config we couldn't peek).
+        from .hub import parse_model_ref, resolve_cached_revision, snapshot_path
+
+        repo_id, revision = parse_model_ref(model_id)
+        if revision is not None:
+            sha = resolve_cached_revision(repo_id, revision)
+            if sha is None:
+                raise ValueError(
+                    f"pinned revision {revision!r} of {repo_id!r} is not in "
+                    f"the local HF cache (offline resolution only)")
+            snap = snapshot_path(repo_id, sha)
+            if snap is None:
+                raise ValueError(
+                    f"cache has ref {revision!r} -> {sha} for {repo_id!r} "
+                    f"but no snapshot directory")
+            model_id = str(snap)
+        else:
+            model_id = repo_id
+
         if _peek_model_type(model_id) in _MLX_LM_FAMILIES:
             from mlx_lm import load as mlx_lm_load
 
