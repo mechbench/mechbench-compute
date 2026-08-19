@@ -17,6 +17,36 @@ def manifests():
     series_map = {"rows": "layers", "x": "layer", "y": "entropy_bits",
                   "label": "top1"}
     return [
+        # ConditionSet (epic 000258): PromptFactory's output. Every
+        # condition carries its axis COORDINATES as structured data —
+        # downstream blocks (GroupBy, PairedDelta) operate on coords,
+        # never by parsing the display id.
+        ms.KindManifest(
+            path="~canonical/kinds/condition-set",
+            title="Condition set",
+            version="1",
+            item_schema={
+                "type": "object",
+                "required": ["id", "coords", "user"],
+                "properties": {
+                    "id": {"type": "string",
+                           "description": "Display name; never parsed."},
+                    "coords": {
+                        "type": "object",
+                        "description": "Axis coordinates (axis name -> "
+                                       "value key), incl. batch for "
+                                       "range-generated items.",
+                        "additionalProperties": {"type": ["string", "integer"]},
+                    },
+                    "system": {"type": "string"},
+                    "user": {"type": "string", "x-mechbench-text": True},
+                    "prefill": {"type": "string"},
+                },
+            },
+            renderer=ms.RendererBinding(
+                primitive="table",
+                field_map={"rows": "conditions"}),
+        ),
         # v2: series-bound, with a collection-level compare view (task
         # 000250 — the funnel renders as overlaid curves). v1 remains
         # registered and immutable; collections opt into v2 by path.
