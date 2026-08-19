@@ -1,0 +1,115 @@
+"""Pure-block contracts (task 000275): the stdlib pieces every
+protocol leans on — deterministic, growth-safe, expectation-judging."""
+
+from mechbench_core.blocks import eval_expectation, factor_cross, template
+
+WORDS = ["alpha", "bravo", "charlie", "delta", "echo"]
+
+
+def test_factor_cross_is_the_full_cartesian_product():
+    recs = factor_cross({"factors": [
+        {"name": "gender", "levels": [{"key": "m"}, {"key": "f"}]},
+        {"name": "prompt", "levels": [{"key": "plain", "value": "Say hi."},
+                                       {"key": "fancy", "value": "Declaim!"}]},
+    ]})
+    assert len(recs) == 4
+    ids = {r["id"] for r in recs}
+    assert ids == {"m-plain", "m-fancy", "f-plain", "f-fancy"}
+    one = next(r for r in recs if r["id"] == "f-fancy")
+    assert one["coords"] == {"gender": "f", "prompt": "fancy"}
+    assert one["values"] == {"gender": "f", "prompt": "Declaim!"}
+
+
+def test_factor_cross_accepts_legacy_axes_spelling():
+    legacy = factor_cross({"axes": [{"name": "x", "levels": [{"key": "1"}]}]})
+    modern = factor_cross({"factors": [{"name": "x", "levels": [{"key": "1"}]}]})
+    assert legacy == modern
+
+
+def test_sampled_values_are_deterministic_in_seed_and_index_alone():
+    gen = {"kind": "words", "size": 3, "count": 4, "seed": 42,
+           "word_list": WORDS, "key_prefix": "w"}
+    a = factor_cross({"factors": [{"name": "seed", "sampled": gen}]})
+    b = factor_cross({"factors": [{"name": "seed", "sampled": gen}]})
+    assert a == b
+    other_seed = dict(gen, seed=43)
+    c = factor_cross({"factors": [{"name": "seed", "sampled": other_seed}]})
+    assert [r["values"]["seed"] for r in c] != [r["values"]["seed"] for r in a]
+
+
+def test_growing_a_sampled_factor_preserves_the_original_membership():
+    # The 100 -> 1000 growth guarantee: raising `count` must extend the
+    # set, never reshuffle it (values depend on (seed, index) alone).
+    small = {"kind": "words", "size": 3, "count": 5, "seed": 7,
+             "word_list": WORDS, "key_prefix": "w"}
+    big = dict(small, count=12)
+    first = factor_cross({"factors": [{"name": "s", "sampled": small}]})
+    grown = factor_cross({"factors": [{"name": "s", "sampled": big}]})
+    assert grown[: len(first)] == first
+    assert len(grown) == 12
+
+
+def test_generators_stamp_a_kind_coordinate():
+    recs = factor_cross({"factors": [{
+        "name": "seed",
+        "sampled": {"kind": "noise", "size": 8, "count": 2, "seed": 1},
+    }]})
+    assert all(r["coords"]["seed_kind"] == "noise-8" for r in recs)
+
+
+def test_template_substitutes_to_fixpoint():
+    recs = factor_cross({"factors": [
+        {"name": "gender", "levels": [{"key": "m", "value": "his"}]},
+        {"name": "opening", "levels": [
+            {"key": "elaborate", "value": "Marcus adjusted {gender} coat."},
+        ]},
+    ]})
+    out = template(recs, {"templates": {
+        "user": "Continue: {opening}",
+        "system": "No placeholders here.",
+    }})
+    assert out[0]["user"] == "Continue: Marcus adjusted his coat."
+    assert out[0]["system"] == "No placeholders here."
+    assert out[0]["coords"]["gender"] == "m"
+
+
+def test_eval_expectation_judges_and_aggregates():
+    results = [
+        {"id": "die", "outcome_mass": {"1": 1 / 6, "2": 1 / 6, "3": 1 / 6,
+                                        "4": 1 / 6, "5": 1 / 6, "6": 1 / 6},
+         "entropy_bits": 2.58},
+        {"id": "capital", "top_tokens": [{"token": "Paris", "p": 0.999}],
+         "entropy_bits": 0.01},
+        {"id": "loaded", "outcome_mass": {"1": 0.9, "2": 0.02, "3": 0.02,
+                                           "4": 0.02, "5": 0.02, "6": 0.02},
+         "entropy_bits": 0.7},
+    ]
+    expectations = [
+        {"id": "die", "expect": {"kind": "uniform",
+                                  "over": ["1", "2", "3", "4", "5", "6"],
+                                  "max_kl_bits": 0.05}},
+        {"id": "capital", "expect": {"kind": "answer", "value": "Paris",
+                                      "min_p": 0.99}},
+        {"id": "loaded", "expect": {"kind": "uniform",
+                                     "over": ["1", "2", "3", "4", "5", "6"],
+                                     "max_kl_bits": 0.05}},
+    ]
+    table = eval_expectation(
+        {"results": results, "expectations": expectations}, {})
+    assert table["kind"] == "metric_table"
+    by_id = {r["id"]: r for r in table["rows"]}
+    assert by_id["die"]["pass"] == "True"
+    assert by_id["capital"]["pass"] == "True"
+    assert by_id["loaded"]["pass"] == "False"
+    assert by_id["ALL"]["n_judged"] == 3
+    assert abs(by_id["ALL"]["pass_rate"] - 2 / 3) < 1e-3
+
+
+def test_eval_expectation_accepts_params_fallback():
+    table = eval_expectation({}, {
+        "results": [{"id": "a", "entropy_bits": 3.0}],
+        "expectations": [{"id": "a", "expect": {"kind": "min_entropy",
+                                                  "bits": 2.0}}],
+    })
+    row_a = next(r for r in table["rows"] if r["id"] == "a")
+    assert row_a["pass"] == "True"
