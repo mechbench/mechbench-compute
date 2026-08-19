@@ -288,4 +288,83 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
         lambda inputs, params: group_stats(inputs["records"], params),
     "~canonical/ops/union/1":
         lambda inputs, params: union(inputs, params),
+    "~canonical/ops/eval/expectation/1":
+        lambda inputs, params: eval_expectation(inputs, params),
 }
+
+
+def eval_expectation(inputs: Mapping[str, Any],
+                     params: Mapping[str, Any]) -> dict[str, Any]:
+    """The first member of the eval block family (~canonical/ops/eval/):
+    judge decision-read results against per-condition EXPECTATIONS
+    carried as data, publishing a metric table with verdicts.
+
+    Expectation kinds (per record, joined on id):
+      {"kind": "uniform", "over": [outcomes], "max_kl_bits": t}
+          -> kl_bits from uniform over the outcome masses; pass iff
+             kl_bits <= t and the outcomes carry real mass.
+      {"kind": "answer", "value": tok, "min_p": t}
+          -> p_expected from the read's top tokens; pass iff >= t.
+      {"kind": "min_entropy", "bits": t}
+          -> pass iff the decision entropy >= t (diversity floor).
+
+    The aggregate row (id "ALL") carries the pass rate — the number a
+    publication cites.
+    """
+    import math
+
+    results = _records(inputs.get("results"))
+    expectations = {r["id"]: r["expect"]
+                    for r in _records(inputs.get("expectations"))}
+    rows = []
+    n_pass = 0
+    n_judged = 0
+    for c in results:
+        exp = expectations.get(c["id"])
+        if not exp:
+            continue
+        row: dict[str, Any] = {"id": c["id"], "expect": exp["kind"],
+                                "entropy_bits": c.get("entropy_bits")}
+        ok = False
+        if exp["kind"] == "uniform":
+            masses = c.get("outcome_mass") or {}
+            over = exp["over"]
+            ps = [float(masses.get(str(o), 0.0)) for o in over]
+            tot = sum(ps)
+            if tot > 0:
+                kl = sum(q / tot * math.log2((q / tot) / (1.0 / len(over)))
+                         for q in ps if q > 0)
+                row["kl_bits"] = round(kl, 4)
+                row["outcome_mass"] = round(tot, 4)
+                ok = kl <= float(exp.get("max_kl_bits", 0.1))
+        elif exp["kind"] == "answer":
+            want = str(exp["value"])
+            p = None
+            for t in c.get("top_tokens") or []:
+                if t["token"] == want:
+                    p = float(t["p"])
+                    break
+            row["p_expected"] = round(p, 4) if p is not None else None
+            ok = p is not None and p >= float(exp.get("min_p", 0.99))
+        elif exp["kind"] == "min_entropy":
+            ok = float(c.get("entropy_bits") or 0.0) >= float(exp["bits"])
+        else:
+            raise ValueError(f"unknown expectation kind: {exp['kind']!r}")
+        row["pass"] = ok
+        n_judged += 1
+        n_pass += int(ok)
+        rows.append(row)
+    rows.append({"id": "ALL", "expect": "aggregate",
+                 "pass_rate": round(n_pass / n_judged, 4) if n_judged else None,
+                 "n_pass": n_pass, "n_judged": n_judged})
+    cols = {"id": "string", "expect": "string", "entropy_bits": "number",
+            "kl_bits": "number", "outcome_mass": "number",
+            "p_expected": "number", "pass": "string",
+            "pass_rate": "number", "n_pass": "number", "n_judged": "number"}
+    return {"kind": "metric_table",
+            "name": params.get("name", "expectation-eval"),
+            "description": params.get("description", ""),
+            "row_axis": "condition",
+            "columns": [{"name": k, "dtype": d} for k, d in cols.items()],
+            "rows": [{k: (str(v) if k == "pass" else v)
+                       for k, v in r.items()} for r in rows]}
