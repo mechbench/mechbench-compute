@@ -279,7 +279,9 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "~canonical/ops/grid/1":
         lambda inputs, params: factor_cross(params),
     "~canonical/ops/template/1":
-        lambda inputs, params: template(_records(inputs["records"]), params),
+        lambda inputs, params: template(
+            _records(inputs.get("records") or params.get("records")),
+            params),
     "~canonical/ops/select/1":
         lambda inputs, params: select(inputs["records"], params),
     "~canonical/ops/paired-delta/1":
