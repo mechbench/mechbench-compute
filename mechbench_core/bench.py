@@ -126,7 +126,12 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
         # Validate against the schema model before sending.
         envelope = ms.Emitted(provenance=ms.Provenance(**prov),
                               payload=payload)
-        body_obj = envelope.model_dump(mode="json")
+        # mode="python", not "json": binary payloads (adapter
+        # safetensors bytes, 000259) must survive to CBOR, which
+        # encodes bytes natively. Canonical bytes are identical for
+        # JSON-safe payloads (verified), so no drift for existing
+        # objects.
+        body_obj = envelope.model_dump(mode="python")
 
     body = ms.dump_canonical(body_obj)
     import hashlib
