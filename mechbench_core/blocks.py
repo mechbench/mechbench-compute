@@ -41,9 +41,15 @@ def _sample_value(gen: Mapping[str, Any], index: int) -> str:
     if kind == "noise":
         body = "".join(rng.choice(SEED_CHARS) for _ in range(size))
     elif kind == "words":
-        words = gen.get("word_list") or []
+        # word_list: an inline list, or a fetched word_list object
+        # payload ({kind: "word_list", words: [...]}) — the executor's
+        # {"$fetch": ref} resolution hands the payload through whole.
+        raw = gen.get("word_list") or []
+        words = raw.get("words") if isinstance(raw, Mapping) else raw
         if not words:
-            raise ValueError("words generator needs word_list")
+            raise ValueError(
+                "words generator needs word_list (inline list or a "
+                "fetched word_list object)")
         body = " ".join(rng.choice(words) for _ in range(size))
     else:
         raise ValueError(f"unknown generator kind: {kind!r}")
