@@ -38,7 +38,15 @@ __all__ = [
 ]
 
 _KEY_RE = re.compile(
-    r"^model\.layers\.(\d+)\.self_attn\.(\w+)\.lora_([ab])$")
+    r"^model\.layers\.(\d+)\.(self_attn|mlp)\.(\w+)\.lora_([ab])$")
+
+# Which submodule container each projection lives on (000263: PEFT's
+# target_modules generality — attention and MLP projections).
+PROJ_CONTAINERS = {
+    "q_proj": "self_attn", "k_proj": "self_attn",
+    "v_proj": "self_attn", "o_proj": "self_attn",
+    "gate_proj": "mlp", "up_proj": "mlp", "down_proj": "mlp",
+}
 
 
 class LoRALinear(nn.Module):
@@ -69,8 +77,13 @@ def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
     n = 0
     for layer in lm.model.layers:
         for name in targets:
-            wrapped = LoRALinear(getattr(layer.self_attn, name), rank, alpha)
-            setattr(layer.self_attn, name, wrapped)
+            container = PROJ_CONTAINERS.get(name)
+            if container is None:
+                raise ValueError(f"unknown target module {name!r}; "
+                                 f"known: {sorted(PROJ_CONTAINERS)}")
+            holder = getattr(layer, container)
+            wrapped = LoRALinear(getattr(holder, name), rank, alpha)
+            setattr(holder, name, wrapped)
             n += wrapped.lora_a.size + wrapped.lora_b.size
     return n
 
@@ -93,30 +106,32 @@ def fuse(lm, weights: dict[str, mx.array],
     handle of the original weights; pass it to ``restore`` to undo the
     merge exactly (re-subtracting in low precision would not round-trip).
     """
-    pairs: dict[tuple[int, str], dict[str, mx.array]] = {}
+    pairs: dict[tuple[int, str, str], dict[str, mx.array]] = {}
     for key, w in weights.items():
         m = _KEY_RE.match(key)
         if m is None:
             raise ValueError(f"unrecognized adapter key {key!r}")
-        i, proj, ab = int(m.group(1)), m.group(2), m.group(3)
-        pairs.setdefault((i, proj), {})[ab] = w
-    handle: dict[tuple[int, str], mx.array] = {}
-    for (i, proj), ab in sorted(pairs.items()):
+        i, container, proj, ab = (int(m.group(1)), m.group(2),
+                                  m.group(3), m.group(4))
+        pairs.setdefault((i, container, proj), {})[ab] = w
+    handle: dict[tuple[int, str, str], mx.array] = {}
+    for (i, container, proj), ab in sorted(pairs.items()):
         if set(ab) != {"a", "b"}:
             raise ValueError(
-                f"adapter is missing lora_a or lora_b for layer {i} {proj}")
-        mod = getattr(lm.model.layers[i].self_attn, proj)
-        handle[(i, proj)] = mod.weight
+                f"adapter is missing lora_a or lora_b for layer {i} "
+                f"{container}.{proj}")
+        mod = getattr(getattr(lm.model.layers[i], container), proj)
+        handle[(i, container, proj)] = mod.weight
         mod.weight = mod.weight + (scale * (ab["b"] @ ab["a"])).astype(
             mod.weight.dtype)
-    mx.eval([getattr(lm.model.layers[i].self_attn, p).weight
-             for i, p in handle])
+    mx.eval([getattr(getattr(lm.model.layers[i], c), p).weight
+             for i, c, p in handle])
     return handle
 
 
-def restore(lm, handle: dict[tuple[int, str], mx.array]) -> None:
+def restore(lm, handle: dict[tuple[int, str, str], mx.array]) -> None:
     """Undo a ``fuse`` by reinstalling the original weights."""
-    for (i, proj), w in handle.items():
-        getattr(lm.model.layers[i].self_attn, proj).weight = w
-    mx.eval([getattr(lm.model.layers[i].self_attn, p).weight
-             for i, p in handle])
+    for (i, container, proj), w in handle.items():
+        getattr(getattr(lm.model.layers[i], container), proj).weight = w
+    mx.eval([getattr(getattr(lm.model.layers[i], c), p).weight
+             for i, c, p in handle])
