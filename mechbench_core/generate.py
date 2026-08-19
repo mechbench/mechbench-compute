@@ -227,9 +227,23 @@ def _stop_ids(tokenizer) -> set[int]:
     return stop
 
 
+def offsets_by_cumulative_decode(tokenizer, ids):
+    """Per-token [start, end) char offsets into the decoded text, by
+    cumulative decode — byte-exact against tokenizer join behavior
+    (the 019 backfill's reconstruction approach). Returns (offsets,
+    text)."""
+    offs = []
+    prev = ""
+    for i in range(len(ids)):
+        cur = tokenizer.decode(ids[: i + 1])
+        offs.append((len(prev), len(cur)))
+        prev = cur
+    return offs, prev
+
+
 def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
                              temperature=0.9, top_p=0.95, rng=None,
-                             prefill=None) -> str:
+                             prefill=None, return_ids=False):
     """Sample one completion with a KV cache: the prompt is encoded
     once (or reused via `prefill` — a (cache, last_row) pair from
     `distill.prefill_decision`, copied per call), then decoding feeds
@@ -263,4 +277,5 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
         o = lm(mx.array([[int(next_id)]]), cache=cache)
         row = (o.logits if hasattr(o, "logits")
                else o)[0, -1, :].astype(mx.float32)
-    return model.tokenizer.decode(out_ids)
+    text = model.tokenizer.decode(out_ids)
+    return (text, out_ids) if return_ids else text
