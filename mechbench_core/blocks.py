@@ -313,9 +313,10 @@ def eval_expectation(inputs: Mapping[str, Any],
     """
     import math
 
-    results = _records(inputs.get("results"))
+    results = _records(inputs.get("results") or params.get("results"))
     expectations = {r["id"]: r["expect"]
-                    for r in _records(inputs.get("expectations"))}
+                    for r in _records(inputs.get("expectations")
+                                       or params.get("expectations"))}
     rows = []
     n_pass = 0
     n_judged = 0
