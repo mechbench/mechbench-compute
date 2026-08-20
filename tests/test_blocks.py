@@ -113,3 +113,47 @@ def test_eval_expectation_accepts_params_fallback():
     })
     row_a = next(r for r in table["rows"] if r["id"] == "a")
     assert row_a["pass"] == "True"
+
+
+def test_suite_metric_records_shapes_lm_eval_results():
+    from mechbench_core.blocks import suite_metric_records
+    results = {"arc_easy": {"alias": "arc_easy",
+                             "acc,none": 0.74, "acc_stderr,none": 0.02,
+                             "acc_norm,none": 0.70,
+                             "acc_norm_stderr,none": 0.021}}
+    recs = suite_metric_records(results, {"arc_easy": {"effective": 50}},
+                                variant="adapted")
+    assert [r["id"] for r in recs] == ["arc_easy:acc:adapted",
+                                        "arc_easy:acc_norm:adapted"]
+    acc = recs[0]
+    assert acc["coords"] == {"task": "arc_easy", "metric": "acc",
+                              "variant": "adapted"}
+    assert acc["value"] == 0.74 and acc["stderr"] == 0.02 and acc["n"] == 50
+
+
+def test_table_from_records_flattens_coords_and_types_columns():
+    from mechbench_core.blocks import table_from_records
+    table = table_from_records([
+        {"id": "a", "coords": {"task": "arc_easy", "metric": "acc"},
+         "value": 0.7, "delta": 0.01},
+        {"id": "b", "coords": {"task": "arc_easy", "metric": "acc_norm"},
+         "value": 0.68, "delta": -0.02},
+    ], {"name": "deltas"})
+    assert table["kind"] == "metric_table"
+    names = [c["name"] for c in table["columns"]]
+    assert names == ["id", "task", "metric", "value", "delta"]
+    dt = {c["name"]: c["dtype"] for c in table["columns"]}
+    assert dt["delta"] == "number" and dt["task"] == "string"
+    assert table["rows"][1]["delta"] == -0.02
+
+
+def test_suite_records_flow_through_union_and_paired_delta():
+    from mechbench_core.blocks import paired_delta, suite_metric_records, union
+    base = suite_metric_records({"arc_easy": {"acc,none": 0.70}}, {}, "base")
+    adapted = suite_metric_records({"arc_easy": {"acc,none": 0.73}}, {}, "adapted")
+    merged = union({"a_base": base, "b_adapted": adapted}, {})
+    deltas = paired_delta(merged, {"match_on": ["task", "metric"],
+                                    "baseline_where": {"variant": "base"},
+                                    "value": "value"})
+    assert len(deltas) == 1
+    assert abs(deltas[0]["delta"] - 0.03) < 1e-9

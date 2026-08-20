@@ -272,6 +272,82 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
 # are registered by the executor host (the runner), which owns model
 # lifecycle. Descriptor objects at ~canonical/ops/... arrive with the
 # 000248 registry arc; until then this in-code table is the resolver.
+
+def suite_metric_records(results: Mapping[str, Any],
+                         n_samples: Mapping[str, Any] | None = None,
+                         variant: str = "base") -> list[dict[str, Any]]:
+    """Shape lm-eval-harness `results` (task -> {"acc,none": v,
+    "acc_stderr,none": s, ...}) into coord-carrying records:
+    one record per (task, metric) with value/stderr/n and coords
+    {task, metric, variant} — composable straight into union /
+    paired_delta for base-vs-adapter deltas."""
+    out: list[dict[str, Any]] = []
+    for task in sorted(results):
+        metrics = results[task]
+        ns = (n_samples or {}).get(task) or {}
+        n = ns.get("effective", ns.get("original"))
+        stderrs = {}
+        values = {}
+        for key, val in metrics.items():
+            if not isinstance(val, (int, float)):
+                continue
+            name = key.split(",", 1)[0]
+            if name in ("sample_len",):  # harness bookkeeping, not a metric
+                continue
+            if name.endswith("_stderr"):
+                stderrs[name[: -len("_stderr")]] = float(val)
+            else:
+                values[name] = float(val)
+        for name in sorted(values):
+            rec: dict[str, Any] = {
+                "id": f"{task}:{name}:{variant}",
+                "coords": {"task": task, "metric": name,
+                           "variant": variant},
+                "value": values[name],
+            }
+            if name in stderrs:
+                rec["stderr"] = stderrs[name]
+            if n is not None:
+                rec["n"] = int(n)
+            out.append(rec)
+    return out
+
+
+def table_from_records(records: Any,
+                       params: Mapping[str, Any]) -> dict[str, Any]:
+    """Present a record stream as a metric table: coords flatten into
+    leading columns, remaining scalar fields follow. The generic
+    records -> table presenter (delta tables, group stats, ...)."""
+    recs = _records(records)
+    coord_keys: list[str] = []
+    value_keys: list[str] = []
+    for r in recs:
+        for k in r.get("coords", {}):
+            if k not in coord_keys:
+                coord_keys.append(k)
+        for k, v in r.items():
+            if k in ("id", "coords") or not isinstance(v, (int, float, str)):
+                continue
+            if k not in value_keys:
+                value_keys.append(k)
+    rows = []
+    for r in recs:
+        row: dict[str, Any] = {"id": r.get("id")}
+        row.update({k: r.get("coords", {}).get(k) for k in coord_keys})
+        row.update({k: r.get(k) for k in value_keys if k in r})
+        rows.append(row)
+    dtypes = {}
+    for k in ["id", *coord_keys, *value_keys]:
+        vals = [row.get(k) for row in rows if row.get(k) is not None]
+        dtypes[k] = ("number" if vals and all(
+            isinstance(v, (int, float)) for v in vals) else "string")
+    return {"kind": "metric_table",
+            "name": params.get("name", "records"),
+            "description": params.get("description", ""),
+            "row_axis": params.get("row_axis", "record"),
+            "columns": [{"name": k, "dtype": d} for k, d in dtypes.items()],
+            "rows": rows}
+
 PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "~canonical/ops/factor-cross/1":
         lambda inputs, params: factor_cross(params),
@@ -288,6 +364,9 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
         lambda inputs, params: paired_delta(inputs["records"], params),
     "~canonical/ops/group-stats/1":
         lambda inputs, params: group_stats(inputs["records"], params),
+    "~canonical/ops/table/from-records/1":
+        lambda inputs, params: table_from_records(
+            inputs.get("records") or params.get("records"), params),
     "~canonical/ops/union/1":
         lambda inputs, params: union(inputs, params),
     "~canonical/ops/eval/expectation/1":
