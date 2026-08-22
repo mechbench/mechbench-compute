@@ -20,6 +20,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "mechbench-schema>=0.2",
     "mlx>=0.20",
     "mlx-lm>=0.20",
     "mlx-vlm>=0.6.1",
@@ -30,6 +31,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Only `lm_bridge` needs this, and only when an eval-suite block runs.
+eval = ["lm-eval>=0.4"]
 # The schema contract is a soft dependency today — core emits plain dicts/arrays
 # and callers can wrap them. When the emission layer is formalized, this becomes
 # a hard dependency.
