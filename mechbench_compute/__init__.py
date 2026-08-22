@@ -36,120 +36,170 @@ re-exported from this module — see README.md for the full API tour.
 The full list of hook points is at mechbench_compute.all_hook_names().
 """
 
-# Fail with an explanation, not with a missing-module traceback out of a
-# dependency the user never named. Everything below this line assumes a
-# substrate; this is where a machine without one finds out.
-from .backends import require as _require_backend
-
-_require_backend()
-
-from ._arch import (
-    Arch,
-    D_MODEL,
-    GLOBAL_LAYERS,
-    LAYER_HOOK_POINTS,
-    N_HEADS,
-    N_LAYERS,
-    VOCAB_SIZE,
-    all_hook_names,
-    layer_type,
-)
-from .cache import ActivationCache
-from .errors import (
-    CacheKeyError,
-    InterpError,
-    InvalidHookName,
-    LayerIndexOutOfRange,
-)
-from .geometry import (
-    VocabConcentration,
-    centroid_decode,
-    cluster_purity,
-    cohesion,
-    cosine_matrix,
-    effective_vocab_size,
-    entropy_bits,
-    fact_vectors,
-    fact_vectors_at,
-    fact_vectors_at_hook,
-    fact_vectors_pooled,
-    intra_inter_separation,
-    iterate_clusters,
-    nearest_neighbor_purity,
-    orthogonalize_against,
-    silhouette_cosine,
-    top_k_mass,
-    vocab_concentration,
-)
-from .generate import generate_labeled_corpus, generate_text
-from .head_weights import (
-    CircuitAnalysis,
-    CircuitComponent,
-    HeadSpec,
-    PositionWrite,
-    get_head_spec,
-    head_key_tokens,
-    head_ov_actual_writes,
-    head_ov_position_writes,
-    head_read_tokens,
-    ov_circuit,
-    qk_circuit,
-)
-from .attribution import (
-    accumulated_resid,
-    decompose_resid,
-    head_results,
-    logit_attrs,
-)
-from .probes import Probe
-from .hooks import HookFn, HookInfo, parse_hook_name
-from .interventions import Ablate, Capture, Intervention, Patch, compose
-from .lens import logit_lens_final, logit_lens_per_position
-from .model import Model, RunResult
-from .plot import (
-    bar_by_layer,
-    grouped_row_heatmap,
-    head_heatmap,
-    intensity_curve,
-    leaderboard_bar,
-    lens_trajectory,
-    logprob_trajectory,
-    pca_scatter,
-    position_heatmap,
-    probe_diagonal_heatmap,
-    similarity_heatmap,
-)
-from .prompts import (
-    Prompt,
-    PromptSet,
-    ValidatedPrompt,
-    ValidatedPromptSet,
-)
-from .distill import (
-    Example,
-    TargetMap,
-    TargetTrie,
-    first_token_metrics,
-    item_metrics,
-    render_chat,
-    score_items,
-    score_items_batched,
-    score_items_cached,
-    score_items_fast,
-    soft_ce,
-)
-from .lora import (
-    LoRALinear,
-    apply_lora,
-    fuse,
-    load_adapter,
-    restore,
-    save_adapter,
+# Everything below the substrate check assumes a substrate. Rather than
+# refusing to import at all, the package now *loads* anywhere and refuses
+# on use — because the modules that report on a machine with no backend
+# (`backends`, `inventory`) live inside this package, and a gate at
+# import time made them reachable only from a machine that did not need
+# them. `doctor` is exactly that machine's tool.
+from .backends import (
+    BACKENDS,
+    Backend,
+    active as active_backend,
+    available as available_backends,
+    describe_platform,
+    require as _require_backend,
 )
 
-__version__ = "0.9.1"
+if active_backend() is not None:
+    from ._arch import (
+        Arch,
+        D_MODEL,
+        GLOBAL_LAYERS,
+        LAYER_HOOK_POINTS,
+        N_HEADS,
+        N_LAYERS,
+        VOCAB_SIZE,
+        all_hook_names,
+        layer_type,
+    )
+    from .cache import ActivationCache
+    from .errors import (
+        CacheKeyError,
+        InterpError,
+        InvalidHookName,
+        LayerIndexOutOfRange,
+    )
+    from .geometry import (
+        VocabConcentration,
+        centroid_decode,
+        cluster_purity,
+        cohesion,
+        cosine_matrix,
+        effective_vocab_size,
+        entropy_bits,
+        fact_vectors,
+        fact_vectors_at,
+        fact_vectors_at_hook,
+        fact_vectors_pooled,
+        intra_inter_separation,
+        iterate_clusters,
+        nearest_neighbor_purity,
+        orthogonalize_against,
+        silhouette_cosine,
+        top_k_mass,
+        vocab_concentration,
+    )
+    from .generate import generate_labeled_corpus, generate_text
+    from .head_weights import (
+        CircuitAnalysis,
+        CircuitComponent,
+        HeadSpec,
+        PositionWrite,
+        get_head_spec,
+        head_key_tokens,
+        head_ov_actual_writes,
+        head_ov_position_writes,
+        head_read_tokens,
+        ov_circuit,
+        qk_circuit,
+    )
+    from .attribution import (
+        accumulated_resid,
+        decompose_resid,
+        head_results,
+        logit_attrs,
+    )
+    from .probes import Probe
+    from .hooks import HookFn, HookInfo, parse_hook_name
+    from .interventions import Ablate, Capture, Intervention, Patch, compose
+    from .lens import logit_lens_final, logit_lens_per_position
+    from .model import Model, RunResult
+    from .plot import (
+        bar_by_layer,
+        grouped_row_heatmap,
+        head_heatmap,
+        intensity_curve,
+        leaderboard_bar,
+        lens_trajectory,
+        logprob_trajectory,
+        pca_scatter,
+        position_heatmap,
+        probe_diagonal_heatmap,
+        similarity_heatmap,
+    )
+    from .prompts import (
+        Prompt,
+        PromptSet,
+        ValidatedPrompt,
+        ValidatedPromptSet,
+    )
+    from .distill import (
+        Example,
+        TargetMap,
+        TargetTrie,
+        first_token_metrics,
+        item_metrics,
+        render_chat,
+        score_items,
+        score_items_batched,
+        score_items_cached,
+        score_items_fast,
+        soft_ce,
+    )
+    from .lora import (
+        LoRALinear,
+        apply_lora,
+        fuse,
+        load_adapter,
+        restore,
+        save_adapter,
+    )
+
+else:
+
+    def __getattr__(name: str) -> object:
+        """Explain, rather than fail with a missing-module traceback.
+
+        Reached only on a machine with no compute backend, where every
+        name below is genuinely unavailable — so the same explanation is
+        the right answer for all of them.
+
+        Submodules that touch MLX directly (`model`, `protocol`, …) are
+        not covered: importing one still raises out of MLX itself. That
+        is the situation `mechbench-runner doctor` exists to catch first.
+        """
+        if name.startswith("__"):
+            raise AttributeError(name)
+
+        # Submodules that do not touch the substrate stay reachable —
+        # `backends` and `inventory` are precisely what reports on a
+        # machine like this one, and `from mechbench_compute import
+        # inventory` has to keep working. Without this the package
+        # attribute hook shadows the submodule and answers "no backend"
+        # for a module that never needed one.
+        import importlib
+
+        try:
+            return importlib.import_module(f".{name}", __name__)
+        except ImportError:
+            pass
+
+        # Either a name that lives behind the substrate, or a submodule
+        # that failed on MLX itself. Both get the explanation rather than
+        # a traceback out of a package nobody asked for.
+        _require_backend()
+        raise AttributeError(name)  # unreachable; require() always raises
+
+__version__ = "0.10.0"
 
 __all__ = [
+    # Substrate — the part that answers on a machine with no backend
+    "Backend",
+    "BACKENDS",
+    "active_backend",
+    "available_backends",
+    "describe_platform",
     # Main API
     "Model",
     "RunResult",

@@ -64,3 +64,49 @@ def test_backend_detection_does_not_import_the_substrate(monkeypatch):
     before = len(loaded)
     backends.available()
     assert len(loaded) == before
+
+
+class TestImportableWithoutABackend:
+    """The package loads anywhere (task 000285).
+
+    It used to raise at import time, which meant `backends` and
+    `inventory` — the two modules whose whole job is reporting on a
+    machine that cannot run anything — were reachable only from a
+    machine that could. `mechbench-runner doctor` is exactly that
+    machine's tool.
+    """
+
+    @staticmethod
+    def _without_mlx(monkeypatch):
+        import importlib.util
+        import sys
+
+        real = importlib.util.find_spec
+        monkeypatch.setattr(
+            importlib.util,
+            "find_spec",
+            lambda n, *a, **k: None if n.split(".")[0] == "mlx" else real(n, *a, **k),
+        )
+        for name in [m for m in list(sys.modules) if m.startswith("mechbench_compute")]:
+            monkeypatch.delitem(sys.modules, name, raising=False)
+
+    def test_the_package_imports(self, monkeypatch):
+        self._without_mlx(monkeypatch)
+        import mechbench_compute
+
+        assert mechbench_compute.active_backend() is None
+
+    def test_the_reporting_submodules_are_reachable(self, monkeypatch):
+        self._without_mlx(monkeypatch)
+        from mechbench_compute import backends, inventory
+
+        assert backends.active() is None
+        # The one that used to be shadowed by the attribute hook.
+        assert callable(inventory.scan)
+
+    def test_touching_the_model_api_explains_itself(self, monkeypatch):
+        self._without_mlx(monkeypatch)
+        import mechbench_compute
+
+        with pytest.raises(ImportError, match="no compute backend"):
+            _ = mechbench_compute.Model
