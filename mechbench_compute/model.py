@@ -10,7 +10,7 @@ nothing else needs to be imported in a typical script.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Callable, Iterable
 
 import mlx.core as mx
 import numpy as np
@@ -124,10 +124,21 @@ class Model:
         self._model = model
         self._processor = processor
         self.arch = arch if arch is not None else _arch.Arch.from_mlx_model(model)
+        # What this actually is, filled in by `load`. `revision` is the commit
+        # the weights came from — the thing a run records, since the reference
+        # asked for may have been a moving ref.
+        self.repo_id: str | None = None
+        self.revision: str | None = None
+        self.requested_ref: str | None = None
 
     @classmethod
-    def load(cls, model_id: str) -> "Model":
+    def load(cls, model_id: str, *,
+             on_download: "Callable[[str, str | None], None] | None" = None) -> "Model":
         """Load a model from the HuggingFace cache.
+
+        The weights are installed if this machine does not have them, so a
+        pinned reference works on a fresh machine and not only on one that
+        already downloaded it.
 
         `model_id` is required and has no default. Which model to run is
         the caller's decision, not this layer's: a default here would let a
@@ -154,23 +165,15 @@ class Model:
         # wrapper, in a shape _forward_qwen/_forward_llama don't mirror). Other
         # families try mlx-vlm first, then fall back to mlx-lm on "not
         # supported" (covers checkpoints whose config we couldn't peek).
-        from .hub import parse_model_ref, resolve_cached_revision, snapshot_path
+        from .hub import ensure_model
 
-        repo_id, revision = parse_model_ref(model_id)
-        if revision is not None:
-            sha = resolve_cached_revision(repo_id, revision)
-            if sha is None:
-                raise ValueError(
-                    f"pinned revision {revision!r} of {repo_id!r} is not in "
-                    f"the local HF cache (offline resolution only)")
-            snap = snapshot_path(repo_id, sha)
-            if snap is None:
-                raise ValueError(
-                    f"cache has ref {revision!r} -> {sha} for {repo_id!r} "
-                    f"but no snapshot directory")
-            model_id = str(snap)
-        else:
-            model_id = repo_id
+        # Install the weights if this machine does not have them, and learn
+        # which commit they are. Loading always goes through the resolved
+        # snapshot, so a run can record the revision it actually executed
+        # rather than the reference it was handed.
+        requested = model_id
+        repo_id, revision_sha, snapshot = ensure_model(model_id, on_download=on_download)
+        model_id = str(snapshot)
 
         if _peek_model_type(model_id) in _MLX_LM_FAMILIES:
             from mlx_lm import load as mlx_lm_load
@@ -196,7 +199,11 @@ class Model:
                 f"(Qwen 3.5 → 000202, DeepSeek V3 / Kimi-VL → 000203) are "
                 f"tracked as future work."
             )
-        return cls(m, p, arch=arch)
+        model = cls(m, p, arch=arch)
+        model.repo_id = repo_id
+        model.revision = revision_sha
+        model.requested_ref = requested
+        return model
 
     @property
     def tokenizer(self):

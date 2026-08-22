@@ -45,9 +45,12 @@ class ProtocolSpec:
 
 
 class ProtocolExecutor:
-    def __init__(self) -> None:
+    def __init__(self, on_download=None) -> None:
         self._model: Model | None = None
         self._model_id: str | None = None
+        # Called just before weights are fetched, and only then: the runner
+        # uses it to announce a wait that can run to gigabytes.
+        self._on_download = on_download
 
     def _model_loaded(self, model_id: str) -> Model:
         """The model an operation declared, loading it if it is not resident.
@@ -67,7 +70,7 @@ class ProtocolExecutor:
             )
         # One model in memory at a time; swapping ids reloads.
         if self._model is None or (model_id and model_id != self._model_id):
-            self._model = Model.load(model_id)
+            self._model = Model.load(model_id, on_download=self._on_download)
             self._model_id = model_id
         return self._model
 
@@ -86,6 +89,13 @@ class ProtocolExecutor:
         raise ValueError(f"unsupported protocolKind: {spec.kind!r}")
 
 
+
+    @staticmethod
+    def model_ref(model: Model) -> str | None:
+        """`repo@commit` for a loaded model — what a result should record."""
+        if getattr(model, "repo_id", None) and getattr(model, "revision", None):
+            return f"{model.repo_id}@{model.revision}"
+        return None
 
     def _run_layer_ablation(
         self, prompt: str, model_id: str
@@ -121,7 +131,9 @@ class ProtocolExecutor:
                 "residual-stream update and measure Δ log p of the "
                 "model's top-1 prediction."
             ),
-            model=model_id,
+            # The resolved commit, not the reference: a payload has to say
+            # which weights produced it, and a moving ref does not.
+            model=self.model_ref(model) or model_id,
             n_layers=N_LAYERS,
             global_layers=list(GLOBAL_LAYERS),
             prompts=prompts,

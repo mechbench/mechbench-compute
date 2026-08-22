@@ -20,6 +20,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "huggingface-hub>=0.24",
     "mechbench-schema>=0.2",
     "mlx>=0.20",
     "mlx-lm>=0.20",

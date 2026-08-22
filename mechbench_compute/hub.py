@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Callable
 
 
 def parse_model_ref(ref: str) -> tuple[str, str | None]:
@@ -70,3 +71,79 @@ def resolve_cached_revision(repo_id: str,
 def snapshot_path(repo_id: str, commit_sha: str) -> Path | None:
     p = _repo_dir(repo_id) / "snapshots" / commit_sha
     return p if p.exists() else None
+
+
+def is_offline() -> bool:
+    """Whether the hub should be treated as unreachable.
+
+    Respects HuggingFace's own switches so a machine configured for offline
+    work behaves consistently across every tool that reads the same cache.
+    """
+    for var in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"):
+        v = os.environ.get(var, "").strip().lower()
+        if v in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
+def ensure_model(
+    ref: str,
+    *,
+    offline: bool | None = None,
+    on_download: "Callable[[str, str | None], None] | None" = None,
+) -> tuple[str, str, Path]:
+    """Make sure the weights named by `ref` are on disk, and say what they are.
+
+    Returns `(repo_id, commit_sha, snapshot_path)` — the resolved commit, not
+    the reference asked for, because that is what a run has to record: a
+    result whose model is "whatever main pointed at" cannot be reproduced.
+
+    Pinning used to imply "already downloaded": a revision missing from the
+    cache raised rather than fetching, which made a pinned reference
+    reproducible for someone who already had the weights and unusable for
+    anyone installing fresh. This fetches it.
+
+    `on_download` is called with (repo_id, revision) just before a download
+    starts, and only then — the caller can announce a multi-gigabyte wait
+    without having to guess whether one is about to happen.
+    """
+    repo_id, revision = parse_model_ref(ref)
+
+    sha = resolve_cached_revision(repo_id, revision)
+    if sha is not None:
+        cached = snapshot_path(repo_id, sha)
+        if cached is not None:
+            return repo_id, sha, cached
+
+    if offline if offline is not None else is_offline():
+        what = f"{repo_id}@{revision}" if revision else repo_id
+        raise ValueError(
+            f"{what} is not in the local HuggingFace cache and this machine is "
+            f"configured for offline use (HF_HUB_OFFLINE). Fetch it on a "
+            f"connected machine, or unset that variable."
+        )
+
+    if on_download is not None:
+        on_download(repo_id, revision)
+
+    from huggingface_hub import snapshot_download
+
+    try:
+        path = Path(snapshot_download(repo_id, revision=revision))
+    except Exception as exc:  # noqa: BLE001 — re-raised with the ref named
+        what = f"{repo_id}@{revision}" if revision else repo_id
+        raise ValueError(f"could not fetch {what} from the HuggingFace hub: {exc}") from exc
+
+    # snapshot_download lands the files in a directory named for the commit,
+    # which is how the exact revision is learned when none was pinned.
+    resolved = path.name if _looks_like_sha(path.name) else resolve_cached_revision(repo_id, revision)
+    if resolved is None:
+        raise ValueError(
+            f"fetched {repo_id} but could not determine which commit it is; "
+            f"the cache layout at {path} is not what was expected"
+        )
+    return repo_id, resolved, path
+
+
+def _looks_like_sha(name: str) -> bool:
+    return len(name) >= 7 and all(c in "0123456789abcdef" for c in name.lower())
