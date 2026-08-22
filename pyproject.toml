@@ -19,12 +19,18 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+# One package, every platform: `pip install mechbench-compute` resolves the
+# right substrate by itself rather than making someone choose a variant. The
+# Apple-Silicon backend is the only one implemented today, so its wheels are
+# marked accordingly — a Linux install brings the platform-independent half
+# and says plainly that no backend exists for it yet, instead of failing
+# inside a compiler.
 dependencies = [
     "huggingface-hub>=0.24",
     "mechbench-schema>=0.2",
-    "mlx>=0.20",
-    "mlx-lm>=0.20",
-    "mlx-vlm>=0.6.1",
+    "mlx>=0.20; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-lm>=0.20; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-vlm>=0.6.1; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "numpy>=1.26",
     "transformers>=4.40",
     "matplotlib>=3.8",

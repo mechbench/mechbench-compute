@@ -36,6 +36,13 @@ re-exported from this module — see README.md for the full API tour.
 The full list of hook points is at mechbench_compute.all_hook_names().
 """
 
+# Fail with an explanation, not with a missing-module traceback out of a
+# dependency the user never named. Everything below this line assumes a
+# substrate; this is where a machine without one finds out.
+from .backends import require as _require_backend
+
+_require_backend()
+
 from ._arch import (
     Arch,
     D_MODEL,
