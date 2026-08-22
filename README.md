@@ -137,7 +137,7 @@ The substrate epic that will define how intermediate results are cached and shar
 
 - **`mechbench-schema`** — the typed emission contract. `mechbench-core` emits records shaped by schema types; currently a soft dependency as the emission layer is formalized.
 - **`mechbench-experiments`** — research scripts and findings that consume this package. Uses `mechbench-core` as its primary dependency.
-- **`mechbench-agent`** — exposes these primitives as agent-callable tools. Imports `mechbench-core`.
+- **`mechbench-runner`** — exposes these primitives as agent-callable tools. Imports `mechbench-core`.
 - **`mechbench-remote`** — wraps `mechbench-core` behind an RPC contract for remote (H100-class) compute. Imports `mechbench-core`.
 - **`mechbench-ui`** — TypeScript frontend. Does not import `mechbench-core` directly; reads bundles produced by it through the `mechbench-schema` contract.
 

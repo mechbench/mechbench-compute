@@ -680,7 +680,7 @@ def expand_top_outcomes_cached(model, tokenizer, prompt_ids: list[int],
     Semantics — branch floor, terminators, per-node top-50 children,
     optimality cut against the K-th completed outcome, and the mass
     accounting — are identical to the uncached expansion this replaces
-    (mechbench-agent's original). ``forwards_used`` counts model calls
+    (mechbench-runner's original). ``forwards_used`` counts model calls
     including the prefill, so cached and uncached numbers stay
     comparable. Numerics carry the usual cached-suffix bf16 envelope
     (task 000227): switch consumers only per the re-run practice.
