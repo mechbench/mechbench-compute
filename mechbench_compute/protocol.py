@@ -36,7 +36,7 @@ from mechbench_schema import (
 
 
 @dataclass
-class ExperimentSpec:
+class ProtocolSpec:
     kind: str
     prompt: str
     model_id: str
@@ -44,7 +44,7 @@ class ExperimentSpec:
     extra: dict[str, Any] | None = None
 
 
-class ExperimentRunner:
+class ProtocolExecutor:
     def __init__(self) -> None:
         self._model: Model | None = None
         self._model_id: str | None = None
@@ -56,7 +56,7 @@ class ExperimentRunner:
             self._model_id = model_id
         return self._model
 
-    def run(self, spec: ExperimentSpec, on_progress=None,
+    def run(self, spec: ProtocolSpec, on_progress=None,
             secrets=None) -> Any:
         """Execute a job spec. `on_progress(done, total)` is invoked
         after each unit of work for kinds that have a natural unit
@@ -117,7 +117,7 @@ class ExperimentRunner:
         )
 
 
-    def _legacy_decision_distribution(self, spec: ExperimentSpec,
+    def _legacy_decision_distribution(self, spec: ProtocolSpec,
                                       on_progress=None) -> Any:
         """The pre-protocol decision_distribution kind, kept as a thin
         shim over the decision-read block (superseded-code cleanup,
@@ -151,7 +151,7 @@ class ExperimentRunner:
                      "conditions": result["conditions"]},
             provenance=prov)
 
-    def _run_pipeline(self, spec: ExperimentSpec, on_progress=None,
+    def _run_pipeline(self, spec: ProtocolSpec, on_progress=None,
                       secrets=None) -> Any:
         """Execute a protocol graph (epic 000258, arc B): topological
         order over the nodes, pure blocks resolved from the core
