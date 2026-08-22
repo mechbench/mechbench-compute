@@ -12,7 +12,7 @@ difference-of-means + PC-orthogonalization recipe from Anthropic's
 'Emotion Concepts' work (transformer-circuits.pub, 2026).
 
 Example:
-    from mechbench_core import Model, Probe, fact_vectors_pooled
+    from mechbench_compute import Model, Probe, fact_vectors_pooled
 
     model = Model.load()
     emotion_vecs = fact_vectors_pooled(

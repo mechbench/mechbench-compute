@@ -39,7 +39,7 @@ Training composes three kinds of ``Example`` (see ``soft_ce``):
 
 Typical loop::
 
-    from mechbench_core import distill, lora
+    from mechbench_compute import distill, lora
 
     target = distill.TargetMap.uniform([str(i) for i in range(1, 7)])
     prompt = distill.render_chat(tok, system, user, prefill='{ "roll": ')
@@ -514,7 +514,7 @@ def score_items_fast(model, prompt_ids: list[int],
     unembedding (task 000227): the trunk runs once per chunk, and the
     lm-head is applied only to the 1–5 supervised rows per item instead
     of every position. Same batching/bucketing/sync structure as
-    ``score_items_batched``; takes a ``mechbench_core.Model`` (not a bare
+    ``score_items_batched``; takes a ``mechbench_compute.Model`` (not a bare
     module) because the trunk/head split is family-forked.
 
     Fidelity: the head sees a ``[B, n, D]`` rows-block instead of

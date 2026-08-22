@@ -1,7 +1,7 @@
 """Pure-block contracts (task 000275): the stdlib pieces every
 protocol leans on — deterministic, growth-safe, expectation-judging."""
 
-from mechbench_core.blocks import eval_expectation, factor_cross, template
+from mechbench_compute.blocks import eval_expectation, factor_cross, template
 
 WORDS = ["alpha", "bravo", "charlie", "delta", "echo"]
 
@@ -116,7 +116,7 @@ def test_eval_expectation_accepts_params_fallback():
 
 
 def test_suite_metric_records_shapes_lm_eval_results():
-    from mechbench_core.blocks import suite_metric_records
+    from mechbench_compute.blocks import suite_metric_records
     results = {"arc_easy": {"alias": "arc_easy",
                              "acc,none": 0.74, "acc_stderr,none": 0.02,
                              "acc_norm,none": 0.70,
@@ -132,7 +132,7 @@ def test_suite_metric_records_shapes_lm_eval_results():
 
 
 def test_table_from_records_flattens_coords_and_types_columns():
-    from mechbench_core.blocks import table_from_records
+    from mechbench_compute.blocks import table_from_records
     table = table_from_records([
         {"id": "a", "coords": {"task": "arc_easy", "metric": "acc"},
          "value": 0.7, "delta": 0.01},
@@ -148,7 +148,7 @@ def test_table_from_records_flattens_coords_and_types_columns():
 
 
 def test_suite_records_flow_through_union_and_paired_delta():
-    from mechbench_core.blocks import paired_delta, suite_metric_records, union
+    from mechbench_compute.blocks import paired_delta, suite_metric_records, union
     base = suite_metric_records({"arc_easy": {"acc,none": 0.70}}, {}, "base")
     adapted = suite_metric_records({"arc_easy": {"acc,none": 0.73}}, {}, "adapted")
     merged = union({"a_base": base, "b_adapted": adapted}, {})
@@ -160,7 +160,7 @@ def test_suite_records_flow_through_union_and_paired_delta():
 
 
 def test_chart_spec_references_its_source_or_inlines_rows():
-    from mechbench_core.blocks import chart_spec
+    from mechbench_compute.blocks import chart_spec
     table = {"kind": "metric_table", "rows": [{"id": "a", "model": "e2b", "v": 1.0}]}
     ref = chart_spec(table, {"mark": "bar", "encoding": {"x": "model", "y": "v"}},
                      source_label="benji/marcus/metrics/t")

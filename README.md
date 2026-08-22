@@ -1,4 +1,4 @@
-# mechbench-core
+# mechbench-compute
 
 The compute engine for [mechbench](https://github.com/mechbench/mechbench) — composable mechanistic-interpretability primitives built on MLX.
 
@@ -16,23 +16,23 @@ See [`PACKAGE_README.md`](PACKAGE_README.md) for the full API tour and worked ex
 ## Install
 
 ```bash
-pip install mechbench-core
+pip install mechbench-compute
 ```
 
 From source:
 
 ```bash
-git clone https://github.com/mechbench/mechbench-core.git
-cd mechbench-core
+git clone https://github.com/mechbench/mechbench-compute.git
+cd mechbench-compute
 pip install -e '.[dev]'
 ```
 
-Apple Silicon required (MLX is the only supported backend today). A PyTorch backend would live as `mechbench_core.backends.torch` alongside the MLX one if/when the need arises; splitting repos by backend is explicitly not planned.
+Apple Silicon required (MLX is the only supported backend today). A PyTorch backend would live as `mechbench_compute.backends.torch` alongside the MLX one if/when the need arises; splitting repos by backend is explicitly not planned.
 
 ## Quick start
 
 ```python
-from mechbench_core import Model, Ablate, Capture
+from mechbench_compute import Model, Ablate, Capture
 
 model = Model.load()
 ids = model.tokenize("Complete this sentence with one word: The Eiffel Tower is in")
@@ -46,7 +46,7 @@ for tok, p in result.top_k(model.tokenizer, k=5):
 
 Primitives for training a model toward a specified *distribution* over
 responses rather than toward example responses (task
-[`000114`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-core/open/000114-entropy-reward-finetuning.md)):
+[`000114`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-compute/open/000114-entropy-reward-finetuning.md)):
 soft-target cross-entropy at decision tokens has gradient P − T, so the
 adapter learns to *emit the distribution*.
 
@@ -54,8 +54,8 @@ adapter learns to *emit the distribution*.
 import mlx.nn as nn
 import mlx.optimizers as optim
 import numpy as np
-from mechbench_core import Model, distill, lora
-from mechbench_core.distill import TargetMap
+from mechbench_compute import Model, distill, lora
+from mechbench_compute.distill import TargetMap
 
 model = Model.load()
 tok = model.tokenizer
@@ -92,7 +92,7 @@ lora.restore(model.lm, handle)
 
 Calibration is measured at item level (`trie.score`, `distill.item_metrics`
 — captured mass, entropy, KL from target) and at the decision token
-(`distill.first_token_metrics`). `python -m mechbench_core._smoke_distill`
+(`distill.first_token_metrics`). `python -m mechbench_compute._smoke_distill`
 runs the full lifecycle on E2B.
 
 **Two forward paths.** Training and scoring call `Model.lm` (the text
@@ -129,17 +129,17 @@ is the remaining ~5–10× path.
 
 ## Status
 
-Lifted from `gemma4-mlx-interp/gemma4_mlx_interp/` (the predecessor repo, since renamed to `mechbench-experiments`). The `Arch` adapter now supports both Gemma 4 E4B and E2B; generalization to other architecture families is ongoing — track open work in the meta repo's [`tasks/mechbench-core/`](https://github.com/mechbench/mechbench/tree/main/tasks/mechbench-core) directory.
+Lifted from `gemma4-mlx-interp/gemma4_mlx_interp/` (the predecessor repo, since renamed to `mechbench-experiments`). The `Arch` adapter now supports both Gemma 4 E4B and E2B; generalization to other architecture families is ongoing — track open work in the meta repo's [`tasks/mechbench-compute/`](https://github.com/mechbench/mechbench/tree/main/tasks/mechbench-compute) directory.
 
-The substrate epic that will define how intermediate results are cached and shared across experiments is [`000162`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-core/open/000162-dag-solver-and-content-addressed-memoization-cache.md) (DAG solver + content-addressed memoization). It consumes the canonical-serialization guarantee from [`000161`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-schema/open/) (binary formats) and the path grammar from [`000163`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-meta/open/) (identity scheme).
+The substrate epic that will define how intermediate results are cached and shared across experiments is [`000162`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-compute/open/000162-dag-solver-and-content-addressed-memoization-cache.md) (DAG solver + content-addressed memoization). It consumes the canonical-serialization guarantee from [`000161`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-schema/open/) (binary formats) and the path grammar from [`000163`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-meta/open/) (identity scheme).
 
 ## Relationship to other mechbench repos
 
-- **`mechbench-schema`** — the typed emission contract. `mechbench-core` emits records shaped by schema types; currently a soft dependency as the emission layer is formalized.
-- **`mechbench-experiments`** — research scripts and findings that consume this package. Uses `mechbench-core` as its primary dependency.
-- **`mechbench-runner`** — exposes these primitives as agent-callable tools. Imports `mechbench-core`.
-- **`mechbench-remote`** — wraps `mechbench-core` behind an RPC contract for remote (H100-class) compute. Imports `mechbench-core`.
-- **`mechbench-ui`** — TypeScript frontend. Does not import `mechbench-core` directly; reads bundles produced by it through the `mechbench-schema` contract.
+- **`mechbench-schema`** — the typed emission contract. `mechbench-compute` emits records shaped by schema types; currently a soft dependency as the emission layer is formalized.
+- **`mechbench-experiments`** — research scripts and findings that consume this package. Uses `mechbench-compute` as its primary dependency.
+- **`mechbench-runner`** — exposes these primitives as agent-callable tools. Imports `mechbench-compute`.
+- **`mechbench-remote`** — wraps `mechbench-compute` behind an RPC contract for remote (H100-class) compute. Imports `mechbench-compute`.
+- **`mechbench-ui`** — TypeScript frontend. Does not import `mechbench-compute` directly; reads bundles produced by it through the `mechbench-schema` contract.
 
 See the [meta repo](https://github.com/mechbench/mechbench) for the family overview and [PHILOSOPHY\_AND\_DIRECTION.md](https://github.com/mechbench/mechbench/blob/main/docs/PHILOSOPHY_AND_DIRECTION.md) for the design principles.
 

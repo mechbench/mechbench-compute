@@ -7,7 +7,7 @@ PNG that the human can spot-check. The PNGs land in caches/_smoke_plots/.
 Run from project root (no venv strictly required since this is matplotlib +
 numpy + sklearn only — but use the venv for reproducibility):
 
-    python -m mechbench_core._smoke_plots
+    python -m mechbench_compute._smoke_plots
 """
 
 from __future__ import annotations

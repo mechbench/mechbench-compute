@@ -5,7 +5,7 @@ capture names. Pass a list of interventions to Model.run(interventions=[...])
 and the framework composes them into the underlying hooks/capture call.
 
 API:
-    from mechbench_core import Model, Ablate, Capture, Patch
+    from mechbench_compute import Model, Ablate, Capture, Patch
 
     model = Model.load()
     ids = model.tokenize("...")

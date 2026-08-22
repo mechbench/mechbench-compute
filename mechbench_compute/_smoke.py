@@ -11,7 +11,7 @@ framework is the canonical forward path; the semantic top-1 check is the
 sole signal here.
 
 Run from project root with the venv active:
-    python -m mechbench_core._smoke
+    python -m mechbench_compute._smoke
 """
 
 from __future__ import annotations

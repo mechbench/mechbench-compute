@@ -4,7 +4,7 @@
 The researcher's front door to the bench is a local call, not the job
 queue:
 
-    from mechbench_core import bench
+    from mechbench_compute import bench
 
     bench.emit(
         "benji/my-project/results/ladder-2026-08-17",
@@ -100,7 +100,7 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
     from the arguments.
     """
     import mechbench_schema as ms
-    from mechbench_core import __version__ as core_version
+    from mechbench_compute import __version__ as core_version
 
     url, key = _config(api_url, api_key)
 
@@ -116,7 +116,7 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
         prov: dict[str, Any] = {
             "created_at": datetime.now(timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"),
-            "produced_by": {"tool": "mechbench-core",
+            "produced_by": {"tool": "mechbench-compute",
                             "version": core_version},
             "inputs": list(inputs),
             "params_fingerprint": (ms.fingerprint_params(params)

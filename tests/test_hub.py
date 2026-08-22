@@ -1,6 +1,6 @@
 """Hub ref parsing (task 000260): repo@revision splitting."""
 
-from mechbench_core.hub import parse_model_ref
+from mechbench_compute.hub import parse_model_ref
 
 
 def test_bare_repo_has_no_revision():

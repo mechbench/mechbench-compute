@@ -1,4 +1,4 @@
-# mechbench_core
+# mechbench_compute
 
 A small mechanistic-interpretability framework for Google's Gemma 4 E4B running locally on Apple Silicon via MLX. Layered on top of `mlx-vlm`; owns one canonical forward pass and exposes it through a clean API for ablation studies, activation patching, logit lenses, and fact-vector geometry.
 
@@ -7,7 +7,7 @@ This is project-specific: the architectural constants (42 layers, global layers 
 ## Quick start
 
 ```python
-from mechbench_core import Model
+from mechbench_compute import Model
 
 model = Model.load()  # loads mlx-community/gemma-4-E4B-it-bf16 from HF cache
 ids = model.tokenize("Complete this sentence with one word: The Eiffel Tower is in")
@@ -38,7 +38,7 @@ There's a rough dependency gradient — forward-pass + hook machinery is the fou
 ## Forward pass + hooks
 
 ```python
-from mechbench_core import Model, all_hook_names
+from mechbench_compute import Model, all_hook_names
 
 model = Model.load()
 print(len(all_hook_names()))  # 294 — 42 layers × 7 points each
@@ -90,7 +90,7 @@ Typos raise `InvalidHookName` with a `difflib.get_close_matches` suggestion. Out
 Pass a list of `Intervention` objects as `interventions=[...]`. Each compiles to one or more hook callbacks plus optional captures, and the framework composes them:
 
 ```python
-from mechbench_core import Ablate, Capture, Patch
+from mechbench_compute import Ablate, Capture, Patch
 ```
 
 ### Ablate — zero out components
@@ -150,7 +150,7 @@ captured = result.cache["blocks.29.attn.per_head_out"]
 ### Prompt + PromptSet
 
 ```python
-from mechbench_core import Prompt, PromptSet
+from mechbench_compute import Prompt, PromptSet
 
 my_set = PromptSet(name="my_battery", prompts=(
     Prompt(text="Complete this sentence with one word: The capital of France is",
@@ -174,7 +174,7 @@ from experiments.prompts import (
 )
 ```
 
-If you're using `mechbench_core` outside this project, you'd build your own `PromptSet` instances similarly.
+If you're using `mechbench_compute` outside this project, you'd build your own `PromptSet` instances similarly.
 
 ### Validation
 
@@ -193,7 +193,7 @@ Keeps only prompts where confidence ≥ `min_confidence` (default 0.5) and, if `
 ### Logit lens
 
 ```python
-from mechbench_core import Capture, logit_lens_final, logit_lens_per_position, N_LAYERS
+from mechbench_compute import Capture, logit_lens_final, logit_lens_per_position, N_LAYERS
 
 # Capture residual stream at every layer
 result = model.run(ids, interventions=[Capture.residual(layers=range(N_LAYERS))])
@@ -210,7 +210,7 @@ ranks_grid, logprobs_grid = logit_lens_per_position(model, result.cache, target_
 ### Fact vectors + centroid decoding
 
 ```python
-from mechbench_core import fact_vectors, fact_vectors_at, centroid_decode
+from mechbench_compute import fact_vectors, fact_vectors_at, centroid_decode
 
 # Single layer -> [n_prompts, 2560] float32
 vecs = fact_vectors(model, validated, layer=30, position="subject")
@@ -229,7 +229,7 @@ top_tokens = centroid_decode(model, capital_only, k=8, mean_subtract=True,
 ### Pure-numpy geometry stats
 
 ```python
-from mechbench_core import (
+from mechbench_compute import (
     cosine_matrix, intra_inter_separation,
     cluster_purity, silhouette_cosine, nearest_neighbor_purity,
 )
@@ -245,7 +245,7 @@ Each helper takes numpy arrays plus an optional `ax` (creates a new figure if No
 
 ```python
 import matplotlib.pyplot as plt
-from mechbench_core import (
+from mechbench_compute import (
     bar_by_layer,                     # red=global, blue=local bar chart
     lens_trajectory, logprob_trajectory,  # per-layer curves w/ geomean
     position_heatmap,                 # [layer × position] with markers
@@ -267,7 +267,7 @@ fig.savefig("caches/layer_ablation.png", dpi=140)
 
 ```python
 import numpy as np
-from mechbench_core import Ablate, FACTUAL_15, Model, N_LAYERS, bar_by_layer
+from mechbench_compute import Ablate, FACTUAL_15, Model, N_LAYERS, bar_by_layer
 
 model = Model.load()
 valid = FACTUAL_15.validate(model)
@@ -288,7 +288,7 @@ bar_by_layer(mean_delta, ylabel="mean Δ log p", title="Layer ablation")
 ### Causal tracing (reproduces finding 09)
 
 ```python
-from mechbench_core import Capture, N_LAYERS, Patch
+from mechbench_compute import Capture, N_LAYERS, Patch
 
 clean = model.run(clean_ids, interventions=[Capture.residual(range(N_LAYERS))])
 
@@ -304,7 +304,7 @@ for L in range(N_LAYERS):
 ### Fact-vector geometry (reproduces finding 10)
 
 ```python
-from mechbench_core import (
+from mechbench_compute import (
     BIG_SWEEP_96, Model, PromptSet, centroid_decode,
     fact_vectors_at, nearest_neighbor_purity, similarity_heatmap,
 )
@@ -333,9 +333,9 @@ similarity_heatmap(vecs, labels)
 Four self-contained smoke tests live next to the package:
 
 ```bash
-python -m mechbench_core._smoke                # forward path: semantic top-1 on factual prompts
-python -m mechbench_core._smoke_interventions  # composition: Ablate.head + Capture.per_head_out
-python -m mechbench_core._smoke_plots          # plots: renders each helper on synthetic data
+python -m mechbench_compute._smoke                # forward path: semantic top-1 on factual prompts
+python -m mechbench_compute._smoke_interventions  # composition: Ablate.head + Capture.per_head_out
+python -m mechbench_compute._smoke_plots          # plots: renders each helper on synthetic data
 ```
 
 Plus an integration test in `experiments/smoke_analysis.py` (lives outside the framework because it depends on this project's specific prompt collections):
@@ -360,7 +360,7 @@ Run any of them after a framework change to catch regressions.
 ## File map
 
 ```
-mechbench_core/
+mechbench_compute/
 ├── __init__.py       # Public API re-exports
 ├── README.md         # This file
 ├── _arch.py          # Constants + hook-point registry (single source of truth)

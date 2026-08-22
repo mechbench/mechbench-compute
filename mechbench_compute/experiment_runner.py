@@ -27,7 +27,7 @@ from typing import Any
 
 import mlx.core as mx
 import numpy as np
-from mechbench_core import Ablate, GLOBAL_LAYERS, Model, N_LAYERS
+from mechbench_compute import Ablate, GLOBAL_LAYERS, Model, N_LAYERS
 from mechbench_schema import (
     AblationPrompt,
     LayerAblationPayload,
@@ -126,7 +126,7 @@ class ExperimentRunner:
         from datetime import datetime, timezone
 
         import mechbench_schema as ms
-        from mechbench_core import __version__ as core_version
+        from mechbench_compute import __version__ as core_version
 
         extra = spec.extra or {}
         conditions = extra.get("conditions", [])
@@ -166,9 +166,9 @@ class ExperimentRunner:
         from datetime import datetime, timezone
 
         import mechbench_schema as ms
-        from mechbench_core import __version__ as core_version
-        from mechbench_core.blocks import PURE_BLOCKS
-        from mechbench_core.distill import (
+        from mechbench_compute import __version__ as core_version
+        from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute.distill import (
             encode, expand_top_outcomes_cached, prefill_decision,
             render_chat,
         )
@@ -201,7 +201,7 @@ class ExperimentRunner:
             if isinstance(v, dict) and set(v.keys()) == {"$hf_dataset"}:
                 return resolve_hf_dataset(resolve_value(v["$hf_dataset"]))
             if isinstance(v, dict) and "$fetch" in v                     and set(v.keys()) <= {"$fetch", "sha256"}:
-                from mechbench_core import bench
+                from mechbench_compute import bench
                 ref = resolve_value(v["$fetch"])
                 fetched, meta = bench.fetch(ref, with_meta=True)
                 got = (meta or {}).get("content_hash") or ""
@@ -269,7 +269,7 @@ class ExperimentRunner:
             resolved snapshot commit is recorded."""
             from huggingface_hub import snapshot_download
 
-            from mechbench_core.peft import peft_import
+            from mechbench_compute.peft import peft_import
 
             repo = spec["repo"]
             revision = spec.get("revision")
@@ -291,7 +291,7 @@ class ExperimentRunner:
         def record_model(ref):
             if not isinstance(ref, str) or ref in resolved["models"]:
                 return
-            from mechbench_core.hub import (
+            from mechbench_compute.hub import (
                 parse_model_ref, resolve_cached_revision,
             )
             try:
@@ -354,7 +354,7 @@ class ExperimentRunner:
         # lineage inputs = its upstream nodes' paths and operation =
         # the block ref. The protocol graph and the lineage graph are
         # then the same graph, by construction.
-        from mechbench_core import bench
+        from mechbench_compute import bench
 
         result_base = extra.get("resultPath")
         node_paths: dict[str, str] = {}
@@ -373,7 +373,7 @@ class ExperimentRunner:
             if block == "~canonical/ops/chart/spec/1":
                 # A chart references its upstream by LABEL when the
                 # executor knows it (lineage-true, renders live).
-                from mechbench_core.blocks import chart_spec
+                from mechbench_compute.blocks import chart_spec
 
                 src_edge = next((e for e in in_edges
                                  if e["to"]["port"] == "records"), None)
@@ -480,8 +480,8 @@ class ExperimentRunner:
 
         import numpy as _np
 
-        from mechbench_core.distill import encode, prefill_decision, render_chat
-        from mechbench_core.generate import sample_completion_cached
+        from mechbench_compute.distill import encode, prefill_decision, render_chat
+        from mechbench_compute.generate import sample_completion_cached
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
@@ -500,7 +500,7 @@ class ExperimentRunner:
         if fidelity not in ("text", "trace"):
             raise ValueError(f"generate: unsupported fidelity {fidelity!r}")
 
-        from mechbench_core.generate import offsets_by_cumulative_decode
+        from mechbench_compute.generate import offsets_by_cumulative_decode
 
         if on_start:
             on_start(len(records) * n)
@@ -593,7 +593,7 @@ class ExperimentRunner:
         import os
         import tempfile
 
-        from mechbench_core.lora import fuse, load_adapter, restore
+        from mechbench_compute.lora import fuse, load_adapter, restore
 
         @contextlib.contextmanager
         def _cm():
@@ -640,9 +640,9 @@ class ExperimentRunner:
         """
         import lm_eval
 
-        from mechbench_core.blocks import suite_metric_records
+        from mechbench_compute.blocks import suite_metric_records
 
-        from mechbench_core.lm_bridge import MechbenchLM
+        from mechbench_compute.lm_bridge import MechbenchLM
 
         tasks = list(params.get("tasks") or [])
         if not tasks:
@@ -716,7 +716,7 @@ class ExperimentRunner:
         import os
         import tempfile
 
-        from mechbench_core.peft import peft_export
+        from mechbench_compute.peft import peft_export
 
         payload = inputs.get("adapter") or params.get("adapter")
         if not isinstance(payload, dict) or "data" not in payload:
@@ -799,7 +799,7 @@ class ExperimentRunner:
         reimplementing them."""
         import evaluate
 
-        from mechbench_core.blocks import _records
+        from mechbench_compute.blocks import _records
 
         metric_name = params.get("metric")
         if not metric_name:
@@ -851,12 +851,12 @@ class ExperimentRunner:
         import os
         import tempfile
 
-        from mechbench_core.distill import render_chat
-        from mechbench_core.finetune import (
+        from mechbench_compute.distill import render_chat
+        from mechbench_compute.finetune import (
             build_anchor_items, build_target_items, target_map_from_spec,
             train_soft_ce,
         )
-        from mechbench_core.lora import apply_lora, save_adapter
+        from mechbench_compute.lora import apply_lora, save_adapter
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
@@ -951,8 +951,8 @@ class ExperimentRunner:
         curves."""
         import numpy as _np
 
-        from mechbench_core import Capture
-        from mechbench_core.distill import encode, render_chat
+        from mechbench_compute import Capture
+        from mechbench_compute.distill import encode, render_chat
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
@@ -1034,7 +1034,7 @@ class ExperimentRunner:
                 raise ValueError(
                     "score: no collection input edge and no "
                     "collection_path param")
-            from mechbench_core import bench
+            from mechbench_compute import bench
             fetched = bench.fetch(str(ref))
             coll = fetched.get("payload", fetched)
             coll_path = str(ref)
@@ -1086,7 +1086,7 @@ class ExperimentRunner:
         whole point of the Grid split."""
         import numpy as np
 
-        from mechbench_core.distill import (
+        from mechbench_compute.distill import (
             encode, expand_top_outcomes_cached, prefill_decision,
             render_chat, suffix_tokens,
         )

@@ -1,9 +1,9 @@
-"""mechbench_core — a mechanistic-interpretability framework for
+"""mechbench_compute — a mechanistic-interpretability framework for
 Google's Gemma 4 E4B running locally on Apple Silicon via MLX.
 
 Quick start:
 
-    from mechbench_core import Model
+    from mechbench_compute import Model
 
     model = Model.load()
     ids = model.tokenize("Complete this sentence with one word: The Eiffel Tower is in")
@@ -33,7 +33,7 @@ Declarative interventions (Ablate / Capture / Patch), prompt tooling,
 logit-lens + geometry helpers, and matplotlib plot helpers are all
 re-exported from this module — see README.md for the full API tour.
 
-The full list of hook points is at mechbench_core.all_hook_names().
+The full list of hook points is at mechbench_compute.all_hook_names().
 """
 
 from ._arch import (

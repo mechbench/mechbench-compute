@@ -12,7 +12,7 @@ uniform falls, the Paris anchor stays sharp), save_adapter, unwrap,
 fuse ≈ wrapped adapter at the decision token, restore == base bit-exact.
 
 Run from project root with the venv active:
-    HF_HUB_OFFLINE=1 python -m mechbench_core._smoke_distill [--fast]
+    HF_HUB_OFFLINE=1 python -m mechbench_compute._smoke_distill [--fast]
 """
 
 from __future__ import annotations

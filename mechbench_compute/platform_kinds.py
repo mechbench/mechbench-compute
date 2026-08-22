@@ -1,11 +1,11 @@
-"""Platform-registered document kinds shipped by mechbench-core (task
+"""Platform-registered document kinds shipped by mechbench-compute (task
 000246): the open-source half of the Layer-2 extension seam. Each entry
 is a KindManifest that core's release tooling registers at
 ~canonical/kinds/... via the bench client (platform-admin credential
 required, per the 000166 promotion flow).
 
 Run: MECHBENCH_API_URL=... MECHBENCH_API_KEY=... \
-     python -m mechbench_core.platform_kinds
+     python -m mechbench_compute.platform_kinds
 """
 
 from __future__ import annotations
@@ -116,7 +116,7 @@ def manifests():
 
 
 def register_all() -> None:
-    from mechbench_core import bench
+    from mechbench_compute import bench
 
     for m in manifests():
         try:

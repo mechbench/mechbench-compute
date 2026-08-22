@@ -8,7 +8,7 @@ we need for the corpus-generation workflow. Opitmising for throughput
 is future work if generation becomes a bottleneck.
 
 Usage:
-    from mechbench_core import Model, generate_text
+    from mechbench_compute import Model, generate_text
 
     model = Model.load()
     story = generate_text(

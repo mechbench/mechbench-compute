@@ -24,7 +24,7 @@ attention mask that breaks the causal assumption of DLA / causal tracing —
 text-only is the supported surface for now (task 000222).
 
 Run from project root with the venv active:
-    python -m mechbench_core._smoke_12b
+    python -m mechbench_compute._smoke_12b
 """
 
 from __future__ import annotations

@@ -30,8 +30,8 @@ The stock reference per family is the model's own standard forward, never the
 mechbench mirror.
 
 Run from project root with the venv active:
-    python -m mechbench_core._smoke_bitexact                       # E4B default
-    python -m mechbench_core._smoke_bitexact <hf-model-id>         # any family
+    python -m mechbench_compute._smoke_bitexact                       # E4B default
+    python -m mechbench_compute._smoke_bitexact <hf-model-id>         # any family
 """
 
 from __future__ import annotations

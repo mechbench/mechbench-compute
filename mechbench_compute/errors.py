@@ -1,4 +1,4 @@
-"""Custom exceptions raised by mechbench_core.
+"""Custom exceptions raised by mechbench_compute.
 
 Each error message is designed to tell the user exactly how to fix the problem
 — closest valid name suggestions for typos, valid layer ranges for out-of-bounds
@@ -30,7 +30,7 @@ class InvalidHookName(InterpError):
             sugg = ", ".join(repr(s) for s in suggestions)
             msg += f"\n  Did you mean: {sugg}?"
         msg += (
-            "\n  Use mechbench_core.all_hook_names() to list every valid"
+            "\n  Use mechbench_compute.all_hook_names() to list every valid"
             " hook point."
         )
         super().__init__(msg)

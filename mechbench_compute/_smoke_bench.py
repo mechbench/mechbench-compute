@@ -5,7 +5,7 @@ MECHBENCH_API_KEY set; SKIPs cleanly when they aren't (offline interp
 work must never depend on a server).
 
 Run: MECHBENCH_API_URL=... MECHBENCH_API_KEY=... \
-     python -m mechbench_core._smoke_bench
+     python -m mechbench_compute._smoke_bench
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def main() -> None:
         print("SKIP: MECHBENCH_API_URL / MECHBENCH_API_KEY not set")
         sys.exit(0)
 
-    from mechbench_core import bench
+    from mechbench_compute import bench
 
     base = "benji/bench-smoke"
     parent = f"{base}/inputs/seed"

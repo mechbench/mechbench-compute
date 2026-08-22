@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mechbench-core"
+name = "mechbench-compute"
 version = "0.9.1"
 description = "Composable mechanistic-interpretability primitives: hook-aware forward, interventions, activation cache, logit lens, probes, and geometry."
 readme = "README.md"
@@ -40,9 +40,9 @@ schema = ["mechbench-schema>=0.1"]
 dev = ["pytest>=8", "ruff>=0.5"]
 
 [project.urls]
-Homepage = "https://github.com/mechbench/mechbench-core"
+Homepage = "https://github.com/mechbench/mechbench-compute"
 "Meta repo" = "https://github.com/mechbench/mechbench"
 
 [tool.setuptools.packages.find]
-include = ["mechbench_core*"]
+include = ["mechbench_compute*"]
 exclude = ["tests*"]

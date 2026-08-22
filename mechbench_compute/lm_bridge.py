@@ -1,4 +1,4 @@
-"""lm-eval-harness LM implementation over mechbench_core.Model
+"""lm-eval-harness LM implementation over mechbench_compute.Model
 (task 000256).
 
 mlx_lm.evaluate can't load VLM-shaped checkpoints (gemma-4's

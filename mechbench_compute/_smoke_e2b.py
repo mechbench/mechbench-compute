@@ -13,7 +13,7 @@ numerically because Model.run already reuses mlx-vlm's components verbatim;
 if the top-1 tokens are right, the forward path is right.
 
 Run from project root with the venv active:
-    python -m mechbench_core._smoke_e2b
+    python -m mechbench_compute._smoke_e2b
 """
 
 from __future__ import annotations

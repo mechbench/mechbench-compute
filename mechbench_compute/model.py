@@ -111,7 +111,7 @@ class Model:
     objects and is intended for advanced use (e.g. tests that fixture a model).
 
     Example:
-        from mechbench_core import Model
+        from mechbench_compute import Model
 
         model = Model.load()
         ids = model.tokenize("Complete this sentence with one word: The Eiffel Tower is in")
@@ -185,7 +185,7 @@ class Model:
         arch = _arch.Arch.from_mlx_model(m, model_id=model_id)
         if arch.model_type not in ("gemma4", "gemma3", "qwen2", "llama"):
             raise NotImplementedError(
-                f"mechbench-core's hook-aware forward path supports Gemma 3, "
+                f"mechbench-compute's hook-aware forward path supports Gemma 3, "
                 f"Gemma 4, Qwen 2.x, and Llama 3.x; loaded model {model_id!r} "
                 f"reports model_type={arch.model_type!r}. Other families "
                 f"(Qwen 3.5 → 000202, DeepSeek V3 / Kimi-VL → 000203) are "

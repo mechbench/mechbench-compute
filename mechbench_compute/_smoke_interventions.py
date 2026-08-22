@@ -15,7 +15,7 @@ behavior that no migration validates on its own.
        still carry signal
 
 Run from project root with the venv active:
-    python -m mechbench_core._smoke_interventions
+    python -m mechbench_compute._smoke_interventions
 """
 
 from __future__ import annotations
