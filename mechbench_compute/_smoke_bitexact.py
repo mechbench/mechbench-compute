@@ -44,7 +44,6 @@ import numpy as np
 from mlx_vlm.models import cache as cache_mod
 
 from . import Model
-from ._arch import DEFAULT_MODEL_ID
 
 PROMPT = "Complete this sentence with one word: The capital of France is"
 
@@ -88,7 +87,7 @@ def _stock_logits(mlxm, ids: mx.array, arch) -> mx.array:
     return logits
 
 
-def main(model_id: str = DEFAULT_MODEL_ID) -> int:
+def main(model_id: str) -> int:
     print(f"Loading {model_id} ...")
     t0 = time.perf_counter()
     model = Model.load(model_id)
@@ -167,4 +166,6 @@ def main(model_id: str = DEFAULT_MODEL_ID) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL_ID))
+    if len(sys.argv) < 2:
+        sys.exit("usage: python -m mechbench_compute._smoke_bitexact <model_id>")
+    sys.exit(main(sys.argv[1]))

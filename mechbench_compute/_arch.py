@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-DEFAULT_MODEL_ID = "mlx-community/gemma-4-E4B-it-bf16"
 
 # ---------------------------------------------------------------------------
 # Hook-point names. These are the stable interface and don't depend on the
@@ -238,7 +237,7 @@ class Arch:
 # ---------------------------------------------------------------------------
 
 E4B_DEFAULT = Arch(
-    model_id=DEFAULT_MODEL_ID,
+    model_id="mlx-community/gemma-4-E4B-it-bf16",
     n_layers=42,
     d_model=2560,
     n_heads=8,

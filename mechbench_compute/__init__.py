@@ -5,7 +5,7 @@ Quick start:
 
     from mechbench_compute import Model
 
-    model = Model.load()
+    model = Model.load("mlx-community/gemma-4-E4B-it-bf16")
     ids = model.tokenize("Complete this sentence with one word: The Eiffel Tower is in")
 
     # Forward pass, no instrumentation:
@@ -38,7 +38,6 @@ The full list of hook points is at mechbench_compute.all_hook_names().
 
 from ._arch import (
     Arch,
-    DEFAULT_MODEL_ID,
     D_MODEL,
     GLOBAL_LAYERS,
     LAYER_HOOK_POINTS,
@@ -240,7 +239,6 @@ __all__ = [
     "parse_hook_name",
     # Architecture facts
     "Arch",
-    "DEFAULT_MODEL_ID",
     "N_LAYERS",
     "D_MODEL",
     "N_HEADS",

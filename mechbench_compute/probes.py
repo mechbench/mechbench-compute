@@ -14,7 +14,7 @@ difference-of-means + PC-orthogonalization recipe from Anthropic's
 Example:
     from mechbench_compute import Model, Probe, fact_vectors_pooled
 
-    model = Model.load()
+    model = Model.load("mlx-community/gemma-4-E4B-it-bf16")
     emotion_vecs = fact_vectors_pooled(
         model, emotion_stories, layers=[28], start=20,
     )[28]  # [n_stories, d_model]

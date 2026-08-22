@@ -10,7 +10,7 @@ is future work if generation becomes a bottleneck.
 Usage:
     from mechbench_compute import Model, generate_text
 
-    model = Model.load()
+    model = Model.load("mlx-community/gemma-4-E4B-it-bf16")
     story = generate_text(
         model,
         "Write a one-paragraph story where a character experiences calm. "

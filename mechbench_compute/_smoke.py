@@ -37,7 +37,7 @@ PROMPTS = [
 def main() -> int:
     print("Loading model...")
     t0 = time.perf_counter()
-    model = Model.load()
+    model = Model.load("mlx-community/gemma-4-E4B-it-bf16")
     print(f"Loaded in {time.perf_counter() - t0:.1f}s. "
           f"({len(all_hook_names())} hook points exposed.)")
 

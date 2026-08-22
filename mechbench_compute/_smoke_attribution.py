@@ -22,7 +22,7 @@ from .model import Model
 
 def main() -> None:
     print("Loading model...")
-    model = Model.load()
+    model = Model.load("mlx-community/gemma-4-E4B-it-bf16")
     n_heads = model.arch.n_heads
 
     prompt = "Complete this sentence with one word: The capital of France is"

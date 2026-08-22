@@ -107,13 +107,13 @@ class RunResult:
 class Model:
     """A loaded Gemma 4 E4B model with the hook-aware forward pass.
 
-    Construct via Model.load() — the constructor takes pre-loaded mlx-vlm
+    Construct via Model.load("mlx-community/gemma-4-E4B-it-bf16") — the constructor takes pre-loaded mlx-vlm
     objects and is intended for advanced use (e.g. tests that fixture a model).
 
     Example:
         from mechbench_compute import Model
 
-        model = Model.load()
+        model = Model.load("mlx-community/gemma-4-E4B-it-bf16")
         ids = model.tokenize("Complete this sentence with one word: The Eiffel Tower is in")
         result = model.run(ids)
         for tok, p in result.top_k(model.tokenizer):
@@ -126,8 +126,13 @@ class Model:
         self.arch = arch if arch is not None else _arch.Arch.from_mlx_model(model)
 
     @classmethod
-    def load(cls, model_id: str = _arch.DEFAULT_MODEL_ID) -> "Model":
+    def load(cls, model_id: str) -> "Model":
         """Load a model from the HuggingFace cache.
+
+        `model_id` is required and has no default. Which model to run is
+        the caller's decision, not this layer's: a default here would let a
+        result be recorded without saying which weights produced it, and
+        would silently follow whatever a moving upstream ref points at.
 
         `model_id` may pin a revision as ``repo@revision`` (task
         000260): the pin resolves against the local cache and the model

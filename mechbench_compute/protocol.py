@@ -49,10 +49,25 @@ class ProtocolExecutor:
         self._model: Model | None = None
         self._model_id: str | None = None
 
-    def _model_loaded(self, model_id: str | None = None) -> Model:
+    def _model_loaded(self, model_id: str) -> Model:
+        """The model an operation declared, loading it if it is not resident.
+
+        `model_id` is required, and there is no fallback to whatever happens
+        to be loaded. An operation that ran a model it did not name produces
+        a result whose recorded model is a claim rather than a fact — which is
+        precisely the bug this signature exists to prevent (the flat
+        layer_ablation path did exactly that: it recorded the requested model
+        and executed the warmed one).
+        """
+        if not model_id:
+            raise ValueError(
+                "this operation did not declare a model. Every operation that "
+                "runs one names it in its own params, so the result can say "
+                "which weights produced it."
+            )
         # One model in memory at a time; swapping ids reloads.
         if self._model is None or (model_id and model_id != self._model_id):
-            self._model = Model.load(model_id) if model_id else Model.load()
+            self._model = Model.load(model_id)
             self._model_id = model_id
         return self._model
 
@@ -75,7 +90,7 @@ class ProtocolExecutor:
     def _run_layer_ablation(
         self, prompt: str, model_id: str
     ) -> LayerAblationPayload:
-        model = self._model_loaded()
+        model = self._model_loaded(model_id)
 
         ids = model.tokenize(prompt)
         baseline = model.run(ids)
