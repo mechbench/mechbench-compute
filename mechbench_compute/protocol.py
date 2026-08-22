@@ -100,7 +100,7 @@ class ProtocolExecutor:
             )
         ]
         return LayerAblationPayload(
-            experiment="mechbench-runner:layer_ablation",
+            protocol="mechbench-runner:layer_ablation",
             description=(
                 "Single-prompt layer ablation: zero each decoder block's "
                 "residual-stream update and measure Δ log p of the "
