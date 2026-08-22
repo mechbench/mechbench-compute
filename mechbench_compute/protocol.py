@@ -68,7 +68,7 @@ class ProtocolExecutor:
             return self._legacy_decision_distribution(spec, on_progress)
         if spec.kind == "pipeline":
             return self._run_pipeline(spec, on_progress, secrets=secrets)
-        raise ValueError(f"unsupported experimentKind: {spec.kind!r}")
+        raise ValueError(f"unsupported protocolKind: {spec.kind!r}")
 
 
 
