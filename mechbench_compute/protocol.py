@@ -45,12 +45,13 @@ class ProtocolSpec:
 
 
 class ProtocolExecutor:
-    def __init__(self, on_download=None) -> None:
+    def __init__(self, on_download=None, on_download_bytes=None) -> None:
         self._model: Model | None = None
         self._model_id: str | None = None
         # Called just before weights are fetched, and only then: the runner
         # uses it to announce a wait that can run to gigabytes.
         self._on_download = on_download
+        self._on_download_bytes = on_download_bytes
 
     def _model_loaded(self, model_id: str) -> Model:
         """The model an operation declared, loading it if it is not resident.
@@ -70,7 +71,8 @@ class ProtocolExecutor:
             )
         # One model in memory at a time; swapping ids reloads.
         if self._model is None or (model_id and model_id != self._model_id):
-            self._model = Model.load(model_id, on_download=self._on_download)
+            self._model = Model.load(model_id, on_download=self._on_download,
+                                     on_download_bytes=self._on_download_bytes)
             self._model_id = model_id
         return self._model
 

@@ -133,7 +133,8 @@ class Model:
 
     @classmethod
     def load(cls, model_id: str, *,
-             on_download: "Callable[[str, str | None], None] | None" = None) -> "Model":
+             on_download: "Callable[[str, str | None], None] | None" = None,
+             on_download_bytes: "Callable[[int, int], None] | None" = None) -> "Model":
         """Load a model from the HuggingFace cache.
 
         The weights are installed if this machine does not have them, so a
@@ -172,7 +173,8 @@ class Model:
         # snapshot, so a run can record the revision it actually executed
         # rather than the reference it was handed.
         requested = model_id
-        repo_id, revision_sha, snapshot = ensure_model(model_id, on_download=on_download)
+        repo_id, revision_sha, snapshot = ensure_model(
+            model_id, on_download=on_download, on_bytes=on_download_bytes)
         model_id = str(snapshot)
 
         if _peek_model_type(model_id) in _MLX_LM_FAMILIES:

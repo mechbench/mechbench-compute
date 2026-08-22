@@ -91,6 +91,7 @@ def ensure_model(
     *,
     offline: bool | None = None,
     on_download: "Callable[[str, str | None], None] | None" = None,
+    on_bytes: "Callable[[int, int], None] | None" = None,
 ) -> tuple[str, str, Path]:
     """Make sure the weights named by `ref` are on disk, and say what they are.
 
@@ -105,7 +106,9 @@ def ensure_model(
 
     `on_download` is called with (repo_id, revision) just before a download
     starts, and only then — the caller can announce a multi-gigabyte wait
-    without having to guess whether one is about to happen.
+    without having to guess whether one is about to happen. `on_bytes` is
+    called with (downloaded, total) as it proceeds, so that wait can have a
+    progress bar rather than a spinner.
     """
     repo_id, revision = parse_model_ref(ref)
 
@@ -129,7 +132,10 @@ def ensure_model(
     from huggingface_hub import snapshot_download
 
     try:
-        path = Path(snapshot_download(repo_id, revision=revision))
+        kwargs = {}
+        if on_bytes is not None:
+            kwargs["tqdm_class"] = _progress_tqdm(on_bytes)
+        path = Path(snapshot_download(repo_id, revision=revision, **kwargs))
     except Exception as exc:  # noqa: BLE001 — re-raised with the ref named
         what = f"{repo_id}@{revision}" if revision else repo_id
         raise ValueError(f"could not fetch {what} from the HuggingFace hub: {exc}") from exc
@@ -147,3 +153,34 @@ def ensure_model(
 
 def _looks_like_sha(name: str) -> bool:
     return len(name) >= 7 and all(c in "0123456789abcdef" for c in name.lower())
+
+
+def _progress_tqdm(on_bytes: "Callable[[int, int], None]"):
+    """A tqdm class that reports total bytes across every bar at once.
+
+    huggingface_hub opens one progress bar per file, so no single bar knows
+    how the download as a whole is going. These share one accumulator, which
+    is what a caller wants to show: 1.2 GB of 24 GB, not file 3 of 11.
+    """
+    from tqdm.auto import tqdm as _tqdm
+
+    live: dict[int, tuple[int, int]] = {}
+
+    class _Tqdm(_tqdm):  # type: ignore[misc]
+        def update(self, n=1):  # noqa: ANN001, ANN201
+            result = super().update(n)
+            # Byte bars carry a total; the "Fetching N files" bar counts
+            # files and would corrupt the sum, so it is left out.
+            if self.unit in ("B", "iB") and self.total:
+                live[id(self)] = (int(self.n), int(self.total))
+                done = sum(d for d, _ in live.values())
+                total = sum(t for _, t in live.values())
+                if total:
+                    on_bytes(done, total)
+            return result
+
+        def close(self):  # noqa: ANN201
+            live.pop(id(self), None)
+            return super().close()
+
+    return _Tqdm
