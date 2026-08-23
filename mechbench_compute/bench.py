@@ -33,23 +33,72 @@ import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import ssl
 
 
 class BenchError(RuntimeError):
     """A bench API call failed; the message carries the server detail."""
 
 
+#: Set by a host that already holds credentials — see `configure()`.
+_DEFAULTS: dict[str, str] = {}
+
+
+def configure(*, api_url: str | None = None, api_key: str | None = None) -> None:
+    """Tell this module where the API is, without using the environment.
+
+    Research scripts set MECHBENCH_API_URL/MECHBENCH_API_KEY and that
+    stays the default. A *host* embedding this layer — mechbench-runner —
+    resolves credentials its own way: since `login` they live in
+    ~/.mechbench/config.toml, not the environment, and before this hook
+    existed a pipeline could execute perfectly and then fail on its first
+    emit with "no API url".
+
+    Explicit arguments to a call still win over anything set here.
+    """
+    if api_url:
+        _DEFAULTS["url"] = api_url
+    if api_key:
+        _DEFAULTS["key"] = api_key
+
+
 def _config(api_url: str | None, api_key: str | None) -> tuple[str, str]:
-    url = api_url or os.environ.get("MECHBENCH_API_URL", "")
-    key = api_key or os.environ.get("MECHBENCH_API_KEY", "")
+    url = api_url or _DEFAULTS.get("url") or os.environ.get("MECHBENCH_API_URL", "")
+    key = api_key or _DEFAULTS.get("key") or os.environ.get("MECHBENCH_API_KEY", "")
     if not url:
         raise BenchError(
-            "no API url: set MECHBENCH_API_URL (e.g. http://localhost:8787) "
-            "or pass api_url=")
+            "no API url: set MECHBENCH_API_URL, call "
+            "mechbench_compute.bench.configure(api_url=...), or pass api_url=")
     if not key:
-        raise BenchError("no API key: set MECHBENCH_API_KEY or pass api_key=")
+        raise BenchError(
+            "no API key: set MECHBENCH_API_KEY, call "
+            "mechbench_compute.bench.configure(api_key=...), or pass api_key=")
     return url.rstrip("/"), key
+
+
+def _tls(url: str) -> "ssl.SSLContext | None":
+    """A TLS context with CA roots that exist.
+
+    `urllib` uses OpenSSL's default trust store, and a Python installed
+    by uv or from python.org on macOS has none — the default context
+    holds *zero* certificates. Every https:// call then fails with
+    CERTIFICATE_VERIFY_FAILED while anything using httpx keeps working,
+    because httpx bundles certifi.
+
+    The same asymmetry hit mechbench-runner's websocket client. Two
+    modules in this stack talk TLS without httpx; both now say so
+    explicitly.
+    """
+    if not url.startswith("https://"):
+        return None
+    import ssl
+
+    import certifi
+
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 def _request(method: str, url: str, key: str, body: bytes | None = None,
@@ -60,7 +109,7 @@ def _request(method: str, url: str, key: str, body: bytes | None = None,
     for h, v in (headers or {}).items():
         req.add_header(h, v)
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60, context=_tls(url)) as resp:
             raw = resp.read()
             ctype = resp.headers.get("content-type", "")
             resp_headers = {k.lower(): v for k, v in resp.headers.items()}

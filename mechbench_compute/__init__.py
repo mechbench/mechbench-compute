@@ -191,7 +191,7 @@ else:
         _require_backend()
         raise AttributeError(name)  # unreachable; require() always raises
 
-__version__ = "0.10.0"
+__version__ = "0.11.1"
 
 __all__ = [
     # Substrate — the part that answers on a machine with no backend
