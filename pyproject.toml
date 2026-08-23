@@ -44,7 +44,7 @@ dev = ["pytest>=8", "ruff>=0.5"]
 
 [project.urls]
 Homepage = "https://github.com/mechbench/mechbench-compute"
-"Meta repo" = "https://github.com/mechbench/mechbench"
+Website = "https://mechbench.ai"
 
 [tool.setuptools.packages.find]
 include = ["mechbench_compute*"]

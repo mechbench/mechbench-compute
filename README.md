@@ -1,6 +1,6 @@
 # mechbench-compute
 
-The compute engine for [mechbench](https://github.com/mechbench/mechbench) — composable mechanistic-interpretability primitives built on MLX.
+The compute engine for [mechbench](https://mechbench.ai) — composable mechanistic-interpretability primitives built on MLX.
 
 This repo provides:
 
@@ -46,7 +46,7 @@ for tok, p in result.top_k(model.tokenizer, k=5):
 
 Primitives for training a model toward a specified *distribution* over
 responses rather than toward example responses (task
-[`000114`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-compute/open/000114-entropy-reward-finetuning.md)):
+`000114`):
 soft-target cross-entropy at decision tokens has gradient P − T, so the
 adapter learns to *emit the distribution*.
 
@@ -129,19 +129,18 @@ is the remaining ~5–10× path.
 
 ## Status
 
-Lifted from `gemma4-mlx-interp/gemma4_mlx_interp/` (the predecessor repo, since renamed to `mechbench-experiments`). The `Arch` adapter now supports both Gemma 4 E4B and E2B; generalization to other architecture families is ongoing — track open work in the meta repo's [`tasks/mechbench-compute/`](https://github.com/mechbench/mechbench/tree/main/tasks/mechbench-compute) directory.
+The `Arch` adapter supports Gemma 4 E4B and E2B; generalization to other architecture families is ongoing.
 
-The substrate epic that will define how intermediate results are cached and shared across experiments is [`000162`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-compute/open/000162-dag-solver-and-content-addressed-memoization-cache.md) (DAG solver + content-addressed memoization). It consumes the canonical-serialization guarantee from [`000161`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-schema/open/) (binary formats) and the path grammar from [`000163`](https://github.com/mechbench/mechbench/blob/main/tasks/mechbench-meta/open/) (identity scheme).
+The substrate epic that will define how intermediate results are cached and shared across experiments is `000162` (DAG solver + content-addressed memoization). It consumes the canonical-serialization guarantee from `000161` (binary formats) and the path grammar from `000163` (identity scheme).
 
 ## Relationship to other mechbench repos
 
-- **`mechbench-schema`** — the typed emission contract. `mechbench-compute` emits records shaped by schema types; currently a soft dependency as the emission layer is formalized.
+- **`mechbench-schema`** — the typed emission contract. `mechbench-compute` emits records shaped by schema types.
 - **`mechbench-experiments`** — research scripts and findings that consume this package. Uses `mechbench-compute` as its primary dependency.
 - **`mechbench-runner`** — exposes these primitives as agent-callable tools. Imports `mechbench-compute`.
-- **`mechbench-remote`** — wraps `mechbench-compute` behind an RPC contract for remote (H100-class) compute. Imports `mechbench-compute`.
 - **`mechbench-ui`** — TypeScript frontend. Does not import `mechbench-compute` directly; reads bundles produced by it through the `mechbench-schema` contract.
 
-See the [meta repo](https://github.com/mechbench/mechbench) for the family overview and [PHILOSOPHY\_AND\_DIRECTION.md](https://github.com/mechbench/mechbench/blob/main/docs/PHILOSOPHY_AND_DIRECTION.md) for the design principles.
+See [mechbench.ai](https://mechbench.ai) for the family overview and the design principles.
 
 ## License
 

@@ -11,7 +11,6 @@ This repo does NOT own:
 - The typed emission schema (→ `mechbench-schema`).
 - The TypeScript visualization layer (→ `mechbench-ui`).
 - Agent tool-call surfaces (→ `mechbench-runner`).
-- Remote server wrappers (→ `mechbench-remote`).
 - Project-specific research scripts, findings, essays (→ `mechbench-experiments`).
 - Skill bundles / scaffolders (→ `mechbench-skills`).
 

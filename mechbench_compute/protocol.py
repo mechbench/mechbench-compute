@@ -6,7 +6,6 @@ model, and returns typed payloads. It reaches no network and knows
 nothing about jobs, queues or credentials; `mechbench-runner` owns all
 of that and calls in here once it has claimed something to do.
 
-(Historically `mechbench_agent.experiment_runner`.)
 
 
 Supports only `layer_ablation` in v0 — the same kind the job-runner
