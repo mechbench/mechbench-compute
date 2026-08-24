@@ -20,11 +20,11 @@ on {B, [a1]} yields a2 and the product is {B, [a1, a2]}; a merge
 collapses a stack into a checkpoint that stands as a fresh Base. This
 module therefore never sees a tree.
 
-Arc A resolves ``hf`` bases and a stack of at most ONE adapter — the
-capabilities the executor already has. Deeper stacks (Arc B) and
-checkpoint bases (Arc C) parse fine and fail loudly at *load* time,
-naming the arc that delivers them: a reference that parses but cannot
-yet run should say so in the run's error, not in a stack trace.
+Stacks of any practical depth resolve since Arc B — the executor
+fuses them in order (see lora.fuse_adapter_stack). Checkpoint bases
+(Arc C) parse fine and fail loudly at *load* time naming their arc: a
+reference that parses but cannot yet run should say so in the run's
+error, not in a stack trace.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ def resolve(
     value: Any,
     fetch: Callable[[str], Mapping[str, Any]],
 ) -> ModelRef:
-    """Parse and fetch the adapter payloads, enforcing Arc A's limits.
+    """Parse and fetch the adapter payloads.
 
     `fetch` is injected (bench.fetch in production) so tests never
     touch the network — the runner-conftest fence rule, applied here
@@ -111,11 +111,13 @@ def resolve(
             "arrive with task 000312 Arc C; today a base must be an HF "
             "repo[@revision]"
         )
-    if len(ref.adapter_labels) > 1:
-        raise NotImplementedError(
-            f"adapter stacks of depth {len(ref.adapter_labels)} arrive with "
-            "task 000312 Arc B; today a model reference carries at most one "
-            "adapter"
+    if len(ref.adapter_labels) > 8:
+        # Mirrors the wire schema's cap. Linear fuse cost makes very
+        # deep stacks a smell anyway — merge (Arc C) is the pressure
+        # valve.
+        raise ValueError(
+            f"adapter stack of depth {len(ref.adapter_labels)} — the cap "
+            "is 8; merge earlier rounds into a checkpoint instead"
         )
     payloads = tuple(fetch(label) for label in ref.adapter_labels)
     for label, p in zip(ref.adapter_labels, payloads):

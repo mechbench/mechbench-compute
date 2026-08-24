@@ -55,10 +55,26 @@ class TestResolveLimits:
         with pytest.raises(NotImplementedError, match="Arc C"):
             model_ref.resolve({"base": {"bench": "me/p/ckpt"}}, fetch=_no_fetch)
 
-    def test_deep_stack_names_arc_b(self):
-        with pytest.raises(NotImplementedError, match="Arc B"):
+    def test_a_stack_resolves_in_order(self):
+        # Order IS the semantics (000312 Arc B): round two fused onto
+        # round one is not round one fused onto round two.
+        fetched = []
+
+        def fetch(label):
+            fetched.append(label)
+            return {"data": b"\x00", "lora": {"rank": 8, "alpha": 16}}
+
+        ref = model_ref.resolve(
+            {"base": "org/m", "adapters": [{"bench": "x/a"}, {"bench": "x/b"}]},
+            fetch=fetch,
+        )
+        assert fetched == ["x/a", "x/b"]
+        assert ref.adapter_labels == ("x/a", "x/b")
+
+    def test_depth_nine_names_the_merge_valve(self):
+        with pytest.raises(ValueError, match="merge"):
             model_ref.resolve(
-                {"base": "org/m", "adapters": [{"bench": "x/a"}, {"bench": "x/b"}]},
+                {"base": "org/m", "adapters": [{"bench": f"x/a{i}"} for i in range(9)]},
                 fetch=_no_fetch,
             )
 

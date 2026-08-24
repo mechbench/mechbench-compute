@@ -135,3 +135,48 @@ def restore(lm, handle: dict[tuple[int, str, str], mx.array]) -> None:
         getattr(getattr(lm.model.layers[i], container), proj).weight = w
     mx.eval([getattr(getattr(lm.model.layers[i], c), p).weight
              for i, c, p in handle])
+
+
+def fuse_adapter_stack(lm, payloads, override_scale=None):
+    """Fuse an ORDERED adapter stack onto ``lm`` (task 000312 Arc B).
+
+    Successive fine-tuning rounds compose by fusing left to right: each
+    fuse's restore handle captures the weights as the previous rounds
+    left them, so the returned handles undo cleanly ONLY in reverse
+    order — which is what ``restore_adapter_stack`` does, and why the
+    handles come back as a list rather than a merged dict (a later
+    adapter may touch projections an earlier one did not).
+
+    Each payload carries its own scale (alpha/rank from its training);
+    ``override_scale`` applies to the LAST payload only — it is the
+    single-adapter knob (params.adapter_scale) and the last position is
+    the node's own operand.
+    """
+    import os
+    import tempfile
+
+    handles = []
+    for i, payload in enumerate(payloads):
+        if not isinstance(payload, dict) or "data" not in payload:
+            raise ValueError(
+                "adapter payload without safetensors bytes under 'data'")
+        cfg = payload.get("lora") or {}
+        scale = float(cfg.get("alpha", 16)) / float(cfg.get("rank", 8))
+        if override_scale is not None and i == len(payloads) - 1:
+            scale = float(override_scale)
+        fd, path = tempfile.mkstemp(suffix=".safetensors")
+        os.close(fd)
+        try:
+            with open(path, "wb") as f:
+                f.write(payload["data"])
+            handles.append(fuse(lm, load_adapter(path), scale=scale))
+        finally:
+            os.unlink(path)
+    return handles
+
+
+def restore_adapter_stack(lm, handles):
+    """Undo ``fuse_adapter_stack``: reverse order, so each restore
+    reinstalls the weights the NEXT-earlier fuse captured."""
+    for handle in reversed(handles):
+        restore(lm, handle)

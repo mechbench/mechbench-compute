@@ -645,48 +645,42 @@ class ProtocolExecutor:
             return fn(inputs, params, *args, **kwargs)
 
     def _adapter_fused(self, model, inputs, params, ref=None):
-        """Context manager: when the block has an adapter (input port
-        `adapter`, or params.adapter already $fetch-resolved to an
-        adapter payload), write its safetensors bytes to a temp file,
-        fuse onto the model, and restore on exit. Returns the fuse
-        handle or None."""
-        import contextlib
-        import os
-        import tempfile
+        """Context manager: fuse the model's adapter STACK (000312 Arc
+        B), run the block, restore in reverse.
 
-        from mechbench_compute.lora import fuse, load_adapter, restore
+        Layering, not precedence: the ModelRef's adapters are part of
+        what "the model" MEANS and fuse first, in order; an adapter
+        arriving as data flow (input port `adapter`, or params.adapter)
+        is the node's own operand and fuses last, on top. That is the
+        successive-rounds composition: read on {B, [a1]} plus an edge
+        from this graph's train node reads through a1 then the new
+        round. params.adapter_scale keeps its old meaning by applying
+        to that last, node-level adapter only."""
+        import contextlib
+
+        from mechbench_compute.lora import (
+            fuse_adapter_stack, restore_adapter_stack,
+        )
 
         @contextlib.contextmanager
         def _cm():
-            # Precedence: an in-graph adapter edge wins (it is data flow,
-            # the most explicit form), then a params adapter, then the
-            # ModelRef's stack (000312 Arc A: at most one deep).
-            payload = inputs.get("adapter") or params.get("adapter")
-            if not payload and ref is not None and ref.adapter_payloads:
-                payload = ref.adapter_payloads[0]
-            if not payload:
+            payloads = list(ref.adapter_payloads) if ref is not None else []
+            node_level = inputs.get("adapter") or params.get("adapter")
+            if node_level:
+                payloads.append(node_level)
+            if not payloads:
                 yield None
                 return
-            if not isinstance(payload, dict) or "data" not in payload:
-                raise ValueError(
-                    "adapter must be an adapter object payload with "
-                    "safetensors bytes under 'data'")
-            lora_cfg = payload.get("lora") or {}
-            scale = float(params.get(
-                "adapter_scale",
-                lora_cfg.get("alpha", 16) / lora_cfg.get("rank", 8)))
-            fd, path = tempfile.mkstemp(suffix=".safetensors")
-            os.close(fd)
+            override = (
+                float(params["adapter_scale"])
+                if node_level and "adapter_scale" in params
+                else None
+            )
+            handles = fuse_adapter_stack(model.lm, payloads, override)
             try:
-                with open(path, "wb") as f:
-                    f.write(payload["data"])
-                handle = fuse(model.lm, load_adapter(path), scale=scale)
-                try:
-                    yield handle
-                finally:
-                    restore(model.lm, handle)
+                yield handles
             finally:
-                os.unlink(path)
+                restore_adapter_stack(model.lm, handles)
         return _cm()
 
     def _block_eval_suite(self, inputs, params, on_item=None,
@@ -922,10 +916,22 @@ class ProtocolExecutor:
             build_anchor_items, build_target_items, target_map_from_spec,
             train_soft_ce,
         )
-        from mechbench_compute.lora import apply_lora, save_adapter
+        from mechbench_compute.lora import (
+            apply_lora, fuse_adapter_stack, save_adapter,
+        )
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
+
+        # Successive rounds (000312 Arc B): a ModelRef base with prior
+        # adapters trains on the FUSED weights — the new round learns a
+        # delta on top of the stack, which is what makes {B, [a1, a2]}
+        # mean what it says. No restore here: the block evicts the
+        # in-process model after saving, so every later block reloads a
+        # clean base anyway.
+        mref = params.get("model")
+        if hasattr(mref, "adapter_payloads") and mref.adapter_payloads:
+            fuse_adapter_stack(model.lm, list(mref.adapter_payloads))
 
         records = inputs.get("records") or params.get("records") or []
         if isinstance(records, dict):
@@ -989,10 +995,20 @@ class ProtocolExecutor:
         self._model = None
         self._model_id = None
 
+        base_ref = params.get("model")
+        trained_on = (
+            {"base": base_ref.base, "adapters": list(base_ref.adapter_labels)}
+            if hasattr(base_ref, "adapter_labels")
+            else {"base": base_ref, "adapters": []}
+        )
         return {
             "kind": "adapter",
             "format": "safetensors",
-            "base_model": params.get("model"),
+            # The full stack this round was trained on — a dataclass
+            # would not serialize, and a bare string would lose the
+            # prior rounds (000312 Arc B).
+            "base_model": trained_on["base"],
+            "trained_on": trained_on,
             "lora": {"rank": rank, "alpha": alpha,
                       "scale": alpha / rank,
                       "target_modules": list(target_modules),
