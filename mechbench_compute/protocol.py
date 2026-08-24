@@ -52,8 +52,12 @@ class ProtocolExecutor:
         self._on_download = on_download
         self._on_download_bytes = on_download_bytes
 
-    def _model_loaded(self, model_id: str) -> Model:
+    def _model_loaded(self, model_id) -> Model:
         """The model an operation declared, loading it if it is not resident.
+
+        Accepts a bare "repo[@rev]" string or a ModelRef (000312 Arc A),
+        whose BASE is what loads here — adapters are the fuse layer's
+        business, not the loader's.
 
         `model_id` is required, and there is no fallback to whatever happens
         to be loaded. An operation that ran a model it did not name produces
@@ -62,6 +66,8 @@ class ProtocolExecutor:
         layer_ablation path did exactly that: it recorded the requested model
         and executed the warmed one).
         """
+        if hasattr(model_id, "base"):
+            model_id = model_id.base
         if not model_id:
             raise ValueError(
                 "this operation did not declare a model. Every operation that "
@@ -392,7 +398,32 @@ class ProtocolExecutor:
             block = node["block"]
             params = resolve_params(node.get("params"))
             if "model" in params:
-                record_model(params.get("model"))
+                # The model algebra (000312 Arc A): a binding may be a
+                # structured ModelRef. Normalize it HERE — adapters are
+                # fetched through the same recording path as $fetch, so
+                # a run's manifest names everything it actually loaded.
+                mval = params.get("model")
+                if isinstance(mval, dict) or hasattr(mval, "adapter_labels"):
+                    from mechbench_compute import model_ref as model_ref_mod
+
+                    def _fetch_recording(label):
+                        from mechbench_compute import bench
+
+                        fetched, meta = bench.fetch(label, with_meta=True)
+                        resolved["objects"][str(label)] = (
+                            (meta or {}).get("content_hash") or ""
+                        )
+                        return (
+                            fetched.get("payload", fetched)
+                            if isinstance(fetched, dict)
+                            else fetched
+                        )
+
+                    ref = model_ref_mod.resolve(mval, fetch=_fetch_recording)
+                    params = {**params, "model": ref}
+                    record_model(ref.base)
+                else:
+                    record_model(mval)
             in_edges = [e for e in edges if e["to"]["node"] == nid]
             inputs = {
                 e["to"]["port"]: results[e["from"]["node"]]
@@ -607,11 +638,13 @@ class ProtocolExecutor:
         when one arrives (input port `adapter` or params.adapter), run
         the block, restore. Blocks themselves stay adapter-unaware —
         their own _model_loaded call returns the same fused instance."""
-        model = self._model_loaded(params.get("model"))
-        with self._adapter_fused(model, inputs, params):
+        mval = params.get("model")
+        ref = mval if hasattr(mval, "adapter_payloads") else None
+        model = self._model_loaded(ref.base if ref else mval)
+        with self._adapter_fused(model, inputs, params, ref=ref):
             return fn(inputs, params, *args, **kwargs)
 
-    def _adapter_fused(self, model, inputs, params):
+    def _adapter_fused(self, model, inputs, params, ref=None):
         """Context manager: when the block has an adapter (input port
         `adapter`, or params.adapter already $fetch-resolved to an
         adapter payload), write its safetensors bytes to a temp file,
@@ -625,7 +658,12 @@ class ProtocolExecutor:
 
         @contextlib.contextmanager
         def _cm():
+            # Precedence: an in-graph adapter edge wins (it is data flow,
+            # the most explicit form), then a params adapter, then the
+            # ModelRef's stack (000312 Arc A: at most one deep).
             payload = inputs.get("adapter") or params.get("adapter")
+            if not payload and ref is not None and ref.adapter_payloads:
+                payload = ref.adapter_payloads[0]
             if not payload:
                 yield None
                 return
