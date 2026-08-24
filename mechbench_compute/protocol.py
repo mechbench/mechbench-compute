@@ -398,16 +398,16 @@ class ProtocolExecutor:
                 e["to"]["port"]: results[e["from"]["node"]]
                 for e in in_edges
             }
-            if block == "~canonical/ops/chart/spec/1":
-                # A chart references its upstream by LABEL when the
+            if block == "~canonical/ops/viz/spec/1":
+                # A viz references its upstream by LABEL when the
                 # executor knows it (lineage-true, renders live).
-                from mechbench_compute.blocks import chart_spec
+                from mechbench_compute.blocks import viz_spec
 
                 src_edge = next((e for e in in_edges
                                  if e["to"]["port"] == "records"), None)
                 src_label = (node_paths.get(src_edge["from"]["node"])
                              if src_edge else None)
-                results[nid] = chart_spec(
+                results[nid] = viz_spec(
                     inputs.get("records"), params, source_label=src_label)
             elif block in PURE_BLOCKS:
                 results[nid] = PURE_BLOCKS[block](inputs, params)

@@ -159,15 +159,15 @@ def test_suite_records_flow_through_union_and_paired_delta():
     assert abs(deltas[0]["delta"] - 0.03) < 1e-9
 
 
-def test_chart_spec_references_its_source_or_inlines_rows():
-    from mechbench_compute.blocks import chart_spec
+def test_viz_spec_references_its_source_or_inlines_rows():
+    from mechbench_compute.blocks import viz_spec
     table = {"kind": "metric_table", "rows": [{"id": "a", "model": "e2b", "v": 1.0}]}
-    ref = chart_spec(table, {"mark": "bar", "encoding": {"x": "model", "y": "v"}},
+    ref = viz_spec(table, {"mark": "bar", "encoding": {"x": "model", "y": "v"}},
                      source_label="benji/marcus/metrics/t")
-    assert ref["kind"] == "chart_spec" and ref["source"] == "benji/marcus/metrics/t"
+    assert ref["kind"] == "viz_spec" and ref["source"] == "benji/marcus/metrics/t"
     assert "data" not in ref
-    inline = chart_spec(table, {"encoding": {"x": "model", "y": "v"}})
+    inline = viz_spec(table, {"encoding": {"x": "model", "y": "v"}})
     assert inline["data"]["rows"] == [{"id": "a", "model": "e2b", "v": 1.0}]
     recs = [{"id": "r", "coords": {"task": "arc"}, "value": 0.8}]
-    flat = chart_spec(recs, {"encoding": {"x": "task", "y": "value"}})
+    flat = viz_spec(recs, {"encoding": {"x": "task", "y": "value"}})
     assert flat["data"]["rows"] == [{"id": "r", "value": 0.8, "task": "arc"}]

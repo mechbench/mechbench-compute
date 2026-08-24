@@ -349,20 +349,21 @@ def table_from_records(records: Any,
             "rows": rows}
 
 
-def chart_spec(records: Any, params: Mapping[str, Any],
+def viz_spec(records: Any, params: Mapping[str, Any],
                source_label: str | None = None) -> dict[str, Any]:
-    """~canonical/ops/chart/spec/1 — a chart is a bench object (task
-    000277): a presentation spec over the upstream table/records. When
+    """~canonical/ops/viz/spec/1 — a viz is a bench object (task
+    000277; renamed from viz_spec by 000309 — "viz" is the level of
+    abstraction the primitive targets): a presentation spec over the upstream table/records. When
     the executor knows the input's label the spec REFERENCES it
     (`source`, lineage-true, renders live); otherwise the rows ride
-    inline (`data.rows`) so the chart stays self-contained."""
+    inline (`data.rows`) so the viz stays self-contained."""
     enc = params.get("encoding") or {}
     x = enc.get("x") or params.get("x")
     y = enc.get("y") or params.get("y")
     if not x or not y:
-        raise ValueError("chart/spec needs encoding.x and encoding.y")
+        raise ValueError("viz/spec needs encoding.x and encoding.y")
     spec: dict[str, Any] = {
-        "kind": "chart_spec",
+        "kind": "viz_spec",
         "title": params.get("title", ""),
         "mark": params.get("mark", "bar"),
         "encoding": {"x": x, "y": y,
