@@ -89,10 +89,20 @@ class RepoInventory:
 
 
 def scan() -> list[RepoInventory]:
-    """Every model repository in the local cache, largest first."""
-    from huggingface_hub import scan_cache_dir
+    """Every model repository in the local cache, largest first.
 
-    info = scan_cache_dir()
+    A machine that has never downloaded a model has no cache DIRECTORY,
+    and huggingface_hub raises CacheNotFound rather than reporting the
+    empty truth. Every dev machine has the directory, so the release
+    gate's fresh-venv smoke was the first thing to ever hit this
+    (task 000300, first dry run)."""
+    from huggingface_hub import scan_cache_dir
+    from huggingface_hub.errors import CacheNotFound
+
+    try:
+        info = scan_cache_dir()
+    except CacheNotFound:
+        return []
     out: list[RepoInventory] = []
     for repo in info.repos:
         if repo.repo_type != "model":

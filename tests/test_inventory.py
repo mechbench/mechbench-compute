@@ -128,3 +128,21 @@ class TestScan:
         assert backends.active() is None
         # Still importable, still callable.
         assert isinstance(inventory.format_bytes(1), str)
+
+
+def test_a_machine_with_no_cache_directory_reports_empty(monkeypatch):
+    """The fresh-install truth (000300): no downloads yet means an empty
+    inventory, never a CacheNotFound traceback out of `mechbench models`.
+    (HF_HUB_CACHE is baked into huggingface_hub at import time, so the
+    absent-directory condition is simulated at the API boundary.)"""
+    import huggingface_hub
+    from huggingface_hub.errors import CacheNotFound
+
+    def gone(*a, **k):
+        raise CacheNotFound("no cache", cache_dir="/nowhere")
+
+    monkeypatch.setattr(huggingface_hub, "scan_cache_dir", gone)
+    from mechbench_compute import inventory
+
+    assert inventory.scan() == []
+
