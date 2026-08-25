@@ -45,6 +45,16 @@ class ModelRef:
     adapter_labels: tuple[str, ...] = ()
     adapter_payloads: tuple[Mapping[str, Any], ...] = field(default=(), compare=False)
 
+    def to_wire(self) -> dict[str, Any]:
+        """The canonical structured form — what provenance fingerprints
+        and manifests record. Labels, never payloads: the fingerprint of
+        a run is what it DECLARED, and the adapters' own content hashes
+        are already recorded by the fetch path."""
+        return {
+            "base": {self.base_kind: self.base},
+            "adapters": [{"bench": label} for label in self.adapter_labels],
+        }
+
     def describe(self) -> str:
         """`hf:repo@rev (+2 adapters)` — for telemetry and manifests."""
         tail = ""

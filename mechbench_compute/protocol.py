@@ -486,7 +486,7 @@ class ProtocolExecutor:
                     inputs=[node_paths[e["from"]["node"]]
                             for e in in_edges],
                     operation=block,
-                    params=params,
+                    params=_wire_params(params),
                 )
                 node_paths[nid] = out["path"]
             bump()
@@ -1231,6 +1231,18 @@ class ProtocolExecutor:
             if on_item:
                 on_item()
         return {"kind": "decision_read", "conditions": out}
+
+
+
+def _wire_params(params):
+    """Params as provenance may record them (task 000312 follow-up):
+    a normalized ModelRef rides through execution as an object, but a
+    fingerprint hashes CANONICAL WIRE FORMS — the object serialized
+    back to {base, adapters}, which is also what the run declared."""
+    return {
+        k: (v.to_wire() if hasattr(v, "to_wire") else v)
+        for k, v in params.items()
+    }
 
 
 def _last_logp(logits: mx.array) -> np.ndarray:

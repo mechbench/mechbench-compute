@@ -105,3 +105,28 @@ class TestDescribe:
         assert model_ref.parse("org/m@r").describe() == "hf:org/m@r"
         ref = model_ref.parse({"base": "org/m", "adapters": [{"bench": "a/b/c"}]})
         assert ref.describe() == "hf:org/m (+1 adapter)"
+
+
+class TestWireForm:
+    def test_to_wire_round_trips_through_parse(self):
+        ref = model_ref.parse(
+            {"base": {"hf": "org/m@rev"}, "adapters": [{"bench": "a/b/c"}]}
+        )
+        assert model_ref.parse(ref.to_wire()) == ref
+
+    def test_provenance_can_fingerprint_a_normalized_ref(self):
+        # Round two of spinner-fairness failed at emit time: the
+        # normalized ModelRef object reached the CBOR fingerprint
+        # ("cannot encode type ModelRef"). The emit path wire-safes
+        # params; this asserts the wire form actually encodes.
+        from mechbench_schema.provenance import fingerprint_params
+
+        from mechbench_compute.protocol import _wire_params
+
+        ref = model_ref.parse({"base": "org/m", "adapters": [{"bench": "x/a"}]})
+        digest = fingerprint_params(_wire_params({"model": ref, "steps": 40}))
+        assert digest == fingerprint_params(
+            {"model": {"base": {"hf": "org/m"}, "adapters": [{"bench": "x/a"}]},
+             "steps": 40}
+        )
+
