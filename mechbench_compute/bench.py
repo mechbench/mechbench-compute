@@ -343,3 +343,33 @@ def get_file_chunks(label: str, *, api_url: str | None = None,
             raise BenchError(f"get_file {label}: {res.status_code}")
         yield from res.iter_bytes(1 << 20)
 
+
+def list_prefix_hashes(prefix: str, *, api_url: str | None = None,
+                       api_key: str | None = None) -> dict[str, str]:
+    """{filename: sha256hex} for objects already stored under a label
+    prefix — what retry-as-resume consults before uploading (000312
+    Arc C). Best-effort: an empty dict just means upload everything."""
+    import httpx
+
+    try:
+        url, key = _config(api_url, api_key)
+        res = httpx.get(
+            f"{url}/objects/~inventory",
+            params={"limit": 200},
+            headers={"authorization": f"Bearer {key}"},
+            timeout=30.0,
+            verify=_tls(url),
+        )
+        if res.status_code != 200:
+            return {}
+        out: dict[str, str] = {}
+        for row in res.json().get("objects", []):
+            path = str(row.get("path") or "")
+            if path.startswith(prefix + "/"):
+                ch = str(row.get("contentHash") or "")
+                if ch.startswith("sha256:"):
+                    out[path[len(prefix) + 1:]] = ch[len("sha256:"):]
+        return out
+    except Exception:  # noqa: BLE001 — resume is an optimization, never a gate
+        return {}
+

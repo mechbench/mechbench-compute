@@ -836,8 +836,22 @@ class ProtocolExecutor:
                     raise ValueError("no result path — cannot derive the project")
                 owner, project = result_base.split("/")[:2]
                 prefix = f"{owner}/{project}/checkpoints/{name}"
+                # Retry-as-resume: a failed upload leaves its intact
+                # files on the server (torn ones were deleted by the
+                # hash check), so ask what is already there and skip
+                # byte-identical matches. On a residential uplink this
+                # is the difference between resuming a 9.6GB upload and
+                # restarting it.
+                have = bench.list_prefix_hashes(prefix)
+                by_name = {f["name"]: f["sha256"] for f in manifest["files"]}
                 total = 0
+                skipped = 0
                 for fname in files:
+                    if have.get(fname) == by_name.get(fname):
+                        skipped += 1
+                        if on_item:
+                            on_item()
+                        continue
                     receipt = bench.put_file(f"{prefix}/{fname}", out / fname)
                     total += int(receipt.get("sizeBytes") or 0)
                     if on_item:
@@ -855,6 +869,7 @@ class ProtocolExecutor:
                     "manifest": f"{prefix}/{checkpoint.MANIFEST_NAME}",
                     "files": len(files),
                     "bytes": total,
+                    "skipped_already_stored": skipped,
                 }
 
             hf_cfg = to["hf"] or {}

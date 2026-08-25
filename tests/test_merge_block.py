@@ -74,6 +74,7 @@ class TestBenchDestination:
             "mechbench_compute.hub.ensure_model",
             lambda ref, **k: ("org/m", "rev", snap))
         puts, emits = [], []
+        monkeypatch.setattr(bench, "list_prefix_hashes", lambda prefix, **k: {})
         monkeypatch.setattr(bench, "put_file",
                             lambda label, path, **k: puts.append(label) or {"sizeBytes": Path(path).stat().st_size})
         monkeypatch.setattr(bench, "emit",
@@ -115,3 +116,35 @@ class TestHfDestination:
                 {}, {"model": _ref(_adapter_payload()),
                      "to": {"hf": {"repo": "me/merged"}}},
                 result_base="a/b/results/j", secrets={})
+
+
+class TestRetryAsResume:
+    def test_files_the_server_already_holds_are_skipped(
+        self, executor, tmp_path, monkeypatch
+    ):
+        """A failed upload's intact files stay on the server (torn ones
+        were deleted by the hash check); the retry asks first and skips
+        byte-identical matches — resume, not restart."""
+        import hashlib
+
+        snap = _tiny_snapshot(tmp_path)
+        monkeypatch.setattr(
+            "mechbench_compute.hub.ensure_model",
+            lambda ref, **k: ("org/m", "rev", snap))
+        # pretend config.json survived the failed run
+        config_sha = hashlib.sha256((snap / "config.json").read_bytes()).hexdigest()
+        monkeypatch.setattr(
+            bench, "list_prefix_hashes",
+            lambda prefix, **k: {"config.json": config_sha})
+        puts = []
+        monkeypatch.setattr(bench, "put_file",
+                            lambda label, path, **k: puts.append(label) or {"sizeBytes": 1})
+        monkeypatch.setattr(bench, "emit", lambda *a, **k: {})
+        out = executor._block_merge(
+            {}, {"model": _ref(_adapter_payload()),
+                 "to": {"bench": {"name": "resume-v1"}}},
+            result_base="benji/training/results/j_x")
+        uploaded = {p.rsplit("/", 1)[-1] for p in puts}
+        assert "config.json" not in uploaded
+        assert out["skipped_already_stored"] == 1
+
