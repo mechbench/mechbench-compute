@@ -23,16 +23,18 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import UTC
 from typing import Any
 
 import mlx.core as mx
 import numpy as np
-from mechbench_compute import Ablate, GLOBAL_LAYERS, Model, N_LAYERS
 from mechbench_schema import (
     AblationPrompt,
     LayerAblationPayload,
     LayerAggregates,
 )
+
+from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, Model
 
 
 @dataclass
@@ -158,9 +160,10 @@ class ProtocolExecutor:
         shim over the decision-read block (superseded-code cleanup,
         2026-08-19): same spec in, same payload shape out, one
         implementation."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         import mechbench_schema as ms
+
         from mechbench_compute import __version__ as core_version
 
         extra = spec.extra or {}
@@ -171,7 +174,7 @@ class ProtocolExecutor:
             {"model": spec.model_id},
             on_item=None, on_start=None)
         prov = ms.Provenance(
-            created_at=datetime.now(timezone.utc).strftime(
+            created_at=datetime.now(UTC).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"),
             produced_by=ms.ToolInfo(tool="mechbench-runner",
                                     version=core_version),
@@ -198,15 +201,12 @@ class ProtocolExecutor:
 
         Params may reference bindings: any string param "$name"
         resolves to spec bindings[name]."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         import mechbench_schema as ms
+
         from mechbench_compute import __version__ as core_version
         from mechbench_compute.blocks import PURE_BLOCKS
-        from mechbench_compute.distill import (
-            encode, expand_top_outcomes_cached, prefill_decision,
-            render_chat,
-        )
 
         extra = spec.extra or {}
         graph = extra.get("graph") or {}
@@ -327,7 +327,8 @@ class ProtocolExecutor:
             if not isinstance(ref, str) or ref in resolved["models"]:
                 return
             from mechbench_compute.hub import (
-                parse_model_ref, resolve_cached_revision,
+                parse_model_ref,
+                resolve_cached_revision,
             )
             try:
                 repo, rev = parse_model_ref(ref)
@@ -362,12 +363,32 @@ class ProtocolExecutor:
         # Progress: one unit per node, but model blocks expand the
         # denominator to their item count on entry and tick per item —
         # the board's bar moves per condition/story, not per node.
+        #
+        # Alongside the flat scalar, STRUCTURE (000316): which node the
+        # run is in and how far through it. A denominator that grows
+        # mid-run reads as a bug to anyone watching; "node 3/5, 12/40"
+        # only ever counts up. Passed as a third argument when the
+        # callback accepts one, so an older runner keeps working.
+        import inspect
+
         results: dict[str, Any] = {}
         total_units = len(order)
         done_units = 0
+        node_view = {"index": 0, "count": len(order), "id": "",
+                     "done": 0, "total": 0}
+        expanded = False
+        try:
+            wants_node = (on_progress is not None and
+                          len(inspect.signature(on_progress).parameters) >= 3)
+        except (TypeError, ValueError):  # builtins, odd callables
+            wants_node = False
 
         def report():
-            if on_progress:
+            if on_progress is None:
+                return
+            if wants_node:
+                on_progress(done_units, total_units, dict(node_view))
+            else:
                 on_progress(done_units, total_units)
 
         def bump(n=1):
@@ -376,12 +397,15 @@ class ProtocolExecutor:
             report()
 
         def expand(n_items):
-            nonlocal total_units
+            nonlocal total_units, expanded
+            expanded = True
             if n_items > 1:
                 total_units += n_items - 1
-                report()
+            node_view["total"] = max(int(n_items), 0)
+            report()
 
         def on_item():
+            node_view["done"] += 1
             bump(1)
 
         # Per-node emission (arc B second half): every node's output
@@ -394,9 +418,12 @@ class ProtocolExecutor:
         result_base = extra.get("resultPath")
         node_paths: dict[str, str] = {}
 
-        for nid in order:
+        for pos, nid in enumerate(order):
             node = nodes[nid]
             block = node["block"]
+            node_view.update(index=pos + 1, id=nid, done=0, total=0)
+            expanded = False
+            report()
             params = resolve_params(node.get("params"))
             if "model" in params:
                 # The model algebra (000312 Arc A): a binding may be a
@@ -495,7 +522,11 @@ class ProtocolExecutor:
                     params=_wire_params(params),
                 )
                 node_paths[nid] = out["path"]
-            bump()
+            # An expanded node's items already covered its worth — the
+            # old unconditional bump made done overrun total by one per
+            # expanded node ("59/57 steps").
+            if not expanded:
+                bump()
 
         terminals = [nid for nid in nodes
                      if not any(e["from"]["node"] == nid for e in edges)]
@@ -521,7 +552,7 @@ class ProtocolExecutor:
             "resolved": resolved,
         }
         prov = ms.Provenance(
-            created_at=datetime.now(timezone.utc).strftime(
+            created_at=datetime.now(UTC).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"),
             produced_by=ms.ToolInfo(tool="mechbench-runner",
                                     version=core_version),
@@ -668,7 +699,8 @@ class ProtocolExecutor:
         import contextlib
 
         from mechbench_compute.lora import (
-            fuse_adapter_stack, restore_adapter_stack,
+            fuse_adapter_stack,
+            restore_adapter_stack,
         )
 
         @contextlib.contextmanager
@@ -710,7 +742,6 @@ class ProtocolExecutor:
         import lm_eval
 
         from mechbench_compute.blocks import suite_metric_records
-
         from mechbench_compute.lm_bridge import MechbenchLM
 
         tasks = list(params.get("tasks") or [])
@@ -978,8 +1009,8 @@ class ProtocolExecutor:
                 f"- trained for {payload.get('steps', '?')} steps"
                 if payload.get("steps") else "",
                 "",
-                "Load with PEFT (`PeftModel.from_pretrained`) or fetch back "
-                "into a mechbench protocol via `$hf_adapter`.",
+                ("Load with PEFT (`PeftModel.from_pretrained`) or fetch "
+                 "back into a mechbench protocol via `$hf_adapter`."),
             ]
             with open(os.path.join(out, "README.md"), "w") as f:
                 f.write("\n".join(line for line in card if line is not None))
@@ -1080,11 +1111,15 @@ class ProtocolExecutor:
 
         from mechbench_compute.distill import render_chat
         from mechbench_compute.finetune import (
-            build_anchor_items, build_target_items, target_map_from_spec,
+            build_anchor_items,
+            build_target_items,
+            target_map_from_spec,
             train_soft_ce,
         )
         from mechbench_compute.lora import (
-            apply_lora, fuse_adapter_stack, save_adapter,
+            apply_lora,
+            fuse_adapter_stack,
+            save_adapter,
         )
 
         model = self._model_loaded(params.get("model"))
@@ -1336,8 +1371,11 @@ class ProtocolExecutor:
         import numpy as np
 
         from mechbench_compute.distill import (
-            encode, expand_top_outcomes_cached, prefill_decision,
-            render_chat, suffix_tokens,
+            encode,
+            expand_top_outcomes_cached,
+            prefill_decision,
+            render_chat,
+            suffix_tokens,
         )
 
         model = self._model_loaded(params.get("model"))
