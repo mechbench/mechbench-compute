@@ -146,9 +146,18 @@ class TestMaterialize:
         d1 = checkpoint.materialize(man, fetch, tmp_path / "cache")
         assert (d1 / "config.json").read_bytes() == b'{"a":1}'
         n_first = len(calls)
+        import os
+        import time
+
+        mark = d1 / checkpoint._COMPLETE_MARK
+        then = time.time() - 3600
+        os.utime(mark, (then, then))
         d2 = checkpoint.materialize(man, fetch, tmp_path / "cache")
         assert d2 == d1
         assert len(calls) == n_first  # complete mark short-circuits
+        # ...and the hit refreshed the mark: last-used, not fetched-at,
+        # is what the eviction pass reads (000297).
+        assert mark.stat().st_mtime > then + 3000
 
     def test_a_corrupt_fetch_caches_nothing(self, tmp_path):
         man, store = self._man_and_store(tmp_path)

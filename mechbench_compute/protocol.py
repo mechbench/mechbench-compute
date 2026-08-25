@@ -918,11 +918,16 @@ class ProtocolExecutor:
                 f"{label!r} has no checkpoint manifest — is it a checkpoint "
                 "prefix published by merge?")
         cache_root = Path.home() / ".mechbench" / "checkpoints"
-        return checkpoint.materialize(
+        target = checkpoint.materialize(
             payload,
             lambda name: bench.get_file_chunks(f"{label}/{name}"),
             cache_root,
         )
+        # A human-readable note of WHICH label this hash-keyed directory
+        # holds, for `mechbench models` and the eviction report (000297).
+        # The dot prefix keeps it out of every safetensors glob.
+        (target / ".label").write_text(label)
+        return target
 
     def _block_hf_push_adapter(self, inputs, params, secrets=None):
         """~canonical/ops/hf/push-adapter/1 — HF as DESTINATION (task

@@ -195,6 +195,11 @@ def materialize(
     target = root / key
     mark = target / _COMPLETE_MARK
     if mark.exists():
+        # A cache hit is a USE. The mark's mtime is what the runner's
+        # eviction pass (000297) reads as last-used; without this touch
+        # a checkpoint in weekly service looks as cold as its fetch date
+        # and gets evicted into a 10 GB re-download.
+        mark.touch()
         return target
 
     if target.exists():
