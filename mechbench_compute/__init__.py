@@ -191,7 +191,15 @@ else:
         _require_backend()
         raise AttributeError(name)  # unreachable; require() always raises
 
-__version__ = "0.11.1"
+# Single-sourced from the installed distribution: a hardcoded literal
+# here sat at 0.11.1 while the package shipped 0.14.x, and every
+# provenance record's produced_by faithfully repeated the lie.
+try:
+    from importlib.metadata import version as _dist_version
+
+    __version__ = _dist_version("mechbench-compute")
+except Exception:  # noqa: BLE001 — source checkouts without metadata
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     # Substrate — the part that answers on a machine with no backend
