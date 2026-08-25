@@ -161,3 +161,31 @@ class TestMaterialize:
         # and a later honest fetch succeeds from scratch
         ok = checkpoint.materialize(man, lambda n: store[n], tmp_path / "cache")
         assert (ok / "w.safetensors").read_bytes() == b"\x00\x01\x02"
+
+
+class TestHfCacheLayout:
+    def test_a_symlinked_snapshot_merges(self, snapshot, tmp_path):
+        """The real HF cache: snapshots are symlinks into an
+        extensionless blobs/ dir. mx.load picks its parser by the
+        PATH'S extension, so the merge must hand it the link, not the
+        resolved blob — the exact failure of prod's first merge."""
+        snap, w = snapshot
+        blobs = tmp_path / "blobs"
+        linked = tmp_path / "linked-snap"
+        blobs.mkdir()
+        linked.mkdir()
+        for i, entry in enumerate(sorted(snap.iterdir())):
+            blob = blobs / f"{i:064x}"  # extensionless, like the cache
+            blob.write_bytes(entry.read_bytes())
+            (linked / entry.name).symlink_to(blob)
+        payload, a, b, scale = _adapter_payload()
+        out = tmp_path / "out"
+        checkpoint.export_merged(linked, [payload], out)
+        merged = dict(mx.load(str(out / "model-00001-of-00002.safetensors")))
+        want = w + (scale * (b @ a)).astype(w.dtype)
+        assert bool(mx.allclose(
+            merged["model.layers.0.self_attn.q_proj.weight"], want, atol=1e-5))
+        # copies resolved through the links to real bytes
+        assert not (out / "config.json").is_symlink()
+        assert (out / "config.json").read_bytes() == (snap / "config.json").read_bytes()
+

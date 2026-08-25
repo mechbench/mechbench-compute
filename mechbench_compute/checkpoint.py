@@ -130,14 +130,20 @@ def export_merged(
             continue
         dest = out / entry.name
         if entry.name in shard_targets:
-            tensors = dict(mx.load(str(entry.resolve())))
+            # The HF cache stores snapshots as symlinks into an
+            # extensionless blobs/ directory, and mx.load picks its
+            # parser BY EXTENSION — so the link's own name must be what
+            # it sees (resolve() handed it "blobs/ff4c28…", which is
+            # "Unknown file format"). Both mx.load and copyfile follow
+            # symlinks natively; nothing here needs resolve().
+            tensors = dict(mx.load(str(entry)))
             for name, delta in shard_targets[entry.name].items():
                 w = tensors[name]
                 tensors[name] = (w + delta.astype(w.dtype)).astype(w.dtype)
             mx.eval(list(tensors.values()))
             mx.save_safetensors(str(dest), tensors)
         else:
-            shutil.copyfile(entry.resolve(), dest)
+            shutil.copyfile(entry, dest)
         written.append(entry.name)
     return written
 
