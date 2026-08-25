@@ -70,7 +70,19 @@ class ProtocolExecutor:
         and executed the warmed one).
         """
         if hasattr(model_id, "base"):
-            model_id = model_id.base
+            # The ref's base names WHERE the weights come from, and a
+            # bench base must be translated to its materialized local
+            # directory HERE — in the one place every call site funnels
+            # through. The wrapper used to translate and the block's own
+            # no-op re-call did not, so the label reached the hub as if
+            # it were a repo id ("Repo id must be in the form
+            # 'namespace/repo_name'") — after a 54-minute download had
+            # already succeeded (2026-08-25, the first read ever run on
+            # a bench-based checkpoint).
+            if getattr(model_id, "base_kind", None) == "bench":
+                model_id = str(self._materialize_checkpoint(model_id.base))
+            else:
+                model_id = model_id.base
         if not model_id:
             raise ValueError(
                 "this operation did not declare a model. Every operation that "
@@ -677,10 +689,10 @@ class ProtocolExecutor:
         their own _model_loaded call returns the same fused instance."""
         mval = params.get("model")
         ref = mval if hasattr(mval, "adapter_payloads") else None
-        base = ref.base if ref else mval
-        if ref is not None and ref.base_kind == "bench":
-            base = str(self._materialize_checkpoint(ref.base))
-        model = self._model_loaded(base)
+        # _model_loaded owns the ref-to-weights translation (bench bases
+        # materialize there), so this call and the block's own no-op
+        # re-call resolve identically.
+        model = self._model_loaded(mval)
         with self._adapter_fused(model, inputs, params, ref=ref):
             return fn(inputs, params, *args, **kwargs)
 
@@ -932,10 +944,19 @@ class ProtocolExecutor:
     def _materialize_checkpoint(self, label: str):
         """A bench checkpoint label -> a local directory, cached by the
         manifest's identity and verified file-by-file (checkpoint.py).
-        This is what makes {"base": {"bench": ...}} loadable."""
+        This is what makes {"base": {"bench": ...}} loadable. Memoized
+        per executor: the loader resolves the same label at least twice
+        per node (wrapper + the block's no-op re-call), and neither
+        should re-fetch the manifest."""
         from pathlib import Path
 
         from mechbench_compute import bench, checkpoint
+
+        memo = getattr(self, "_checkpoint_dirs", None)
+        if memo is None:
+            memo = self._checkpoint_dirs = {}
+        if label in memo:
+            return memo[label]
 
         manifest, _meta = bench.fetch(
             f"{label}/{checkpoint.MANIFEST_NAME}", with_meta=True)
@@ -964,6 +985,7 @@ class ProtocolExecutor:
         # holds, for `mechbench models` and the eviction report (000297).
         # The dot prefix keeps it out of every safetensors glob.
         (target / ".label").write_text(label)
+        memo[label] = target
         return target
 
     def _block_hf_push_adapter(self, inputs, params, secrets=None):
