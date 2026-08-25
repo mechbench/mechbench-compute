@@ -6,8 +6,7 @@ must follow the architecture, and a target that matches nowhere must
 refuse rather than silently train nothing.
 """
 
-import mlx.core as mx
-import mlx.nn as nn
+from mlx import nn
 import pytest
 
 from mechbench_compute import lora
