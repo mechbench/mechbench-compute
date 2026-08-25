@@ -467,7 +467,8 @@ class ProtocolExecutor:
             elif block == "~canonical/ops/merge/1":
                 results[nid] = self._block_merge(
                     inputs, params, secrets=secrets,
-                    result_base=extra.get("resultPath"))
+                    result_base=extra.get("resultPath"),
+                    on_item=on_item, on_start=expand)
             elif block == "~canonical/ops/hf/push-adapter/1":
                 # HF as destination (task 000262). The write token is
                 # passed explicitly from the claim-delivered secrets —
@@ -770,7 +771,8 @@ class ProtocolExecutor:
                 "columns": columns,
                 "rows": rows}
 
-    def _block_merge(self, inputs, params, secrets=None, result_base=None):
+    def _block_merge(self, inputs, params, secrets=None, result_base=None,
+                     on_item=None, on_start=None):
         """~canonical/ops/merge/1 (000312 Arc C): collapse a ModelRef's
         adapter stack into a standalone checkpoint, published where the
         run says — the platform's own store, or Hugging Face.
@@ -819,6 +821,10 @@ class ProtocolExecutor:
                 snapshot, list(mref.adapter_payloads), out)
             manifest = checkpoint.build_manifest(
                 out, files, mref.to_wire(), base_snapshot)
+            # One unit per file: an hour of shard upload must read as
+            # motion on the jobs page, not as a wedged run.
+            if on_start:
+                on_start(len(files))
 
             if "bench" in to:
                 name = str((to["bench"] or {}).get("name") or "").strip()
@@ -834,6 +840,8 @@ class ProtocolExecutor:
                 for fname in files:
                     receipt = bench.put_file(f"{prefix}/{fname}", out / fname)
                     total += int(receipt.get("sizeBytes") or 0)
+                    if on_item:
+                        on_item()
                 bench.emit(
                     f"{prefix}/{checkpoint.MANIFEST_NAME}",
                     manifest,
