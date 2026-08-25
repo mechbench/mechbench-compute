@@ -71,10 +71,26 @@ class LoRALinear(nn.Module):
 
 def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
                targets: tuple[str, ...] = ("q_proj", "v_proj")) -> int:
-    """Freeze ``lm`` and wrap each named attention projection in every
-    layer with a ``LoRALinear``. Returns the trainable parameter count."""
+    """Freeze ``lm`` and wrap each named attention projection with a
+    ``LoRALinear``, WHERE IT EXISTS. Returns the trainable parameter
+    count.
+
+    "Where it exists" is not defensiveness — it is the architecture.
+    gemma4's projections are conditional per layer: KV-shared tail
+    layers have no k_proj/v_proj at all (they reuse an earlier layer's
+    cache), and k-eq-v layers have no v_proj (K serves as V). The
+    uniform-tower assumption here trained E4B on dev and then crashed
+    on E2B's first prod run ('Attention' object has no attribute
+    'v_proj'). Skipped layers simply contribute no adapter weights;
+    ``fuse`` walks the adapter's own keys, so sparse adapters
+    round-trip untouched.
+
+    A target that matches NO layer anywhere still refuses loudly —
+    silently training nothing is the failure mode this function must
+    never have."""
     lm.freeze()
     n = 0
+    wrapped_per_target = dict.fromkeys(targets, 0)
     for layer in lm.model.layers:
         for name in targets:
             container = PROJ_CONTAINERS.get(name)
@@ -82,9 +98,19 @@ def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
                 raise ValueError(f"unknown target module {name!r}; "
                                  f"known: {sorted(PROJ_CONTAINERS)}")
             holder = getattr(layer, container)
-            wrapped = LoRALinear(getattr(holder, name), rank, alpha)
+            base = getattr(holder, name, None)
+            if base is None:
+                continue
+            wrapped = LoRALinear(base, rank, alpha)
             setattr(holder, name, wrapped)
+            wrapped_per_target[name] += 1
             n += wrapped.lora_a.size + wrapped.lora_b.size
+    dead = [t for t, c in wrapped_per_target.items() if c == 0]
+    if dead:
+        raise ValueError(
+            f"target modules {dead!r} exist on no layer of this "
+            f"architecture — adapter would train nothing for them. "
+            f"Wrapped counts: {wrapped_per_target!r}")
     return n
 
 
