@@ -28,7 +28,7 @@ nothing else reclaims it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -180,8 +180,8 @@ def _as_utc(value: float | datetime | None) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    return datetime.fromtimestamp(value, tz=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    return datetime.fromtimestamp(value, tz=UTC)
 
 
 def format_bytes(n: int) -> str:

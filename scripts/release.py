@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 def run(cmd: list[str], *, env: dict | None = None,
         timeout: float = 1800.0) -> subprocess.CompletedProcess:
-    return subprocess.run(  # noqa: S603
+    return subprocess.run(
         cmd, cwd=str(REPO), env=env, capture_output=True, text=True,
         timeout=timeout, check=False,
     )
@@ -44,7 +44,7 @@ def die(step: str, proc: subprocess.CompletedProcess | None = None) -> None:
 def main() -> None:
     dry = "--dry-run" in sys.argv
     m = re.search(r'^version = "([^"]+)"',
-                  (REPO / "pyproject.toml").read_text(), re.M)
+                  (REPO / "pyproject.toml").read_text(), re.MULTILINE)
     if not m:
         die("reading version")
     ver = m.group(1)
@@ -86,14 +86,14 @@ def main() -> None:
         print("[4/4] smoke: imports and fresh-machine truths")
         checks = [
             ("imports",
-             "import mechbench_compute, mechbench_compute.model_ref, "
-             "mechbench_compute.checkpoint, mechbench_compute.bench"),
+             ("import mechbench_compute, mechbench_compute.model_ref, "
+              "mechbench_compute.checkpoint, mechbench_compute.bench")),
             ("version is real",
-             "import mechbench_compute as m; "
-             "assert m.__version__ not in ('', '0.0.0+unknown'), m.__version__"),
+             ("import mechbench_compute as m; "
+              "assert m.__version__ not in ('', '0.0.0+unknown'), m.__version__")),
             ("empty cache is an empty inventory, not a traceback",
-             "from mechbench_compute import inventory; "
-             "assert inventory.scan() == [] or True"),
+             ("from mechbench_compute import inventory; "
+              "assert inventory.scan() == [] or True")),
             ("backends answer without loading anything",
              "from mechbench_compute import backends; backends.describe_platform()"),
         ]

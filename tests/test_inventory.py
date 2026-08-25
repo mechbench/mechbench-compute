@@ -9,7 +9,7 @@ between a useful tool and one that talks people into pointless deletions.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -23,7 +23,7 @@ def rev(commit, size, reclaimable, refs=()):
         commit=commit,
         size_bytes=size,
         reclaimable_bytes=reclaimable,
-        last_modified=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        last_modified=datetime(2026, 8, 1, tzinfo=UTC),
         refs=tuple(refs),
         path=Path("/tmp") / commit,
     )
