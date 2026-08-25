@@ -171,3 +171,35 @@ def test_viz_spec_references_its_source_or_inlines_rows():
     recs = [{"id": "r", "coords": {"task": "arc"}, "value": 0.8}]
     flat = viz_spec(recs, {"encoding": {"x": "task", "y": "value"}})
     assert flat["data"]["rows"] == [{"id": "r", "value": 0.8, "task": "arc"}]
+
+
+def test_uniform_masses_derive_from_top_tokens():
+    """The spinner-fairness regression (000315): plain decision reads
+    emit top_tokens and no outcome_mass; the judge must derive rather
+    than fail a distribution it never looked at."""
+    results = [{"id": "c1", "entropy_bits": 1.99, "top_tokens": [
+        {"token": "3", "p": 0.2997}, {"token": "1", "p": 0.2334},
+        {"token": "2", "p": 0.2334}, {"token": "4", "p": 0.2334},
+        {"token": "0", "p": 0.0001}]}]
+    expectations = [{"id": "c1", "expect": {
+        "kind": "uniform", "over": ["1", "2", "3", "4"], "max_kl_bits": 0.1}}]
+    table = eval_expectation(
+        {"results": results, "expectations": expectations}, {})
+    row = table["rows"][0]
+    assert row["pass"] == "True"  # pass serializes as string, per the column dtype
+    assert row["kl_bits"] < 0.02
+    assert row["outcome_mass"] > 0.99
+
+
+def test_uniform_without_any_distribution_is_unjudgeable_not_false():
+    results = [{"id": "c1", "entropy_bits": 0.5}]
+    expectations = [{"id": "c1", "expect": {
+        "kind": "uniform", "over": ["1", "2"], "max_kl_bits": 0.1}}]
+    table = eval_expectation(
+        {"results": results, "expectations": expectations}, {})
+    row = table["rows"][0]
+    assert "unjudgeable" in str(row["pass"])
+    # ...and the aggregate does not count it as a judged failure.
+    agg = table["rows"][-1]
+    assert agg["n_judged"] == 0
+

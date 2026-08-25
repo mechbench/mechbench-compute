@@ -444,7 +444,20 @@ def eval_expectation(inputs: Mapping[str, Any],
                                 "entropy_bits": c.get("entropy_bits")}
         ok = False
         if exp["kind"] == "uniform":
+            # Where the outcome masses come from, in order of authority:
+            # an explicit outcome_mass map (rollout-aggregated reads),
+            # else DERIVED from top_tokens by exact token text. The
+            # first spinner-fairness run on prod judged pass=False on a
+            # distribution whose KL from uniform was 0.01 bits, because
+            # this branch consulted only a field that plain decision
+            # reads never emit — a verdict that looked like a
+            # measurement but was a missing input (task 000315).
             masses = c.get("outcome_mass") or {}
+            if not masses:
+                masses = {}
+                for t in c.get("top_tokens") or []:
+                    key = str(t["token"]).strip()
+                    masses[key] = masses.get(key, 0.0) + float(t["p"])
             over = exp["over"]
             ps = [float(masses.get(str(o), 0.0)) for o in over]
             tot = sum(ps)
@@ -454,6 +467,13 @@ def eval_expectation(inputs: Mapping[str, Any],
                 row["kl_bits"] = round(kl, 4)
                 row["outcome_mass"] = round(tot, 4)
                 ok = kl <= float(exp.get("max_kl_bits", 0.1))
+            else:
+                # Nothing to judge is not a failure — it is a hole in
+                # the read, and it must not masquerade as one more
+                # False among real verdicts.
+                row["pass"] = "unjudgeable: no outcome mass in the read"
+                rows.append(row)
+                continue
         elif exp["kind"] == "answer":
             want = str(exp["value"])
             p = None
