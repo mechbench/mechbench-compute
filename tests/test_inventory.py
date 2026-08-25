@@ -95,6 +95,20 @@ class TestDelete:
         with pytest.raises(ValueError, match="in full"):
             inventory.delete_revisions(["448c70a4"])
 
+    def test_a_machine_with_no_cache_refuses_like_any_unknown(self, monkeypatch):
+        """No cache directory means no commits are known — the same
+        honest refusal, never a CacheNotFound traceback. Surfaced by CI,
+        which is a fresh machine on every run."""
+        import huggingface_hub
+        from huggingface_hub.errors import CacheNotFound
+
+        def gone(*a, **k):
+            raise CacheNotFound("no cache", cache_dir="/nowhere")
+
+        monkeypatch.setattr(huggingface_hub, "scan_cache_dir", gone)
+        with pytest.raises(ValueError, match="not in the local cache"):
+            inventory.delete_revisions(["0" * 40])
+
 
 class TestFormatBytes:
     @pytest.mark.parametrize(

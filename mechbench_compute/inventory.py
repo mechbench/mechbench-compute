@@ -153,9 +153,19 @@ def delete_revisions(commits: list[str]) -> int:
     if not commits:
         return 0
     from huggingface_hub import scan_cache_dir
+    from huggingface_hub.errors import CacheNotFound
 
-    info = scan_cache_dir()
-    known = {rev.commit_hash for repo in info.repos for rev in repo.revisions}
+    try:
+        info = scan_cache_dir()
+        known = {rev.commit_hash for repo in info.repos for rev in repo.revisions}
+    except CacheNotFound:
+        # A machine with no cache directory knows no commits, so every
+        # commit asked for gets the same refusal below — the fresh-
+        # machine truth scan() learned in 0.15.4, which this sibling
+        # call missed. CI is a fresh machine on every run; that is how
+        # this surfaced (every dev machine has the directory).
+        info = None
+        known = set()
     unknown = [c for c in commits if c not in known]
     if unknown:
         raise ValueError(
