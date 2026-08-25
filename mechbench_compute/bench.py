@@ -32,7 +32,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -79,7 +79,7 @@ def _config(api_url: str | None, api_key: str | None) -> tuple[str, str]:
     return url.rstrip("/"), key
 
 
-def _tls(url: str) -> "ssl.SSLContext | None":
+def _tls(url: str) -> ssl.SSLContext | None:
     """A TLS context with CA roots that exist.
 
     `urllib` uses OpenSSL's default trust store, and a Python installed
@@ -149,6 +149,7 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
     from the arguments.
     """
     import mechbench_schema as ms
+
     from mechbench_compute import __version__ as core_version
 
     url, key = _config(api_url, api_key)
@@ -163,7 +164,7 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
         for p in inputs:
             ms.parse_path(p)
         prov: dict[str, Any] = {
-            "created_at": datetime.now(timezone.utc).strftime(
+            "created_at": datetime.now(UTC).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"),
             "produced_by": {"tool": "mechbench-compute",
                             "version": core_version},
@@ -276,3 +277,69 @@ def lineage(target: str, direction: str = "up", depth: int = 3, *,
         "GET",
         f"{url}/objects/~lineage?path={target}&direction={direction}"
         f"&depth={depth}", key)
+
+
+def put_file(label: str, filepath, *, kind: str = "checkpoint_file",
+             api_url: str | None = None, api_key: str | None = None,
+             timeout: float = 3600.0) -> dict:
+    """Upload one raw file as a binary object (000312 Arc C).
+
+    The hash is computed here and the server verifies it after
+    streaming — a torn upload can never be fetched. Bytes stream from
+    disk; nothing holds the file in memory.
+    """
+    import hashlib
+
+    import httpx
+
+    url, key = _config(api_url, api_key)
+    h = hashlib.sha256()
+    size = 0
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+            size += len(chunk)
+
+    def _chunks():
+        with open(filepath, "rb") as f2:
+            while True:
+                chunk = f2.read(1 << 20)
+                if not chunk:
+                    return
+                yield chunk
+
+    res = httpx.put(
+        f"{url}/objects/{label}",
+        content=_chunks(),
+        headers={
+            "authorization": f"Bearer {key}",
+            "content-type": "application/octet-stream",
+            "x-content-hash": f"sha256:{h.hexdigest()}",
+            "x-object-kind": kind,
+            "content-length": str(size),
+        },
+        timeout=timeout,
+        verify=_tls(url),
+    )
+    if res.status_code not in (200, 201):
+        raise BenchError(f"put_file {label}: {res.status_code} {res.text[:200]}")
+    return res.json()
+
+
+def get_file_chunks(label: str, *, api_url: str | None = None,
+                    api_key: str | None = None, timeout: float = 3600.0):
+    """Stream a binary object's bytes, chunk by chunk."""
+    import httpx
+
+    url, key = _config(api_url, api_key)
+    with httpx.stream(
+        "GET",
+        f"{url}/objects/{label}",
+        headers={"authorization": f"Bearer {key}"},
+        timeout=timeout,
+        verify=_tls(url),
+    ) as res:
+        if res.status_code != 200:
+            raise BenchError(f"get_file {label}: {res.status_code}")
+        yield from res.iter_bytes(1 << 20)
+

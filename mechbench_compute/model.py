@@ -173,8 +173,21 @@ class Model:
         # snapshot, so a run can record the revision it actually executed
         # rather than the reference it was handed.
         requested = model_id
-        repo_id, revision_sha, snapshot = ensure_model(
-            model_id, on_download=on_download, on_bytes=on_download_bytes)
+        from pathlib import Path as _Path
+
+        if _Path(model_id).is_dir():
+            # A materialized checkpoint (000312 Arc C): the directory IS
+            # the snapshot — nothing to download, and the "revision" a
+            # run records is the directory's identity, which the caller
+            # (the checkpoint materializer) keys by manifest hash.
+            repo_id, revision_sha, snapshot = (
+                "local-checkpoint",
+                _Path(model_id).name,
+                _Path(model_id),
+            )
+        else:
+            repo_id, revision_sha, snapshot = ensure_model(
+                model_id, on_download=on_download, on_bytes=on_download_bytes)
         model_id = str(snapshot)
 
         if _peek_model_type(model_id) in _MLX_LM_FAMILIES:

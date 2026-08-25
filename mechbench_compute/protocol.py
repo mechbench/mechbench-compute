@@ -21,6 +21,7 @@ than instantiating per request.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -463,6 +464,10 @@ class ProtocolExecutor:
                     on_item=on_item, on_start=expand)
             elif block == "~canonical/ops/eval/hf-metric/1":
                 results[nid] = self._block_eval_hf_metric(inputs, params)
+            elif block == "~canonical/ops/merge/1":
+                results[nid] = self._block_merge(
+                    inputs, params, secrets=secrets,
+                    result_base=extra.get("resultPath"))
             elif block == "~canonical/ops/hf/push-adapter/1":
                 # HF as destination (task 000262). The write token is
                 # passed explicitly from the claim-delivered secrets —
@@ -640,7 +645,10 @@ class ProtocolExecutor:
         their own _model_loaded call returns the same fused instance."""
         mval = params.get("model")
         ref = mval if hasattr(mval, "adapter_payloads") else None
-        model = self._model_loaded(ref.base if ref else mval)
+        base = ref.base if ref else mval
+        if ref is not None and ref.base_kind == "bench":
+            base = str(self._materialize_checkpoint(ref.base))
+        model = self._model_loaded(base)
         with self._adapter_fused(model, inputs, params, ref=ref):
             return fn(inputs, params, *args, **kwargs)
 
@@ -761,6 +769,137 @@ class ProtocolExecutor:
                 "row_axis": "task-metric",
                 "columns": columns,
                 "rows": rows}
+
+    def _block_merge(self, inputs, params, secrets=None, result_base=None):
+        """~canonical/ops/merge/1 (000312 Arc C): collapse a ModelRef's
+        adapter stack into a standalone checkpoint, published where the
+        run says — the platform's own store, or Hugging Face.
+
+        The merge never loads the model: it is a delta-shard rewrite
+        (see checkpoint.py), so peak memory is one shard. Destination
+        is explicit and mirrors the base grammar:
+
+            {"to": {"bench": {"name": "spinner-fair-v1"}}}
+                -> objects under <owner>/<project>/checkpoints/<name>/
+                   plus a manifest; usable as {"base": {"bench": ...}}.
+            {"to": {"hf": {"repo": "user/repo", "private": true}}}
+                -> a Hub commit; usable as {"base": {"hf": "repo@sha"}}.
+        """
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        from mechbench_compute import bench, checkpoint
+        from mechbench_compute.hub import ensure_model
+
+        mref = params.get("model")
+        if not hasattr(mref, "adapter_payloads"):
+            raise ValueError(
+                "merge needs a structured $model with adapters — merging "
+                "a bare base would republish it unchanged")
+        if not mref.adapter_payloads:
+            raise ValueError("merge needs at least one adapter in the stack")
+        to = params.get("to")
+        if not isinstance(to, dict) or len(to) != 1 or not {"bench", "hf"} & set(to):
+            raise ValueError(
+                'merge needs to: {"bench": {"name": ...}} or '
+                '{"hf": {"repo": ..., "private": ...}}')
+
+        if mref.base_kind == "hf":
+            repo_id, sha, snapshot = ensure_model(mref.base)
+            base_snapshot = f"{repo_id}@{sha}"
+        else:
+            snapshot = self._materialize_checkpoint(mref.base)
+            base_snapshot = f"bench:{mref.base}"
+
+        workdir = tempfile.mkdtemp(prefix="mechbench-merge-")
+        try:
+            out = Path(workdir) / "checkpoint"
+            files = checkpoint.export_merged(
+                snapshot, list(mref.adapter_payloads), out)
+            manifest = checkpoint.build_manifest(
+                out, files, mref.to_wire(), base_snapshot)
+
+            if "bench" in to:
+                name = str((to["bench"] or {}).get("name") or "").strip()
+                if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,60}", name):
+                    raise ValueError(
+                        "bench destination needs a name: lowercase, "
+                        "digits, - and _")
+                if not result_base:
+                    raise ValueError("no result path — cannot derive the project")
+                owner, project = result_base.split("/")[:2]
+                prefix = f"{owner}/{project}/checkpoints/{name}"
+                total = 0
+                for fname in files:
+                    receipt = bench.put_file(f"{prefix}/{fname}", out / fname)
+                    total += int(receipt.get("sizeBytes") or 0)
+                bench.emit(
+                    f"{prefix}/{checkpoint.MANIFEST_NAME}",
+                    manifest,
+                    inputs=list(mref.adapter_labels),
+                    operation="~canonical/ops/merge/1",
+                    params=_wire_params(params),
+                )
+                return {
+                    "kind": "model_pointer",
+                    "base": {"bench": prefix},
+                    "manifest": f"{prefix}/{checkpoint.MANIFEST_NAME}",
+                    "files": len(files),
+                    "bytes": total,
+                }
+
+            hf_cfg = to["hf"] or {}
+            repo = str(hf_cfg.get("repo") or "").strip()
+            if "/" not in repo:
+                raise ValueError('hf destination needs repo: "user/name"')
+            token = (secrets or {}).get("hf", {}).get("token")
+            if not token:
+                raise ValueError(
+                    "hf destination needs an hf token — connect one under "
+                    "Settings -> Integrations")
+            from huggingface_hub import HfApi
+
+            api = HfApi(token=token)
+            api.create_repo(
+                repo, private=bool(hf_cfg.get("private", True)), exist_ok=True)
+            info = api.upload_folder(
+                repo_id=repo, folder_path=str(out),
+                commit_message=f"mechbench merge: {mref.describe()}")
+            sha_out = getattr(info, "oid", None) or ""
+            return {
+                "kind": "model_pointer",
+                "base": {"hf": f"{repo}@{sha_out}" if sha_out else repo},
+                "files": len(files),
+            }
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+    def _materialize_checkpoint(self, label: str):
+        """A bench checkpoint label -> a local directory, cached by the
+        manifest's identity and verified file-by-file (checkpoint.py).
+        This is what makes {"base": {"bench": ...}} loadable."""
+        from pathlib import Path
+
+        from mechbench_compute import bench, checkpoint
+
+        manifest, _meta = bench.fetch(
+            f"{label}/{checkpoint.MANIFEST_NAME}", with_meta=True)
+        payload = (
+            manifest.get("payload", manifest)
+            if isinstance(manifest, dict)
+            else manifest
+        )
+        if not isinstance(payload, dict) or payload.get("kind") != "checkpoint_manifest":
+            raise ValueError(
+                f"{label!r} has no checkpoint manifest — is it a checkpoint "
+                "prefix published by merge?")
+        cache_root = Path.home() / ".mechbench" / "checkpoints"
+        return checkpoint.materialize(
+            payload,
+            lambda name: bench.get_file_chunks(f"{label}/{name}"),
+            cache_root,
+        )
 
     def _block_hf_push_adapter(self, inputs, params, secrets=None):
         """~canonical/ops/hf/push-adapter/1 — HF as DESTINATION (task

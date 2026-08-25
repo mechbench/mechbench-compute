@@ -21,10 +21,9 @@ collapses a stack into a checkpoint that stands as a fresh Base. This
 module therefore never sees a tree.
 
 Stacks of any practical depth resolve since Arc B — the executor
-fuses them in order (see lora.fuse_adapter_stack). Checkpoint bases
-(Arc C) parse fine and fail loudly at *load* time naming their arc: a
-reference that parses but cannot yet run should say so in the run's
-error, not in a stack trace.
+fuses them in order (see lora.fuse_adapter_stack) — and checkpoint
+bases load since Arc C: the executor materializes the label's manifest
+into the local cache and loads the directory like any snapshot.
 """
 
 from __future__ import annotations
@@ -115,12 +114,6 @@ def resolve(
     from the start.
     """
     ref = parse(value)
-    if ref.base_kind == "bench":
-        raise NotImplementedError(
-            "checkpoint bases (a merged model stored as a bench object) "
-            "arrive with task 000312 Arc C; today a base must be an HF "
-            "repo[@revision]"
-        )
     if len(ref.adapter_labels) > 8:
         # Mirrors the wire schema's cap. Linear fuse cost makes very
         # deep stacks a smell anyway — merge (Arc C) is the pressure

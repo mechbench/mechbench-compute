@@ -51,9 +51,9 @@ class TestParse:
 class TestResolveLimits:
     """Arc boundaries fail loudly and name their arc."""
 
-    def test_checkpoint_base_names_arc_c(self):
-        with pytest.raises(NotImplementedError, match="Arc C"):
-            model_ref.resolve({"base": {"bench": "me/p/ckpt"}}, fetch=_no_fetch)
+    def test_checkpoint_base_resolves_since_arc_c(self):
+        ref = model_ref.resolve({"base": {"bench": "me/p/ckpt"}}, fetch=_no_fetch)
+        assert (ref.base_kind, ref.base) == ("bench", "me/p/ckpt")
 
     def test_a_stack_resolves_in_order(self):
         # Order IS the semantics (000312 Arc B): round two fused onto
