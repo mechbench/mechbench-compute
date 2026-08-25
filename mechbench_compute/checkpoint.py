@@ -180,6 +180,7 @@ def materialize(
     manifest: Mapping[str, Any],
     fetch_file: Callable[[str], Any],
     cache_root: str | Path,
+    on_bytes: Callable[[int, int], None] | None = None,
 ) -> Path:
     """Fetch a checkpoint into the local cache and return its directory.
 
@@ -187,6 +188,13 @@ def materialize(
     a single bytes object). The directory is keyed by the manifest's own
     content hash, verified file-by-file, and marked complete only at the
     end — so a torn fetch is retried from scratch, never loaded.
+
+    `on_bytes(done, total)` reports cumulative progress across the whole
+    checkpoint (totals from the manifest), at most every few megabytes.
+    A 10 GB fetch used to be fifteen MINUTES of perfect silence — long
+    enough that the runner's watchdog killed a healthy download as a
+    hang and orphaned the job (2026-08-25). Progress reporting here is
+    not cosmetic; it is how the download proves it is alive.
     """
     key = hashlib.sha256(
         json.dumps(manifest.get("files"), sort_keys=True).encode()
@@ -205,6 +213,9 @@ def materialize(
     if target.exists():
         shutil.rmtree(target)
     target.mkdir(parents=True)
+    total = sum(int(e.get("size", 0)) for e in manifest.get("files", []))
+    done = 0
+    last_reported = 0
     for entry in manifest.get("files", []):
         name, want = str(entry["name"]), str(entry["sha256"])
         h = hashlib.sha256()
@@ -214,6 +225,13 @@ def materialize(
             for chunk in chunks:
                 h.update(chunk)
                 f.write(chunk)
+                done += len(chunk)
+                if on_bytes is not None and done - last_reported >= (4 << 20):
+                    last_reported = done
+                    on_bytes(done, total)
+        if on_bytes is not None:
+            last_reported = done
+            on_bytes(done, total)
         if h.hexdigest() != want:
             shutil.rmtree(target)
             raise ValueError(

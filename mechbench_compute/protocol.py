@@ -949,10 +949,16 @@ class ProtocolExecutor:
                 f"{label!r} has no checkpoint manifest — is it a checkpoint "
                 "prefix published by merge?")
         cache_root = Path.home() / ".mechbench" / "checkpoints"
+        # The download callbacks are the same ones hub fetches use: the
+        # runner turns them into watchdog stamps and board progress. A
+        # silent 10 GB fetch reads as a wedge and gets killed as one.
+        if self._on_download is not None:
+            self._on_download(label, None)
         target = checkpoint.materialize(
             payload,
             lambda name: bench.get_file_chunks(f"{label}/{name}"),
             cache_root,
+            on_bytes=self._on_download_bytes,
         )
         # A human-readable note of WHICH label this hash-keyed directory
         # holds, for `mechbench models` and the eviction report (000297).

@@ -198,3 +198,33 @@ class TestHfCacheLayout:
         assert not (out / "config.json").is_symlink()
         assert (out / "config.json").read_bytes() == (snap / "config.json").read_bytes()
 
+
+
+class TestMaterializeProgress:
+    def test_reports_cumulative_bytes_against_the_manifest_total(self, tmp_path):
+        """A silent fetch got a healthy 10 GB download killed as a wedge
+        (2026-08-25): on_bytes is the download's proof of life."""
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.bin").write_bytes(b"\x01" * (5 << 20))
+        (src / "b.bin").write_bytes(b"\x02" * (3 << 20))
+        man = checkpoint.build_manifest(
+            src, ["a.bin", "b.bin"], {"base": {"hf": "x"}, "adapters": []}, "x"
+        )
+
+        def fetch(name):
+            data = (src / name).read_bytes()
+            for i in range(0, len(data), 1 << 20):
+                yield data[i:i + (1 << 20)]
+
+        ticks = []
+        checkpoint.materialize(
+            man, fetch, tmp_path / "cache",
+            on_bytes=lambda d, t: ticks.append((d, t)),
+        )
+        assert ticks, "a multi-megabyte fetch must tick"
+        total = 8 << 20
+        assert all(t == total for _, t in ticks)
+        dones = [d for d, _ in ticks]
+        assert dones == sorted(dones)
+        assert dones[-1] == total  # the final tick says complete
