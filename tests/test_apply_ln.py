@@ -64,7 +64,9 @@ def test_components_sum_to_the_true_final_logits():
         apply_ln=True, ln_scale=rms,
     )
     summed = attrs.sum(axis=0)  # over components
-    assert np.allclose(summed, true_final, rtol=0.05, atol=0.05)
+    # float32 accumulation now: the tolerance is numerical, not
+    # representational
+    assert np.allclose(summed, true_final, rtol=1e-3, atol=1e-3)
 
 
 def test_without_the_scale_it_refuses():

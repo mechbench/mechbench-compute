@@ -296,6 +296,25 @@ class TestLensPositions:
 
 
 class TestPatchTrace:
+    def test_logprob_metric_registers_low_mass_targets(self):
+        model = StubModel()
+        model.clean_second = 1 + (len("over") % 7)
+        out = interp.patch_trace(
+            model, [{"id": "p", "clean": "over the hill",
+                     "corrupt": "under the hill"}],
+            {"layers": [0], "metric": "logprob"})
+        pair = out["pairs"][0]
+        assert pair["metric"] == "logprob"
+        rec = np.array(pair["recovery"])
+        assert rec[0, 1] > 1.0  # log-space recovery is loud
+        assert abs(rec[0, 0]) < 1e-3
+
+    def test_unknown_metric_refuses(self):
+        with pytest.raises(ValueError, match="metric"):
+            interp.patch_trace(
+                StubModel(), [{"id": "p", "clean": "a", "corrupt": "b"}],
+                {"metric": "vibes"})
+
     def test_recovery_lands_exactly_on_the_differing_position(self):
         model = StubModel()
         # prompts whose difference sits exactly at position 1 (after
@@ -304,7 +323,7 @@ class TestPatchTrace:
         model.clean_second = 1 + (len("over") % 7)
         out = interp.patch_trace(
             model, [{"id": "p", "clean": clean, "corrupt": corrupt}],
-            {"layers": [0, 1]})
+            {"layers": [0, 1], "metric": "prob"})
         pair = out["pairs"][0]
         rec = np.array(pair["recovery"])  # [layer][pos]
         assert rec.shape[1] == 4  # BOS + 3 words

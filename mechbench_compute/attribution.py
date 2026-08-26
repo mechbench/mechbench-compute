@@ -260,7 +260,11 @@ def logit_attrs(
             )
         scale = float(np.asarray(ln_scale, dtype=np.float64).reshape(-1)[position])
         flat = (flat / scale) * _final_norm_gain(model)
-    v = mx.array(flat, dtype=mx.bfloat16)
+    # float32, deliberately: DLA components CANCEL (per-layer terms of
+    # ±100 summing to single digits), and bfloat16's ~0.5-at-100
+    # quantization accumulated a residual of ±3 across 36 components —
+    # caught by the block's own additivity check on its first prod run.
+    v = mx.array(flat, dtype=mx.float32)
 
     # Project through the unembed without applying the final norm — DLA
     # reads per-component contributions, and the final norm would mix

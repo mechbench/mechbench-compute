@@ -425,6 +425,9 @@ def patch_trace(
 
     template = str(params.get("template", "raw"))
     point = str(params.get("point", "resid_post"))
+    metric = str(params.get("metric", "logprob"))
+    if metric not in ("logprob", "prob"):
+        raise ValueError(f"unknown metric {metric!r}: 'logprob' or 'prob'")
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
         raise ValueError("patch/trace needs at least one pair")
@@ -462,9 +465,18 @@ def patch_trace(
         target = record.get("target") or params.get("target")
         tok = (_target_token_id(model, str(target)) if target
                else int(np.argmax(clean_lp)))
-        p_clean_in_clean = float(np.exp(clean_lp[tok]))
+        # 'prob' only registers when the clean prompt puts real mass on
+        # the target (the original step 09 used the clean top-1, which
+        # guarantees it); 'logprob' registers recovery at ANY mass —
+        # explicit rare targets measured exactly nothing in prob space
+        # on the first prod run.
+        def read(lp: np.ndarray, tok: int = tok) -> float:
+            return (float(np.exp(lp[tok])) if metric == "prob"
+                    else float(lp[tok]))
+
+        p_clean_in_clean = read(clean_lp)
         corrupt_lp = _last_logp(model.run(ids_corrupt).logits)
-        baseline = float(np.exp(corrupt_lp[tok]))
+        baseline = read(corrupt_lp)
 
         recovery: list[list[float]] = []
         seq = n_corrupt
@@ -476,7 +488,7 @@ def patch_trace(
                     point=point)
                 lp = _last_logp(
                     model.run(ids_corrupt, interventions=[patch]).logits)
-                row.append(round(float(np.exp(lp[tok])) - baseline, 5))
+                row.append(round(read(lp) - baseline, 5))
             recovery.append(row)
             if on_item:
                 on_item()
@@ -486,13 +498,15 @@ def patch_trace(
             "id": record.get("id"),
             "tokens": tokens,
             "target_token": model.tokenizer.decode([tok]),
+            "metric": metric,
             "p_target_clean": round(p_clean_in_clean, 5),
             "p_target_corrupt": round(baseline, 5),
-            "recovery": recovery,  # [layer][pos]: Δp of the clean answer
+            "recovery": recovery,  # [layer][pos]: Δ(metric) of the target
         })
     return {
         "kind": "patch_trace",
         "point": point,
+        "metric": metric,
         "layers": layers,
         "template": template,
         "pairs": pairs,
@@ -697,12 +711,22 @@ def logit_attribution(
             apply_ln=apply_ln, ln_scale=ln_scale)
         contrib = attrs[:, 0] if ctok is None else attrs[:, 0] - attrs[:, 1]
 
-        # the honesty number: does the decomposition sum to the truth?
+        # The honesty number: does the decomposition sum to the truth?
+        # The comparison lives in PRE-softcap space — the decomposition
+        # is linear and the cap is not, so a capped "true" logit would
+        # disagree structurally (gemma4 caps; e2b's first run showed it).
         last = result.logits[0, -1, :].astype(mx.float32)
         mx.eval(last)
-        true_logit = float(np.array(last)[tok])
+        last_np = np.array(last, dtype=np.float64)
+        cap = getattr(
+            getattr(getattr(model, "_model", None), "language_model", None),
+            "final_logit_softcapping", None)
+        if cap:
+            c = float(cap)
+            last_np = c * np.arctanh(np.clip(last_np / c, -0.999999, 0.999999))
+        true_logit = float(last_np[tok])
         if ctok is not None:
-            true_logit -= float(np.array(last)[ctok])
+            true_logit -= float(last_np[ctok])
         summed = float(attrs.sum(axis=0)[0]) if ctok is None else float(
             (attrs[:, 0] - attrs[:, 1]).sum())
         rows.append({
