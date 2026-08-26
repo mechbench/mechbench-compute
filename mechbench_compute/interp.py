@@ -195,9 +195,11 @@ def _position_index(model, ids: mx.array, record: Mapping[str, Any],
         # Among tokens whose text appears in the subject, prefer the
         # LONGEST (ties -> latest): 'casa' must beat a stray 'a' later
         # in the sentence. The subject's own final piece carries the
-        # representation (the original geometry convention).
+        # representation (the original geometry convention). Casefolded:
+        # 'Capital' at a sentence start is still the subject 'capital'.
+        folded = subject.casefold()
         hits = [(len(t.strip()), i) for i, t in enumerate(tokens)
-                if t.strip() and t.strip() in subject]
+                if t.strip() and t.strip().casefold() in folded]
         if not hits:
             raise ValueError(
                 f"record {record.get('id')!r}: subject {subject!r} not "

@@ -504,3 +504,20 @@ class TestPerHeadDla:
         row = out["rows"][0]
         assert row["per_head"][0]["layer"] == 1
         assert len(row["per_head"][0]["contributions"]) == 2
+
+
+class TestSubjectCase:
+    def test_sentence_initial_capitalization_still_matches(self):
+        model = StubModel()
+
+        class Tok(StubTokenizer):
+            def decode(self, ids):
+                names = {5: "Capi", 3: "xx"}
+                return " ".join(names.get(int(i), f"t{int(i)}") for i in ids)
+
+        model.tokenizer = Tok()
+        out = interp.residual_vectors(
+            model, [{"id": "c", "user": "Capi xx", "subject": "capital"}],
+            {"layers": [0], "position": "subject"})
+        v = np.array(out["rows"][0]["vector"])
+        assert v[5] == pytest.approx(1.0)
