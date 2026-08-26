@@ -352,3 +352,23 @@ class TestAblateHeads:
         assert m[1, 0] < m[0, 0] < 0
         assert m[0, 1] < m[0, 0]
         assert out["n_heads"] == 2
+
+
+class TestSubjectPosition:
+    def test_the_longest_hit_beats_a_stray_short_one(self):
+        model = StubModel()
+
+        class Tok(StubTokenizer):
+            def decode(self, ids):
+                # word-length-keyed vocabulary: id 5 -> 'casa', id 2 -> 'a'
+                names = {5: "casa", 2: "a"}
+                return " ".join(names.get(int(i), f"t{int(i)}") for i in ids)
+
+        model.tokenizer = Tok()
+        # prompt 'casa xx a': ids [0, 1+(4%7)=5, 1+(2%7)=3, 1+(1%7)=2]
+        out = interp.residual_vectors(
+            model, [{"id": "c", "user": "casa xx a", "subject": "casa"}],
+            {"layers": [0], "position": "subject"})
+        v = np.array(out["rows"][0]["vector"])
+        # position of 'casa' (pos 1, token id 5) — not the stray 'a' at pos 3
+        assert v[5] == pytest.approx(1.0)

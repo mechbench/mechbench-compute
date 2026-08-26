@@ -192,16 +192,18 @@ def _position_index(model, ids: mx.array, record: Mapping[str, Any],
             )
         tokens = [model.tokenizer.decode([int(t)])
                   for t in np.array(ids).reshape(-1)]
-        # last token whose text appears in the subject: the original
-        # geometry convention (the subject's final token carries it)
-        hits = [i for i, t in enumerate(tokens)
+        # Among tokens whose text appears in the subject, prefer the
+        # LONGEST (ties -> latest): 'casa' must beat a stray 'a' later
+        # in the sentence. The subject's own final piece carries the
+        # representation (the original geometry convention).
+        hits = [(len(t.strip()), i) for i, t in enumerate(tokens)
                 if t.strip() and t.strip() in subject]
         if not hits:
             raise ValueError(
                 f"record {record.get('id')!r}: subject {subject!r} not "
                 "found among the prompt's tokens"
             )
-        return hits[-1]
+        return max(hits)[1]
     raise ValueError(f"unknown position {position!r}")
 
 
