@@ -505,6 +505,10 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_ablate_layers, inputs, params,
                     on_item=on_item, on_start=expand)
+            elif block == "~canonical/ops/steer/inject/1":
+                results[nid] = self._run_model_block(
+                    self._block_steer_inject, inputs, params,
+                    on_item=on_item, on_start=expand)
             elif block == "~canonical/ops/attribution/logits/1":
                 results[nid] = self._run_model_block(
                     self._block_logit_attribution, inputs, params,
@@ -725,6 +729,19 @@ class ProtocolExecutor:
         records = _records(inputs.get("records") or params.get("records"))
         return interp.ablate_layers(
             model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_steer_inject(self, inputs, params, on_item=None,
+                            on_start=None):
+        """~canonical/ops/steer/inject/1 — epic 000131 arc B: a
+        data-armed residual injection with an alpha sweep."""
+        from mechbench_compute import interp
+        from mechbench_compute.blocks import _records
+
+        model = self._model_loaded(params.get("model"))
+        records = _records(inputs.get("records") or params.get("records"))
+        return interp.steer_inject(
+            model, records, params, inputs=inputs,
+            on_item=on_item, on_start=on_start)
 
     def _block_logit_attribution(self, inputs, params, on_item=None,
                                  on_start=None):

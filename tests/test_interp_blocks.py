@@ -428,3 +428,79 @@ class TestLogitAttribution:
         with pytest.raises(ValueError, match="all"):
             interp.logit_attribution(
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": [1, 2]})
+
+
+class TestSteerInject:
+    def _vectors(self):
+        rows = []
+        for label, dim in (("city", 1), ("city", 1), ("money", 3), ("money", 3)):
+            v = [0.0] * D_MODEL
+            v[dim] = 2.0
+            rows.append({"id": f"{label}{dim}", "label": label,
+                         "layer": 2, "vector": v})
+        return {"kind": "residual_vectors", "layers": [2], "rows": rows}
+
+    def test_direction_comes_from_the_data_and_alpha_zero_is_control(self):
+        model = StubModel()
+        seen = []
+        orig = model.run
+
+        def spy(ids, interventions=None):
+            seen.append(list(interventions or []))
+            return orig(ids, interventions=interventions)
+
+        model.run = spy
+        out = interp.steer_inject(
+            model, [{"id": "e", "user": "the capital was"}],
+            {"layer": 2, "alphas": [0.0, 4.0],
+             "direction": {"positive": "city", "negative": "money"}},
+            inputs={"vectors": self._vectors()})
+        assert out["kind"] == "steer_sweep"
+        assert out["direction"]["norm"] == pytest.approx(
+            float(np.linalg.norm([0, 2, 0, -2] + [0] * (D_MODEL - 4))),
+            abs=1e-3)
+        assert seen[0] == []  # alpha 0 runs clean
+        add = seen[1][0]
+        assert getattr(add, "alpha", None) == 4.0
+        assert getattr(add, "layer_idx", None) == 2
+        rows = out["rows"]
+        assert [r["alpha"] for r in rows] == [0.0, 4.0]
+        assert len(rows[0]["top"]) == 5
+
+    def test_missing_layer_in_vectors_refuses_with_directions(self):
+        model = StubModel()
+        with pytest.raises(ValueError, match="capture that layer"):
+            interp.steer_inject(
+                model, [{"id": "e", "user": "x"}],
+                {"layer": 3, "direction": {"positive": "city", "negative": "money"}},
+                inputs={"vectors": self._vectors()})
+
+    def test_no_vectors_port_refuses(self):
+        with pytest.raises(ValueError, match="vectors"):
+            interp.steer_inject(
+                StubModel(), [{"id": "e", "user": "x"}],
+                {"layer": 2, "direction": {"positive": "a", "negative": "b"}},
+                inputs={})
+
+
+class TestPerHeadDla:
+    def test_per_head_rows_appear_for_named_layers(self, monkeypatch):
+        from mechbench_compute import attribution
+
+        def fake_attrs(model, stack, targets, *, position=-1,
+                       apply_ln=False, ln_scale=None):
+            at = stack[..., position, :]
+            return np.stack([at[..., t % at.shape[-1]] for t in targets],
+                            axis=-1).astype(np.float32)
+
+        def fake_heads(model, cache, layer):
+            return np.ones((2, 3, D_MODEL), dtype=np.float32) * (layer + 1)
+
+        monkeypatch.setattr(attribution, "logit_attrs", fake_attrs)
+        monkeypatch.setattr(attribution, "head_results", fake_heads)
+        out = interp.logit_attribution(
+            StubModel(), [{"id": "c", "user": "a b", "target": "word"}],
+            {"per_head_layers": [1]})
+        row = out["rows"][0]
+        assert row["per_head"][0]["layer"] == 1
+        assert len(row["per_head"][0]["contributions"]) == 2

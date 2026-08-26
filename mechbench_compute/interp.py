@@ -683,11 +683,18 @@ def logit_attribution(
 
     from mechbench_compute.interventions import Capture as Cap
 
+    per_head_layers = _resolve_layers(
+        params.get("per_head_layers"), model.arch.n_layers
+    ) if params.get("per_head_layers") else []
     interventions = [
         Cap.residual(layers, point="post"),
         Cap.residual([0], point="pre"),
         Cap.final_norm_scale(),
     ]
+    if per_head_layers:
+        # Forces the manual attention path at these layers — per-head
+        # writes (000145) cost real time, so they are opt-in by layer.
+        interventions.append(Cap.per_head_out(per_head_layers))
     rows: list[dict[str, Any]] = []
     for record in records:
         ids = _tokenize(model, _prompt_of(record), template)
@@ -729,12 +736,24 @@ def logit_attribution(
             true_logit -= float(last_np[ctok])
         summed = float(attrs.sum(axis=0)[0]) if ctok is None else float(
             (attrs[:, 0] - attrs[:, 1]).sum())
+        per_head: list[dict[str, Any]] = []
+        for hl in per_head_layers:
+            hr = attribution.head_results(model, result.cache, hl)
+            hattrs = attribution.logit_attrs(
+                model, hr, targets, apply_ln=apply_ln, ln_scale=ln_scale)
+            hc = (hattrs[:, 0] if ctok is None
+                  else hattrs[:, 0] - hattrs[:, 1])
+            per_head.append({
+                "layer": hl,
+                "contributions": [round(float(x), 4) for x in hc],
+            })
         rows.append({
             "id": record.get("id"),
             "target_token": model.tokenizer.decode([tok]),
             "contrast_token": (model.tokenizer.decode([ctok])
                                if ctok is not None else None),
             "contributions": [round(float(x), 4) for x in contrib],
+            **({"per_head": per_head} if per_head else {}),
             "additivity": {
                 "summed": round(summed, 3),
                 "true_logit": round(true_logit, 3),
@@ -755,6 +774,119 @@ def logit_attribution(
             "the target logit (embedding first, then every layer's "
             "delta), norm-folded so the bars sum to the model's true "
             "final logit — each row carries its own additivity residual."
+        ),
+    }
+
+
+def steer_inject(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    inputs: Mapping[str, Any] | None = None,
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Steering as a block (epic 000131, arc B): build a direction from
+    a labeled residual_vectors record (centroid of `positive` minus
+    centroid of `negative` at the injection layer) and ADD it to each
+    eval prompt's residual stream at (layer, position), sweeping alpha.
+    The readout is the final-position top-k under each alpha — alpha 0
+    is the built-in control.
+
+    The direction comes from DATA flowing through the graph, not from a
+    hardcoded vector: the same residuals/vectors block that measures
+    geometry also arms the intervention.
+    """
+    from mechbench_compute.interventions import Patch
+
+    template = str(params.get("template", "raw"))
+    layer = params.get("layer")
+    if not isinstance(layer, int):
+        raise TypeError("steer/inject needs an integer `layer` to inject at")
+    if not 0 <= layer < model.arch.n_layers:
+        raise ValueError(
+            f"layer {layer} out of range (n_layers={model.arch.n_layers})")
+    alphas = [float(a) for a in params.get("alphas", [-8.0, -4.0, 0.0, 4.0, 8.0])]
+    top_k = int(params.get("top_k", 5))
+    direction = params.get("direction") or {}
+    pos_label = direction.get("positive")
+    neg_label = direction.get("negative")
+    if not pos_label or not neg_label:
+        raise ValueError(
+            "steer/inject needs direction: {positive: <label>, "
+            "negative: <label>} naming labels in the vectors record")
+
+    vectors = (inputs or {}).get("vectors") or params.get("vectors")
+    if not isinstance(vectors, Mapping) or vectors.get("kind") != "residual_vectors":
+        raise ValueError(
+            "steer/inject needs a residual_vectors record on its "
+            "`vectors` port — the same block that measures geometry "
+            "arms the intervention")
+    rows_at = [r for r in vectors.get("rows", []) if r.get("layer") == layer]
+    pos = np.array([r["vector"] for r in rows_at if r.get("label") == pos_label],
+                   dtype=np.float32)
+    neg = np.array([r["vector"] for r in rows_at if r.get("label") == neg_label],
+                   dtype=np.float32)
+    if len(pos) == 0 or len(neg) == 0:
+        raise ValueError(
+            f"the vectors record has no rows at layer {layer} for "
+            f"labels {pos_label!r}/{neg_label!r} — capture that layer "
+            "in residuals/vectors first")
+    dvec = pos.mean(axis=0) - neg.mean(axis=0)
+    dnorm = float(np.linalg.norm(dvec))
+
+    if not records:
+        raise ValueError("steer/inject needs at least one eval prompt")
+    if on_start:
+        on_start(len(records) * len(alphas))
+
+    out_rows: list[dict[str, Any]] = []
+    value = mx.array(dvec)
+    for record in records:
+        prompt = _prompt_of(record)
+        ids = _tokenize(model, prompt, template)
+        seq = int(np.array(ids).shape[-1])
+        position = record.get("position", params.get("position", "final"))
+        pos_idx = seq - 1 if position in (None, "final") else int(position)
+        track = record.get("track") or params.get("track")
+        track_id = _target_token_id(model, str(track)) if track else None
+        for alpha in alphas:
+            interventions = (
+                [] if alpha == 0.0
+                else [Patch.add(layer, pos_idx, value, alpha=alpha)]
+            )
+            lp = _last_logp(model.run(ids, interventions=interventions).logits)
+            order = np.argsort(-lp)[:top_k]
+            out_rows.append({
+                "id": record.get("id"),
+                "alpha": alpha,
+                "top": [
+                    {"token": model.tokenizer.decode([int(t)]),
+                     "logp": round(float(lp[int(t)]), 3)}
+                    for t in order
+                ],
+                **({"track_logp": round(float(lp[track_id]), 3)}
+                   if track_id is not None else {}),
+            })
+            if on_item:
+                on_item()
+    return {
+        "kind": "steer_sweep",
+        "layer": layer,
+        "alphas": alphas,
+        "direction": {
+            "positive": pos_label,
+            "negative": neg_label,
+            "norm": round(dnorm, 3),
+            "n_positive": len(pos),
+            "n_negative": len(neg),
+        },
+        "template": template,
+        "rows": out_rows,
+        "description": (
+            f"Residual injection at L{layer}: centroid({pos_label}) − "
+            f"centroid({neg_label}), scaled by alpha, added at the "
+            "chosen position. Alpha 0 is the control row."
         ),
     }
 
