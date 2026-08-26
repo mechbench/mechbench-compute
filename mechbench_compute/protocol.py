@@ -505,6 +505,10 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_ablate_layers, inputs, params,
                     on_item=on_item, on_start=expand)
+            elif block == "~canonical/ops/lens/positions/1":
+                results[nid] = self._run_model_block(
+                    self._block_lens_positions, inputs, params,
+                    on_item=on_item, on_start=expand)
             elif block == "~canonical/ops/residuals/vectors/1":
                 results[nid] = self._run_model_block(
                     self._block_residual_vectors, inputs, params,
@@ -704,6 +708,19 @@ class ProtocolExecutor:
         model = self._model_loaded(params.get("model"))
         records = _records(inputs.get("records") or params.get("records"))
         return interp.ablate_layers(
+            model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_lens_positions(self, inputs, params, on_item=None,
+                              on_start=None):
+        """~canonical/ops/lens/positions/1 — step 08's question as a
+        block: where in the sequence, at what depth, does the target
+        become visible through the unembedding?"""
+        from mechbench_compute import interp
+        from mechbench_compute.blocks import _records
+
+        model = self._model_loaded(params.get("model"))
+        records = _records(inputs.get("records") or params.get("records"))
+        return interp.lens_positions(
             model, records, params, on_item=on_item, on_start=on_start)
 
     def _block_residual_vectors(self, inputs, params, on_item=None,

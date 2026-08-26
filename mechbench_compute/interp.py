@@ -348,6 +348,64 @@ def residual_divergence(
     }
 
 
+def lens_positions(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Step 08 as a block: project every layer's residual through the
+    unembedding at every position and follow one target token — where
+    in the sequence, and at what depth, does the answer become
+    visible? Rank 0 means the target is that position's top readout."""
+    from mechbench_compute import lens
+
+    template = str(params.get("template", "raw"))
+    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    if not records:
+        raise ValueError("lens/positions needs at least one condition")
+    if on_start:
+        on_start(len(records))
+
+    cap = Capture.residual(layers, point="post")
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        prompt = _prompt_of(record)
+        ids = _tokenize(model, prompt, template)
+        result = model.run(ids, interventions=[cap])
+        target = record.get("target") or params.get("target")
+        if target:
+            tok = _target_token_id(model, str(target))
+        else:
+            tok = int(np.argmax(_last_logp(result.logits)))
+        ranks, logprobs = lens.logit_lens_per_position(
+            model, result.cache, tok, layers=layers)
+        tokens = [model.tokenizer.decode([int(t)])
+                  for t in np.array(ids).reshape(-1)]
+        rows.append({
+            "id": record.get("id"),
+            "tokens": tokens,
+            "target_token": model.tokenizer.decode([tok]),
+            "target_id": tok,
+            "logprob": [[round(float(x), 4) for x in r] for r in logprobs],
+            "rank": [[int(x) for x in r] for r in ranks],
+        })
+        if on_item:
+            on_item()
+    return {
+        "kind": "lens_map",
+        "layers": layers,
+        "template": template,
+        "rows": rows,
+        "description": (
+            "Logit-lens readout of the target token at every (layer, "
+            "position): log p and rank of the target when each layer's "
+            "residual is projected straight through the unembedding."
+        ),
+    }
+
+
 def vector_similarity(inputs: Mapping[str, Any],
                       params: Mapping[str, Any]) -> dict[str, Any]:
     """Pure readout over a residual_vectors record: per layer, the

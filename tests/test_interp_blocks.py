@@ -238,3 +238,28 @@ class TestGateComponent:
         assert out["component"] == "gate"
         row = next(r for r in out["rows"] if r.get("layer") == 1)
         assert row["delta_logp"] < 0  # the stub penalizes any named zero-hook
+
+
+class TestLensPositions:
+    def test_the_target_surfaces_where_its_token_sits(self, monkeypatch):
+        model = StubModel()
+        # give the stub the unembedding the lens needs: identity over
+        # the one-hot residual dims
+        def project(resid):
+            arr = np.array(resid.astype(mx.float32))
+            out = np.zeros((*arr.shape[:-1], VOCAB), dtype=np.float32)
+            out[..., :D_MODEL] = arr
+            return mx.array(out)
+
+        model.project_to_logits = project
+        out = interp.lens_positions(
+            model, [{"id": "c", "user": "aa bbb aa", "target": "bbb"}],
+            {"layers": [0, 1]})
+        row = out["rows"][0]
+        assert out["kind"] == "lens_map"
+        # 'bbb' -> id 4; it sits at position 2 (BOS, aa, bbb, aa)
+        ranks = np.array(row["rank"])
+        lps = np.array(row["logprob"])
+        assert ranks[0, 2] == 0  # top readout exactly where the token is
+        assert ranks[0, 1] > 0  # and not where it is not
+        assert lps[0, 2] > lps[0, 1]
