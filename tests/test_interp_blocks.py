@@ -29,7 +29,7 @@ class StubArch:
 
 
 class StubTokenizer:
-    all_special_ids = [0]
+    all_special_ids = (0,)
 
     def decode(self, ids):
         return " ".join(f"t{int(i)}" for i in ids)
@@ -60,7 +60,7 @@ class StubModel:
             if layer_idx is not None:
                 penalty += layer_idx + 1
             for name in getattr(iv, "names", ()) or ():
-                if name.endswith(("attn_out", "mlp_out")):
+                if name.endswith(("attn_out", "mlp_out", "gate_out")):
                     penalty += int(name.split(".")[1]) + 1
 
         logits = np.zeros((1, seq, VOCAB), dtype=np.float32)
@@ -134,7 +134,7 @@ class TestAblateLayers:
     def test_unknown_component_refuses(self):
         with pytest.raises(ValueError, match="component"):
             interp.ablate_layers(StubModel(), [{"id": "c", "user": "a"}],
-                                 {"component": "gate"})
+                                 {"component": "norm"})
 
 
 class TestResidualVectors:
@@ -227,3 +227,14 @@ class TestVectorSimilarity:
     def test_wrong_input_kind_refuses(self):
         with pytest.raises(ValueError, match="residual_vectors"):
             interp.vector_similarity({"vectors": {"kind": "word_list"}}, {})
+
+
+class TestGateComponent:
+    def test_gate_routes_to_the_side_channel_hook(self):
+        model = StubModel()
+        out = interp.ablate_layers(
+            model, [{"id": "c", "user": "a b"}],
+            {"component": "gate", "layers": [1]})
+        assert out["component"] == "gate"
+        row = next(r for r in out["rows"] if r.get("layer") == 1)
+        assert row["delta_logp"] < 0  # the stub penalizes any named zero-hook

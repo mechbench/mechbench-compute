@@ -43,6 +43,10 @@ _COMPONENTS: dict[str, Callable[[int], Any]] = {
     "block": Ablate.layer,
     "attention": Ablate.attention,
     "mlp": Ablate.mlp,
+    # MatFormer's per-layer-input gate (step 03's side channel). On a
+    # non-MatFormer model the hook name does not exist and the run
+    # refuses with the arch's own error.
+    "gate": Ablate.side_channel,
 }
 
 

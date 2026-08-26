@@ -313,6 +313,16 @@ class Model:
             ids = self._processor.encode(rendered)
             return mx.array([ids], dtype=mx.int32)
 
+        if not chat_template:
+            # Honor the contract on the VLM path too. This flag was
+            # silently ignored here for months and nothing noticed —
+            # until the first raw-template ablation sweep froze targets
+            # against a chat-wrapped baseline and every target token
+            # decoded as 'user' (2026-08-26).
+            tok = getattr(self._processor, "tokenizer", self._processor)
+            ids = tok.encode(prompt)
+            return mx.array([ids], dtype=mx.int32)
+
         add_special_tokens = getattr(self._processor, "chat_template", None) is None
         formatted = apply_chat_template(
             self._processor, self._model.config, prompt, num_images=0,
