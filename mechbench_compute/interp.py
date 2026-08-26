@@ -406,6 +406,231 @@ def lens_positions(
     }
 
 
+def patch_trace(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Causal tracing (step 09): run CLEAN capturing every layer, run
+    CORRUPT for the baseline, then patch the clean residual into the
+    corrupt run one (layer, position) at a time and measure how much of
+    the clean answer's probability comes back. The map localizes WHERE
+    the fact lives. Progress ticks per layer row (a full row of
+    positions is one unit)."""
+    from mechbench_compute.interventions import Patch
+
+    template = str(params.get("template", "raw"))
+    point = str(params.get("point", "resid_post"))
+    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    if not records:
+        raise ValueError("patch/trace needs at least one pair")
+    if on_start:
+        on_start(len(records) * len(layers))
+
+    cap = Capture.residual(layers, point=point.removeprefix("resid_"))
+    pairs: list[dict[str, Any]] = []
+    for record in records:
+        clean, corrupt = record.get("clean"), record.get("corrupt")
+        if not (isinstance(clean, str) and isinstance(corrupt, str)
+                and clean and corrupt):
+            raise ValueError(
+                f"pair {record.get('id')!r} needs prompt fields "
+                "`clean` and `corrupt`"
+            )
+        ids_clean = _tokenize(model, clean, template)
+        ids_corrupt = _tokenize(model, corrupt, template)
+        n_clean = int(np.array(ids_clean).shape[-1])
+        n_corrupt = int(np.array(ids_corrupt).shape[-1])
+        if n_clean != n_corrupt:
+            pairs.append({
+                "id": record.get("id"),
+                "error": (
+                    f"prompts tokenize to different lengths ({n_clean} vs "
+                    f"{n_corrupt}) — positions cannot align under patching"
+                ),
+            })
+            if on_item:
+                for _ in layers:
+                    on_item()
+            continue
+        clean_run = model.run(ids_clean, interventions=[cap])
+        clean_lp = _last_logp(clean_run.logits)
+        target = record.get("target") or params.get("target")
+        tok = (_target_token_id(model, str(target)) if target
+               else int(np.argmax(clean_lp)))
+        p_clean_in_clean = float(np.exp(clean_lp[tok]))
+        corrupt_lp = _last_logp(model.run(ids_corrupt).logits)
+        baseline = float(np.exp(corrupt_lp[tok]))
+
+        recovery: list[list[float]] = []
+        seq = n_corrupt
+        for layer in layers:
+            row: list[float] = []
+            for pos in range(seq):
+                patch = Patch.position(
+                    layer=layer, position=pos, source=clean_run.cache,
+                    point=point)
+                lp = _last_logp(
+                    model.run(ids_corrupt, interventions=[patch]).logits)
+                row.append(round(float(np.exp(lp[tok])) - baseline, 5))
+            recovery.append(row)
+            if on_item:
+                on_item()
+        tokens = [model.tokenizer.decode([int(t)])
+                  for t in np.array(ids_corrupt).reshape(-1)]
+        pairs.append({
+            "id": record.get("id"),
+            "tokens": tokens,
+            "target_token": model.tokenizer.decode([tok]),
+            "p_target_clean": round(p_clean_in_clean, 5),
+            "p_target_corrupt": round(baseline, 5),
+            "recovery": recovery,  # [layer][pos]: Δp of the clean answer
+        })
+    return {
+        "kind": "patch_trace",
+        "point": point,
+        "layers": layers,
+        "template": template,
+        "pairs": pairs,
+        "description": (
+            "Activation patching: p(clean answer) recovered when the "
+            "clean residual is patched into the corrupt run at each "
+            "(layer, position). Bright cells are where the fact lives."
+        ),
+    }
+
+
+#: Attention matrices are quadratic in sequence length; refuse a
+#: capture that would emit more than this many floats.
+MAX_ATTN_FLOATS = 2_000_000
+
+
+def attention_patterns(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Steps 05/06: post-softmax attention weights per head at chosen
+    layers. Layers must be named explicitly — every layer of every
+    head of a long prompt is a picture nobody asked for."""
+    template = str(params.get("template", "raw"))
+    spec = params.get("layers")
+    if spec in (None, "all"):
+        raise ValueError(
+            "attention/patterns needs an explicit layers list — "
+            "attention weights are per-head and quadratic in prompt "
+            "length, so name the layers you want to look at"
+        )
+    layers = _resolve_layers(spec, model.arch.n_layers)
+    if not records:
+        raise ValueError("attention/patterns needs at least one condition")
+    if on_start:
+        on_start(len(records))
+
+    cap = Capture.attn_weights(layers)
+    rows: list[dict[str, Any]] = []
+    total_floats = 0
+    for record in records:
+        ids = _tokenize(model, _prompt_of(record), template)
+        result = model.run(ids, interventions=[cap])
+        tokens = [model.tokenizer.decode([int(t)])
+                  for t in np.array(ids).reshape(-1)]
+        seq = len(tokens)
+        total_floats += len(layers) * model.arch.n_heads * seq * seq
+        if total_floats > MAX_ATTN_FLOATS:
+            raise ValueError(
+                f"attention capture would exceed {MAX_ATTN_FLOATS} floats "
+                "— fewer layers, shorter prompts, or fewer conditions"
+            )
+        per_layer = []
+        for layer in layers:
+            w = result.cache[f"blocks.{layer}.attn.weights"]
+            arr = np.array(w.astype(mx.float32))[0]  # [heads, L, S]
+            per_layer.append({
+                "layer": layer,
+                "heads": [[[round(float(x), 4) for x in r] for r in h]
+                          for h in arr],
+            })
+        rows.append({"id": record.get("id"), "tokens": tokens,
+                     "layers": per_layer})
+        if on_item:
+            on_item()
+    return {
+        "kind": "attention_patterns",
+        "n_heads": model.arch.n_heads,
+        "layers": layers,
+        "template": template,
+        "rows": rows,
+        "description": (
+            "Post-softmax attention weights per head: row = the "
+            "attending position, column = the attended-to position."
+        ),
+    }
+
+
+def ablate_heads(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Step 07: zero one head at a time across (layers × heads) and
+    measure Δ log p of the target — the head-level version of the
+    layer sweep. Progress ticks per (condition, layer)."""
+    template = str(params.get("template", "raw"))
+    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    n_heads = model.arch.n_heads
+    if not records:
+        raise ValueError("ablate/heads needs at least one condition")
+    if on_start:
+        on_start(len(records) * (len(layers) + 1))
+
+    sums = np.zeros((len(layers), n_heads), dtype=np.float64)
+    metas: list[dict[str, Any]] = []
+    for record in records:
+        prompt = _prompt_of(record)
+        ids = _tokenize(model, prompt, template)
+        base_lp = _last_logp(model.run(ids).logits)
+        if on_item:
+            on_item()
+        target = record.get("target") or params.get("target")
+        tok = (_target_token_id(model, str(target)) if target
+               else int(np.argmax(base_lp)))
+        baseline = float(base_lp[tok])
+        metas.append({
+            "id": record.get("id"),
+            "target_token": model.tokenizer.decode([tok]),
+            "baseline_logp": round(baseline, 4),
+        })
+        for li, layer in enumerate(layers):
+            for head in range(n_heads):
+                lp = _last_logp(model.run(
+                    ids, interventions=[Ablate.head(layer, head)]).logits)
+                sums[li, head] += float(lp[tok]) - baseline
+            if on_item:
+                on_item()
+    mean = sums / len(records)
+    return {
+        "kind": "head_ablation",
+        "layers": layers,
+        "n_heads": n_heads,
+        "n_conditions": len(records),
+        "conditions": metas,
+        "mean_delta": [[round(float(x), 4) for x in row] for row in mean],
+        "template": template,
+        "description": (
+            "Mean Δ log p of the target with each single head zeroed — "
+            "rows are layers, columns are heads; dark cells are heads "
+            "the answer runs through."
+        ),
+    }
+
+
 def vector_similarity(inputs: Mapping[str, Any],
                       params: Mapping[str, Any]) -> dict[str, Any]:
     """Pure readout over a residual_vectors record: per layer, the

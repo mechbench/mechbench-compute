@@ -26,6 +26,7 @@ FAV = 7  # the token the stub's baseline favors
 class StubArch:
     n_layers = N_LAYERS
     d_model = D_MODEL
+    n_heads = 2
 
 
 class StubTokenizer:
@@ -43,6 +44,9 @@ class StubModel:
 
     def __init__(self):
         self.runs = 0
+        #: When set, a patch at position 1 answers as if the second
+        #: token were this id — the stub's model of causal tracing.
+        self.clean_second: int | None = None
 
     def tokenize(self, prompt: str, chat_template: bool = True):
         ids = [0] + [1 + (len(w) % 7) for w in prompt.split()]
@@ -55,7 +59,14 @@ class StubModel:
         # ablation penalty: sum of (layer+1) across ablated layers,
         # detected from the intervention objects' own fields
         penalty = 0.0
+        patched_positions = []
         for iv in interventions or []:
+            if hasattr(iv, "position") and hasattr(iv, "value"):
+                patched_positions.append(int(iv.position))
+                continue
+            if hasattr(iv, "head"):
+                penalty += (iv.layer_idx + 1) + iv.head / 10.0
+                continue
             layer_idx = getattr(iv, "layer_idx", None)
             if layer_idx is not None:
                 penalty += layer_idx + 1
@@ -64,9 +75,22 @@ class StubModel:
                     penalty += int(name.split(".")[1]) + 1
 
         logits = np.zeros((1, seq, VOCAB), dtype=np.float32)
-        logits[0, -1, FAV] = 5.0 - penalty
+        fav = FAV
+        if seq > 1:
+            second = int(arr[1])
+            if 1 in patched_positions and self.clean_second is not None:
+                second = self.clean_second
+            fav = second % VOCAB
+        logits[0, -1, fav] = 5.0 - penalty
 
         cache = {}
+        n_heads = self.arch.n_heads
+        for layer in range(N_LAYERS):
+            w = np.zeros((1, n_heads, seq, seq), dtype=np.float32)
+            for h in range(n_heads):
+                for i2 in range(seq):
+                    w[0, h, i2, : i2 + 1] = 1.0 / (i2 + 1)
+            cache[f"blocks.{layer}.attn.weights"] = mx.array(w)
         for layer in range(N_LAYERS):
             resid = np.zeros((1, seq, D_MODEL), dtype=np.float32)
             for pos, tok in enumerate(arr):
@@ -263,3 +287,68 @@ class TestLensPositions:
         assert ranks[0, 2] == 0  # top readout exactly where the token is
         assert ranks[0, 1] > 0  # and not where it is not
         assert lps[0, 2] > lps[0, 1]
+
+
+class TestPatchTrace:
+    def test_recovery_lands_exactly_on_the_differing_position(self):
+        model = StubModel()
+        # prompts whose difference sits exactly at position 1 (after
+        # BOS), where the stub's flip logic looks
+        clean, corrupt = "over the hill", "under the hill"
+        model.clean_second = 1 + (len("over") % 7)
+        out = interp.patch_trace(
+            model, [{"id": "p", "clean": clean, "corrupt": corrupt}],
+            {"layers": [0, 1]})
+        pair = out["pairs"][0]
+        rec = np.array(pair["recovery"])  # [layer][pos]
+        assert rec.shape[1] == 4  # BOS + 3 words
+        # patching the differing position recovers the clean answer fully
+        assert rec[0, 1] > 0.5
+        # patching agreeing positions recovers nothing
+        assert abs(rec[0, 0]) < 1e-3
+        assert abs(rec[0, 3]) < 1e-3
+        assert pair["p_target_clean"] > pair["p_target_corrupt"]
+
+    def test_unequal_pairs_report(self):
+        out = interp.patch_trace(
+            StubModel(), [{"id": "p", "clean": "a b", "corrupt": "a b c"}],
+            {"layers": [0]})
+        assert "different lengths" in out["pairs"][0]["error"]
+
+
+class TestAttentionPatterns:
+    def test_shapes_and_row_normalization(self):
+        model = StubModel()
+        out = interp.attention_patterns(
+            model, [{"id": "c", "user": "a b c"}], {"layers": [1]})
+        row = out["rows"][0]
+        heads = row["layers"][0]["heads"]
+        assert len(heads) == 2  # stub n_heads
+        m = np.array(heads[0])
+        assert m.shape == (4, 4)
+        assert np.allclose(m.sum(axis=1), 1.0, atol=1e-3)  # causal rows sum to 1
+
+    def test_all_layers_refuses_loudly(self):
+        with pytest.raises(ValueError, match="explicit layers"):
+            interp.attention_patterns(
+                StubModel(), [{"id": "c", "user": "a"}], {"layers": "all"})
+
+    def test_the_float_cap_refuses(self, monkeypatch):
+        monkeypatch.setattr(interp, "MAX_ATTN_FLOATS", 3)
+        with pytest.raises(ValueError, match="floats"):
+            interp.attention_patterns(
+                StubModel(), [{"id": "c", "user": "a b"}], {"layers": [0]})
+
+
+class TestAblateHeads:
+    def test_the_head_matrix_matches_the_stub_arithmetic(self):
+        model = StubModel()
+        out = interp.ablate_heads(
+            model, [{"id": "c", "user": "a"}], {"layers": [0, 2]})
+        m = np.array(out["mean_delta"])  # [2 layers][2 heads]
+        assert m.shape == (2, 2)
+        # stub penalty = (layer+1) + head/10: deeper layer and higher
+        # head both hurt more
+        assert m[1, 0] < m[0, 0] < 0
+        assert m[0, 1] < m[0, 0]
+        assert out["n_heads"] == 2
