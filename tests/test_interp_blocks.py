@@ -96,6 +96,12 @@ class StubModel:
             for pos, tok in enumerate(arr):
                 resid[0, pos, int(tok) % D_MODEL] = float(layer + 1)
             cache[f"blocks.{layer}.resid_post"] = mx.array(resid)
+        pre0 = np.zeros((1, seq, D_MODEL), dtype=np.float32)
+        for pos, tok in enumerate(arr):
+            pre0[0, pos, int(tok) % D_MODEL] = 0.5
+        cache["blocks.0.resid_pre"] = mx.array(pre0)
+        cache["final_norm.scale"] = mx.array(
+            np.ones((1, seq), dtype=np.float32))
 
         class R:
             pass
@@ -372,3 +378,34 @@ class TestSubjectPosition:
         v = np.array(out["rows"][0]["vector"])
         # position of 'casa' (pos 1, token id 5) — not the stray 'a' at pos 3
         assert v[5] == pytest.approx(1.0)
+
+
+class TestLogitAttribution:
+    def test_component_bookkeeping_and_the_honesty_number(self, monkeypatch):
+        from mechbench_compute import attribution
+
+        def fake_attrs(model, stack, targets, *, position=-1,
+                       apply_ln=False, ln_scale=None):
+            assert apply_ln and ln_scale is not None
+            at = stack[..., position, :]
+            return np.stack([at[..., t % at.shape[-1]] for t in targets],
+                            axis=-1).astype(np.float32)
+
+        monkeypatch.setattr(attribution, "logit_attrs", fake_attrs)
+        model = StubModel()
+        out = interp.logit_attribution(
+            model, [{"id": "c", "user": "a b", "target": "word"}], {})
+        assert out["kind"] == "logit_attribution"
+        row = out["rows"][0]
+        # embedding + one component per layer
+        assert len(row["contributions"]) == N_LAYERS + 1
+        assert out["components"][0] == "embed"
+        add = row["additivity"]
+        assert set(add) == {"summed", "true_logit", "residual"}
+        assert add["residual"] == pytest.approx(
+            add["summed"] - add["true_logit"], abs=1e-3)
+
+    def test_partial_layers_refuse_because_additivity_would_lie(self):
+        with pytest.raises(ValueError, match="all"):
+            interp.logit_attribution(
+                StubModel(), [{"id": "c", "user": "a"}], {"layers": [1, 2]})

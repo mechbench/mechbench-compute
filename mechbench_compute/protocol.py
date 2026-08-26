@@ -505,6 +505,10 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_ablate_layers, inputs, params,
                     on_item=on_item, on_start=expand)
+            elif block == "~canonical/ops/attribution/logits/1":
+                results[nid] = self._run_model_block(
+                    self._block_logit_attribution, inputs, params,
+                    on_item=on_item, on_start=expand)
             elif block == "~canonical/ops/patch/trace/1":
                 results[nid] = self._run_model_block(
                     self._block_patch_trace, inputs, params,
@@ -720,6 +724,18 @@ class ProtocolExecutor:
         model = self._model_loaded(params.get("model"))
         records = _records(inputs.get("records") or params.get("records"))
         return interp.ablate_layers(
+            model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_logit_attribution(self, inputs, params, on_item=None,
+                                 on_start=None):
+        """~canonical/ops/attribution/logits/1 — steps 32/33, self-
+        validating per-layer DLA (000142's apply_ln)."""
+        from mechbench_compute import interp
+        from mechbench_compute.blocks import _records
+
+        model = self._model_loaded(params.get("model"))
+        records = _records(inputs.get("records") or params.get("records"))
+        return interp.logit_attribution(
             model, records, params, on_item=on_item, on_start=on_start)
 
     def _block_patch_trace(self, inputs, params, on_item=None,

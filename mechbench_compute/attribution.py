@@ -196,12 +196,28 @@ def head_results(model, cache: ActivationCache, layer: int) -> np.ndarray:
     return out
 
 
+def _final_norm_gain(model) -> np.ndarray:
+    """The final norm's learned gain as a vector — (1 + w) for the
+    Gemma families, w for llama/qwen. Elementwise-linear, so it can be
+    folded into each component before the unembed."""
+    if model.arch.model_type in ("qwen2", "llama"):
+        w = model._model.model.norm.weight
+        offset = 0.0
+    else:
+        w = model._model.language_model.model.norm.weight
+        offset = 1.0
+    arr = np.array(mx.array(w).astype(mx.float32))
+    return arr + offset
+
+
 def logit_attrs(
     model,
     residual_stack: np.ndarray,
     target_token_ids: Sequence[int],
     *,
     position: int = -1,
+    apply_ln: bool = False,
+    ln_scale: np.ndarray | None = None,
 ) -> np.ndarray:
     """Project each component in `residual_stack` through the tied unembed
     (linear, no final norm) and return logit contributions to each target
@@ -218,6 +234,11 @@ def logit_attrs(
             then reading `attrs[..., 0] - attrs[..., 1]` as the
             contribution to the logit-difference.
         position: Sequence position to read at. Default `-1` (final token).
+        apply_ln: Fold the final RMSNorm (captured scale + learned gain)
+            into each component, making the decomposition sum to the
+            model's true final logits (task 000142).
+        ln_scale: The captured `final_norm.scale` value ([B, S] or [S])
+            from the same run. Required when apply_ln=True.
 
     Returns:
         `np.ndarray` of shape `[..., len(target_token_ids)]`, float32.
@@ -226,6 +247,19 @@ def logit_attrs(
     leading_shape = stack_at_pos.shape[:-1]
     d_model = stack_at_pos.shape[-1]
     flat = stack_at_pos.reshape(-1, d_model)  # [N, d_model]
+    if apply_ln:
+        # TransformerLens's apply_ln semantics (task 000142): divide by
+        # the CAPTURED per-position rms and fold in the norm's gain —
+        # both elementwise-linear, so summing the per-component results
+        # reproduces the model's true final logit.
+        if ln_scale is None:
+            raise ValueError(
+                "apply_ln=True needs ln_scale — capture "
+                "'final_norm.scale' (Capture.final_norm_scale()) in the "
+                "same run and pass its value here"
+            )
+        scale = float(np.asarray(ln_scale, dtype=np.float64).reshape(-1)[position])
+        flat = (flat / scale) * _final_norm_gain(model)
     v = mx.array(flat, dtype=mx.bfloat16)
 
     # Project through the unembed without applying the final norm — DLA

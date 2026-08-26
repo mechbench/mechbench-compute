@@ -195,6 +195,16 @@ def run_forward_llama(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
+    # The final RMSNorm's per-position scale (task 000142): captured
+    # only when asked, so DLA's apply_ln can make per-component
+    # contributions sum to the model's true final logits.
+    if "final_norm.scale" in capture_set or "final_norm.scale" in hooks:
+        f32 = h.astype(mx.float32)
+        eps = float(getattr(tm.norm, "eps", 1e-6))
+        rms = mx.sqrt(mx.mean(f32 * f32, axis=-1) + eps)
+        _dispatch("final_norm.scale", None, "final_norm.scale", rms,
+                  hooks, capture_set, cache)
+
     h_final = tm.norm(h)
     if model.args.tie_word_embeddings:
         logits = tm.embed_tokens.as_linear(h_final)

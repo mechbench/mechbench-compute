@@ -358,6 +358,12 @@ class Capture:
         )
 
     @staticmethod
+    def final_norm_scale() -> Intervention:
+        """Capture the final RMSNorm's per-position scale, [B, S]
+        (000142) — the denominator DLA's apply_ln needs."""
+        return _Captures(names=("final_norm.scale",))
+
+    @staticmethod
     def gate_out(layers: int | Iterable[int]) -> Intervention:
         """Capture the MatFormer per-layer-input gate output at the given layers."""
         return _Captures(

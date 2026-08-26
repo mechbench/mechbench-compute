@@ -633,6 +633,108 @@ def ablate_heads(
     }
 
 
+def logit_attribution(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Steps 32/33 as a block: direct logit attribution per layer.
+
+    One forward per condition captures every layer's residual plus the
+    final norm's scale; the residual stream is decomposed into exactly
+    additive components (embedding, then each layer's delta), and each
+    component's contribution to the target logit is read through the
+    norm-folded unembed (apply_ln, task 000142).
+
+    SELF-VALIDATING: every row reports its additivity residual — the
+    summed contributions minus the model's true final logit. A reader
+    never has to take the decomposition on faith.
+    """
+    from mechbench_compute import attribution
+
+    template = str(params.get("template", "raw"))
+    apply_ln = bool(params.get("apply_ln", True))
+    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    if layers != list(range(model.arch.n_layers)):
+        raise ValueError(
+            "attribution/logits decomposes the WHOLE stream — additivity "
+            "only holds over all layers, so `layers` must be \"all\""
+        )
+    if not records:
+        raise ValueError("attribution/logits needs at least one condition")
+    if on_start:
+        on_start(len(records))
+
+    from mechbench_compute.interventions import Capture as Cap
+
+    interventions = [
+        Cap.residual(layers, point="post"),
+        Cap.residual([0], point="pre"),
+        Cap.final_norm_scale(),
+    ]
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        ids = _tokenize(model, _prompt_of(record), template)
+        result = model.run(ids, interventions=interventions)
+        lp = _last_logp(result.logits)
+        target = record.get("target") or params.get("target")
+        tok = (_target_token_id(model, str(target)) if target
+               else int(np.argmax(lp)))
+        contrast = record.get("contrast")
+        ctok = _target_token_id(model, str(contrast)) if contrast else None
+
+        acc = attribution.accumulated_resid(result.cache, include_pre=True)
+        components = np.diff(acc, axis=0, prepend=np.zeros_like(acc[:1]))
+        # components[0] = embedding stream, components[i] = layer i-1's delta
+        ln_scale = np.array(
+            mx.array(result.cache["final_norm.scale"]).astype(mx.float32)
+        ).reshape(-1)
+        targets = [tok] if ctok is None else [tok, ctok]
+        attrs = attribution.logit_attrs(
+            model, components, targets,
+            apply_ln=apply_ln, ln_scale=ln_scale)
+        contrib = attrs[:, 0] if ctok is None else attrs[:, 0] - attrs[:, 1]
+
+        # the honesty number: does the decomposition sum to the truth?
+        last = result.logits[0, -1, :].astype(mx.float32)
+        mx.eval(last)
+        true_logit = float(np.array(last)[tok])
+        if ctok is not None:
+            true_logit -= float(np.array(last)[ctok])
+        summed = float(attrs.sum(axis=0)[0]) if ctok is None else float(
+            (attrs[:, 0] - attrs[:, 1]).sum())
+        rows.append({
+            "id": record.get("id"),
+            "target_token": model.tokenizer.decode([tok]),
+            "contrast_token": (model.tokenizer.decode([ctok])
+                               if ctok is not None else None),
+            "contributions": [round(float(x), 4) for x in contrib],
+            "additivity": {
+                "summed": round(summed, 3),
+                "true_logit": round(true_logit, 3),
+                "residual": round(summed - true_logit, 3),
+            },
+        })
+        if on_item:
+            on_item()
+    return {
+        "kind": "logit_attribution",
+        "apply_ln": apply_ln,
+        "layers": layers,
+        "template": template,
+        "components": ["embed", *[f"L{i}" for i in layers]],
+        "rows": rows,
+        "description": (
+            "Direct logit attribution: each component's contribution to "
+            "the target logit (embedding first, then every layer's "
+            "delta), norm-folded so the bars sum to the model's true "
+            "final logit — each row carries its own additivity residual."
+        ),
+    }
+
+
 def vector_similarity(inputs: Mapping[str, Any],
                       params: Mapping[str, Any]) -> dict[str, Any]:
     """Pure readout over a residual_vectors record: per layer, the

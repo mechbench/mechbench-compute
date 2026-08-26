@@ -37,7 +37,12 @@ LAYER_HOOK_POINTS: tuple[str, ...] = (
 
 # Top-level (non-layer) hook points. Empty in v0; reserved for future
 # expansion (e.g. embed.out, final_norm.out).
-GLOBAL_HOOK_POINTS: tuple[str, ...] = ()
+GLOBAL_HOOK_POINTS: tuple[str, ...] = (
+    # The final RMSNorm's per-position scale, [B, S] float32 (000142):
+    # what DLA's apply_ln divides by to make components sum to the
+    # model's true logits.
+    "final_norm.scale",
+)
 
 # Hook points that require manual attention computation. When any hook or
 # capture targets one of these, the canonical forward switches from the fused
