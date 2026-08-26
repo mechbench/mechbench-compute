@@ -1,0 +1,405 @@
+"""Interpretability primitives as protocol operations (the
+mechbench-experiments port).
+
+The original step-XX scripts each hand-rolled a loop around the same
+three moves: run the model with an intervention, read something out of
+the residual stream, compare. The intervention layer (interventions.py)
+already made those moves declarative; this module makes them PROTOCOL
+BLOCKS, so the experiments become graphs anyone can run, re-run, and
+diff on the platform:
+
+- ``ablate_layers``     — steps 02/04/34/35 and the legacy flat kind:
+                          per-layer (or per-sublayer) Δ log p sweeps.
+- ``residual_vectors``  — steps 01/08/10/11/12's shared substrate:
+                          residual-stream vectors at (layer, position)
+                          per condition, as data other blocks consume.
+- ``residual_divergence`` — the matched-pair mechanism (000050/052):
+                          run a pair of prompts, cosine-compare the
+                          residual streams per (layer, position).
+- ``vector_similarity`` — steps 10/11/28's readout (pure, no model):
+                          cosine matrix + separation metrics over
+                          labeled vectors. Lives in blocks.PURE_BLOCKS.
+
+Prompts default to RAW tokenization (no chat template): the original
+experiments measure completion behavior, and a chat wrapper changes
+both the positions and the task. `template: "chat"` opts in.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
+
+import mlx.core as mx
+import numpy as np
+
+from mechbench_compute.interventions import Ablate, Capture
+
+#: Refuse vector payloads past this many floats — a mistyped layer list
+#: must not emit a gigabyte of CBOR. ~16 MB of float64 at the cap.
+MAX_VECTOR_FLOATS = 2_000_000
+
+_COMPONENTS: dict[str, Callable[[int], Any]] = {
+    "block": Ablate.layer,
+    "attention": Ablate.attention,
+    "mlp": Ablate.mlp,
+}
+
+
+def _tokenize(model, prompt: str, template: str) -> mx.array:
+    return model.tokenize(prompt, chat_template=(template == "chat"))
+
+
+def _last_logp(logits: mx.array) -> np.ndarray:
+    last = logits[0, -1, :].astype(mx.float32)
+    lp = last - mx.logsumexp(last)
+    mx.eval(lp)
+    return np.array(lp)
+
+
+def _resolve_layers(spec: Any, n_layers: int) -> list[int]:
+    """"all", an int, or a list of ints — validated against the arch."""
+    if spec in (None, "all"):
+        return list(range(n_layers))
+    layers = [int(spec)] if isinstance(spec, int) else [int(x) for x in spec]
+    bad = [i for i in layers if not 0 <= i < n_layers]
+    if bad:
+        raise ValueError(
+            f"layers {bad} out of range for this model (n_layers={n_layers})"
+        )
+    return layers
+
+
+def _prompt_of(record: Mapping[str, Any]) -> str:
+    p = record.get("user") or record.get("prompt")
+    if not isinstance(p, str) or not p:
+        raise ValueError(
+            f"record {record.get('id')!r} has no prompt: expected `user` "
+            "(condition-set convention) or `prompt`"
+        )
+    return p
+
+
+def _target_token_id(model, target: str) -> int:
+    """The first token of `target`, tokenized raw as a continuation."""
+    ids = model.tokenize(target, chat_template=False)
+    flat = [int(t) for t in np.array(ids).reshape(-1)]
+    # skip BOS-like specials the tokenizer prepends
+    specials = set(getattr(model.tokenizer, "all_special_ids", []) or [])
+    for t in flat:
+        if t not in specials:
+            return t
+    raise ValueError(f"target {target!r} tokenized to specials only")
+
+
+def ablate_layers(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Per-layer ablation sweep: for each condition, skip (or zero one
+    sublayer of) each layer in turn and measure Δ log p of the target —
+    the condition's `target` string's first token, or the baseline's
+    top-1 when no target is named."""
+    component = str(params.get("component", "block"))
+    if component not in _COMPONENTS:
+        raise ValueError(
+            f"unknown component {component!r}: one of {sorted(_COMPONENTS)}"
+        )
+    template = str(params.get("template", "raw"))
+    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    if not records:
+        raise ValueError("ablate/layers needs at least one condition")
+    if on_start:
+        on_start(len(records) * (len(layers) + 1))
+
+    intervene = _COMPONENTS[component]
+    rows: list[dict[str, Any]] = []
+    damage_by_layer: dict[int, list[float]] = {i: [] for i in layers}
+    for record in records:
+        prompt = _prompt_of(record)
+        ids = _tokenize(model, prompt, template)
+        base_lp = _last_logp(model.run(ids).logits)
+        if on_item:
+            on_item()
+        target = record.get("target") or params.get("target")
+        if target:
+            tok = _target_token_id(model, str(target))
+        else:
+            tok = int(np.argmax(base_lp))
+        baseline = float(base_lp[tok])
+        token_str = model.tokenizer.decode([tok])
+        for layer in layers:
+            ids = _tokenize(model, prompt, template)
+            lp = _last_logp(model.run(ids, interventions=[intervene(layer)]).logits)
+            delta = float(lp[tok]) - baseline
+            damage_by_layer[layer].append(delta)
+            rows.append({
+                "id": record.get("id"),
+                "layer": layer,
+                "delta_logp": round(delta, 4),
+            })
+            if on_item:
+                on_item()
+        rows.append({
+            "id": record.get("id"),
+            "layer": None,
+            "baseline_logp": round(baseline, 4),
+            "target_token": token_str,
+            "target_id": tok,
+        })
+
+    return {
+        "kind": "ablation_sweep",
+        "component": component,
+        "template": template,
+        "layers": layers,
+        "n_conditions": len(records),
+        "rows": rows,
+        "aggregates": {
+            "mean_delta": [
+                round(float(np.mean(damage_by_layer[i])), 4) for i in layers
+            ],
+            "median_delta": [
+                round(float(np.median(damage_by_layer[i])), 4) for i in layers
+            ],
+        },
+        "description": (
+            f"Δ log p of the target token when each layer's {component} "
+            "contribution is removed; more negative = more load-bearing."
+        ),
+    }
+
+
+def _position_index(model, ids: mx.array, record: Mapping[str, Any],
+                    position: Any) -> int:
+    if isinstance(position, int):
+        return position
+    if position in (None, "final"):
+        return int(np.array(ids).shape[-1]) - 1
+    if position == "subject":
+        subject = record.get("subject")
+        if not isinstance(subject, str) or not subject:
+            raise ValueError(
+                f"record {record.get('id')!r}: position 'subject' needs a "
+                "`subject` field naming a substring of the prompt"
+            )
+        tokens = [model.tokenizer.decode([int(t)])
+                  for t in np.array(ids).reshape(-1)]
+        # last token whose text appears in the subject: the original
+        # geometry convention (the subject's final token carries it)
+        hits = [i for i, t in enumerate(tokens)
+                if t.strip() and t.strip() in subject]
+        if not hits:
+            raise ValueError(
+                f"record {record.get('id')!r}: subject {subject!r} not "
+                "found among the prompt's tokens"
+            )
+        return hits[-1]
+    raise ValueError(f"unknown position {position!r}")
+
+
+def residual_vectors(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Residual-stream vectors at (layers × position) per condition —
+    the substrate every geometry experiment reads. Labels ride along
+    (`label` field, or the coords key named by params.label_coord) so
+    similarity blocks can group without re-parsing ids."""
+    template = str(params.get("template", "raw"))
+    point = str(params.get("point", "post"))
+    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    position = params.get("position", "final")
+    label_coord = params.get("label_coord")
+    if not records:
+        raise ValueError("residuals/vectors needs at least one condition")
+    total = len(records) * len(layers) * model.arch.d_model
+    if total > MAX_VECTOR_FLOATS:
+        raise ValueError(
+            f"{len(records)} conditions × {len(layers)} layers × "
+            f"d_model {model.arch.d_model} = {total} floats exceeds the "
+            f"{MAX_VECTOR_FLOATS} cap — capture fewer layers or conditions"
+        )
+    if on_start:
+        on_start(len(records))
+
+    cap = Capture.residual(layers, point=point)
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        ids = _tokenize(model, _prompt_of(record), template)
+        result = model.run(ids, interventions=[cap])
+        pos = _position_index(model, ids, record, position)
+        label = record.get("label")
+        if label is None and label_coord:
+            label = (record.get("coords") or {}).get(label_coord)
+        for layer in layers:
+            v = result.cache[f"blocks.{layer}.resid_{point}"][0, pos, :]
+            v = v.astype(mx.float32)
+            mx.eval(v)
+            rows.append({
+                "id": record.get("id"),
+                "label": label,
+                "layer": layer,
+                "vector": [round(float(x), 5) for x in np.array(v)],
+            })
+        if on_item:
+            on_item()
+    return {
+        "kind": "residual_vectors",
+        "point": point,
+        "position": str(position),
+        "layers": layers,
+        "d_model": model.arch.d_model,
+        "template": template,
+        "rows": rows,
+    }
+
+
+def residual_divergence(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Matched-pair divergence: run prompts `a` and `b`, and per
+    (layer, position) report 1 − cosine of the residual streams. The
+    map shows WHERE a one-token change ripples (000050/000052).
+
+    Pairs must tokenize to equal lengths — that is what 'matched'
+    means; unequal pairs are reported as errors, not silently aligned.
+    """
+    template = str(params.get("template", "raw"))
+    point = str(params.get("point", "post"))
+    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    if not records:
+        raise ValueError("residuals/divergence needs at least one pair")
+    if on_start:
+        on_start(len(records) * 2)
+
+    cap = Capture.residual(layers, point=point)
+    pairs: list[dict[str, Any]] = []
+    for record in records:
+        a, b = record.get("a"), record.get("b")
+        if not (isinstance(a, str) and isinstance(b, str) and a and b):
+            raise ValueError(
+                f"pair {record.get('id')!r} needs prompt fields `a` and `b`"
+            )
+        ids_a = _tokenize(model, a, template)
+        ids_b = _tokenize(model, b, template)
+        len_a = int(np.array(ids_a).shape[-1])
+        len_b = int(np.array(ids_b).shape[-1])
+        if len_a != len_b:
+            pairs.append({
+                "id": record.get("id"),
+                "error": (
+                    f"prompts tokenize to different lengths ({len_a} vs "
+                    f"{len_b}) — a matched pair must match"
+                ),
+            })
+            if on_item:
+                on_item()
+                on_item()
+            continue
+        run_a = model.run(ids_a, interventions=[cap])
+        if on_item:
+            on_item()
+        run_b = model.run(ids_b, interventions=[cap])
+        if on_item:
+            on_item()
+        tokens = [model.tokenizer.decode([int(t)])
+                  for t in np.array(ids_a).reshape(-1)]
+        matrix: list[list[float]] = []
+        for layer in layers:
+            va = np.array(run_a.cache[f"blocks.{layer}.resid_{point}"][0]
+                          .astype(mx.float32))
+            vb = np.array(run_b.cache[f"blocks.{layer}.resid_{point}"][0]
+                          .astype(mx.float32))
+            na = np.linalg.norm(va, axis=-1)
+            nb = np.linalg.norm(vb, axis=-1)
+            cos = (va * vb).sum(axis=-1) / np.maximum(na * nb, 1e-9)
+            matrix.append([round(float(1.0 - c), 5) for c in cos])
+        pairs.append({
+            "id": record.get("id"),
+            "tokens": tokens,
+            "divergence": matrix,  # [layer][position], 1 - cosine
+        })
+    return {
+        "kind": "divergence_map",
+        "point": point,
+        "layers": layers,
+        "template": template,
+        "pairs": pairs,
+        "description": (
+            "1 − cosine similarity of the two residual streams per "
+            "(layer, position). 0 = identical; the map shows where a "
+            "one-token change ripples."
+        ),
+    }
+
+
+def vector_similarity(inputs: Mapping[str, Any],
+                      params: Mapping[str, Any]) -> dict[str, Any]:
+    """Pure readout over a residual_vectors record: per layer, the
+    cosine matrix plus the separation metrics the original geometry
+    steps reported (intra/inter cosine, nearest-neighbor purity,
+    silhouette when labels exist)."""
+    from mechbench_compute import geometry
+
+    src = inputs.get("vectors") or params.get("vectors")
+    if not isinstance(src, Mapping) or src.get("kind") != "residual_vectors":
+        raise ValueError(
+            "vectors/similarity needs a residual_vectors record on its "
+            "`vectors` port"
+        )
+    rows = src.get("rows") or []
+    layers = src.get("layers") or sorted({r.get("layer") for r in rows})
+    out_layers: list[dict[str, Any]] = []
+    for layer in layers:
+        layer_rows = [r for r in rows if r.get("layer") == layer]
+        if not layer_rows:
+            continue
+        ids = [r.get("id") for r in layer_rows]
+        labels = [r.get("label") for r in layer_rows]
+        vectors = np.array([r["vector"] for r in layer_rows], dtype=np.float32)
+        matrix = geometry.cosine_matrix(vectors)
+        entry: dict[str, Any] = {
+            "layer": layer,
+            "ids": ids,
+            "labels": labels,
+            "matrix": [[round(float(x), 4) for x in row] for row in matrix],
+        }
+        labeled = all(lb is not None for lb in labels) and len(set(labels)) > 1
+        if labeled:
+            intra, inter, gap = geometry.intra_inter_separation(vectors, labels)
+            purity, _hits = geometry.nearest_neighbor_purity(vectors, labels)
+            entry["separation"] = {
+                "intra_cosine": round(float(intra), 4),
+                "inter_cosine": round(float(inter), 4),
+                "gap": round(float(gap), 4),
+            }
+            entry["nn_purity"] = round(float(purity), 4)
+            import contextlib
+
+            # sklearn absent, or a degenerate labeling: the silhouette
+            # is optional garnish, never worth failing the readout.
+            with contextlib.suppress(Exception):
+                entry["silhouette"] = round(
+                    float(geometry.silhouette_cosine(vectors, labels)), 4)
+        out_layers.append(entry)
+    return {
+        "kind": "similarity_matrix",
+        "position": src.get("position"),
+        "point": src.get("point"),
+        "layers": out_layers,
+        "description": (
+            "Pairwise cosine similarity of residual vectors per layer, "
+            "with label-separation metrics where labels exist."
+        ),
+    }

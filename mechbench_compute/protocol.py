@@ -501,6 +501,18 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_eval_suite, inputs, params,
                     on_item=on_item, on_start=expand)
+            elif block == "~canonical/ops/ablate/layers/1":
+                results[nid] = self._run_model_block(
+                    self._block_ablate_layers, inputs, params,
+                    on_item=on_item, on_start=expand)
+            elif block == "~canonical/ops/residuals/vectors/1":
+                results[nid] = self._run_model_block(
+                    self._block_residual_vectors, inputs, params,
+                    on_item=on_item, on_start=expand)
+            elif block == "~canonical/ops/residuals/divergence/1":
+                results[nid] = self._run_model_block(
+                    self._block_residual_divergence, inputs, params,
+                    on_item=on_item, on_start=expand)
             elif block == "~canonical/ops/eval/hf-metric/1":
                 results[nid] = self._block_eval_hf_metric(inputs, params)
             elif block == "~canonical/ops/merge/1":
@@ -681,6 +693,43 @@ class ProtocolExecutor:
             "item_kind": "~canonical/kinds/text",
             "items": items,
         }
+
+    def _block_ablate_layers(self, inputs, params, on_item=None,
+                             on_start=None):
+        """~canonical/ops/ablate/layers/1 — the mechbench-experiments
+        port (steps 02/04/34/35): per-layer or per-sublayer Δ log p."""
+        from mechbench_compute import interp
+        from mechbench_compute.blocks import _records
+
+        model = self._model_loaded(params.get("model"))
+        records = _records(inputs.get("records") or params.get("records"))
+        return interp.ablate_layers(
+            model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_residual_vectors(self, inputs, params, on_item=None,
+                                on_start=None):
+        """~canonical/ops/residuals/vectors/1 — residual vectors at
+        (layers × position) per condition, as data downstream blocks
+        (vectors/similarity, future probes) consume."""
+        from mechbench_compute import interp
+        from mechbench_compute.blocks import _records
+
+        model = self._model_loaded(params.get("model"))
+        records = _records(inputs.get("records") or params.get("records"))
+        return interp.residual_vectors(
+            model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_residual_divergence(self, inputs, params, on_item=None,
+                                   on_start=None):
+        """~canonical/ops/residuals/divergence/1 — matched-pair
+        per-(layer, position) divergence maps (000050/000052)."""
+        from mechbench_compute import interp
+        from mechbench_compute.blocks import _records
+
+        model = self._model_loaded(params.get("model"))
+        records = _records(inputs.get("records") or params.get("records"))
+        return interp.residual_divergence(
+            model, records, params, on_item=on_item, on_start=on_start)
 
     def _run_model_block(self, fn, inputs, params, *args, **kwargs):
         """Model-block wrapper: load the bound model, fuse an adapter

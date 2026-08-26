@@ -25,7 +25,8 @@ Design rules these implement:
 from __future__ import annotations
 
 import random
-from typing import Any, Callable, Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 # The original ai-randomness noise charset, reproduced exactly.
 SEED_CHARS = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -406,7 +407,17 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
         lambda inputs, params: union(inputs, params),
     "~canonical/ops/eval/expectation/1":
         lambda inputs, params: eval_expectation(inputs, params),
+    # Interp readouts (the mechbench-experiments port): pure numpy over
+    # residual_vectors records — no model, no weights.
+    "~canonical/ops/vectors/similarity/1":
+        lambda inputs, params: _vector_similarity(inputs, params),
 }
+
+
+def _vector_similarity(inputs, params):
+    from mechbench_compute.interp import vector_similarity
+
+    return vector_similarity(inputs, params)
 
 
 def eval_expectation(inputs: Mapping[str, Any],
