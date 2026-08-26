@@ -521,3 +521,75 @@ class TestSubjectCase:
             {"layers": [0], "position": "subject"})
         v = np.array(out["rows"][0]["vector"])
         assert v[5] == pytest.approx(1.0)
+
+
+class TestQKSources:
+    def test_queries_emit_per_head_rows(self):
+        model = StubModel()
+        # give the stub per-head q/k caches: one-hot in head index
+        orig = model.run
+
+        def with_qk(ids, interventions=None):
+            r = orig(ids, interventions=interventions)
+            arr = np.array(ids)[0]
+            seq = len(arr)
+            hd = D_MODEL // 2
+            for layer in range(N_LAYERS):
+                q = np.zeros((1, 2, seq, hd), dtype=np.float32)
+                for h in range(2):
+                    q[0, h, :, h] = float(layer + 1)
+                r.cache[f"blocks.{layer}.attn.q"] = mx.array(q)
+                r.cache[f"blocks.{layer}.attn.k"] = mx.array(q * 0.5)
+            return r
+
+        model.run = with_qk
+        model.arch.n_kv_heads = 2
+        out = interp.residual_vectors(
+            model, [{"id": "c", "user": "a b", "label": "x"}],
+            {"layers": [1], "source": "queries"})
+        assert out["source"] == "queries"
+        heads = sorted(r["head"] for r in out["rows"])
+        assert heads == [0, 1]
+        v0 = np.array(out["rows"][0]["vector"])
+        assert v0[0] == pytest.approx(2.0)  # head 0, layer 1 scale
+
+    def test_similarity_groups_by_layer_and_head(self):
+        rows = []
+        for head in (0, 1):
+            for i, label in enumerate(["a", "a", "b", "b"]):
+                v = [0.0] * 4
+                v[(0 if label == "a" else 2) + head % 2] = 1.0
+                rows.append({"id": f"h{head}r{i}", "label": label,
+                             "layer": 7, "head": head, "vector": v})
+        out = interp.vector_similarity(
+            {"vectors": {"kind": "residual_vectors", "rows": rows}}, {})
+        entries = out["layers"]
+        assert len(entries) == 2
+        assert {e["head"] for e in entries} == {0, 1}
+        assert all(e["layer"] == 7 for e in entries)
+        assert all(len(e["ids"]) == 4 for e in entries)
+
+    def test_unknown_source_refuses(self):
+        with pytest.raises(ValueError, match="source"):
+            interp.residual_vectors(
+                StubModel(), [{"id": "c", "user": "a"}],
+                {"layers": [0], "source": "values"})
+
+
+class TestSteerTracks:
+    def test_named_tracks_report_per_alpha(self):
+        model = StubModel()
+        rows = []
+        for label, dim in (("a", 1), ("b", 3)):
+            v = [0.0] * D_MODEL
+            v[dim] = 1.0
+            rows.append({"id": label, "label": label, "layer": 2, "vector": v})
+        out = interp.steer_inject(
+            model, [{"id": "e", "user": "x y",
+                     "tracks": {"city": "word", "money": "cash"}}],
+            {"layer": 2, "alphas": [0.0],
+             "direction": {"positive": "a", "negative": "b"}},
+            inputs={"vectors": {"kind": "residual_vectors", "rows": rows}})
+        row = out["rows"][0]
+        assert set(row["tracks"]) == {"city", "money"}
+        assert isinstance(row["tracks"]["city"], float)

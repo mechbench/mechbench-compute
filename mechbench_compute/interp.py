@@ -222,22 +222,38 @@ def residual_vectors(
     similarity blocks can group without re-parsing ids."""
     template = str(params.get("template", "raw"))
     point = str(params.get("point", "post"))
+    source = str(params.get("source", "resid"))
+    if source not in ("resid", "queries", "keys"):
+        raise ValueError(
+            f"unknown source {source!r}: 'resid', 'queries' or 'keys'")
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     position = params.get("position", "final")
     label_coord = params.get("label_coord")
     if not records:
         raise ValueError("residuals/vectors needs at least one condition")
-    total = len(records) * len(layers) * model.arch.d_model
+    # Q/K live in per-head subspaces (step 28's question: which heads
+    # specialize?), so those sources emit one row per (layer, head).
+    n_heads = (model.arch.n_heads if source == "queries"
+               else model.arch.n_kv_heads if source == "keys" else 1)
+    width = (model.arch.d_model if source == "resid"
+             else model.arch.d_model // model.arch.n_heads)
+    total = len(records) * len(layers) * n_heads * width
     if total > MAX_VECTOR_FLOATS:
         raise ValueError(
             f"{len(records)} conditions × {len(layers)} layers × "
-            f"d_model {model.arch.d_model} = {total} floats exceeds the "
-            f"{MAX_VECTOR_FLOATS} cap — capture fewer layers or conditions"
+            f"{n_heads} heads × {width} dims = {total} floats exceeds "
+            f"the {MAX_VECTOR_FLOATS} cap — capture fewer layers or "
+            "conditions"
         )
     if on_start:
         on_start(len(records))
 
-    cap = Capture.residual(layers, point=point)
+    if source == "resid":
+        cap = Capture.residual(layers, point=point)
+    elif source == "queries":
+        cap = Capture.queries(layers)
+    else:
+        cap = Capture.keys(layers)
     rows: list[dict[str, Any]] = []
     for record in records:
         ids = _tokenize(model, _prompt_of(record), template)
@@ -247,23 +263,38 @@ def residual_vectors(
         if label is None and label_coord:
             label = (record.get("coords") or {}).get(label_coord)
         for layer in layers:
-            v = result.cache[f"blocks.{layer}.resid_{point}"][0, pos, :]
-            v = v.astype(mx.float32)
-            mx.eval(v)
-            rows.append({
-                "id": record.get("id"),
-                "label": label,
-                "layer": layer,
-                "vector": [round(float(x), 5) for x in np.array(v)],
-            })
+            if source == "resid":
+                v = result.cache[f"blocks.{layer}.resid_{point}"][0, pos, :]
+                v = v.astype(mx.float32)
+                mx.eval(v)
+                rows.append({
+                    "id": record.get("id"),
+                    "label": label,
+                    "layer": layer,
+                    "vector": [round(float(x), 5) for x in np.array(v)],
+                })
+            else:
+                key = ("q" if source == "queries" else "k")
+                t = result.cache[f"blocks.{layer}.attn.{key}"]
+                arr = np.array(t.astype(mx.float32))[0]  # [heads, L, hd]
+                for head in range(arr.shape[0]):
+                    rows.append({
+                        "id": record.get("id"),
+                        "label": label,
+                        "layer": layer,
+                        "head": head,
+                        "vector": [round(float(x), 5)
+                                   for x in arr[head, pos, :]],
+                    })
         if on_item:
             on_item()
     return {
         "kind": "residual_vectors",
         "point": point,
+        "source": source,
         "position": str(position),
         "layers": layers,
-        "d_model": model.arch.d_model,
+        "d_model": width,
         "template": template,
         "rows": rows,
     }
@@ -852,6 +883,9 @@ def steer_inject(
         pos_idx = seq - 1 if position in (None, "final") else int(position)
         track = record.get("track") or params.get("track")
         track_id = _target_token_id(model, str(track)) if track else None
+        tracks = record.get("tracks") or params.get("tracks") or {}
+        track_ids = {str(name): _target_token_id(model, str(tokstr))
+                     for name, tokstr in tracks.items()}
         for alpha in alphas:
             interventions = (
                 [] if alpha == 0.0
@@ -869,6 +903,9 @@ def steer_inject(
                 ],
                 **({"track_logp": round(float(lp[track_id]), 3)}
                    if track_id is not None else {}),
+                **({"tracks": {name: round(float(lp[tid]), 3)
+                               for name, tid in track_ids.items()}}
+                   if track_ids else {}),
             })
             if on_item:
                 on_item()
@@ -908,10 +945,13 @@ def vector_similarity(inputs: Mapping[str, Any],
             "`vectors` port"
         )
     rows = src.get("rows") or []
-    layers = src.get("layers") or sorted({r.get("layer") for r in rows})
+    groups = sorted({(r.get("layer"), r.get("head")) for r in rows},
+                    key=lambda t: (t[0] if t[0] is not None else -1,
+                                   t[1] if t[1] is not None else -1))
     out_layers: list[dict[str, Any]] = []
-    for layer in layers:
-        layer_rows = [r for r in rows if r.get("layer") == layer]
+    for layer, head in groups:
+        layer_rows = [r for r in rows
+                      if r.get("layer") == layer and r.get("head") == head]
         if not layer_rows:
             continue
         ids = [r.get("id") for r in layer_rows]
@@ -920,6 +960,7 @@ def vector_similarity(inputs: Mapping[str, Any],
         matrix = geometry.cosine_matrix(vectors)
         entry: dict[str, Any] = {
             "layer": layer,
+            **({"head": head} if head is not None else {}),
             "ids": ids,
             "labels": labels,
             "matrix": [[round(float(x), 4) for x in row] for row in matrix],
