@@ -1281,11 +1281,14 @@ class ProtocolExecutor:
         import os
         import tempfile
 
-        from mechbench_compute.distill import render_chat
+        from mechbench_compute.distill import encode, render_chat
         from mechbench_compute.finetune import (
             build_anchor_items,
+            build_marginal_items,
+            build_sequence_factory,
             build_target_items,
-            target_map_from_spec,
+            naturalism_gate,
+            resolve_slot_targets,
             train_soft_ce,
         )
         from mechbench_compute.lora import (
@@ -1321,10 +1324,43 @@ class ProtocolExecutor:
         target_spec = params.get("target")
         if not target_spec:
             raise ValueError("finetune/lora: params.target is required")
-        target = target_map_from_spec(target_spec)
-        closer = params.get("closer", " }")
-        marginals, continuations = build_target_items(
-            tok, target, [rendered_of(r) for r in records], closer=closer)
+        depth = int(target_spec.get("depth", 1))
+        join = str(target_spec.get("join", ""))
+        rendered_all = [rendered_of(r) for r in records]
+        factories = {}
+        if depth <= 1:
+            # The 002 shape: trie marginal + continuation rows.
+            from mechbench_compute.finetune import target_map_from_spec
+
+            target = target_map_from_spec(target_spec)
+            closer = params.get("closer", " }")
+            marginals, continuations = build_target_items(
+                tok, target, rendered_all, closer=closer)
+        else:
+            # The 016–018 deep-trie shape: freshly sampled depth-N
+            # sequences per step, per-slot targets, configurable
+            # trained positions ("all" | "skip_first" — the 018
+            # position-0 cap — | explicit slot list), and an optional
+            # first-slot marginal row (params.marginal; the cap drops
+            # it, since that row IS position-0 pressure).
+            slot_targets = resolve_slot_targets(target_spec, depth)
+            closer = params.get("closer", '"')
+            positions = params.get("positions", "all")
+            gate = params.get("naturalism", True)
+            if gate:
+                naturalism_gate(
+                    tok, slot_targets, rendered_all,
+                    [encode(tok, r) for r in rendered_all],
+                    join=join, closer=closer,
+                    samples=int(gate.get("samples", 40))
+                    if isinstance(gate, dict) else 40)
+            factories["sequence"] = build_sequence_factory(
+                tok, slot_targets, rendered_all,
+                join=join, closer=closer, positions=positions)
+            marginals = (build_marginal_items(tok, slot_targets[0],
+                                              rendered_all)
+                         if params.get("marginal", True) else [])
+            continuations = []
 
         anchor_records = inputs.get("anchors") or params.get("anchors") or []
         if isinstance(anchor_records, dict):
@@ -1342,7 +1378,11 @@ class ProtocolExecutor:
         steps = int(params.get("steps", 250))
         lr = float(params.get("lr", 1e-4))
         seed = int(params.get("seed", 7))
-        batch = params.get("batch") or {"target": 3, "anchor": 1,
+        if depth > 1:
+            batch = params.get("batch") or {
+                "sequence": 3, "target": 1, "anchor": 1}
+        else:
+            batch = params.get("batch") or {"target": 3, "anchor": 1,
                                          "continuation": 2}
 
         n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules)
@@ -1353,6 +1393,7 @@ class ProtocolExecutor:
             {"target": marginals, "anchor": anchors,
              "continuation": continuations},
             batch, steps=steps, lr=lr, seed=seed,
+            factories=factories,
             on_step=(lambda s, l: on_item()) if on_item else None)
 
         fd, path = tempfile.mkstemp(suffix=".safetensors")
@@ -1392,7 +1433,10 @@ class ProtocolExecutor:
                        "n_prompts": len(records),
                        "n_anchors": len(anchor_records),
                        "closer": closer,
-                       "target": target_spec},
+                       "target": target_spec,
+                       "depth": depth,
+                       "positions": params.get("positions", "all"),
+                       "marginal": bool(params.get("marginal", True))},
             "data": data,
         }
 

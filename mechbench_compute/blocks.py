@@ -384,6 +384,174 @@ def viz_spec(records: Any, params: Mapping[str, Any],
         spec["data"] = {"rows": rows}
     return spec
 
+
+_WORD_RE = None
+
+
+def _words_of(text: str, lowercase: bool, min_length: int) -> list[str]:
+    global _WORD_RE
+    import re
+
+    if _WORD_RE is None:
+        _WORD_RE = re.compile(r"[A-Za-z'\u2019-]+")
+    words = _WORD_RE.findall(text)
+    if lowercase:
+        words = [w.lower() for w in words]
+    if min_length > 1:
+        words = [w for w in words if len(w) >= min_length]
+    return words
+
+
+def text_stats(inputs: Mapping[str, Any],
+               params: Mapping[str, Any]) -> Any:
+    """~canonical/ops/text/stats/1 — configurable per-text measurements
+    over a corpus of records or a document_collection (the generate
+    block's output). The measurement layer the story-corpus readouts
+    need (meta-leak counts, opening-phrase counts, lexical spread,
+    corpus-frequency of vocabulary) with lineage instead of ad-hoc
+    scripts.
+
+    params:
+      field       which field holds the text (default "text")
+      measures    list of measure specs, each {"kind", "name", ...}:
+        {"kind": "pattern", "name": n, "patterns": [regex...],
+         "where": "prefix" | "anywhere" (default), "ignore_case": bool}
+            → per-record 0/1: does ANY pattern match?
+        {"kind": "lexical", "name": n, "lowercase": bool=true,
+         "min_length": int=1}
+            → per-record word/distinct-word counts and duplication
+              (1 − distinct/total).
+        {"kind": "corpus_frequency", "name": n, "stat":
+         "mean_log10" (default) | "mean" | "coverage",
+         "lowercase": bool=true, "min_length": int=1,
+         "frequencies": {word: count}   — or wire a `frequencies`
+         input whose payload carries {"weights": {...}}}
+            → per-record statistic over the reference frequency of the
+              words that appear in it ("coverage" = fraction of words
+              found in the table). The lexical-novelty instrument:
+              rarer vocabulary ⇒ lower mean_log10.
+      mode        "annotate" (default): records with measure fields
+                  added — feed select/group-stats/table downstream.
+                  "corpus": ONE summary record — pattern counts and
+                  rates, corpus-wide distinct words and duplication,
+                  means of per-record frequency stats.
+    """
+    import math as _math
+    import re
+
+    raw = (inputs.get("records") or inputs.get("documents")
+           or params.get("records"))
+    if isinstance(raw, Mapping) and "items" in raw:
+        recs = list(raw["items"])
+    else:
+        recs = _records(raw)
+    field = params.get("field", "text")
+    measures = params.get("measures") or []
+    mode = params.get("mode", "annotate")
+
+    freq_input = inputs.get("frequencies")
+    if isinstance(freq_input, Mapping):
+        freq_input = (freq_input.get("weights")
+                      or freq_input.get("frequencies") or freq_input)
+
+    def coords_of(r):
+        if isinstance(r.get("coords"), Mapping):
+            return dict(r["coords"])
+        meta = r.get("metadata")
+        if isinstance(meta, Mapping) and isinstance(meta.get("coords"),
+                                                    Mapping):
+            return dict(meta["coords"])
+        return {}
+
+    compiled = []
+    for m in measures:
+        kind = m.get("kind")
+        name = m.get("name") or kind
+        if kind == "pattern":
+            flags = re.IGNORECASE if m.get("ignore_case") else 0
+            pats = [re.compile(pat, flags) for pat in m["patterns"]]
+            where = m.get("where", "anywhere")
+            compiled.append((name, kind, {"patterns": pats,
+                                          "where": where}))
+        elif kind == "lexical":
+            compiled.append((name, kind,
+                             {"lowercase": bool(m.get("lowercase", True)),
+                              "min_length": int(m.get("min_length", 1))}))
+        elif kind == "corpus_frequency":
+            table = m.get("frequencies") or freq_input
+            if not isinstance(table, Mapping) or not table:
+                raise ValueError(
+                    f"text/stats measure {name!r}: no frequency table "
+                    "(inline `frequencies` or a wired frequencies input)")
+            lower = bool(m.get("lowercase", True))
+            tbl = {str(k).lower() if lower else str(k): float(v)
+                   for k, v in table.items()}
+            compiled.append((name, kind,
+                             {"table": tbl,
+                              "stat": m.get("stat", "mean_log10"),
+                              "lowercase": lower,
+                              "min_length": int(m.get("min_length", 1))}))
+        else:
+            raise ValueError(f"text/stats: unknown measure kind {kind!r}")
+
+    out = []
+    corpus_words: list[str] = []
+    for r in recs:
+        text = str(r.get(field, ""))
+        row = {"id": r.get("id"), "coords": coords_of(r)}
+        for name, kind, cfg in compiled:
+            if kind == "pattern":
+                probe = text.lstrip() if cfg["where"] == "prefix" else text
+                hit = any((p.match(probe) if cfg["where"] == "prefix"
+                           else p.search(probe)) for p in cfg["patterns"])
+                row[name] = 1 if hit else 0
+            elif kind == "lexical":
+                words = _words_of(text, cfg["lowercase"], cfg["min_length"])
+                distinct = len(set(words))
+                row[f"{name}_words"] = len(words)
+                row[f"{name}_distinct"] = distinct
+                row[f"{name}_dup"] = (round(1.0 - distinct / len(words), 4)
+                                      if words else 0.0)
+                corpus_words.extend(words)
+            else:  # corpus_frequency
+                words = _words_of(text, cfg["lowercase"], cfg["min_length"])
+                vals = [cfg["table"][w] for w in words if w in cfg["table"]]
+                cov = (len(vals) / len(words)) if words else 0.0
+                if cfg["stat"] == "coverage":
+                    row[name] = round(cov, 4)
+                elif cfg["stat"] == "mean":
+                    row[name] = (round(sum(vals) / len(vals), 4)
+                                 if vals else None)
+                else:  # mean_log10
+                    row[name] = (round(sum(_math.log10(v) for v in vals)
+                                       / len(vals), 4) if vals else None)
+                row[f"{name}_coverage"] = round(cov, 4)
+        out.append(row)
+
+    if mode == "annotate":
+        return out
+
+    summary: dict[str, Any] = {"id": "corpus", "coords": {},
+                               "n_texts": len(out)}
+    for name, kind, cfg in compiled:
+        if kind == "pattern":
+            n = sum(r[name] for r in out)
+            summary[f"{name}_count"] = n
+            summary[f"{name}_rate"] = (round(n / len(out), 4)
+                                       if out else 0.0)
+        elif kind == "lexical":
+            summary[f"{name}_corpus_words"] = len(corpus_words)
+            summary[f"{name}_corpus_distinct"] = len(set(corpus_words))
+            summary[f"{name}_corpus_dup"] = (
+                round(1.0 - len(set(corpus_words)) / len(corpus_words), 4)
+                if corpus_words else 0.0)
+        else:
+            vals = [r[name] for r in out if r.get(name) is not None]
+            summary[f"{name}_mean"] = (round(sum(vals) / len(vals), 4)
+                                       if vals else None)
+    return [summary]
+
+
 PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "~canonical/ops/factor-cross/1":
         lambda inputs, params: factor_cross(params),
@@ -405,6 +573,8 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
             inputs.get("records") or params.get("records"), params),
     "~canonical/ops/union/1":
         lambda inputs, params: union(inputs, params),
+    "~canonical/ops/text/stats/1":
+        lambda inputs, params: text_stats(inputs, params),
     "~canonical/ops/eval/expectation/1":
         lambda inputs, params: eval_expectation(inputs, params),
     # Interp readouts (the mechbench-experiments port): pure numpy over
