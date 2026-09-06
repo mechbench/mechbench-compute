@@ -604,6 +604,10 @@ def eval_expectation(inputs: Mapping[str, Any],
           -> p_expected from the read's top tokens; pass iff >= t.
       {"kind": "min_entropy", "bits": t}
           -> pass iff the decision entropy >= t (diversity floor).
+      {"kind": "weights", "weights": {outcome: w}, "max_kl_bits": t}
+          -> kl_bits from the NORMALIZED weights over the outcome
+             masses (the shaped-target battery: a rung is judged
+             against its OWN target, not uniform); pass iff <= t.
 
     The aggregate row (id "ALL") carries the pass rate — the number a
     publication cites.
@@ -652,6 +656,29 @@ def eval_expectation(inputs: Mapping[str, Any],
                 # Nothing to judge is not a failure — it is a hole in
                 # the read, and it must not masquerade as one more
                 # False among real verdicts.
+                row["pass"] = "unjudgeable: no outcome mass in the read"
+                rows.append(row)
+                continue
+        elif exp["kind"] == "weights":
+            masses = c.get("outcome_mass") or {}
+            if not masses:
+                masses = {}
+                for t in c.get("top_tokens") or []:
+                    key = str(t["token"]).strip()
+                    masses[key] = masses.get(key, 0.0) + float(t["p"])
+            wsum = sum(float(v) for v in exp["weights"].values())
+            target = {str(k): float(v) / wsum
+                      for k, v in exp["weights"].items() if float(v) > 0}
+            ps = [float(masses.get(o, 0.0)) for o in target]
+            tot = sum(ps)
+            if tot > 0:
+                kl = sum(
+                    (q / tot) * math.log2((q / tot) / target[o])
+                    for o, q in zip(target, ps) if q > 0)
+                row["kl_bits"] = round(kl, 4)
+                row["outcome_mass"] = round(tot, 4)
+                ok = kl <= float(exp.get("max_kl_bits", 0.1))
+            else:
                 row["pass"] = "unjudgeable: no outcome mass in the read"
                 rows.append(row)
                 continue

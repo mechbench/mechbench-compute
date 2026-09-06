@@ -119,3 +119,20 @@ def test_unknown_measure_kind():
     with pytest.raises(ValueError, match="unknown measure kind"):
         text_stats({"records": STORIES},
                    {"measures": [{"kind": "vibes"}]})
+
+
+def test_weights_expectation_kind():
+    from mechbench_compute.blocks import eval_expectation
+
+    results = [{"id": "p1", "entropy_bits": 2.0,
+                "top_tokens": [{"token": " cat", "p": 0.72},
+                               {"token": " dog", "p": 0.24}]}]
+    expectations = [{"id": "p1", "expect": {
+        "kind": "weights", "weights": {"cat": 3.0, "dog": 1.0},
+        "max_kl_bits": 0.05}}]
+    out = eval_expectation({"results": results,
+                            "expectations": expectations}, {})
+    row = next(r for r in out["rows"] if r["id"] == "p1")
+    # masses normalize to .75/.25 vs target .75/.25 -> tiny KL, pass
+    assert row["kl_bits"] < 0.01
+    assert row["pass"] == "True"
