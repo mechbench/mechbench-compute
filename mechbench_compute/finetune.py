@@ -34,12 +34,13 @@ the adapter (lora.save_adapter) and disposing of the mutated model
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 
 import mlx.core as mx
-import mlx.nn as nn
 import mlx.optimizers as optim
 import numpy as np
+from mlx import nn
 
 from .distill import Example, TargetMap, encode, soft_ce, suffix_tokens
 
@@ -301,15 +302,34 @@ def train_soft_ce(
     factories: Mapping[str, Callable[[np.random.Generator],
                                      list[Example]]] | None = None,
     on_step: Callable[[int, float], None] | None = None,
+    checkpoint_every: int = 0,
+    on_checkpoint: Callable[[dict], None] | None = None,
+    resume_state: Mapping | None = None,
 ) -> float:
     """The Regime D loop: per step, sample ``batch_sizes[g]`` items
     from each non-empty fixed group and DRAW ``batch_sizes[g]`` fresh
     item-lists from each factory group, take a soft-CE Adam step.
-    Returns the final loss. ``on_step(step, loss)`` fires every step."""
+    Returns the final loss. ``on_step(step, loss)`` fires every step.
+
+    Resume (epic 000320): every ``checkpoint_every`` steps
+    ``on_checkpoint(state)`` receives the full continuation state
+    (weights, optimizer, step, sampling RNG); ``resume_state``
+    restores one and continues from the step after it. The
+    continuation is bit-identical to the uninterrupted loop: the
+    generator object whose state is restored is the same one the
+    factories draw from."""
+    from mechbench_compute.resume import (
+        capture_training_state,
+        restore_training_state,
+    )
+
     mx.random.seed(seed)
     rng = np.random.default_rng(seed)
     loss_and_grad = nn.value_and_grad(lm, soft_ce)
     opt = optim.Adam(learning_rate=lr)
+    start = 1
+    if resume_state is not None:
+        start = restore_training_state(lm, opt, rng, resume_state) + 1
 
     active = [(g, items, int(batch_sizes.get(g, 0)))
               for g, items in groups.items()
@@ -321,7 +341,7 @@ def train_soft_ce(
         raise ValueError("no non-empty training groups with batch size > 0")
 
     loss_val = 0.0
-    for step in range(1, int(steps) + 1):
+    for step in range(start, int(steps) + 1):
         batch: list[Example] = []
         for _, items, k in active:
             take = min(k, len(items))
@@ -336,4 +356,7 @@ def train_soft_ce(
         loss_val = float(loss)
         if on_step:
             on_step(step, loss_val)
+        if (checkpoint_every and on_checkpoint is not None
+                and step % int(checkpoint_every) == 0 and step < int(steps)):
+            on_checkpoint(capture_training_state(lm, opt, step, rng))
     return loss_val

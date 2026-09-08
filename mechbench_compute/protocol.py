@@ -47,13 +47,26 @@ class ProtocolSpec:
 
 
 class ProtocolExecutor:
-    def __init__(self, on_download=None, on_download_bytes=None) -> None:
+    def __init__(self, on_download=None, on_download_bytes=None, *,
+                 on_node_start=None, on_spool_item=None,
+                 on_checkpoint=None, on_node_done=None) -> None:
         self._model: Model | None = None
         self._model_id: str | None = None
         # Called just before weights are fetched, and only then: the runner
         # uses it to announce a wait that can run to gigabytes.
         self._on_download = on_download
         self._on_download_bytes = on_download_bytes
+        # Resume plumbing (epic 000320 / 000322). All optional; the
+        # runner wires them to its spool. `on_node_start(nid, fp)`
+        # names the process identity a node runs under;
+        # `on_spool_item(nid, key, item)` hands over each completed
+        # item of an item-resumable block; `on_checkpoint(nid, state)`
+        # a training checkpoint; `on_node_done(nid, path, fp)` a
+        # finished node's emitted object.
+        self._on_node_start = on_node_start
+        self._on_spool_item = on_spool_item
+        self._on_checkpoint = on_checkpoint
+        self._on_node_done = on_node_done
 
     def _model_loaded(self, model_id) -> Model:
         """The model an operation declared, loading it if it is not resident.
@@ -97,17 +110,26 @@ class ProtocolExecutor:
         return self._model
 
     def run(self, spec: ProtocolSpec, on_progress=None,
-            secrets=None) -> Any:
+            secrets=None, resume=None) -> Any:
         """Execute a job spec. `on_progress(done, total)` is invoked
         after each unit of work for kinds that have a natural unit
         (decision_distribution: one condition); it must be cheap and
-        may be None."""
+        may be None.
+
+        `resume` (epic 000320): `{node_id: {"fingerprint": str, and
+        one of "done": <emitted object path> | "items": {key: item} |
+        "checkpoint": <training state>}}`. Each entry is honoured
+        only under an equal node fingerprint — otherwise that node
+        restarts. The result is byte-identical to an uninterrupted
+        run by construction; nothing about resumption is recorded in
+        it."""
         if spec.kind == "layer_ablation":
             return self._run_layer_ablation(spec.prompt, spec.model_id)
         if spec.kind == "decision_distribution":
             return self._legacy_decision_distribution(spec, on_progress)
         if spec.kind == "pipeline":
-            return self._run_pipeline(spec, on_progress, secrets=secrets)
+            return self._run_pipeline(spec, on_progress, secrets=secrets,
+                                      resume=resume)
         raise ValueError(f"unsupported protocolKind: {spec.kind!r}")
 
 
@@ -202,7 +224,7 @@ class ProtocolExecutor:
             provenance=prov)
 
     def _run_pipeline(self, spec: ProtocolSpec, on_progress=None,
-                      secrets=None) -> Any:
+                      secrets=None, resume=None) -> Any:
         """Execute a protocol graph (epic 000258, arc B): topological
         order over the nodes, pure blocks resolved from the core
         registry, model blocks executed in-process with the prefix
@@ -416,9 +438,39 @@ class ProtocolExecutor:
             node_view["total"] = max(int(n_items), 0)
             report()
 
-        def on_item():
+        current = {"nid": ""}
+
+        def on_item(key=None, item=None, reused=False):
+            # Blocks that know nothing of resume call this bare; an
+            # item-resumable block names the item so the runner can
+            # spool it. A reused item counts as progress and is not
+            # spooled again.
             node_view["done"] += 1
             bump(1)
+            if (self._on_spool_item is not None and key is not None
+                    and not reused):
+                self._on_spool_item(current["nid"], key, item)
+
+        from mechbench_compute import resume as resume_mod
+
+        resume = resume or {}
+        # A consumer may require a minimum resume level of an upstream
+        # node (`require_resume: {port: level}`). A requirement the
+        # upstream block cannot meet forces that node to restart
+        # rather than reuse a partial; unknown level names refuse.
+        forced_restart: set[str] = set()
+        for nid_c, node_c in nodes.items():
+            req = (node_c.get("params") or {}).get("require_resume") or {}
+            for port, level in req.items():
+                src = next((e["from"]["node"] for e in edges
+                            if e["to"]["node"] == nid_c
+                            and e["to"]["port"] == port), None)
+                if src is None:
+                    continue
+                offered = resume_mod.resume_level(nodes[src]["block"])
+                if not resume_mod.satisfies(offered, str(level)):
+                    forced_restart.add(src)
+        node_hashes: dict[str, str] = {}
 
         # Per-node emission (arc B second half): every node's output
         # becomes a bench object under the job's result namespace, with
@@ -469,6 +521,52 @@ class ProtocolExecutor:
                 e["to"]["port"]: results[e["from"]["node"]]
                 for e in in_edges
             }
+            # Process identity for this node (epic 000320): what it
+            # computes is fixed by the block, its wire params, its
+            # upstream outputs' content, and the compute version. A
+            # partial from a previous attempt is reused only under an
+            # equal fingerprint.
+            current["nid"] = nid
+            fingerprint = resume_mod.node_fingerprint(
+                block=block, params=_wire_params(params),
+                input_hashes=[node_hashes.get(e["from"]["node"], "")
+                              for e in in_edges],
+                core_version=core_version,
+                model=str(_wire_params(params).get("model", "")),
+            )
+            if self._on_node_start is not None:
+                self._on_node_start(nid, fingerprint)
+            entry = resume.get(nid) if isinstance(resume, dict) else None
+            resume_kwargs: dict[str, Any] = {}
+            if entry:
+                if entry.get("fingerprint") != fingerprint:
+                    print(f"[resume] {nid}: fingerprint changed; restarting")
+                    entry = None
+                elif nid in forced_restart:
+                    print(f"[resume] {nid}: a consumer requires more than "
+                          f"this block offers; restarting")
+                    entry = None
+            if entry and entry.get("done"):
+                # Node skip: its object already exists on the bench
+                # under this exact fingerprint. Fetch it as the result;
+                # it was emitted by the earlier attempt.
+                fetched = bench.fetch(entry["done"])
+                results[nid] = (fetched.get("payload", fetched)
+                                if isinstance(fetched, dict) else fetched)
+                node_paths[nid] = entry["done"]
+                node_hashes[nid] = resume_mod.content_hash(results[nid])
+                if self._on_node_done is not None:
+                    self._on_node_done(nid, node_paths[nid], fingerprint)
+                bump()
+                continue
+            if entry and entry.get("items") and resume_mod.item_resumable(block):
+                resume_kwargs["resume_items"] = dict(entry["items"])
+            if entry and entry.get("checkpoint") is not None:
+                resume_kwargs["resume_state"] = entry["checkpoint"]
+            on_checkpoint = (
+                (lambda st, _n=nid: self._on_checkpoint(_n, st))
+                if self._on_checkpoint is not None else None
+            )
             if block == "~canonical/ops/viz/spec/1":
                 # A viz references its upstream by LABEL when the
                 # executor knows it (lineage-true, renders live).
@@ -485,18 +583,20 @@ class ProtocolExecutor:
             elif block == "~canonical/ops/decision-read/1":
                 results[nid] = self._run_model_block(
                     self._block_decision_read, inputs, params,
-                    on_item=on_item, on_start=expand)
+                    on_item=on_item, on_start=expand, **resume_kwargs)
             elif block == "~canonical/ops/generate/1":
                 results[nid] = self._run_model_block(
                     self._block_generate, inputs, params,
-                    on_item=on_item, on_start=expand)
+                    on_item=on_item, on_start=expand, **resume_kwargs)
             elif block == "~canonical/ops/lens-trajectory/1":
                 results[nid] = self._run_model_block(
                     self._block_lens, inputs, params,
                     on_item=on_item, on_start=expand)
             elif block == "~canonical/ops/finetune/lora/1":
                 results[nid] = self._block_finetune_lora(
-                    inputs, params, on_item=on_item, on_start=expand)
+                    inputs, params, on_item=on_item, on_start=expand,
+                    on_checkpoint=on_checkpoint,
+                    resume_state=resume_kwargs.get("resume_state"))
             elif block == "~canonical/ops/eval/suite/1":
                 results[nid] = self._run_model_block(
                     self._block_eval_suite, inputs, params,
@@ -570,6 +670,9 @@ class ProtocolExecutor:
                     params=_wire_params(params),
                 )
                 node_paths[nid] = out["path"]
+            node_hashes[nid] = resume_mod.content_hash(results[nid])
+            if self._on_node_done is not None:
+                self._on_node_done(nid, node_paths.get(nid), fingerprint)
             # An expanded node's items already covered its worth — the
             # old unconditional bump made done overrun total by one per
             # expanded node ("59/57 steps").
@@ -612,7 +715,7 @@ class ProtocolExecutor:
         return ms.Emitted(payload=payload, provenance=prov)
 
     def _block_generate(self, inputs, params, on_item=None,
-                        on_start=None) -> Any:
+                        on_start=None, resume_items=None) -> Any:
         """The Generate model block: per condition record, sample n
         completions into a text-fidelity DocumentCollection. Range
         rule (epic 000258 amendment 4): each sample's rng derives from
@@ -629,7 +732,7 @@ class ProtocolExecutor:
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
-        records = inputs.get("records") or []
+        records = inputs.get("records") or params.get("records") or []
         if isinstance(records, dict):
             records = records.get("conditions") or records.get("records") or []
         f_system = params.get("system_field", "system")
@@ -659,6 +762,16 @@ class ProtocolExecutor:
             ids = encode(tok, rendered)
             prefill = prefill_decision(model, ids)
             for k in range(start, start + n):
+                key = f"{rec['id']}:{k}"
+                if resume_items and key in resume_items:
+                    # Reproducible (epic 000320): this item is a pure
+                    # function of its key; the spooled copy IS what
+                    # this loop would produce. Same position, same
+                    # bytes.
+                    items.append(resume_items[key])
+                    if on_item:
+                        on_item(key, resume_items[key], True)
+                    continue
                 digest = _hashlib.sha256(
                     f"{seed}:{rec['id']}:{k}".encode()).digest()
                 rng = _np.random.default_rng(
@@ -708,7 +821,7 @@ class ProtocolExecutor:
                     }]
                 items.append(item)
                 if on_item:
-                    on_item()
+                    on_item(key, item)
         return {
             "kind": "document_collection",
             "name": params.get("name", "generated"),
@@ -1268,7 +1381,8 @@ class ProtocolExecutor:
                 "rows": rows}
 
     def _block_finetune_lora(self, inputs, params, on_item=None,
-                             on_start=None) -> Any:
+                             on_start=None, on_checkpoint=None,
+                             resume_state=None) -> Any:
         """The finetune/lora block (epic 000259): Regime D soft-target
         training as an artifact-producing operation. Consumes training
         prompt records (and optionally anchor records with an answer
@@ -1388,13 +1502,25 @@ class ProtocolExecutor:
         n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules)
         if on_start:
             on_start(steps)
+        # Training resume (epic 000320, state-restorable): checkpoint
+        # every `checkpoint_every` steps through the executor's hook;
+        # a `resume_state` restores weights, optimizer, step and the
+        # sampling RNG, so the continuation is the same trajectory.
+        checkpoint_every = int(params.get("checkpoint_every", 50))
+        resumed_from = int(resume_state["step"]) if resume_state else 0
+        if resumed_from and on_item:
+            for _ in range(resumed_from):
+                on_item(None, None, True)
         final_loss = train_soft_ce(
             model.lm,
             {"target": marginals, "anchor": anchors,
              "continuation": continuations},
             batch, steps=steps, lr=lr, seed=seed,
             factories=factories,
-            on_step=(lambda s, l: on_item()) if on_item else None)
+            on_step=(lambda s, l: on_item()) if on_item else None,
+            checkpoint_every=checkpoint_every if on_checkpoint else 0,
+            on_checkpoint=on_checkpoint,
+            resume_state=resume_state)
 
         fd, path = tempfile.mkstemp(suffix=".safetensors")
         os.close(fd)
@@ -1579,7 +1705,7 @@ class ProtocolExecutor:
         }
 
     def _block_decision_read(self, inputs, params, on_item=None,
-                             on_start=None) -> Any:
+                             on_start=None, resume_items=None) -> Any:
         """The decision-read model block: per condition record, the
         exact decision-token distribution (prefix-cached) and optional
         best-first outcome expansion. Records keep their coords — the
@@ -1617,6 +1743,12 @@ class ProtocolExecutor:
                     f"decision-read: record {cond.get('id')!r} has no "
                     f"{f_user!r} field (fields present: "
                     f"{sorted(k for k in cond if k not in ('id', 'coords'))})")
+            key = str(cond["id"])
+            if resume_items and key in resume_items:
+                out.append(resume_items[key])
+                if on_item:
+                    on_item(key, resume_items[key], True)
+                continue
             rendered = render_chat(tok, cond.get(f_system, ""),
                                    cond[f_user], cond.get(f_prefill, ""))
             ids = encode(tok, rendered)
@@ -1650,7 +1782,7 @@ class ProtocolExecutor:
                 entry["outcome_mass"] = masses
             out.append(entry)
             if on_item:
-                on_item()
+                on_item(key, entry)
         return {"kind": "decision_read", "conditions": out}
 
 
