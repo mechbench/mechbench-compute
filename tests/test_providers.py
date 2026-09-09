@@ -170,7 +170,8 @@ class TestRetriesAndLimits:
         assert out.call.attempts == 3
         assert out.call.throttled_seconds == pytest.approx(3.5)
         assert lim.penalties[0][3] == 2.5
-        assert [c[3] for c in lim.acquired] == ["requests", "input_tokens"]
+        assert [c[3] for c in lim.acquired] == [
+            "concurrency", "requests", "input_tokens", "output_tokens"]
 
     def test_a_sustained_failure_window_becomes_an_interruptible_outage(self):
         clock = iter([0.0, 0.0, 100.0, 700.0, 700.0, 700.0])

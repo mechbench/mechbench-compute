@@ -236,22 +236,41 @@ class Transport(ABC):
             reservation = budget.reserve(estimate, provider=self.name,
                                          model=req.model)
         throttled = 0.0
+        held_slot = False
+        max_out = int(req.max_tokens)
         try:
+            # Every currency the provider meters separately: a slot to
+            # be in flight at all, then the request, then the tokens
+            # this call could spend on either side of it.
+            throttled += limiter.acquire(self.name, req.model, scope,
+                                         "concurrency", 1)
+            held_slot = True
             throttled += limiter.acquire(self.name, req.model, scope,
                                          "requests", 1)
             throttled += limiter.acquire(self.name, req.model, scope,
                                          "input_tokens", in_tokens)
+            throttled += limiter.acquire(self.name, req.model, scope,
+                                         "output_tokens", max_out)
             resp, attempts, waited = self._call_with_retries(
                 req, limiter=limiter, scope=scope, on_token=on_token)
             throttled += waited
         except BaseException:
             if budget is not None:
                 budget.release(reservation)
+            if held_slot:
+                limiter.release(self.name, req.model, scope, "concurrency", 1)
             raise
 
+        limiter.release(self.name, req.model, scope, "concurrency", 1)
+        usage = resp.usage.to_wire()
+        # Give back the output tokens this call reserved and did not
+        # write: a 2000-token cap that produced 40 tokens must not
+        # throttle the next item as if it had spent 2000.
+        unused = max_out - int(usage.get("output_tokens", 0) or 0)
+        if unused > 0:
+            limiter.release(self.name, req.model, scope, "output_tokens", unused)
         limits = RateLimits.from_headers(resp.headers or {})
         limiter.observe(self.name, req.model, scope, limits)
-        usage = resp.usage.to_wire()
         cost, cost_priced = pricing.cost_usd(self.name, req.model, usage)
         if budget is not None:
             budget.settle(reservation, cost)
