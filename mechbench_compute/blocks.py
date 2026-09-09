@@ -723,3 +723,8 @@ from mechbench_compute.directions import (
 )
 
 PURE_BLOCKS.update(_DIRECTION_BLOCKS)
+
+# Exact generic monoid reduces (task 000406): sum, top-k, histogram.
+from mechbench_compute.reduce import PURE_REDUCE_BLOCKS as _REDUCE_BLOCKS
+
+PURE_BLOCKS.update(_REDUCE_BLOCKS)

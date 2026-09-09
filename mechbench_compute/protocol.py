@@ -241,6 +241,7 @@ class ProtocolExecutor:
 
         from mechbench_compute import __version__ as core_version
         from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute.seeds import hardware_class
 
         extra = spec.extra or {}
         graph = extra.get("graph") or {}
@@ -708,6 +709,9 @@ class ProtocolExecutor:
             "nodes_executed": order,
             "node_paths": node_paths,
             "resolved": resolved,
+            # Where this ran (000402). Recorded, never fingerprinted:
+            # bit-identity is promised within a hardware class.
+            "resources": {"hardware": hardware_class()},
         }
         prov = ms.Provenance(
             created_at=datetime.now(UTC).strftime(
@@ -730,12 +734,11 @@ class ProtocolExecutor:
         corpus is the same node over a later range plus Union. The
         prompt is prefilled once per record and the KV cache copied
         per sample."""
-        import hashlib as _hashlib
-
         import numpy as _np
 
         from mechbench_compute.distill import encode, prefill_decision, render_chat
         from mechbench_compute.generate import sample_completion_cached
+        from mechbench_compute.seeds import item_seed
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
@@ -779,10 +782,9 @@ class ProtocolExecutor:
                     if on_item:
                         on_item(key, resume_items[key], True)
                     continue
-                digest = _hashlib.sha256(
-                    f"{seed}:{rec['id']}:{k}".encode()).digest()
-                rng = _np.random.default_rng(
-                    int.from_bytes(digest[:8], "little"))
+                # The item rule (000258 am. 4), now in seeds.py (000402):
+                # a leaf's seed comes from its key, never its position.
+                rng = _np.random.default_rng(item_seed(seed, rec["id"], k))
                 text, out_ids = sample_completion_cached(
                     model, ids, max_tokens=max_tokens,
                     temperature=temperature, top_p=top_p, rng=rng,
