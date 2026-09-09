@@ -25,6 +25,7 @@ from ._forward_gemma3 import run_forward_gemma3
 from ._forward_llama import run_forward_llama
 from ._forward_qwen import run_forward_qwen
 from .cache import ActivationCache
+from .errors import InvalidHookName
 from .hooks import HookFn, parse_hook_name
 from .interventions import Intervention, compose
 
@@ -133,8 +134,8 @@ class Model:
 
     @classmethod
     def load(cls, model_id: str, *,
-             on_download: "Callable[[str, str | None], None] | None" = None,
-             on_download_bytes: "Callable[[int, int], None] | None" = None) -> "Model":
+             on_download: Callable[[str, str | None], None] | None = None,
+             on_download_bytes: Callable[[int, int], None] | None = None) -> Model:
         """Load a model from the HuggingFace cache.
 
         The weights are installed if this machine does not have them, so a
@@ -389,9 +390,38 @@ class Model:
         return RunResult(logits=logits, cache=cache)
 
     def _validate_hook_names(self, names: Iterable[str]) -> None:
-        """Validate every name; raises on the first invalid one."""
+        """Validate every name; raises on the first invalid one.
+
+        Beyond the grammar (task 000365): a point the running family's
+        forward does not implement, or one that does not exist on the
+        addressed layer (pre-norm / pre-RoPE keys on a KV-shared layer),
+        is refused here — a hook that would never be invoked is the
+        failure mode this method exists to prevent."""
+        from . import _arch as _arch_mod
+
         for n in names:
-            parse_hook_name(n, arch=self.arch)
+            info = parse_hook_name(n, arch=self.arch)
+            if not _arch_mod.family_supports(
+                self.arch.model_type, info.point,
+                layer_scoped=info.layer is not None,
+            ):
+                raise InvalidHookName(
+                    f"{n} (not implemented by the {self.arch.model_type!r} forward)",
+                    [x for x in self.arch.all_hook_names()
+                     if _arch_mod.family_supports(
+                         self.arch.model_type, x.split(".", 2)[-1] if x.startswith("blocks.") else x,
+                         layer_scoped=x.startswith("blocks."))],
+                )
+            if (info.layer is not None
+                    and info.point in _arch_mod.SHARED_LAYER_ABSENT_POINTS
+                    and info.layer >= self.arch.first_kv_shared_layer):
+                raise InvalidHookName(
+                    f"{n} (layer {info.layer} is KV-shared: its keys arrive "
+                    f"already normed and rotated from layer "
+                    f"{self.arch.first_kv_shared_layer - 1} or earlier; hook "
+                    f"'attn.k' there instead)",
+                    self.arch.all_hook_names(),
+                )
 
     def project_to_logits(self, residual: mx.array) -> mx.array:
         """Apply the model's final RMSNorm + tied unembed (+ optional softcap)

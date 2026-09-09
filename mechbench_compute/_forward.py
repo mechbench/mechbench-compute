@@ -39,7 +39,7 @@ from mlx_vlm.models.gemma4.language import logit_softcap
 
 from . import _arch
 from .cache import ActivationCache
-from .hooks import HookFn, HookInfo, attn_internal_layers
+from .hooks import HookFn, HookInfo, attn_internal_layers, mlp_internal_layers
 
 
 def _dispatch(
@@ -103,15 +103,26 @@ def _attention_with_internals(
     B, L, _ = x_normed.shape
 
     queries = attn.q_proj(x_normed).reshape(B, L, attn.n_heads, attn.head_dim)
+    queries = _dispatch(
+        f"blocks.{layer_idx}.attn.q_pre_norm", layer_idx, "attn.q_pre_norm",
+        queries, hooks, capture_set, cache,
+    )
     queries = attn.q_norm(queries)
 
     if shared_kv is not None:
         # Shared layer: K/V come from an earlier layer of the same type
         # (already post-RoPE, post-norm, post-cache-update). Don't recompute.
+        # (No pre-norm / pre-RoPE key points here; Model.run refuses them.)
         keys, values = shared_kv
     else:
         offset = mx.array(c.offset) if c is not None else 0
         keys = attn.k_proj(x_normed).reshape(B, L, attn.n_kv_heads, attn.head_dim)
+        # Dispatched BEFORE the k_eq_v split so a pre-norm key override
+        # reaches the values it also feeds on k==v layers.
+        keys = _dispatch(
+            f"blocks.{layer_idx}.attn.k_pre_norm", layer_idx, "attn.k_pre_norm",
+            keys, hooks, capture_set, cache,
+        )
         # k_eq_v (global layers of 12B/26B): values are the raw k_proj output,
         # before k_norm; k_norm and v_norm then diverge the two.
         values = (
@@ -121,6 +132,10 @@ def _attention_with_internals(
         )
         keys = attn.k_norm(keys)
         keys = keys.transpose(0, 2, 1, 3)
+        keys = _dispatch(
+            f"blocks.{layer_idx}.attn.k_pre_rope", layer_idx, "attn.k_pre_rope",
+            keys, hooks, capture_set, cache,
+        )
         keys = attn.rope(keys, offset=offset)
         values = attn.v_norm(values)
         values = values.transpose(0, 2, 1, 3)
@@ -128,6 +143,10 @@ def _attention_with_internals(
             keys, values = c.update_and_fetch(keys, values)
 
     queries = queries.transpose(0, 2, 1, 3)
+    queries = _dispatch(
+        f"blocks.{layer_idx}.attn.q_pre_rope", layer_idx, "attn.q_pre_rope",
+        queries, hooks, capture_set, cache,
+    )
     queries = attn.rope(queries, offset=offset)
 
     # Expose Q, K, V as hook points BEFORE the GQA-repeat. Users who want
@@ -191,6 +210,10 @@ def _attention_with_internals(
                 f"Expected None, 'causal', or an mx.array."
             )
 
+    scores = _dispatch(
+        f"blocks.{layer_idx}.attn.scores", layer_idx, "attn.scores", scores,
+        hooks, capture_set, cache,
+    )
     weights = mx.softmax(scores, axis=-1)
     weights = _dispatch(
         f"blocks.{layer_idx}.attn.weights",
@@ -214,6 +237,10 @@ def _attention_with_internals(
     )
 
     output = per_head_out.transpose(0, 2, 1, 3).reshape(B, L, -1)
+    output = _dispatch(
+        f"blocks.{layer_idx}.attn.o_in", layer_idx, "attn.o_in", output,
+        hooks, capture_set, cache,
+    )
     return attn.o_proj(output), (keys, values), offset
 
 
@@ -246,6 +273,9 @@ def run_forward(
     manual_attn_layer_set = attn_internal_layers(
         set(hooks.keys()) | capture_set, arch=arch,
     )
+    manual_mlp_layer_set = mlp_internal_layers(
+        set(hooks.keys()) | capture_set, arch=arch,
+    )
 
     cache = ActivationCache()
     lm = model.language_model
@@ -254,6 +284,7 @@ def run_forward(
     # ---- Embeddings + MatFormer per-layer-input side-channel ----
     emb_out = model.get_input_embeddings(input_ids=input_ids, pixel_values=None)
     h = emb_out.inputs_embeds
+    h = _dispatch("embed", None, "embed", h, hooks, capture_set, cache)
     per_layer_inputs = emb_out.per_layer_inputs
 
     if tm.hidden_size_per_layer_input and per_layer_inputs is not None:
@@ -293,6 +324,10 @@ def run_forward(
 
         # ---- Attention branch ----
         x_normed = layer.input_layernorm(h)
+        x_normed = _dispatch(
+            f"blocks.{i}.attn.in_norm", i, "attn.in_norm", x_normed,
+            hooks, capture_set, cache,
+        )
         if i in manual_attn_layer_set:
             a, new_kv, new_offset = _attention_with_internals(
                 layer, x_normed, local_mask, c,
@@ -313,7 +348,37 @@ def run_forward(
         # ---- MLP branch ----
         mid = h
         m = layer.pre_feedforward_layernorm(mid)
-        m = layer.mlp(m)
+        m = _dispatch(
+            f"blocks.{i}.mlp.in_norm", i, "mlp.in_norm", m,
+            hooks, capture_set, cache,
+        )
+        if i in manual_mlp_layer_set:
+            # Mirrors MLP.__call__ (down_proj(geglu(gate_proj(x), up_proj(x))))
+            # with the interior exposed. geglu is mx.compile'd upstream, so
+            # this path may differ in the last bf16 bit at THIS layer only.
+            gate = layer.mlp.gate_proj(m)
+            gate = _dispatch(
+                f"blocks.{i}.mlp.gate", i, "mlp.gate", gate,
+                hooks, capture_set, cache,
+            )
+            up = layer.mlp.up_proj(m)
+            up = _dispatch(
+                f"blocks.{i}.mlp.up", i, "mlp.up", up,
+                hooks, capture_set, cache,
+            )
+            act = nn.gelu_approx(gate)
+            act = _dispatch(
+                f"blocks.{i}.mlp.act", i, "mlp.act", act,
+                hooks, capture_set, cache,
+            )
+            down_in = act * up
+            down_in = _dispatch(
+                f"blocks.{i}.mlp.down_in", i, "mlp.down_in", down_in,
+                hooks, capture_set, cache,
+            )
+            m = layer.mlp.down_proj(down_in)
+        else:
+            m = layer.mlp(m)
         m = layer.post_feedforward_layernorm(m)
         m = _dispatch(
             f"blocks.{i}.mlp_out", i, "mlp_out", m, hooks, capture_set, cache,
@@ -358,9 +423,13 @@ def run_forward(
                   hooks, capture_set, cache)
 
     h_final = tm.norm(h)
+    h_final = _dispatch("final_norm", None, "final_norm", h_final,
+                        hooks, capture_set, cache)
     logits = tm.embed_tokens.as_linear(h_final)
     if lm.final_logit_softcapping is not None:
         logits = logit_softcap(lm.final_logit_softcapping, logits)
+    logits = _dispatch("logits", None, "logits", logits,
+                       hooks, capture_set, cache)
 
     # Single batched eval. MLX is lazy; until we eval, the cache holds graph
     # nodes rather than computed tensors.

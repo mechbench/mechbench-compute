@@ -33,6 +33,19 @@ LAYER_HOOK_POINTS: tuple[str, ...] = (
     "attn.q",             # per-head queries post-q_norm + post-RoPE [B, n_heads, L, head_dim]
     "attn.k",             # per-KV-head keys post-k_norm + post-RoPE [B, n_kv_heads, L_kv, head_dim]
     "attn.v",             # per-KV-head values post-v_norm [B, n_kv_heads, L_kv, head_dim]
+    # --- task 000365: the rest of the grammar ---------------------------
+    "attn.in_norm",       # input_layernorm output: what attention actually sees [B, L, D]
+    "attn.q_pre_norm",    # q_proj output before q_norm [B, L, n_heads, head_dim]
+    "attn.k_pre_norm",    # k_proj output before k_norm [B, L, n_kv_heads, head_dim] (absent on KV-shared layers)
+    "attn.q_pre_rope",    # post-q_norm, pre-RoPE [B, n_heads, L, head_dim]
+    "attn.k_pre_rope",    # post-k_norm, pre-RoPE [B, n_kv_heads, L_kv, head_dim] (absent on KV-shared layers)
+    "attn.scores",        # pre-softmax scores, mask applied [B, n_heads, L, S_kv]
+    "attn.o_in",          # per-head concat before o_proj [B, L, n_heads*head_dim]
+    "mlp.in_norm",        # pre_feedforward_layernorm output: what the MLP sees [B, L, D]
+    "mlp.gate",           # gate_proj output, pre-activation [B, L, F]
+    "mlp.up",             # up_proj output [B, L, F]
+    "mlp.act",            # gelu_approx(gate): the activation alone [B, L, F]
+    "mlp.down_in",        # gelu(gate) * up: the neuron vector down_proj reads [B, L, F]
 )
 
 # Top-level (non-layer) hook points. Empty in v0; reserved for future
@@ -42,6 +55,10 @@ GLOBAL_HOOK_POINTS: tuple[str, ...] = (
     # what DLA's apply_ln divides by to make components sum to the
     # model's true logits.
     "final_norm.scale",
+    # --- task 000365 ---
+    "embed",              # token embeddings before layer 0 (and before the per-layer-input projection) [B, L, D]
+    "final_norm",         # the final RMSNorm's output: what the unembedding reads [B, L, D]
+    "logits",             # final logits after softcap [B, L, V] — logit-level surgery lives here
 )
 
 # Hook points that require manual attention computation. When any hook or
@@ -50,7 +67,44 @@ GLOBAL_HOOK_POINTS: tuple[str, ...] = (
 # the attention internals.
 ATTN_INTERNAL_POINTS: frozenset[str] = frozenset({
     "attn.weights", "attn.per_head_out", "attn.q", "attn.k", "attn.v",
+    "attn.q_pre_norm", "attn.k_pre_norm", "attn.q_pre_rope", "attn.k_pre_rope",
+    "attn.scores", "attn.o_in",
 })
+
+# Hook points inside the MLP. Like the attention internals, targeting one
+# switches THAT layer from the compiled geglu path to a manual, arithmetically
+# identical path (bf16 rounding may differ at the last bit); other layers
+# stay on the compiled path.
+MLP_INTERNAL_POINTS: frozenset[str] = frozenset({
+    "mlp.gate", "mlp.up", "mlp.act", "mlp.down_in",
+})
+
+# Points that do not EXIST on a KV-shared layer: its keys and values arrive
+# from an earlier layer already normed and rotated, so there is no pre-norm
+# or pre-RoPE key there to hook. (`attn.k` on a shared layer dispatches the
+# shared keys, as before.)
+SHARED_LAYER_ABSENT_POINTS: frozenset[str] = frozenset({
+    "attn.k_pre_norm", "attn.k_pre_rope",
+})
+
+# The points each family's forward IMPLEMENTS. The canonical (Gemma 4)
+# forward carries the whole grammar; the other forwards carry the original
+# set until they are extended. A name that parses but is not implemented by
+# the running family is refused (never silently uninvoked).
+_LEGACY_LAYER_POINTS: frozenset[str] = frozenset({
+    "resid_pre", "attn_out", "mlp_out", "resid_post",
+    "attn.weights", "attn.per_head_out", "attn.q", "attn.k", "attn.v",
+})
+_LEGACY_GLOBAL_POINTS: frozenset[str] = frozenset({"final_norm.scale"})
+
+
+def family_supports(model_type: str, point: str, *, layer_scoped: bool) -> bool:
+    """Does `model_type`'s forward dispatch `point`?"""
+    if model_type not in ("gemma3", "qwen2", "llama"):
+        return True  # the canonical forward: everything
+    if point == "gate_out":
+        return False  # MatFormer side-channel: Gemma 4 only
+    return point in (_LEGACY_LAYER_POINTS if layer_scoped else _LEGACY_GLOBAL_POINTS)
 
 
 # ---------------------------------------------------------------------------

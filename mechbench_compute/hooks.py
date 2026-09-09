@@ -46,7 +46,7 @@ class HookInfo:
 HookFn = Callable[[mx.array, HookInfo], Optional[mx.array]]
 
 
-def parse_hook_name(name: str, arch: "_arch.Arch | None" = None) -> HookInfo:
+def parse_hook_name(name: str, arch: _arch.Arch | None = None) -> HookInfo:
     """Parse and validate a hook-point name.
 
     Accepts top-level names (those in _arch.GLOBAL_HOOK_POINTS) and layer-
@@ -87,7 +87,7 @@ def parse_hook_name(name: str, arch: "_arch.Arch | None" = None) -> HookInfo:
 
 
 def attn_internal_layers(hook_names: set[str],
-                         arch: "_arch.Arch | None" = None) -> set[int]:
+                         arch: _arch.Arch | None = None) -> set[int]:
     """Return the set of layer indices at which the manual attention path
     must run because some hook or capture targets attention internals there.
 
@@ -102,5 +102,19 @@ def attn_internal_layers(hook_names: set[str],
     for n in hook_names:
         info = parse_hook_name(n, arch=arch)
         if info.point in _arch.ATTN_INTERNAL_POINTS and info.layer is not None:
+            out.add(info.layer)
+    return out
+
+
+def mlp_internal_layers(hook_names: set[str],
+                        arch: _arch.Arch | None = None) -> set[int]:
+    """Layers at which the manual MLP path must run because some hook or
+    capture targets the MLP interior there (task 000365). Same policy as
+    `attn_internal_layers`: per-layer, so untouched layers stay on the
+    compiled `geglu` path bit for bit."""
+    out: set[int] = set()
+    for n in hook_names:
+        info = parse_hook_name(n, arch=arch)
+        if info.point in _arch.MLP_INTERNAL_POINTS and info.layer is not None:
             out.add(info.layer)
     return out
