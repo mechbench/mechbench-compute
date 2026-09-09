@@ -49,7 +49,7 @@ class ProtocolSpec:
 class ProtocolExecutor:
     def __init__(self, on_download=None, on_download_bytes=None, *,
                  on_node_start=None, on_spool_item=None,
-                 on_checkpoint=None, on_node_done=None) -> None:
+                 on_checkpoint=None, on_node_done=None, limiter=None) -> None:
         self._model: Model | None = None
         self._model_id: str | None = None
         # Called just before weights are fetched, and only then: the runner
@@ -67,6 +67,11 @@ class ProtocolExecutor:
         self._on_spool_item = on_spool_item
         self._on_checkpoint = on_checkpoint
         self._on_node_done = on_node_done
+        # Rate limits are the runner's business (000338): it knows what
+        # else is running against the same account. Absent one, remote
+        # calls are unthrottled and only the provider's own 429s slow
+        # them down.
+        self._limiter = limiter
 
     def _model_loaded(self, model_id) -> Model:
         """The model an operation declared, loading it if it is not resident.
@@ -82,6 +87,14 @@ class ProtocolExecutor:
         layer_ablation path did exactly that: it recorded the requested model
         and executed the warmed one).
         """
+        if getattr(model_id, "is_endpoint", False):
+            # An endpoint has no weights to load, and handing a provider
+            # model id to the hub would produce a download error about a
+            # repo that was never meant to exist.
+            raise ValueError(
+                f"{model_id.describe()} is a remote endpoint: this operation "
+                "runs local weights and cannot use one. Use "
+                "~canonical/ops/chat/1, which serves both.")
         if hasattr(model_id, "base"):
             # The ref's base names WHERE the weights come from, and a
             # bench base must be translated to its materialized local
@@ -468,7 +481,8 @@ class ProtocolExecutor:
                             and e["to"]["port"] == port), None)
                 if src is None:
                     continue
-                offered = resume_mod.resume_level(nodes[src]["block"])
+                offered = resume_mod.resume_level(nodes[src]["block"],
+                                                  nodes[src].get("params"))
                 if not resume_mod.satisfies(offered, str(level)):
                     forced_restart.add(src)
         node_hashes: dict[str, str] = {}
@@ -482,6 +496,10 @@ class ProtocolExecutor:
 
         result_base = extra.get("resultPath")
         node_paths: dict[str, str] = {}
+        # What this run bought from other people (000337): per node, and
+        # summed in the manifest, so the bill is a property of the run
+        # rather than something a reader reconstructs from items.
+        spend_by_node: dict[str, dict[str, Any]] = {}
 
         for pos, nid in enumerate(order):
             node = nodes[nid]
@@ -514,7 +532,10 @@ class ProtocolExecutor:
 
                     ref = model_ref_mod.resolve(mval, fetch=_fetch_recording)
                     params = {**params, "model": ref}
-                    record_model(ref.base)
+                    # An endpoint has no repo to pin; what a run records
+                    # about it is the version that ANSWERED, per call.
+                    if not ref.is_endpoint:
+                        record_model(ref.base)
                 else:
                     record_model(mval)
             in_edges = [e for e in edges if e["to"]["node"] == nid]
@@ -589,6 +610,10 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_generate, inputs, params,
                     on_item=on_item, on_start=expand, **resume_kwargs)
+            elif block == "~canonical/ops/chat/1":
+                results[nid] = self._block_chat(
+                    inputs, params, secrets=secrets, on_item=on_item,
+                    on_start=expand, **resume_kwargs)
             elif block == "~canonical/ops/lens-trajectory/1":
                 results[nid] = self._run_model_block(
                     self._block_lens, inputs, params,
@@ -678,6 +703,8 @@ class ProtocolExecutor:
                     params=_wire_params(params),
                 )
                 node_paths[nid] = out["path"]
+            if isinstance(results[nid], dict) and results[nid].get("spend"):
+                spend_by_node[nid] = results[nid]["spend"]
             node_hashes[nid] = resume_mod.content_hash(results[nid])
             if self._on_node_done is not None:
                 self._on_node_done(nid, node_paths.get(nid), fingerprint)
@@ -711,7 +738,9 @@ class ProtocolExecutor:
             "resolved": resolved,
             # Where this ran (000402). Recorded, never fingerprinted:
             # bit-identity is promised within a hardware class.
-            "resources": {"hardware": hardware_class()},
+            "resources": {"hardware": hardware_class(),
+                          **({"spend": _spend_total(spend_by_node)}
+                             if spend_by_node else {})},
         }
         prov = ms.Provenance(
             created_at=datetime.now(UTC).strftime(
@@ -839,6 +868,40 @@ class ProtocolExecutor:
             "item_kind": "~canonical/kinds/text",
             "items": items,
         }
+
+    def _block_chat(self, inputs, params, secrets=None, on_item=None,
+                    on_start=None, resume_items=None):
+        """~canonical/ops/chat/1 (task 000337): one block for local
+        weights and remote endpoints. The ModelRef decides which — an
+        endpoint ref goes to the provider transport, anything else to
+        MLX through the usual model-block path, so a chat node with a
+        LoRA adapter still fuses its stack."""
+        from mechbench_compute import chat as chat_mod
+        from mechbench_compute import model_ref as model_ref_mod
+
+        ref = params.get("model")
+        if not hasattr(ref, "base_kind"):
+            ref = model_ref_mod.parse(ref)
+        records = inputs.get("records") or params.get("records") or []
+        if ref.is_endpoint:
+            return chat_mod.run_remote(
+                ref, records, params, secrets=secrets,
+                cassette=inputs.get("cassette") or params.get("cassette"),
+                limiter=self._limiter, on_item=on_item, on_start=on_start,
+                resume_items=resume_items)
+        return self._run_model_block(
+            self._block_chat_local, inputs, {**params, "model": ref},
+            on_item=on_item, on_start=on_start, resume_items=resume_items)
+
+    def _block_chat_local(self, inputs, params, on_item=None, on_start=None,
+                          resume_items=None):
+        from mechbench_compute import chat as chat_mod
+
+        model = self._model_loaded(params.get("model"))
+        records = inputs.get("records") or params.get("records") or []
+        return chat_mod.run_local(model, params.get("model"), records, params,
+                                  on_item=on_item, on_start=on_start,
+                                  resume_items=resume_items)
 
     def _block_ablate_layers(self, inputs, params, on_item=None,
                              on_start=None):
@@ -1829,6 +1892,27 @@ class ProtocolExecutor:
                 on_item(key, entry)
         return {"kind": "decision_read", "conditions": out}
 
+
+
+def _spend_total(by_node: dict[str, Any]) -> dict[str, Any]:
+    """The run's bill: total, per provider, per node (task 000337)."""
+    by_provider: dict[str, dict[str, Any]] = {}
+    total = 0.0
+    calls = 0
+    for s in by_node.values():
+        p = str(s.get("provider", ""))
+        slot = by_provider.setdefault(p, {"cost_usd": 0.0, "calls": 0})
+        slot["cost_usd"] = round(slot["cost_usd"] + float(s.get("cost_usd", 0.0)), 8)
+        slot["calls"] += int(s.get("calls", 0))
+        total += float(s.get("cost_usd", 0.0))
+        calls += int(s.get("calls", 0))
+    return {"cost_usd": round(total, 8), "calls": calls,
+            "by_provider": by_provider,
+            "by_node": {k: {"cost_usd": round(float(v.get("cost_usd", 0.0)), 8),
+                            "calls": int(v.get("calls", 0)),
+                            "provider": v.get("provider", "")}
+                        for k, v in by_node.items()},
+            "dry_run": all(bool(v.get("dry_run")) for v in by_node.values())}
 
 
 def _wire_params(params):

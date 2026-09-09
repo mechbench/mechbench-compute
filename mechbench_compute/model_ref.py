@@ -37,18 +37,36 @@ from typing import Any
 class ModelRef:
     """A parsed reference. `adapter_payloads` holds fetched adapter
     objects (safetensors bytes + lora config), aligned with
-    `adapter_labels`."""
+    `adapter_labels`.
 
-    base_kind: str  # "hf" | "bench"
+    An ENDPOINT ref (task 000337) is the third base kind: a model
+    someone else runs, named by `{provider, model}` with optional
+    provider-native `provider_options`. It has no weights, no adapters
+    and no local existence — `_model_loaded` refuses it by name rather
+    than handing a provider id to the hub.
+    """
+
+    base_kind: str  # "hf" | "bench" | "endpoint"
     base: str
     adapter_labels: tuple[str, ...] = ()
     adapter_payloads: tuple[Mapping[str, Any], ...] = field(default=(), compare=False)
+    provider: str = ""
+    provider_options: Mapping[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_endpoint(self) -> bool:
+        return self.base_kind == "endpoint"
 
     def to_wire(self) -> dict[str, Any]:
         """The canonical structured form — what provenance fingerprints
         and manifests record. Labels, never payloads: the fingerprint of
         a run is what it DECLARED, and the adapters' own content hashes
         are already recorded by the fetch path."""
+        if self.is_endpoint:
+            out: dict[str, Any] = {"provider": self.provider, "model": self.base}
+            if self.provider_options:
+                out["provider_options"] = dict(self.provider_options)
+            return out
         return {
             "base": {self.base_kind: self.base},
             "adapters": [{"bench": label} for label in self.adapter_labels],
@@ -56,6 +74,8 @@ class ModelRef:
 
     def describe(self) -> str:
         """`hf:repo@rev (+2 adapters)` — for telemetry and manifests."""
+        if self.is_endpoint:
+            return f"{self.provider}:{self.base}"
         tail = ""
         if self.adapter_labels:
             n = len(self.adapter_labels)
@@ -76,6 +96,26 @@ def parse(value: Any) -> ModelRef:
         raise TypeError(
             f"a model reference is a string or an object, not {type(value).__name__}"
         )
+    if "provider" in value and "base" not in value:
+        from mechbench_compute.providers import PROVIDERS
+
+        provider = str(value["provider"])
+        if provider not in PROVIDERS:
+            raise ValueError(
+                f"unknown provider {provider!r} in a model reference — "
+                f"known: {', '.join(PROVIDERS)}")
+        model = value.get("model")
+        if not model:
+            raise ValueError(
+                f'an endpoint reference needs a model: {{"provider": '
+                f'"{provider}", "model": "..."}}')
+        if value.get("adapters"):
+            raise ValueError(
+                "an endpoint reference cannot carry adapters — someone "
+                "else runs those weights, and a LoRA of ours cannot be "
+                "fused into them")
+        return ModelRef(base_kind="endpoint", base=str(model), provider=provider,
+                        provider_options=dict(value.get("provider_options") or {}))
     base = value.get("base")
     if isinstance(base, str):
         base_kind, base_val = "hf", base
@@ -114,6 +154,9 @@ def resolve(
     from the start.
     """
     ref = parse(value)
+    if ref.is_endpoint:
+        # Nothing to fetch: an endpoint's weights are not ours.
+        return ref
     if len(ref.adapter_labels) > 8:
         # Mirrors the wire schema's cap. Linear fuse cost makes very
         # deep stacks a smell anyway — merge (Arc C) is the pressure

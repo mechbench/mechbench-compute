@@ -56,7 +56,31 @@ BLOCK_RESUME: dict[str, dict[str, Any]] = {
 _RANK = {"restart": 0, "exchangeable": 1, "state-restorable": 2, "reproducible": 2}
 
 
-def resume_level(block: str) -> str:
+def _chat_level(params: Mapping[str, Any]) -> str:
+    """A chat node's promise depends on who answers (task 000337).
+    Local weights with a seed are a pure function of the item key —
+    `reproducible`. A remote endpoint is someone else's sampler on
+    someone else's weights, and the dated model version can change
+    under us: `exchangeable`, so a partial is topped up rather than
+    trusted to be bit-identical."""
+    model = (params or {}).get("model")
+    provider = (model.get("provider") if isinstance(model, Mapping)
+                else getattr(model, "provider", ""))
+    return "exchangeable" if provider else "reproducible"
+
+
+#: Blocks whose level is a function of their params rather than a
+#: constant. Same gate either way: process identity still decides
+#: whether a partial is eligible at all.
+DYNAMIC_LEVEL = {"~canonical/ops/chat/1": _chat_level}
+
+BLOCK_RESUME["~canonical/ops/chat/1"] = {"level": "exchangeable", "items": True}
+
+
+def resume_level(block: str, params: Mapping[str, Any] | None = None) -> str:
+    fn = DYNAMIC_LEVEL.get(block)
+    if fn is not None and params is not None:
+        return fn(params)
     return BLOCK_RESUME.get(block, {}).get("level", "restart")
 
 
