@@ -203,3 +203,40 @@ def test_uniform_without_any_distribution_is_unjudgeable_not_false():
     agg = table["rows"][-1]
     assert agg["n_judged"] == 0
 
+
+
+#: Two judged rows and one the judge could not be read for.
+JUDGED_ROWS = [
+    {"id": "a", "coords": {"arm": "x"}, "score": 4.0},
+    {"id": "b", "coords": {"arm": "x"}},              # unparsed
+    {"id": "c", "coords": {"arm": "y"}, "score": 2.0},
+]
+
+
+class TestGroupStatsMissingValues:
+    """A judged corpus has rows a judge could not be read for (task
+    000356). A mean over the records that happened to have the field is
+    the kind of number nobody notices is wrong, so the default refuses
+    by name and `skip` reports what it dropped."""
+
+    def test_a_missing_value_refuses_by_name_by_default(self):
+        import pytest
+
+        from mechbench_compute.blocks import group_stats
+
+        with pytest.raises(ValueError, match="record 'b' has no 'score'"):
+            group_stats(JUDGED_ROWS, {"by": ["arm"], "value": "score"})
+
+    def test_skip_omits_them_and_reports_the_count(self):
+        from mechbench_compute.blocks import group_stats
+
+        out = group_stats(JUDGED_ROWS, {"by": ["arm"], "value": "score",
+                                          "on_missing": "skip"})
+        assert out["n_missing"] == 1
+        assert {r["arm"]: r["n"] for r in out["rows"]} == {"x": 1, "y": 1}
+
+    def test_a_clean_table_says_nothing_about_missing(self):
+        from mechbench_compute.blocks import group_stats
+
+        out = group_stats(JUDGED_ROWS[:1], {"by": ["arm"], "value": "score"})
+        assert "n_missing" not in out

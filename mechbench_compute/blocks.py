@@ -220,13 +220,34 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     """Group records by coords and summarize a numeric field into
     MetricTable-shaped rows. by: [coord names] ([] = one overall
     group); value: field name; stats fixed: n/median/mean/min/max +
-    share_negative (useful for deltas)."""
+    share_negative (useful for deltas).
+
+    `on_missing` says what a record without the value field means:
+    `error` (default) refuses by name, because a mean over the records
+    that happened to have the field is the kind of number nobody
+    notices is wrong; `skip` omits them and REPORTS the count, which is
+    what a judged corpus needs — an unreadable verdict is not a zero
+    (task 000356), and the rows that were dropped must be visible."""
     from statistics import mean, median
     recs = _records(records)
     by = params.get("by") or []
     value_field = params["value"]
+    on_missing = str(params.get("on_missing", "error"))
+    if on_missing not in ("error", "skip"):
+        raise ValueError(
+            f"group-stats on_missing must be 'error' or 'skip', not {on_missing!r}")
     groups: dict[tuple, list[float]] = {}
+    n_missing = 0
     for r in recs:
+        if value_field not in r or r[value_field] is None:
+            if on_missing == "skip":
+                n_missing += 1
+                continue
+            raise ValueError(
+                f"group-stats: record {r.get('id')!r} has no {value_field!r} "
+                f"field. Set on_missing: 'skip' if absent values are expected "
+                f"(a judge that could not be read, an unscored item) — the "
+                f"count is then reported on the table.")
         key = tuple(r.get("coords", {}).get(k) for k in by)
         groups.setdefault(key, []).append(float(r[value_field]))
     rows = []
@@ -248,7 +269,8 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     return {"kind": "metric_table",
             "name": params.get("name", f"{value_field}-stats"),
             "description": params.get("description", ""),
-            "row_axis": "condition", "columns": columns, "rows": rows}
+            "row_axis": "condition", "columns": columns, "rows": rows,
+            **({"n_missing": n_missing} if n_missing else {})}
 
 
 def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
