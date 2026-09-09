@@ -394,3 +394,29 @@ class TestFactory:
         tape = Cassette(provider="anthropic")
         t = make_transport("anthropic", None, cassette=tape, cassette_mode="replay")
         assert isinstance(t, CassetteTransport) and t.inner is None
+
+
+class TestSchemaConformance:
+    """What compute emits per call must be what mechbench-schema says a
+    call is (task 000351): the shared package is the contract, and a
+    consumer that renders a transcript reads it from there."""
+
+    def test_a_call_record_validates_as_the_schema_kind(self):
+        from mechbench_schema import CallProvenance
+
+        out = MockTransport().chat(req(), record_request=False)
+        record = CallProvenance.model_validate(out.call.to_wire())
+        assert record.provider == "mock"
+        assert record.usage.output_tokens > 0
+        assert record.price_table == pricing.TABLE_VERSION
+
+    def test_an_endpoint_ref_round_trips_through_the_schema(self):
+        from mechbench_schema import EndpointRef
+
+        from mechbench_compute import model_ref as mr
+
+        ref = mr.parse({"provider": "anthropic", "model": "claude-opus-5",
+                        "provider_options": {"anthropic": {"thinking": {}}}})
+        wire = EndpointRef.model_validate(ref.to_wire())
+        assert wire.provider == "anthropic" and wire.model == "claude-opus-5"
+        assert mr.parse(wire.model_dump(exclude_none=True)) == ref

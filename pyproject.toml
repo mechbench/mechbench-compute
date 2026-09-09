@@ -28,7 +28,7 @@ classifiers = [
 dependencies = [
     "certifi>=2024.2",
     "huggingface-hub>=0.24",
-    "mechbench-schema>=0.13",
+    "mechbench-schema>=0.14",
     "mlx>=0.20; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "mlx-lm>=0.20; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "mlx-vlm>=0.6.1; sys_platform == 'darwin' and platform_machine == 'arm64'",
