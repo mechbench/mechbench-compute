@@ -884,6 +884,29 @@ class ProtocolExecutor:
             "items": items,
         }
 
+    def _tool_block_runner(self, secrets=None):
+        """Handlers the toolbox cannot run itself (task 000340): model
+        blocks and, later, sub-protocols. This is what makes
+        `decision-read` available AS A TOOL — a model that can consult
+        another model, or the bench, mid-turn."""
+        def run_block(ref, inputs, params):
+            if ref == "~canonical/ops/decision-read/1":
+                return self._run_model_block(self._block_decision_read,
+                                             inputs, params)
+            if ref == "~canonical/ops/generate/1":
+                return self._run_model_block(self._block_generate, inputs, params)
+            if ref == "~canonical/ops/tools/bench-lookup/1":
+                # The recording fetch, so a tool call's object shows up
+                # in the run's resolved lineage like any other input.
+                from mechbench_compute import bench
+
+                return bench.fetch(str((inputs.get("arguments") or {}).get("path")))
+            raise ValueError(
+                f"{ref!r} is not available as a tool handler here — pure "
+                "blocks, decision-read and generate are")
+
+        return run_block
+
     def _block_chat(self, inputs, params, secrets=None, on_item=None,
                     on_start=None, resume_items=None):
         """~canonical/ops/chat/1 (task 000337): one block for local
@@ -898,6 +921,10 @@ class ProtocolExecutor:
         if not hasattr(ref, "base_kind"):
             ref = model_ref_mod.parse(ref)
         records = inputs.get("records") or params.get("records") or []
+        if params.get("tools"):
+            # Injected AFTER the fingerprint is computed, so a callable
+            # never reaches a node's identity or its emitted params.
+            params = {**params, "_block_runner": self._tool_block_runner(secrets)}
         if ref.is_endpoint:
             return chat_mod.run_remote(
                 ref, records, params, secrets=secrets,
@@ -947,6 +974,9 @@ class ProtocolExecutor:
                 top_p=float(agent.top_p or 0.95), rng=rng,
                 prefill=prefill_decision(model, ids))
 
+        if any((p.get("tools") if isinstance(p, dict) else None)
+               for p in (params.get("participants") or [])):
+            params = {**params, "_block_runner": self._tool_block_runner(secrets)}
         return cv.run(params, inputs=inputs, secrets=secrets,
                       limiter=self._limiter, job_budget=self._budget,
                       local_sampler=local_sampler, on_item=on_item,

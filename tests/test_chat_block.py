@@ -192,18 +192,50 @@ class TestLocalPath:
         assert rendered[0] == "user:be brief\n\nquestion 0"
         assert "spend" not in out       # nothing was bought
 
-    def test_tools_are_refused_locally_with_the_task_that_will_add_them(self):
-        from mechbench_compute.providers.errors import CapabilityUnsupported
+    def test_a_local_model_calls_tools_by_writing_them(self, monkeypatch):
+        """Local weights have no tool protocol, so the tools are
+        described in the prompt and the calls are read back out of the
+        text (task 000340) — same handlers, same provenance."""
+        from mechbench_compute import distill, generate
 
-        with pytest.raises(CapabilityUnsupported, match="000339"):
-            chat_mod.run_local(None, mr.parse("x/y"), _records(1),
-                               {"tools": [{"name": "grep"}]})
+        prompts: list[str] = []
+        replies = iter([
+            ('Let me work it out.\n```tool_code\n'
+             '{"name": "calc", "arguments": {"expression": "6*7"}}\n```'),
+            "The answer is 42.",
+        ])
+
+        class FakeTok:
+            def apply_chat_template(self, turns, tokenize=False,
+                                     add_generation_prompt=True, **kw):
+                prompts.append(" | ".join(f"{t['role']}:{t['content']}"
+                                          for t in turns))
+                return prompts[-1]
+
+        class FakeModel:
+            tokenizer = FakeTok()
+
+        monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
+        monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
+        monkeypatch.setattr(generate, "sample_completion_cached",
+                            lambda *a, **k: next(replies))
+        out = chat_mod.run_local(
+            FakeModel(), mr.parse("google/gemma-3-4b-it"), _records(1),
+            {"n": 1, "tools": ["calc"], "max_tool_rounds": 2})
+        item = out["items"][0]
+        assert item["text"] == "The answer is 42."
+        run = item["metadata"]["tool_runs"][0]
+        assert run["tool"] == "calc" and run["arguments"] == {"expression": "6*7"}
+        # The tools were described where the model could see them, and
+        # the result was handed back for the second pass.
+        assert "calc(expression)" in prompts[0]
+        assert "42" in prompts[1]
 
 
 class TestJobBudget:
     def test_node_caps_chain_under_a_job_cap(self):
-        from mechbench_compute.providers import Budget
         from mechbench_compute.protocol import ProtocolExecutor as PE
+        from mechbench_compute.providers import Budget
 
         job = Budget(cap_usd=0.002)
         ex = PE(budget=job)

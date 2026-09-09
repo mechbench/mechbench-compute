@@ -728,3 +728,9 @@ PURE_BLOCKS.update(_DIRECTION_BLOCKS)
 from mechbench_compute.reduce import PURE_REDUCE_BLOCKS as _REDUCE_BLOCKS
 
 PURE_BLOCKS.update(_REDUCE_BLOCKS)
+
+# Tool handlers are ordinary blocks (task 000340): what a model may
+# call is what the platform can already do.
+from mechbench_compute.tools import PURE_TOOL_BLOCKS as _TOOL_BLOCKS
+
+PURE_BLOCKS.update(_TOOL_BLOCKS)

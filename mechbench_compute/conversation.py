@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from mechbench_compute import chat as chat_mod
+from mechbench_compute import tools as tool_mod
 from mechbench_compute.providers import Budget, budget_from, make_transport
 from mechbench_compute.providers import limiter as pl
 from mechbench_compute.providers import messages as pm
@@ -346,6 +347,7 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
         perspective_map.get("default", "others_as_user_attributed"))
     overrides = dict(perspective_map.get("overrides") or {})
     window = params.get("window") or {}
+    max_tool_rounds = int(params.get("max_tool_rounds", 3))
     dry_run = bool(params.get("dry_run", False))
     budget = budget_from(params, required=any(a.is_endpoint() for a in participants))
     if job_budget is not None:
@@ -401,12 +403,14 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
             # replays the same words at the same turn.
             return local_sampler(agent, system, view, key=key), None, ()
         transport, ref, creds = entry
+        box = tool_mod.toolbox_from(agent.tools,
+                                    block_runner=params.get("_block_runner"))
         req = pm.request({
             "model": ref.base,
             "system": system,
             "messages": [m.to_wire() for m in view],
             "max_tokens": int(agent.max_tokens),
-            "tools": agent.tools,
+            "tools": box.specs(),
             "temperature": agent.temperature,
             "top_p": agent.top_p,
             "provider_options": {**dict(ref.provider_options or {}),
@@ -414,10 +418,24 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
         })
         node_budget = (budget.child(agent.budget_usd) if agent.budget_usd
                        else budget)
-        out = transport.chat(req, budget=node_budget, limiter=limiter,
-                             scope=pl.scope_for(ref.provider, creds))
-        calls.append(out.call.to_wire())
-        return out.text, out.call.to_wire(), out.tool_calls
+        scope = pl.scope_for(ref.provider, creds)
+        # A participant's tool loop is its own turn's business: the
+        # room sees the answer, the transcript keeps what it called.
+        for round_no in range(max_tool_rounds + 1):
+            out = transport.chat(req, budget=node_budget, limiter=limiter,
+                                 scope=scope)
+            calls.append(out.call.to_wire())
+            if not (out.tool_calls and box) or round_no == max_tool_rounds:
+                break
+            results = [box.call(c) for c in out.tool_calls]
+            req = req.with_messages([
+                *req.messages, out.as_message(),
+                pm.Message(role="user", content=tuple(results)),
+            ])
+        record = out.call.to_wire()
+        if box.runs:
+            record = {**record, "tool_runs": [r.to_wire() for r in box.runs]}
+        return out.text, record, out.tool_calls
 
     def count_tokens(history: Sequence[Message]) -> int:
         return max(1, sum(len(m.text.split()) for m in history))

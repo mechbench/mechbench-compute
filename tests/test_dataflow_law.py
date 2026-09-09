@@ -183,6 +183,10 @@ NOT_LEAF_STREAM: dict[str, str] = {
     "~canonical/ops/grid/1": "generator (factor-cross alias)",
     "~canonical/ops/vectors/similarity/1":
         "one residual_vectors record; its rows are not bench leaves",
+    "~canonical/ops/tools/calc/1":
+        "a tool handler: its input is one call's arguments, not a leaf stream",
+    "~canonical/ops/tools/bench-lookup/1":
+        "a tool handler: its input is one call's arguments, not a leaf stream",
     **{f"~canonical/ops/direction/{n}/1":
        "residual_vectors / direction records, not a leaf stream"
        for n in ("from-vectors", "from-pca", "add", "average", "orthogonalize",

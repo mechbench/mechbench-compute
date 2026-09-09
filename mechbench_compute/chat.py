@@ -29,11 +29,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from typing import Any
 
 from mechbench_compute.providers import Budget, budget_from, make_transport
 from mechbench_compute.providers import limiter as pl
 from mechbench_compute.providers import messages as pm
+from mechbench_compute.tools import Toolbox, toolbox_from
 
 #: What a chat node emits per item, for both paths.
 ITEM_KIND = "~canonical/kinds/text"
@@ -49,7 +51,8 @@ def _records(value: Any) -> list[dict[str, Any]]:
 
 def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
                   model: str, provider_options: Mapping[str, Any],
-                  seed: int | None = None) -> pm.ChatRequest:
+                  seed: int | None = None,
+                  tools: Sequence[Any] | None = None) -> pm.ChatRequest:
     """One record's request. A record carries either a full `messages`
     conversation or the `system`/`user` fields a corpus record has —
     the same fields `generate` reads, so a protocol can swap a local
@@ -68,7 +71,7 @@ def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
         "system": system,
         "messages": convo,
         "max_tokens": int(params.get("max_tokens", 1024)),
-        "tools": params.get("tools") or (),
+        "tools": tuple(tools) if tools is not None else (),
         "tool_choice": params.get("tool_choice"),
         "temperature": params.get("temperature"),
         "top_p": params.get("top_p"),
@@ -83,7 +86,8 @@ def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
 def _item(rec: Mapping[str, Any], k: int, text: str, *,
           model_wire: Any, params: Mapping[str, Any],
           parts: Sequence[Any] = (), call: Mapping[str, Any] | None = None,
-          sampling: Mapping[str, Any] | None = None) -> dict[str, Any]:
+          sampling: Mapping[str, Any] | None = None,
+          tool_runs: Sequence[Any] = ()) -> dict[str, Any]:
     meta: dict[str, Any] = {
         "coords": {**(rec.get("coords") or {}), "sample": k},
         "model": model_wire,
@@ -92,6 +96,10 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
         meta["sampling"] = dict(sampling)
     if call is not None:
         meta["call"] = dict(call)
+    if tool_runs:
+        # What the model actually did with the capabilities it was
+        # given — the point of offering them.
+        meta["tool_runs"] = [dict(r) for r in tool_runs]
     tool_parts = [p.to_wire() for p in parts
                   if not isinstance(p, pm.TextPart)]
     if tool_parts:
@@ -169,6 +177,17 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     # buckets, and nothing persisted names a secret.
     scope = str(params.get("limit_scope") or pl.scope_for(provider, creds))
 
+    # Tools are ordinary blocks (task 000340); each item gets its own
+    # toolbox so the runs it records are its own even under the pool.
+    tool_specs = params.get("tools") or ()
+    max_tool_rounds = int(params.get("max_tool_rounds", 3))
+    block_runner = params.get("_block_runner")
+
+    def new_toolbox() -> Toolbox:
+        return toolbox_from(tool_specs, block_runner=block_runner)
+
+    specs = new_toolbox().specs()
+
     recs = _records(records)
     if on_start:
         on_start(len(recs) * n)
@@ -197,28 +216,49 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
             plan.append((pos, key, dict(rec), k,
                          build_request(rec, params, model=ref.base,
                                        provider_options=options,
-                                       seed=item_sd)))
+                                       seed=item_sd, tools=specs)))
 
     def one(entry):
         pos, key, rec, k, req = entry
-        out = transport.chat(req, budget=budget, limiter=limiter, scope=scope,
-                             record_request=record_requests)
+        box = new_toolbox()
+        extra_calls: list[Any] = []
+        # The tool loop: answer, run what it asked for, hand back the
+        # results, ask again — bounded, because a model and its tools
+        # can talk to each other for a long time at someone's expense.
+        for round_no in range(max_tool_rounds + 1):
+            out = transport.chat(req, budget=budget, limiter=limiter, scope=scope,
+                                 record_request=record_requests)
+            if round_no:
+                extra_calls.append(out.call)
+            if not (out.tool_calls and box) or round_no == max_tool_rounds:
+                break
+            results = [box.call(c) for c in out.tool_calls]
+            req = req.with_messages([
+                *req.messages, out.as_message(),
+                pm.Message(role="user", content=tuple(results)),
+            ])
         item = _item(rec, k, out.text, model_wire=model_wire, params=params,
                      parts=out.parts, call=out.call.to_wire(),
                      sampling={"temperature": params.get("temperature"),
                                "max_tokens": int(params.get("max_tokens", 1024)),
-                               "seed": req.seed, "index": k})
-        return pos, key, item, out.call
+                               "seed": req.seed, "index": k},
+                     tool_runs=[r.to_wire() for r in box.runs])
+        return pos, key, item, out.call, extra_calls
 
     if plan:
+        def land(result) -> None:
+            pos, key, item, call, extra = result
+            items[pos] = item
+            for c in (call, *extra):
+                calls.append(c.to_wire())
+            nonlocal replayed
+            replayed += int(bool(call.replayed))
+            if on_item:
+                on_item(key, item)
+
         if concurrency == 1 or len(plan) == 1:
-            results = (one(e) for e in plan)
-            for pos, key, item, call in results:
-                items[pos] = item
-                calls.append(call.to_wire())
-                replayed += int(bool(call.replayed))
-                if on_item:
-                    on_item(key, item)
+            for entry in plan:
+                land(one(entry))
         else:
             with ThreadPoolExecutor(max_workers=concurrency) as pool:
                 futures = [pool.submit(one, e) for e in plan]
@@ -227,12 +267,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                 from concurrent.futures import as_completed
 
                 for fut in as_completed(futures):
-                    pos, key, item, call = fut.result()
-                    items[pos] = item
-                    calls.append(call.to_wire())
-                    replayed += int(bool(call.replayed))
-                    if on_item:
-                        on_item(key, item)
+                    land(fut.result())
 
     return {
         "kind": "document_collection",
@@ -256,16 +291,19 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
     """
     import numpy as _np
 
+    from mechbench_compute import tools as tool_mod
     from mechbench_compute.distill import encode, prefill_decision
     from mechbench_compute.generate import sample_completion_cached
-    from mechbench_compute.providers.errors import CapabilityUnsupported
     from mechbench_compute.seeds import item_seed
 
-    if params.get("tools"):
-        raise CapabilityUnsupported(
-            "local", "tools",
-            "local weights have no tool protocol here yet — task 000339 "
-            "gives them one through the agent harness")
+    # Local weights have no tool protocol, so the tools are described
+    # in the system prompt and the calls are read back out of the text
+    # (task 000340). Same tools, same handlers, same provenance — only
+    # the transport differs.
+    family = str(params.get("tool_family", "gemma"))
+    max_tool_rounds = int(params.get("max_tool_rounds", 3))
+    tool_specs = params.get("tools") or ()
+    block_runner = params.get("_block_runner")
     tok = model.tokenizer
     recs = _records(records)
     n = int(params.get("n", 1))
@@ -281,9 +319,13 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
     for rec in recs:
         req = build_request(rec, params, model=str(getattr(ref, "base", ref)),
                             provider_options={})
-        rendered = render_conversation(tok, req)
-        ids = encode(tok, rendered)
-        prefill = prefill_decision(model, ids)
+        box0 = tool_mod.toolbox_from(tool_specs, block_runner=block_runner)
+        if box0:
+            # The tools go where a local model can actually see them.
+            req = replace(req, system="\n\n".join(
+                x for x in (req.system,
+                            tool_mod.render_tools(box0.tools, family=family))
+                if x))
         for k in range(start, start + n):
             key = f"{rec.get('id')}:{k}"
             if resume_items and key in resume_items:
@@ -292,12 +334,30 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
                     on_item(key, resume_items[key], True)
                 continue
             rng = _np.random.default_rng(item_seed(seed, rec.get("id"), k))
-            text = sample_completion_cached(
-                model, ids, max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, rng=rng, prefill=prefill)
+            box = tool_mod.toolbox_from(tool_specs, block_runner=block_runner)
+            turn = req
+            for round_no in range(max_tool_rounds + 1):
+                ids = encode(tok, render_conversation(tok, turn))
+                text = sample_completion_cached(
+                    model, ids, max_tokens=max_tokens, temperature=temperature,
+                    top_p=top_p, rng=rng, prefill=prefill_decision(model, ids))
+                if not box or round_no == max_tool_rounds:
+                    break
+                text, tool_calls = tool_mod.parse_tool_calls(
+                    text, tools=box.tools, family=family)
+                if not tool_calls:
+                    break
+                results = [box.call(c) for c in tool_calls]
+                turn = turn.with_messages([
+                    *turn.messages,
+                    pm.Message(role="assistant",
+                               content=(pm.TextPart(text), *tool_calls)),
+                    pm.Message(role="user", content=tuple(results)),
+                ])
             item = _item(rec, k, text, model_wire=model_wire, params=params,
                          sampling={"temperature": temperature, "top_p": top_p,
-                                   "seed": seed, "index": k})
+                                   "seed": seed, "index": k},
+                         tool_runs=[r.to_wire() for r in box.runs])
             items.append(item)
             if on_item:
                 on_item(key, item)
