@@ -84,12 +84,19 @@ def _conversation_level(params: Mapping[str, Any]) -> str:
 #: Blocks whose level is a function of their params rather than a
 #: constant. Same gate either way: process identity still decides
 #: whether a partial is eligible at all.
+def _judge_level(params: Mapping[str, Any]) -> str:
+    return _chat_level({"model": (params or {}).get("judge", {}).get("model")})
+
+
 DYNAMIC_LEVEL = {"~canonical/ops/chat/1": _chat_level,
-                 "~canonical/ops/conversation/1": _conversation_level}
+                 "~canonical/ops/conversation/1": _conversation_level,
+                 "~canonical/ops/judge/1": _judge_level}
 
 BLOCK_RESUME["~canonical/ops/chat/1"] = {"level": "exchangeable", "items": True}
 BLOCK_RESUME["~canonical/ops/conversation/1"] = {
     "level": "exchangeable", "items": True}
+# A judge is a chat node wearing a rubric: same promise, same items.
+BLOCK_RESUME["~canonical/ops/judge/1"] = {"level": "exchangeable", "items": True}
 
 
 def resume_level(block: str, params: Mapping[str, Any] | None = None) -> str:

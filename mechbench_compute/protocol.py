@@ -621,6 +621,10 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_generate, inputs, params,
                     on_item=on_item, on_start=expand, **resume_kwargs)
+            elif block == "~canonical/ops/judge/1":
+                results[nid] = self._block_judge(
+                    inputs, params, secrets=secrets, on_item=on_item,
+                    on_start=expand, **resume_kwargs)
             elif block == "~canonical/ops/conversation/1":
                 results[nid] = self._block_conversation(
                     inputs, params, secrets=secrets, on_item=on_item,
@@ -883,6 +887,25 @@ class ProtocolExecutor:
             "item_kind": "~canonical/kinds/text",
             "items": items,
         }
+
+    def _block_judge(self, inputs, params, secrets=None, on_item=None,
+                     on_start=None, resume_items=None):
+        """~canonical/ops/judge/1 (task 000356): model-graded scoring.
+        A local judge is the cheap first test, so it loads here through
+        the same path as any other model block; an endpoint judge needs
+        only its credentials and its cap."""
+        from mechbench_compute import judge as judge_mod
+        from mechbench_compute import model_ref as model_ref_mod
+
+        spec = dict(params.get("judge") or {})
+        ref = model_ref_mod.parse(spec.get("model")) if spec.get("model") else None
+        model = None
+        if ref is not None and not ref.is_endpoint:
+            model = self._model_loaded(ref)
+        return judge_mod.run(params, inputs=inputs, secrets=secrets,
+                             limiter=self._limiter, job_budget=self._budget,
+                             model=model, on_item=on_item, on_start=on_start,
+                             resume_items=resume_items)
 
     def _tool_block_runner(self, secrets=None):
         """Handlers the toolbox cannot run itself (task 000340): model
