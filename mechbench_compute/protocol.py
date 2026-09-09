@@ -621,6 +621,10 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_generate, inputs, params,
                     on_item=on_item, on_start=expand, **resume_kwargs)
+            elif block == "~canonical/ops/conversation/1":
+                results[nid] = self._block_conversation(
+                    inputs, params, secrets=secrets, on_item=on_item,
+                    on_start=expand, **resume_kwargs)
             elif block == "~canonical/ops/chat/1":
                 results[nid] = self._block_chat(
                     inputs, params, secrets=secrets, on_item=on_item,
@@ -904,6 +908,49 @@ class ProtocolExecutor:
         return self._run_model_block(
             self._block_chat_local, inputs, {**params, "model": ref},
             on_item=on_item, on_start=on_start, resume_items=resume_items)
+
+    def _block_conversation(self, inputs, params, secrets=None, on_item=None,
+                            on_start=None, resume_items=None):
+        """~canonical/ops/conversation/1 (task 000339): participants,
+        a perspective map and a turn policy, as data. Remote
+        participants go through the transport; local ones sample here,
+        through the same chat template the chat block uses — so a
+        conversation can mix a frontier model and a local fine-tune."""
+        import numpy as _np
+
+        from mechbench_compute import chat as chat_mod
+        from mechbench_compute import conversation as cv
+        from mechbench_compute import model_ref as model_ref_mod
+        from mechbench_compute.distill import encode, prefill_decision
+        from mechbench_compute.generate import sample_completion_cached
+        from mechbench_compute.providers import messages as pm
+        from mechbench_compute.seeds import item_seed
+
+        seed = params.get("seed", 0)
+
+        def local_sampler(agent, system, view, *, key=""):
+            model = self._model_loaded(model_ref_mod.parse(agent.model))
+            req = pm.request({
+                "model": str(getattr(model_ref_mod.parse(agent.model), "base", "")),
+                "system": system,
+                "messages": [m.to_wire() for m in view],
+                "max_tokens": int(agent.max_tokens),
+            })
+            ids = encode(model.tokenizer,
+                         chat_mod.render_conversation(model.tokenizer, req))
+            rng = _np.random.default_rng(item_seed(seed, agent.name, 0)
+                                         if not key else
+                                         item_seed(seed, key, 0))
+            return sample_completion_cached(
+                model, ids, max_tokens=int(agent.max_tokens),
+                temperature=float(agent.temperature or 0.9),
+                top_p=float(agent.top_p or 0.95), rng=rng,
+                prefill=prefill_decision(model, ids))
+
+        return cv.run(params, inputs=inputs, secrets=secrets,
+                      limiter=self._limiter, job_budget=self._budget,
+                      local_sampler=local_sampler, on_item=on_item,
+                      on_start=on_start, resume_items=resume_items)
 
     def _block_chat_local(self, inputs, params, on_item=None, on_start=None,
                           resume_items=None):

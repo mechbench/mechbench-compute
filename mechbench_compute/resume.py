@@ -69,12 +69,27 @@ def _chat_level(params: Mapping[str, Any]) -> str:
     return "exchangeable" if provider else "reproducible"
 
 
+def _conversation_level(params: Mapping[str, Any]) -> str:
+    """A conversation's promise is its weakest participant's (task
+    000339): the transcript so far is the state, so a local-only
+    conversation restores exactly; one remote participant makes the
+    whole thing exchangeable."""
+    for p in (params or {}).get("participants") or []:
+        model = p.get("model") if isinstance(p, Mapping) else None
+        if isinstance(model, Mapping) and model.get("provider"):
+            return "exchangeable"
+    return "state-restorable"
+
+
 #: Blocks whose level is a function of their params rather than a
 #: constant. Same gate either way: process identity still decides
 #: whether a partial is eligible at all.
-DYNAMIC_LEVEL = {"~canonical/ops/chat/1": _chat_level}
+DYNAMIC_LEVEL = {"~canonical/ops/chat/1": _chat_level,
+                 "~canonical/ops/conversation/1": _conversation_level}
 
 BLOCK_RESUME["~canonical/ops/chat/1"] = {"level": "exchangeable", "items": True}
+BLOCK_RESUME["~canonical/ops/conversation/1"] = {
+    "level": "exchangeable", "items": True}
 
 
 def resume_level(block: str, params: Mapping[str, Any] | None = None) -> str:
