@@ -49,7 +49,8 @@ class ProtocolSpec:
 class ProtocolExecutor:
     def __init__(self, on_download=None, on_download_bytes=None, *,
                  on_node_start=None, on_spool_item=None,
-                 on_checkpoint=None, on_node_done=None, limiter=None) -> None:
+                 on_checkpoint=None, on_node_done=None, limiter=None,
+                 budget=None) -> None:
         self._model: Model | None = None
         self._model_id: str | None = None
         # Called just before weights are fetched, and only then: the runner
@@ -72,6 +73,11 @@ class ProtocolExecutor:
         # calls are unthrottled and only the provider's own 429s slow
         # them down.
         self._limiter = limiter
+        # A JOB-level budget (000338), when the runner sets one: every
+        # remote node's own cap is chained under it, so a graph whose
+        # node caps sum past the job's cannot spend past the job's. The
+        # runner reads `spent_usd` off it live to report spend.
+        self._budget = budget
 
     def _model_loaded(self, model_id) -> Model:
         """The model an operation declared, loading it if it is not resident.
@@ -123,7 +129,7 @@ class ProtocolExecutor:
         return self._model
 
     def run(self, spec: ProtocolSpec, on_progress=None,
-            secrets=None, resume=None) -> Any:
+            secrets=None, resume=None, budget=None) -> Any:
         """Execute a job spec. `on_progress(done, total)` is invoked
         after each unit of work for kinds that have a natural unit
         (decision_distribution: one condition); it must be cheap and
@@ -141,6 +147,11 @@ class ProtocolExecutor:
         if spec.kind == "decision_distribution":
             return self._legacy_decision_distribution(spec, on_progress)
         if spec.kind == "pipeline":
+            # A job-level budget arrives per RUN (the executor outlives
+            # the job; the cap does not), and every remote node's cap is
+            # chained under it.
+            if budget is not None:
+                self._budget = budget
             return self._run_pipeline(spec, on_progress, secrets=secrets,
                                       resume=resume)
         raise ValueError(f"unsupported protocolKind: {spec.kind!r}")
@@ -887,7 +898,8 @@ class ProtocolExecutor:
             return chat_mod.run_remote(
                 ref, records, params, secrets=secrets,
                 cassette=inputs.get("cassette") or params.get("cassette"),
-                limiter=self._limiter, on_item=on_item, on_start=on_start,
+                limiter=self._limiter, job_budget=self._budget,
+                on_item=on_item, on_start=on_start,
                 resume_items=resume_items)
         return self._run_model_block(
             self._block_chat_local, inputs, {**params, "model": ref},

@@ -198,3 +198,19 @@ class TestLocalPath:
         with pytest.raises(CapabilityUnsupported, match="000339"):
             chat_mod.run_local(None, mr.parse("x/y"), _records(1),
                                {"tools": [{"name": "grep"}]})
+
+
+class TestJobBudget:
+    def test_node_caps_chain_under_a_job_cap(self):
+        from mechbench_compute.providers import Budget
+        from mechbench_compute.protocol import ProtocolExecutor as PE
+
+        job = Budget(cap_usd=0.002)
+        ex = PE(budget=job)
+        spec = _spec({"n": 4, "max_tokens": 64})
+        # Each node cap is 5.0 and could not stop this on its own; the
+        # job cap can, and the runner reads its spend live.
+        with pytest.raises(BudgetExceeded):
+            for _ in range(20):
+                ex.run(spec)
+        assert job.spent_usd > 0 and job.spent_usd <= job.cap_usd

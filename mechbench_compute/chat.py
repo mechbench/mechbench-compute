@@ -32,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from mechbench_compute.providers import Budget, budget_from, make_transport
+from mechbench_compute.providers import limiter as pl
 from mechbench_compute.providers import messages as pm
 
 #: What a chat node emits per item, for both paths.
@@ -132,7 +133,8 @@ def _summary(calls: Sequence[Mapping[str, Any]], budget: Budget, *,
 
 
 def run_remote(ref, records, params, *, secrets=None, cassette=None,
-               limiter=None, on_item=None, on_start=None,
+               limiter=None, job_budget: Budget | None = None,
+               on_item=None, on_start=None,
                resume_items=None) -> dict[str, Any]:
     """The endpoint path. `ref` is an endpoint ModelRef."""
     from mechbench_compute.seeds import item_seed
@@ -151,6 +153,10 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         dry_run=dry_run and tape is None, cassette=tape,
         cassette_mode=str(params.get("cassette_mode", "replay")))
     budget = budget_from(params)
+    if job_budget is not None:
+        # The node's cap under the job's: a graph whose node caps sum
+        # past the job's cap still cannot spend past the job's.
+        budget = job_budget.child(budget.cap_usd)
     options = {**dict(ref.provider_options or {}),
                **dict(params.get("provider_options") or {})}
     n = int(params.get("n", 1))
@@ -158,7 +164,10 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     seed = params.get("seed")
     concurrency = max(1, int(params.get("concurrency", 4)))
     record_requests = bool(params.get("record_requests", False))
-    scope = str(params.get("limit_scope", "default"))
+    # Rate limits are per ACCOUNT, so the limiter's scope is the
+    # credential's fingerprint — two keys for one provider get two
+    # buckets, and nothing persisted names a secret.
+    scope = str(params.get("limit_scope") or pl.scope_for(provider, creds))
 
     recs = _records(records)
     if on_start:

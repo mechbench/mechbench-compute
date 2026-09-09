@@ -125,6 +125,21 @@ def _duration(value: str) -> float | None:
         return None
 
 
+def scope_for(provider: str, credential: Mapping[str, Any] | None) -> str:
+    """The limiter's key scope: WHICH ACCOUNT this is, without being
+    able to say which key. Two keys for one provider must not share a
+    bucket, and nothing the limiter persists may contain a secret, so
+    the scope is a short hash of the credential."""
+    import hashlib
+
+    token = ""
+    if isinstance(credential, Mapping):
+        token = str(credential.get("token") or credential.get("base_url") or "")
+    if not token:
+        return "default"
+    return hashlib.sha256(f"{provider}:{token}".encode()).hexdigest()[:12]
+
+
 class NullLimiter:
     """No limits known, nothing to wait for. Records observations so a
     caller can still surface them."""
