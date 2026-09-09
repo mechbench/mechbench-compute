@@ -239,3 +239,43 @@ class TestThroughTheExecutor:
             "judge": {"model": {"provider": "anthropic", "model": "x"}}}) == "exchangeable"
         assert resume_mod.resume_level("~canonical/ops/judge/1", {
             "judge": {"model": "google/gemma-3-4b-it"}}) == "reproducible"
+
+
+#: A stored corpus, as a `generate` node emits one.
+CORPUS_FIXTURE = {
+    "kind": "document_collection",
+    "item_kind": "~canonical/kinds/text",
+    "items": [
+        {"id": "story-s0", "kind": "~canonical/kinds/text",
+         "text": "The old lighthouse keeper watched the storm.",
+         "metadata": {"coords": {"prompt": "neutral", "sample": 0}}},
+        {"id": "story-s1", "kind": "~canonical/kinds/text",
+         "text": "A kettle sang on the stove at midnight.",
+         "metadata": {"coords": {"prompt": "flash", "sample": 1}}},
+    ],
+}
+
+
+class TestSubjectsFromACorpus:
+    """A generate node's items carry their coords under `metadata`, and
+    judging a stored corpus is the main way this block will be used —
+    losing them would make the scores unsliceable."""
+
+    def test_coords_survive_from_metadata(self):
+        out = J.run({
+            "judge": {"model": {"provider": "mock", "model": "judge-1"},
+                      "system": "Grade the story for cliché.",
+                      "provider_options": {"mock": {"text": '{"score": 3}'}}},
+            "scale": {"kind": "numeric", "min": 1, "max": 5},
+            "budget_usd": 1.0,
+            "records": CORPUS_FIXTURE,
+        })
+        assert [r["coords"]["prompt"] for r in out["records"]] == ["neutral", "flash"]
+
+    def test_the_judge_sees_the_story_and_not_its_condition(self):
+        prompts = J.build_prompts(
+            J.chat_mod._records(CORPUS_FIXTURE), scale=J.Scale({"kind": "numeric"}),
+            rubric="grade it", fields=["text"], n_votes=1, seed=0)
+        assert "lighthouse" in prompts[0]["user"]
+        # A judge that can see the condition label is grading the label.
+        assert "neutral" not in prompts[0]["user"]

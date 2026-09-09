@@ -129,6 +129,20 @@ def _rationale(payload: Mapping[str, Any], text: str) -> str:
     return str(value) if value else text.strip()[:400]
 
 
+def coords_of(rec: Mapping[str, Any]) -> dict[str, Any]:
+    """A subject's coordinates, wherever they live. A generate node's
+    items carry them under `metadata`, a record set at the top level;
+    judging must not lose them either way, because slicing a judged
+    corpus by the condition that produced it is the whole point."""
+    top = rec.get("coords")
+    if isinstance(top, Mapping):
+        return dict(top)
+    meta = rec.get("metadata")
+    if isinstance(meta, Mapping) and isinstance(meta.get("coords"), Mapping):
+        return dict(meta["coords"])
+    return {}
+
+
 def render_subject(rec: Mapping[str, Any], fields: Sequence[str]) -> str:
     """What the judge is shown. Named fields only — a judge that can
     see the condition labels is grading the labels."""
@@ -157,7 +171,7 @@ def build_prompts(records: Sequence[Mapping[str, Any]], *, scale: Scale,
         for k in range(n_votes):
             body: dict[str, Any] = {
                 "id": f"{rid}:v{k}",
-                "coords": {**(rec.get("coords") or {}), "subject": rid, "vote": k},
+                "coords": {**coords_of(rec), "subject": rid, "vote": k},
                 "system": rubric,
             }
             if scale.kind == "pairwise":
@@ -185,7 +199,7 @@ def aggregate(subject: Mapping[str, Any], votes: Sequence[Mapping[str, Any]], *,
     parsed = [v for v in votes if v.get("parsed")]
     row: dict[str, Any] = {
         "id": subject.get("id"),
-        "coords": dict(subject.get("coords") or {}),
+        "coords": coords_of(subject),
         "n_votes": len(votes),
         "n_parsed": len(parsed),
         "votes": [dict(v) for v in votes],
