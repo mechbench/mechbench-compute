@@ -609,6 +609,13 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_steer_inject, inputs, params,
                     on_item=on_item, on_start=expand)
+            elif block == "~canonical/ops/intervene/1":
+                results[nid] = self._run_model_block(
+                    self._block_intervene, inputs, params,
+                    on_item=on_item, on_start=expand, **resume_kwargs)
+            elif block == "~canonical/ops/direction/vocab/1":
+                results[nid] = self._run_model_block(
+                    self._block_direction_vocab, inputs, params)
             elif block == "~canonical/ops/attribution/logits/1":
                 results[nid] = self._run_model_block(
                     self._block_logit_attribution, inputs, params,
@@ -842,6 +849,41 @@ class ProtocolExecutor:
         records = _records(inputs.get("records") or params.get("records"))
         return interp.ablate_layers(
             model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_intervene(self, inputs, params, on_item=None, on_start=None,
+                         resume_items=None):
+        """~canonical/ops/intervene/1 (task 000366): the declarative
+        points × operations grammar with a decision or capture readout.
+        Items are (record, sweep factor); spooled items are reused in
+        canonical order under a matching fingerprint."""
+        from mechbench_compute import intervene as intervene_mod
+        from mechbench_compute.blocks import _records
+
+        model = self._model_loaded(params.get("model"))
+        records = _records(inputs.get("records") or params.get("records"))
+        reuse = dict(resume_items or {})
+        emitted: dict[str, Any] = {}
+
+        def _on_item(key, row):
+            emitted[key] = row
+            if on_item:
+                on_item(key, row, key in reuse)
+
+        out = intervene_mod.run(model, records, params, inputs=inputs,
+                                on_item=_on_item, on_start=on_start)
+        if reuse:
+            # Reproducible: a spooled row IS the row this loop produced.
+            out["rows"] = [reuse.get(f"{r['id']}:{r['factor']}", r) for r in out["rows"]]
+        return out
+
+    def _block_direction_vocab(self, inputs, params):
+        """~canonical/ops/direction/vocab/1 (task 000367): a direction
+        through the unembedding — its top tokens in both signs."""
+        from mechbench_compute import directions as dirs
+
+        model = self._model_loaded(params.get("model"))
+        d = inputs.get("direction") or params.get("direction")
+        return dirs.vocab_projection(model, d, top_k=int(params.get("top_k", 10)))
 
     def _block_steer_inject(self, inputs, params, on_item=None,
                             on_start=None):

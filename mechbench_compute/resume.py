@@ -41,6 +41,16 @@ BLOCK_RESUME: dict[str, dict[str, Any]] = {
     "~canonical/ops/text/stats/1": {"level": "reproducible", "items": False},
     "~canonical/ops/eval/expectation/1": {"level": "reproducible", "items": False},
     "~canonical/ops/finetune/lora/1": {"level": "state-restorable", "items": False},
+    "~canonical/ops/intervene/1": {"level": "reproducible", "items": True},
+    "~canonical/ops/direction/vocab/1": {"level": "reproducible", "items": False},
+    "~canonical/ops/direction/from-vectors/1": {"level": "reproducible", "items": False},
+    "~canonical/ops/direction/from-pca/1": {"level": "reproducible", "items": False},
+    "~canonical/ops/direction/add/1": {"level": "reproducible", "items": False},
+    "~canonical/ops/direction/average/1": {"level": "reproducible", "items": False},
+    "~canonical/ops/direction/orthogonalize/1": {"level": "reproducible", "items": False},
+    "~canonical/ops/direction/normalize/1": {"level": "reproducible", "items": False},
+    "~canonical/ops/direction/similarity/1": {"level": "reproducible", "items": False},
+    "~canonical/ops/direction/project/1": {"level": "reproducible", "items": False},
 }
 
 _RANK = {"restart": 0, "exchangeable": 1, "state-restorable": 2, "reproducible": 2}

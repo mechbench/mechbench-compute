@@ -713,3 +713,13 @@ def eval_expectation(inputs: Mapping[str, Any],
             "columns": [{"name": k, "dtype": d} for k, d in cols.items()],
             "rows": [{k: (str(v) if k == "pass" else v)
                        for k, v in r.items()} for r in rows]}
+
+
+# Directions as first-class objects (task 000367): pure producers and
+# arithmetic live in `directions.py`; the vocabulary projection is a model
+# block in the executor.
+from mechbench_compute.directions import (
+    PURE_DIRECTION_BLOCKS as _DIRECTION_BLOCKS,
+)
+
+PURE_BLOCKS.update(_DIRECTION_BLOCKS)
