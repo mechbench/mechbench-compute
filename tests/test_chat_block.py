@@ -193,43 +193,113 @@ class TestLocalPath:
         assert "spend" not in out       # nothing was bought
 
     def test_a_local_model_calls_tools_by_writing_them(self, monkeypatch):
-        """Local weights have no tool protocol, so the tools are
-        described in the prompt and the calls are read back out of the
-        text (task 000340) — same handlers, same provenance."""
+        """A local model's tools go through its OWN chat template
+        (epic 000439): the template declares them, renders the call and
+        renders the result. The stub below is a Qwen-shaped template —
+        it changes when `tools` is passed, and writes calls in Qwen's
+        envelope — because a template that ignores `tools` is refused
+        now, which is the next test."""
         from mechbench_compute import distill, generate
 
         prompts: list[str] = []
         replies = iter([
-            ('Let me work it out.\n```tool_code\n'
-             '{"name": "calc", "arguments": {"expression": "6*7"}}\n```'),
+            'Let me work it out.\n<tool_call>\n'
+            '{"name": "calc", "arguments": {"expression": "6*7"}}\n</tool_call>',
             "The answer is 42.",
         ])
 
-        class FakeTok:
+        class QwenishTok:
+            """Renders turns, and renders them DIFFERENTLY when tools
+            are declared — which is how `probe_template` decides a
+            model supports them."""
+
             def apply_chat_template(self, turns, tokenize=False,
-                                     add_generation_prompt=True, **kw):
-                prompts.append(" | ".join(f"{t['role']}:{t['content']}"
-                                          for t in turns))
-                return prompts[-1]
+                                     add_generation_prompt=True, tools=None,
+                                     **kw):
+                body = " | ".join(
+                    f"{t['role']}:{t.get('content', '')}"
+                    + (f"[calls:{[c['function']['name'] for c in t['tool_calls']]}]"
+                       if t.get("tool_calls") else "")
+                    for t in turns)
+                if tools:
+                    names = [t["function"]["name"] for t in tools]
+                    body = f"<tools>{names}</tools> " + body
+                    # A rendered call + result, so the probe can read
+                    # this model's dialect off its own output.
+                    if any(t.get("tool_calls") for t in turns):
+                        body += ('<tool_call>\n{"name": "calc", "arguments": '
+                                 '{"expression": "37 + 18"}}\n</tool_call>'
+                                 "<tool_response>\n55\n</tool_response>")
+                prompts.append(body)
+                return body
 
         class FakeModel:
-            tokenizer = FakeTok()
+            tokenizer = QwenishTok()
 
         monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
         monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
         monkeypatch.setattr(generate, "sample_completion_cached",
                             lambda *a, **k: next(replies))
         out = chat_mod.run_local(
-            FakeModel(), mr.parse("google/gemma-3-4b-it"), _records(1),
+            FakeModel(), mr.parse("Qwen/Qwen2.5-3B-Instruct"), _records(1),
             {"n": 1, "tools": ["calc"], "max_tool_rounds": 2})
         item = out["items"][0]
         assert item["text"] == "The answer is 42."
         run = item["metadata"]["tool_runs"][0]
         assert run["tool"] == "calc" and run["arguments"] == {"expression": "6*7"}
-        # The tools were described where the model could see them, and
-        # the result was handed back for the second pass.
-        assert "calc(expression)" in prompts[0]
-        assert "42" in prompts[1]
+        # The TEMPLATE declared the tools — we did not write a fence.
+        assert "<tools>['calc']</tools>" in prompts[-1]
+        # The call and its result went back as real turns, not prose.
+        assert "[calls:['calc']]" in prompts[-1]
+        assert '"result": 42' in prompts[-1], "the tool result reached the model"
+        assert "tool:" in prompts[-1], "and did so under a tool role"
+        assert out["tool_dialect"] == "qwen-2.5"
+        assert out["tool_near_misses"] == 0
+
+    def test_a_model_with_no_tool_protocol_refuses_rather_than_inventing_one(
+            self, monkeypatch):
+        """The rule that would have saved experiment 024's P2: a model
+        that cannot receive a tool declaration must say so, not quietly
+        do worse."""
+        from mechbench_compute import dialects, distill, generate
+
+        class IgnoresTools:
+            def apply_chat_template(self, turns, tokenize=False,
+                                     add_generation_prompt=True, tools=None,
+                                     **kw):
+                return "same either way"
+
+        class FakeModel:
+            tokenizer = IgnoresTools()
+
+        monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
+        monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
+        monkeypatch.setattr(generate, "sample_completion_cached",
+                            lambda *a, **k: "55")
+        with pytest.raises(dialects.NoToolDialect, match="no tool protocol"):
+            chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
+                               _records(1), {"n": 1, "tools": ["calc"]})
+
+    def test_the_same_model_is_fine_without_tools(self, monkeypatch):
+        # The refusal is about OFFERING tools, not about the model.
+        from mechbench_compute import distill, generate
+
+        class IgnoresTools:
+            def apply_chat_template(self, turns, tokenize=False,
+                                     add_generation_prompt=True, tools=None,
+                                     **kw):
+                return "rendered"
+
+        class FakeModel:
+            tokenizer = IgnoresTools()
+
+        monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
+        monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
+        monkeypatch.setattr(generate, "sample_completion_cached",
+                            lambda *a, **k: "55")
+        out = chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
+                                 _records(1), {"n": 1})
+        assert out["items"][0]["text"] == "55"
 
 
 class TestJobBudget:

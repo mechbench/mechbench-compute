@@ -13,6 +13,48 @@ nothing said so.
 
 ---
 
+## 0.42.0 — 2026-09-11
+
+Tool dialects taken from each model's own chat template (epic 000439).
+The harness used to invent a markdown-fence convention and ask every
+local model to speak it; models speak the protocol they were trained
+on, which ships in `chat_template.jinja` beside the weights.
+
+### Changes that raise
+
+- **Offering `tools` to a model with no tool protocol now raises
+  `NoToolDialect`** instead of falling back to our fence. `gemma-3` is
+  a live example: its template accepts `tools=` and renders the same
+  prompt either way. A model that cannot receive a declaration
+  produces output indistinguishable from a model that chose not to
+  call anything, which is how experiment 024 lost an arm.
+- A model whose template declares tools but matches no known dialect
+  also raises, showing its rendering, rather than guessing.
+
+### Changes that alter results without raising
+
+- **Tools are declared by the model's own template**, not by a system
+  prompt fragment we wrote. Every prompt containing tools changes.
+- **Tool calls are parsed per dialect** — gemma-4's
+  `<|tool_call>call:name{k:<|"|>v<|"|>}`, qwen-2.5's
+  `<tool_call>{json}</tool_call>`, llama-3's bare `{"name",
+  "parameters"}`. Calls that previously went unread now execute.
+- **Results go back as real tool turns under the right role** — Llama
+  reads them as `ipython`, Qwen and Gemma as `tool` — rather than
+  being stringified into prose. The model reading its own tool output
+  as if a user had said it was the third leg of the same bug.
+- `tool_near_misses` now carries `tool_miss_reasons`
+  (`unknown_tool` / `unparseable_arguments` / `wrong_envelope` /
+  `no_dialect`), samples, and the resolved `tool_dialect`.
+
+Every dialect is pinned by a **round-trip conformance test**: render a
+canonical call through the model's own template, parse it back, assert
+equality. Fixtures run everywhere; the live version runs under
+`MECHBENCH_MODEL_TESTS=1` against the real tokenizers, so a model
+publishing a new template fails a test instead of an experiment.
+
+---
+
 ## 0.41.0 — 2026-09-11
 
 ### Changes that raise
