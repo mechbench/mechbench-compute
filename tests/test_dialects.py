@@ -68,33 +68,44 @@ class TestParsingWhatTheTemplatesRender:
         rendered = CAPTURED[repo]["round_trip"]
         dialect = dl.identify(_probe(repo))
         assert dialect is not None
-        calls = dialect.parse(rendered, CALC)
+        _, calls = dialect.parse(rendered, CALC)
         assert len(calls) == 1, f"{repo}: expected one call, got {len(calls)}"
         assert calls[0].name == "calc"
         assert calls[0].arguments == dl.PROBE_ARGS
 
     def test_gemma_4_reads_its_own_quoting(self):
         text = '<|tool_call>call:calc{expression:<|"|>37 + 18<|"|>}<tool_call|>'
-        calls = dl._gemma4(text, CALC)
+        _, calls = dl._gemma4(text, CALC)
         assert [(c.name, c.arguments) for c in calls] == [
             ("calc", {"expression": "37 + 18"})]
 
     def test_gemma_4_reads_an_unquoted_scalar(self):
+        seek = [T.ToolDef(name="seek", description="",
+                          schema={"type": "object",
+                                  "properties": {"depth": {"type": "integer"}}})]
         text = '<|tool_call>call:seek{depth:3}<tool_call|>'
-        assert dl._gemma4(text, CALC)[0].arguments == {"depth": 3}
+        assert dl._gemma4(text, seek)[1][0].arguments == {"depth": 3}
+
+    def test_a_call_to_an_unoffered_tool_stays_in_the_text(self):
+        # So the error can quote it. Stripping it would erase the only
+        # evidence of what the model tried to do.
+        text = '<|tool_call>call:wget{url:<|"|>x<|"|>}<tool_call|>'
+        rest, calls = dl._gemma4(text, CALC)
+        assert calls == []
+        assert "wget" in rest
 
     def test_qwen_reads_its_envelope(self):
         text = '<tool_call>\n{"name": "calc", "arguments": {"expression": "2+2"}}\n</tool_call>'
-        assert dl._qwen(text, CALC)[0].arguments == {"expression": "2+2"}
+        assert dl._qwen(text, CALC)[1][0].arguments == {"expression": "2+2"}
 
     def test_llama_uses_parameters_not_arguments(self):
         text = '{"name": "calc", "parameters": {"expression": "2+2"}}'
-        calls = dl._llama(text, CALC)
+        _, calls = dl._llama(text, CALC)
         assert calls[0].arguments == {"expression": "2+2"}
 
     def test_prose_is_never_a_call(self):
         for parse in (dl._gemma4, dl._qwen, dl._llama):
-            assert parse("The stall has 55 apples.", CALC) == []
+            assert parse("The stall has 55 apples.", CALC)[1] == []
 
 
 class TestRefusal:
@@ -138,7 +149,7 @@ class TestLiveRoundTrip:
         assert probe.supports_tools, f"{repo} lost its tool support"
         dialect = dl.identify(probe)
         assert dialect is not None and dialect.name == name
-        calls = dialect.parse(probe.rendered or "", CALC)
+        _, calls = dialect.parse(probe.rendered or "", CALC)
         assert len(calls) == 1
         assert calls[0].name == "calc"
         assert calls[0].arguments == dl.PROBE_ARGS

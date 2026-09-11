@@ -13,6 +13,32 @@ nothing said so.
 
 ---
 
+## 0.44.0 — 2026-09-11
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **A parsed tool call is removed from the assistant turn's text.**
+  The call goes back into the transcript as a structured `tool_calls`
+  entry, which the template renders in the model's own format; leaving
+  the raw markup in the message content too put the call in the
+  transcript **twice**, and a model handed its own call twice answers
+  with nothing. Observed on 024's P2: every arm executed its call
+  correctly and then returned an empty final turn.
+
+  `ToolDialect.parse` returns `(text, calls)` now, restoring a
+  contract the deleted `parse_tool_calls` had and I dropped.
+
+- **A call to a tool that was never offered stays in the text.** It is
+  not executed and not stripped — stripping it would erase the only
+  evidence of what the model tried, which `tools.errors` needs to
+  report `unknown_tool` with the name.
+
+---
+
 ## 0.43.0 — 2026-09-11
 
 ### Changes that raise

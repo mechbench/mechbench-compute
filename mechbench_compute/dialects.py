@@ -37,6 +37,11 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+#: `(response text with the call markup removed, the calls)`. Both
+#: halves matter: the text becomes the assistant turn's content and the
+#: calls become its structured `tool_calls`.
+ParseResult = tuple[str, list["pm.ToolCallPart"]]
+
 from mechbench_compute.providers import messages as pm
 from mechbench_compute.tools import ToolDef
 
@@ -127,48 +132,76 @@ _LLAMA_CALL = re.compile(
     r'\{[^{}]*"name"\s*:\s*"[^"]+"[^{}]*"parameters"\s*:\s*\{.*?\}\s*\}', re.DOTALL)
 
 
-def _gemma4(text: str, tools: Sequence[ToolDef]) -> list[pm.ToolCallPart]:
+def _gemma4(text: str, tools: Sequence[ToolDef]) -> ParseResult:
     """`<|tool_call>call:calc{expression:<|"|>37 + 18<|"|>}<tool_call|>`
 
     Values are wrapped in the template's own `<|"|>` quoting; numbers
     and booleans come through bare.
     """
-    out = []
+    known = {t.name for t in tools}
+    out: list[pm.ToolCallPart] = []
+    spans: list[tuple[int, int]] = []
     for m in _GEMMA4_CALL.finditer(text):
+        if known and m.group(1) not in known:
+            continue  # left in the text, so the error can name it
         body = m.group(2) or ""
         args: dict[str, Any] = {k: v for k, v in _GEMMA4_ARG.findall(body)}
         for k, v in _GEMMA4_BARE_ARG.findall(body):
             if k not in args and '<|"|>' not in v:
                 args[k] = _scalar(v.strip())
         out.append(_call(m.group(1), args, len(out)))
-    return out
+        spans.append(m.span())
+    return _without(text, spans), out
 
 
-def _qwen(text: str, tools: Sequence[ToolDef]) -> list[pm.ToolCallPart]:
+def _qwen(text: str, tools: Sequence[ToolDef]) -> ParseResult:
     """`<tool_call>{"name": …, "arguments": {…}}</tool_call>`"""
-    out = []
+    known = {t.name for t in tools}
+    out: list[pm.ToolCallPart] = []
+    spans: list[tuple[int, int]] = []
     for m in _QWEN_CALL.finditer(text):
         parsed = _json(m.group(1))
-        if isinstance(parsed, Mapping) and parsed.get("name"):
+        if (isinstance(parsed, Mapping) and parsed.get("name")
+                and not (known and parsed["name"] not in known)):
             args = parsed.get("arguments")
             out.append(_call(str(parsed["name"]),
                              dict(args) if isinstance(args, Mapping) else {},
                              len(out)))
-    return out
+            spans.append(m.span())
+    return _without(text, spans), out
 
 
-def _llama(text: str, tools: Sequence[ToolDef]) -> list[pm.ToolCallPart]:
+def _llama(text: str, tools: Sequence[ToolDef]) -> ParseResult:
     """A bare object with `name` and `parameters` — no envelope at all,
     which is why this parser must be the least eager of the three."""
-    out = []
+    known = {t.name for t in tools}
+    out: list[pm.ToolCallPart] = []
+    spans: list[tuple[int, int]] = []
     for m in _LLAMA_CALL.finditer(text):
         parsed = _json(m.group(0))
-        if isinstance(parsed, Mapping) and parsed.get("name"):
+        if (isinstance(parsed, Mapping) and parsed.get("name")
+                and not (known and parsed["name"] not in known)):
             params = parsed.get("parameters")
             out.append(_call(str(parsed["name"]),
                              dict(params) if isinstance(params, Mapping) else {},
                              len(out)))
-    return out
+            spans.append(m.span())
+    return _without(text, spans), out
+
+
+def _without(text: str, spans: Sequence[tuple[int, int]]) -> str:
+    """The response with its call markup removed.
+
+    The call goes back into the transcript as a STRUCTURED
+    `tool_calls` entry, which the template renders in the model's own
+    format. Leaving the raw markup in the message content too puts the
+    call in the transcript twice, and a model handed its own call
+    twice answers with nothing — observed on 024's P2, where every arm
+    returned an empty final turn.
+    """
+    for start, end in sorted(spans, reverse=True):
+        text = text[:start] + text[end:]
+    return text.strip()
 
 
 def _call(name: str, args: Mapping[str, Any], i: int) -> pm.ToolCallPart:
@@ -204,7 +237,7 @@ class ToolDialect:
 
     name: str
     signature: str
-    parse: Callable[[str, Sequence[ToolDef]], list[pm.ToolCallPart]]
+    parse: Callable[[str, Sequence[ToolDef]], ParseResult]
     #: Role a tool result is delivered under, for the transcript.
     result_role: str = "tool"
 

@@ -362,9 +362,15 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
                     top_p=top_p, rng=rng, prefill=prefill_decision(model, ids))
                 if not box or round_no == max_tool_rounds:
                     break
-                tool_calls = dialect.parse(text, box.tools) if dialect else []
-                known = {t.name for t in box.tools}
-                tool_calls = [c for c in tool_calls if c.name in known]
+                # The call markup leaves the text: it goes back into
+                # the transcript as a structured `tool_calls` entry,
+                # and a model handed its own call twice answers with
+                # nothing.
+                # Only calls to tools we offered are stripped and
+                # executed; an unknown name stays in the text so the
+                # error can quote it.
+                text, tool_calls = (dialect.parse(text, box.tools)
+                                    if dialect else (text, []))
                 if not tool_calls:
                     break
                 called_a_tool = True
