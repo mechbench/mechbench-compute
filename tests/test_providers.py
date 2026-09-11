@@ -420,3 +420,52 @@ class TestSchemaConformance:
         wire = EndpointRef.model_validate(ref.to_wire())
         assert wire.provider == "anthropic" and wire.model == "claude-opus-5"
         assert mr.parse(wire.model_dump(exclude_none=True)) == ref
+
+
+class TestTransientNetworkFailures:
+    """Every way a connection can die mid-call must reach the retry
+    loop as a TransientError. Experiment 024 lost a judged corpus at
+    293/601 to a `RemoteDisconnected`, which is an OSError and not a
+    URLError, so it escaped the loop and failed the job instead of
+    pausing it."""
+
+    @pytest.mark.parametrize("boom", [
+        __import__("http.client", fromlist=["client"]).RemoteDisconnected(
+            "Remote end closed connection without response"),
+        __import__("http.client", fromlist=["client"]).IncompleteRead(b"partial"),
+        __import__("http.client", fromlist=["client"]).BadStatusLine("garbage"),
+        ConnectionResetError(54, "Connection reset by peer"),
+        BrokenPipeError(32, "Broken pipe"),
+        TimeoutError(),
+    ])
+    def test_a_dead_connection_is_retryable_not_fatal(self, monkeypatch, boom):
+        from mechbench_compute.providers import http as ph
+        from mechbench_compute.providers.errors import TransientError
+
+        def die(*_a, **_k):
+            raise boom
+
+        monkeypatch.setattr(ph.urllib.request, "urlopen", die)
+        with pytest.raises(TransientError) as caught:
+            ph.post_json("https://api.example.com/v1/messages", headers={},
+                         payload={}, timeout=5.0)
+        assert getattr(caught.value, "retryable", False) is True
+
+    def test_a_retryable_failure_is_retried_then_interrupts(self):
+        # The point of the mapping: the transport pauses and comes back,
+        # and a sustained outage interrupts (resumable) rather than
+        # failing the job at 49%.
+        from mechbench_compute.providers.errors import ProviderUnavailable
+        from mechbench_compute.providers.mock import MockTransport, transient
+
+        slept: list[float] = []
+        t = MockTransport(script=[transient(), transient(), None],
+                          sleep=slept.append)
+        assert t.chat(req()).call.attempts == 3
+        assert slept == [0.5, 1.0]
+
+        clock = iter([0.0, 0.0, 10.0, 700.0, 700.0, 700.0])
+        t2 = MockTransport(script=[transient()] * 5, sleep=lambda _s: None,
+                           clock=lambda: next(clock))
+        with pytest.raises(ProviderUnavailable):
+            t2.chat(req())

@@ -14,6 +14,7 @@ request back at you often enough to matter.
 
 from __future__ import annotations
 
+import http.client
 import json
 import ssl
 import urllib.error
@@ -79,6 +80,16 @@ def request_json(method: str, url: str, *, headers: Mapping[str, str],
         raise TransientError(f"{method} {_host(url)}: {e.reason}") from None
     except TimeoutError:
         raise TransientError(f"{method} {_host(url)}: timed out after {timeout:g}s") from None
+    except (http.client.HTTPException, OSError) as e:
+        # Not every transient network failure is a URLError. A server
+        # that hangs up mid-response raises `RemoteDisconnected`
+        # (an OSError), a truncated body raises `IncompleteRead` (an
+        # HTTPException), and neither passes through urllib's wrapper —
+        # so both escaped the retry loop entirely and failed a job that
+        # should merely have paused. Experiment 024 lost a judged
+        # corpus at 293/601 to exactly this.
+        raise TransientError(
+            f"{method} {_host(url)}: {type(e).__name__}: {e}") from None
 
 
 def post_json(url: str, **kw: Any) -> HttpResponse:
