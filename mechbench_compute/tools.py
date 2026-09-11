@@ -200,6 +200,30 @@ def _as_text(value: Any) -> str:
 _GEMMA_BLOCK = re.compile(r"```(?:tool_code|tool_call|json)\s*(.+?)```", re.DOTALL)
 _BARE_JSON = re.compile(r"\{[^{}]*\"name\"\s*:\s*\"[^\"]+\"[^{}]*\}", re.DOTALL)
 
+#: Gemma's OWN tool-call emission, which it uses in preference to any
+#: convention we instruct: `<|tool_call>call:calc({"expression": "1+1"})`.
+#: Task 000437 — experiment 024 offered `calc` across 320 generations
+#: and parsed zero calls, because the base model wrote this and we
+#: matched only the fenced block we had asked for. A family named after
+#: a model must read what that model writes.
+_NATIVE_CALL = re.compile(
+    r"<\|tool_call\|?>\s*(?:call:)?\s*([A-Za-z_][\w.]*)\s*\((.*?)\)\s*"
+    r"(?:<\|/?tool_call\|?>)?",
+    re.DOTALL)
+
+#: Output that was TRYING to call a tool. Used only to count near
+#: misses: a correct call and no call must not look the same.
+_TOOL_SHAPED = re.compile(
+    r"<\|tool_call|```(?:tool_code|tool_call)|\bcall:\w+\s*\(|\"name\"\s*:",
+    re.IGNORECASE)
+
+
+def looks_like_a_tool_call(text: str) -> bool:
+    """Did the model appear to be calling something? A response that
+    parses to no call but looks like this is a near miss, and silence
+    about near misses is what made 000437 cost an experiment arm."""
+    return bool(_TOOL_SHAPED.search(text))
+
 
 def render_tools(tools: Sequence[ToolDef], *, family: str = "gemma") -> str:
     """The system-prompt fragment that tells a local model what it may
@@ -210,9 +234,14 @@ def render_tools(tools: Sequence[ToolDef], *, family: str = "gemma") -> str:
     if not tools:
         return ""
     lines = ["You can call tools. To call one, write a fenced block:", "",
-             "```tool_code", '{"name": "<tool>", "arguments": {…}}', "```", "",
-             ("Call at most one tool per turn, and wait for its result "
-              "before continuing. Available tools:")]
+             "```tool_code", '{"name": "<tool>", "arguments": {…}}', "```", ""]
+    if family == "gemma":
+        # Gemma reaches for its own format regardless of what we ask,
+        # so say that it is accepted rather than letting the model
+        # choose between obeying us and obeying its training.
+        lines += ['Writing `<|tool_call>call:<tool>({…})` works too.', ""]
+    lines.append("Call at most one tool per turn, and wait for its result "
+                 "before continuing. Available tools:")
     for t in tools:
         props = ", ".join((t.schema.get("properties") or {}).keys()) or "no arguments"
         lines.append(f"- {t.name}({props}) — {t.description or 'no description'}")
@@ -233,7 +262,20 @@ def parse_tool_calls(text: str, *, tools: Sequence[ToolDef] = (),
     known = {t.name for t in tools}
     calls: list[pm.ToolCallPart] = []
     spans: list[tuple[int, int]] = []
+    if family == "gemma":
+        for m in _NATIVE_CALL.finditer(text):
+            name = m.group(1)
+            if known and name not in known:
+                continue
+            args = _loads((m.group(2) or "").strip() or "{}")
+            if not isinstance(args, Mapping):
+                continue
+            calls.append(pm.ToolCallPart(
+                id=f"local_{len(calls)}", name=name, arguments=dict(args)))
+            spans.append(m.span())
     for m in list(_GEMMA_BLOCK.finditer(text)) + list(_BARE_JSON.finditer(text)):
+        if any(start <= m.start() < end for start, end in spans):
+            continue
         raw = m.group(1) if m.lastindex else m.group(0)
         parsed = _loads(raw.strip())
         if not isinstance(parsed, Mapping):

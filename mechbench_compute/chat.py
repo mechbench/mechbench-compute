@@ -316,6 +316,8 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
     if on_start:
         on_start(len(recs) * n)
     items: list[dict[str, Any]] = []
+    #: Tool-shaped responses that produced no call (000437).
+    near_misses = 0
     for rec in recs:
         req = build_request(rec, params, model=str(getattr(ref, "base", ref)),
                             provider_options={})
@@ -336,6 +338,7 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
             rng = _np.random.default_rng(item_seed(seed, rec.get("id"), k))
             box = tool_mod.toolbox_from(tool_specs, block_runner=block_runner)
             turn = req
+            called_a_tool = False
             for round_no in range(max_tool_rounds + 1):
                 ids = encode(tok, render_conversation(tok, turn))
                 text = sample_completion_cached(
@@ -347,6 +350,7 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
                     text, tools=box.tools, family=family)
                 if not tool_calls:
                     break
+                called_a_tool = True
                 results = [box.call(c) for c in tool_calls]
                 turn = turn.with_messages([
                     *turn.messages,
@@ -354,6 +358,13 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
                                content=(pm.TextPart(text), *tool_calls)),
                     pm.Message(role="user", content=tuple(results)),
                 ])
+            # A response that was reaching for a tool and produced no
+            # call is a NEAR MISS, not a plain answer. Counting them is
+            # the whole lesson of 000437: a correct call the parser did
+            # not recognize looked exactly like no call at all, across
+            # 320 generations, with nothing to notice.
+            if box and not called_a_tool and tool_mod.looks_like_a_tool_call(text):
+                near_misses += 1
             item = _item(rec, k, text, model_wire=model_wire, params=params,
                          sampling={"temperature": temperature, "top_p": top_p,
                                    "seed": seed, "index": k},
@@ -368,6 +379,9 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
         "fidelity": "text",
         "item_kind": ITEM_KIND,
         "items": items,
+        # Reported even when zero: "no tool calls" and "no tool calls
+        # and nobody tried" are different facts about a run.
+        **({"tool_near_misses": near_misses} if tool_specs else {}),
     }
 
 

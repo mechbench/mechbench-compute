@@ -167,3 +167,34 @@ class TestCentering:
                               "matrix": [[1.0, 0.9], [0.9, 1.0]]}]}
         with pytest.raises(ValueError, match="cannot center"):
             trees.mst({"matrix": matrix}, {"center": True})
+
+
+class TestParamChecking:
+    """000438: a block must refuse a param it cannot honour."""
+
+    def test_an_unknown_param_is_refused_by_name(self):
+        from mechbench_compute.block_params import check_params
+        with pytest.raises(ValueError, match="does not accept 'centre'"):
+            check_params("~canonical/ops/vectors/mst/1",
+                         {"bridge_sigma": 2.0, "centre": True})
+
+    def test_the_message_points_at_the_runner(self):
+        from mechbench_compute.block_params import check_params
+        with pytest.raises(ValueError, match="predates the parameter"):
+            check_params("~canonical/ops/vectors/mst/1", {"center_rows": True})
+
+    def test_accepted_params_pass(self):
+        from mechbench_compute.block_params import check_params
+        check_params("~canonical/ops/vectors/mst/1",
+                     {"center": True, "bridge_sigma": 2.0, "name": "v",
+                      "vectors": {}, "keep_edges": False})
+
+    def test_an_undeclared_block_is_unchecked(self):
+        from mechbench_compute.block_params import check_params
+        check_params("~canonical/ops/text/stats/1", {"anything": 1})
+
+    def test_pooling_params_are_accepted_on_residual_vectors(self):
+        from mechbench_compute.block_params import check_params
+        check_params("~canonical/ops/residuals/vectors/1",
+                     {"layers": [23], "pool": "mean", "pool_skip": 1,
+                      "skip_empty": True})

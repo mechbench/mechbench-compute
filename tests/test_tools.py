@@ -276,3 +276,49 @@ class TestThroughTheExecutor:
         assert item["metadata"]["tool_runs"][0]["tool"] == "calc"
         # The injected runner never reaches the node's recorded params.
         assert "_block_runner" not in str(out.payload["nodes_executed"])
+
+
+class TestNativeGemmaCalls:
+    """000437 — experiment 024 offered `calc` across 320 generations and
+    parsed zero calls, because the base model wrote Gemma's own format
+    and we matched only the fenced block we had asked for."""
+
+    CALC = T.toolbox_from(["calc"]).tools
+
+    def test_the_exact_emission_from_experiment_024(self):
+        # Verbatim, from benjismith/training/results/j_fqwebae858y035vbs2cz.
+        text = '<|tool_call>call:calc({"expression": "37 + 18"})'
+        rest, calls = T.parse_tool_calls(text, tools=self.CALC, family="gemma")
+        assert [(c.name, c.arguments) for c in calls] == [
+            ("calc", {"expression": "37 + 18"})]
+        assert rest == ""
+
+    def test_the_fenced_form_still_parses(self):
+        text = '```tool_code\n{"name": "calc", "arguments": {"expression": "2+2"}}\n```'
+        _, calls = T.parse_tool_calls(text, tools=self.CALC, family="gemma")
+        assert [c.name for c in calls] == ["calc"]
+
+    def test_a_native_call_to_an_unoffered_tool_is_still_refused(self):
+        text = '<|tool_call>call:add({"expression": "1+1"})'
+        _, calls = T.parse_tool_calls(text, tools=self.CALC, family="gemma")
+        assert calls == []
+
+    def test_prose_is_not_a_tool_call(self):
+        _, calls = T.parse_tool_calls("The stall has 55 apples.",
+                                          tools=self.CALC, family="gemma")
+        assert calls == []
+
+    def test_the_instruction_mentions_the_native_form(self):
+        rendered = T.render_tools(self.CALC, family="gemma")
+        assert "<|tool_call>" in rendered
+
+
+class TestNearMisses:
+    def test_a_refused_call_is_still_tool_shaped(self):
+        assert T.looks_like_a_tool_call('<|tool_call>call:add({"x": 1})')
+        assert T.looks_like_a_tool_call(
+            '```tool_code\n{"name": "nope"}\n```')
+
+    def test_prose_is_not(self):
+        assert not T.looks_like_a_tool_call("The stall has 55 apples.")
+        assert not T.looks_like_a_tool_call("55")

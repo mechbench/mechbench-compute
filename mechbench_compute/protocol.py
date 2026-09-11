@@ -560,6 +560,11 @@ class ProtocolExecutor:
             # partial from a previous attempt is reused only under an
             # equal fingerprint.
             current["nid"] = nid
+            # Before anything runs: does this block actually read what
+            # the protocol asked for? (000438 — a silently ignored
+            # param is a wrong answer with no error.)
+            from mechbench_compute.block_params import check_params
+            check_params(block, _wire_params(params))
             fingerprint = resume_mod.node_fingerprint(
                 block=block, params=_wire_params(params),
                 input_hashes=[node_hashes.get(e["from"]["node"], "")
