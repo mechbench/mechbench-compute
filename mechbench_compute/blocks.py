@@ -151,7 +151,12 @@ def _records(x: Any) -> list[dict[str, Any]]:
     if isinstance(x, list):
         return x
     if isinstance(x, Mapping):
-        for k in ("records", "conditions", "rows"):
+        # `items` is a document collection's record list — what
+        # generate, chat and conversation emit. Leaving it out meant
+        # every block that wanted to read a corpus wrote its own
+        # coercion (chat.py did exactly that), and the vector path
+        # could not read a corpus at all.
+        for k in ("records", "conditions", "rows", "items"):
             if isinstance(x.get(k), list):
                 return x[k]
     raise ValueError("input is not a record stream")

@@ -42,10 +42,10 @@ ITEM_KIND = "~canonical/kinds/text"
 
 
 def _records(value: Any) -> list[dict[str, Any]]:
+    # `blocks._records` understands document collections since the
+    # vector path needed it too; this stays as the module's name for it.
     from mechbench_compute.blocks import _records as base_records
 
-    if isinstance(value, Mapping) and "items" in value:
-        return list(value["items"])
     return base_records(value)
 
 

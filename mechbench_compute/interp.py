@@ -75,11 +75,14 @@ def _resolve_layers(spec: Any, n_layers: int) -> list[int]:
 
 
 def _prompt_of(record: Mapping[str, Any]) -> str:
-    p = record.get("user") or record.get("prompt")
+    # Three conventions, one meaning: `user` on a condition record,
+    # `prompt` on a raw one, and `text` on a document item — embedding
+    # a stored corpus is the same operation as embedding a prompt.
+    p = record.get("user") or record.get("prompt") or record.get("text")
     if not isinstance(p, str) or not p:
         raise ValueError(
             f"record {record.get('id')!r} has no prompt: expected `user` "
-            "(condition-set convention) or `prompt`"
+            "(condition-set convention), `prompt`, or `text` (a document)"
         )
     return p
 

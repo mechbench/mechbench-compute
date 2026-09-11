@@ -240,3 +240,29 @@ class TestGroupStatsMissingValues:
 
         out = group_stats(JUDGED_ROWS[:1], {"by": ["arm"], "value": "score"})
         assert "n_missing" not in out
+
+
+class TestRecordCoercion:
+    """A document collection IS a record stream — the thing generate,
+    chat and conversation emit. Blocks that wanted to read a corpus
+    were each writing their own coercion before this."""
+
+    CORPUS = {"kind": "document_collection", "items": [
+        {"id": "a", "text": "one", "metadata": {"coords": {"p": "x"}}}]}
+
+    def test_items_are_records(self):
+        from mechbench_compute.blocks import _records
+
+        assert _records(self.CORPUS) == self.CORPUS["items"]
+
+    def test_the_older_conventions_still_win_first(self):
+        from mechbench_compute.blocks import _records
+
+        both = {"records": [{"id": "r"}], "items": [{"id": "i"}]}
+        assert _records(both) == [{"id": "r"}]
+
+    def test_a_document_can_be_embedded_by_its_text(self):
+        from mechbench_compute.interp import _prompt_of
+
+        assert _prompt_of({"id": "a", "text": "a story"}) == "a story"
+        assert _prompt_of({"id": "a", "user": "u", "text": "t"}) == "u"
