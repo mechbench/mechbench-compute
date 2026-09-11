@@ -13,6 +13,34 @@ nothing said so.
 
 ---
 
+## 0.45.0 — 2026-09-11
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **A model's output is truncated at its first tool call.** Anything
+  written after the call's closing marker is the model **fabricating
+  the tool response** rather than waiting for it. Observed verbatim on
+  024's P2, where gemma-4-e2b wrote its call and then invented the
+  answer:
+
+      <|tool_call>call:calc{expression:<|"|>37 + 18<|"|>}<tool_call|>
+      <|tool_response>response:calc{value:<|"|>55<|"|>}<tool_response|>
+
+  Keeping that text put a fabricated response in the transcript beside
+  the real one, and the following turn came back empty — 79 of 80
+  items in every arm. The reasoning BEFORE the call is genuine and is
+  kept.
+
+  With this, the tool loop completes: call, execute, answer. Verified
+  against the real model — 55, 77 and 117 on three arithmetic items,
+  where every previous batch returned empty.
+
+---
+
 ## 0.44.0 — 2026-09-11
 
 ### Changes that raise

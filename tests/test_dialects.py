@@ -188,3 +188,34 @@ class TestDescribe:
         r = dl.describe(Tok(), "new/model")
         assert r.supports_tools and r.dialect is None
         assert "no known dialect" in r.detail
+
+
+class TestFabricatedResponses:
+    """A model that closes its tool call and keeps writing is inventing
+    the answer. Observed verbatim on 024's P2."""
+
+    OBSERVED = (
+        '<|tool_call>call:calc{expression:<|"|>37 + 18<|"|>}<tool_call|>'
+        '<|tool_response>response:calc{value:<|"|>55<|"|>}<tool_response|>'
+    )
+
+    def test_the_invented_response_does_not_reach_the_transcript(self):
+        rest, calls = dl._gemma4(self.OBSERVED, CALC)
+        assert [c.arguments for c in calls] == [{"expression": "37 + 18"}]
+        assert rest == "", f"fabricated output survived: {rest!r}"
+
+    def test_reasoning_before_the_call_is_kept(self):
+        text = "Let me work it out.\n" + self.OBSERVED
+        rest, calls = dl._gemma4(text, CALC)
+        assert rest == "Let me work it out."
+        assert len(calls) == 1
+
+    def test_a_response_with_no_call_is_untouched(self):
+        rest, calls = dl._gemma4("The stall has 55 apples.", CALC)
+        assert rest == "The stall has 55 apples." and calls == []
+
+    def test_qwen_truncates_the_same_way(self):
+        text = ('Sure.\n<tool_call>\n{"name": "calc", "arguments": '
+                '{"expression": "2+2"}}\n</tool_call><tool_response>4</tool_response>')
+        rest, calls = dl._qwen(text, CALC)
+        assert rest == "Sure." and len(calls) == 1

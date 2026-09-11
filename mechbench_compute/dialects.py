@@ -190,18 +190,30 @@ def _llama(text: str, tools: Sequence[ToolDef]) -> ParseResult:
 
 
 def _without(text: str, spans: Sequence[tuple[int, int]]) -> str:
-    """The response with its call markup removed.
+    """The assistant's own words: everything BEFORE its first tool call.
 
-    The call goes back into the transcript as a STRUCTURED
-    `tool_calls` entry, which the template renders in the model's own
-    format. Leaving the raw markup in the message content too puts the
-    call in the transcript twice, and a model handed its own call
-    twice answers with nothing — observed on 024's P2, where every arm
-    returned an empty final turn.
+    Two things are dropped, for two reasons.
+
+    The call markup itself, because the call goes back into the
+    transcript as a structured `tool_calls` entry which the template
+    renders in the model's own format. Leaving the raw markup in the
+    content too puts the call in the transcript twice.
+
+    And everything after it, because a model that closes a tool call
+    and keeps writing is **fabricating the tool response**. Observed on
+    024's P2, verbatim:
+
+        <|tool_call>call:calc{expression:<|"|>37 + 18<|"|>}<tool_call|>
+        <|tool_response>response:calc{value:…
+
+    It invented the answer rather than waiting for it. Keeping that
+    text put a fake response in the transcript beside the real one, and
+    the next turn came back empty. The model's reasoning BEFORE the
+    call is genuine and is kept.
     """
-    for start, end in sorted(spans, reverse=True):
-        text = text[:start] + text[end:]
-    return text.strip()
+    if not spans:
+        return text.strip()
+    return text[:min(start for start, _ in spans)].strip()
 
 
 def _call(name: str, args: Mapping[str, Any], i: int) -> pm.ToolCallPart:
