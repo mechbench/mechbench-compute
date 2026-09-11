@@ -593,3 +593,45 @@ class TestSteerTracks:
         row = out["rows"][0]
         assert set(row["tracks"]) == {"city", "money"}
         assert isinstance(row["tracks"]["city"], float)
+
+
+class TestEmptyDocuments:
+    """A frontier model returned five completions with 250 output
+    tokens and no text (experiment 024): the adapter had dropped
+    content blocks it did not map. Embedding such a record is
+    impossible, and skipping it must change n visibly."""
+
+    def test_a_document_is_embedded_by_its_text(self):
+        from mechbench_compute.interp import _prompt_of
+
+        assert _prompt_of({"id": "a", "text": "a story"}) == "a story"
+
+    def test_an_empty_record_is_refused_by_name(self):
+        import pytest
+
+        from mechbench_compute.interp import _prompt_of
+
+        with pytest.raises(ValueError, match="record 'a' has no prompt"):
+            _prompt_of({"id": "a", "text": "   "})
+
+    def test_unmapped_content_blocks_are_not_silently_empty(self, monkeypatch):
+        from dataclasses import dataclass, field
+
+        from mechbench_compute.providers import anthropic, http
+        from mechbench_compute.providers.errors import ProviderError
+        from mechbench_compute.providers.messages import request
+
+        @dataclass
+        class Resp:
+            status: int = 200
+            headers: dict = field(default_factory=dict)
+            body: dict = field(default_factory=lambda: {
+                "id": "m1", "model": "claude-sonnet-5", "stop_reason": "end_turn",
+                "content": [{"type": "some_future_block", "data": "?"}],
+                "usage": {"input_tokens": 10, "output_tokens": 250}})
+
+        monkeypatch.setattr(http, "post_json", lambda *a, **k: Resp())
+        t = anthropic.AnthropicTransport({"token": "sk-ant-x"})
+        with pytest.raises(ProviderError, match="250 output tokens but no text"):
+            t.chat(request({"model": "claude-sonnet-5",
+                            "messages": [{"role": "user", "content": "hi"}]}))

@@ -23,7 +23,7 @@ from mechbench_compute.providers.base import (
     Transport,
     Usage,
 )
-from mechbench_compute.providers.errors import AuthError
+from mechbench_compute.providers.errors import AuthError, ProviderError
 
 API_VERSION = "2023-06-01"
 DEFAULT_BASE_URL = "https://api.anthropic.com"
@@ -107,13 +107,27 @@ class AnthropicTransport(Transport):
                               secrets=(self._token,))
         data = resp.body or {}
         parts: list[msg.Part] = []
+        unmapped: list[str] = []
         for block in data.get("content") or []:
-            if block.get("type") == "text":
+            kind = block.get("type")
+            if kind == "text":
                 parts.append(msg.TextPart(block.get("text", "")))
-            elif block.get("type") == "tool_use":
+            elif kind == "tool_use":
                 parts.append(msg.ToolCallPart(id=str(block.get("id", "")),
                                               name=str(block.get("name", "")),
                                               arguments=dict(block.get("input") or {})))
+            elif kind in ("thinking", "redacted_thinking"):
+                # Reasoning is content, not text: keep it addressable
+                # rather than dropping it, so a turn that "came back
+                # empty" can be explained.
+                parts.append(msg.TextPart(str(block.get("thinking", "")))
+                             if block.get("thinking") else msg.TextPart(""))
+                unmapped.append(kind)
+            else:
+                # An unknown block type must never vanish silently: an
+                # empty completion beside 250 output tokens is how
+                # experiment 024 found this.
+                unmapped.append(str(kind))
         u = data.get("usage") or {}
         usage = Usage(
             input_tokens=int(u.get("input_tokens", 0))
@@ -123,6 +137,13 @@ class AnthropicTransport(Transport):
             cache_read_tokens=int(u.get("cache_read_input_tokens", 0) or 0),
             cache_write_tokens=int(u.get("cache_creation_input_tokens", 0) or 0),
         )
+        if unmapped and not any(isinstance(p, msg.TextPart) and p.text
+                                for p in parts):
+            raise ProviderError(
+                f"anthropic returned {usage.output_tokens} output tokens but no "
+                f"text: content block type(s) {', '.join(sorted(set(unmapped)))}. "
+                "The adapter does not map these — the completion is not empty, "
+                "it is unreadable here.")
         return AdapterResponse(
             parts=tuple(parts), stop_reason=str(data.get("stop_reason") or "end_turn"),
             usage=usage, model_version=str(data.get("model") or req.model),

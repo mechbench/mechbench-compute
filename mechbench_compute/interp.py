@@ -79,7 +79,9 @@ def _prompt_of(record: Mapping[str, Any]) -> str:
     # `prompt` on a raw one, and `text` on a document item — embedding
     # a stored corpus is the same operation as embedding a prompt.
     p = record.get("user") or record.get("prompt") or record.get("text")
-    if not isinstance(p, str) or not p:
+    # Whitespace is not text: embedding "   " is meaningless, and the
+    # same emptiness test has to hold here and in skip_empty.
+    if not isinstance(p, str) or not p.strip():
         raise ValueError(
             f"record {record.get('id')!r} has no prompt: expected `user` "
             "(condition-set convention), `prompt`, or `text` (a document)"
@@ -234,6 +236,19 @@ def residual_vectors(
     label_coord = params.get("label_coord")
     if not records:
         raise ValueError("residuals/vectors needs at least one condition")
+    # A document with no text cannot be embedded. Dropping one changes
+    # n, so it happens only when asked for and the ids are reported.
+    skipped: list[str] = []
+    if bool(params.get("skip_empty", False)):
+        def _has_text(r):
+            v = r.get("user") or r.get("prompt") or r.get("text")
+            return isinstance(v, str) and bool(v.strip())
+
+        skipped = [str(r.get("id")) for r in records if not _has_text(r)]
+        records = [r for r in records if _has_text(r)]
+        if not records:
+            raise ValueError(
+                "residuals/vectors: every record was empty under skip_empty")
     # Q/K live in per-head subspaces (step 28's question: which heads
     # specialize?), so those sources emit one row per (layer, head).
     n_heads = (model.arch.n_heads if source == "queries"
@@ -300,6 +315,7 @@ def residual_vectors(
         "d_model": width,
         "template": template,
         "rows": rows,
+        **({"skipped_empty": skipped} if skipped else {}),
     }
 
 

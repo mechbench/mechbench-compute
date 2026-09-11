@@ -109,6 +109,7 @@ class CallRecord:
     priced: bool = True
     price_table: str = pricing.TABLE_VERSION
     tokens_exact: bool = False
+    stop_reason: str = ""
     latency_ms: int = 0
     attempts: int = 1
     throttled_seconds: float = 0.0
@@ -279,6 +280,7 @@ class Transport(ABC):
             provider=self.name, model=req.model,
             model_version=resp.model_version or req.model,
             request_hash=rhash, response_id=resp.response_id,
+            stop_reason=resp.stop_reason,
             usage=usage, cost_usd=cost, priced=cost_priced and priced,
             tokens_exact=exact,
             latency_ms=int((self._clock() - started) * 1000),
