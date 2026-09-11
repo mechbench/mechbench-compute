@@ -194,6 +194,91 @@ class TestResidualVectors:
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": "all"})
 
 
+class TestPooledPositions:
+    """Pooling over the sequence (000431).
+
+    The stub puts `layer + 1` at dimension `token_id % D_MODEL` for
+    each position, so "aa bbb" at layer 1 is three one-hot rows of 2.0
+    at dims 0, 3 and 4 — which makes every pooled value checkable by
+    hand rather than by re-running the implementation."""
+
+    RECORD = {"id": "c", "user": "aa bbb", "label": "en"}
+
+    def _vec(self, **params):
+        out = interp.residual_vectors(
+            StubModel(), [dict(self.RECORD)], {"layers": [1], **params})
+        return out, np.array(out["rows"][0]["vector"])
+
+    def test_mean_pools_the_whole_sequence(self):
+        out, v = self._vec(pool="mean")
+        for dim in (0, 3, 4):
+            assert v[dim] == pytest.approx(2.0 / 3.0, abs=1e-4)
+        assert np.count_nonzero(v) == 3
+        assert out["rows"][0]["n_pooled"] == 3
+
+    def test_pool_skip_drops_leading_positions(self):
+        out, v = self._vec(pool="mean", pool_skip=1)
+        assert v[0] == pytest.approx(0.0)
+        for dim in (3, 4):
+            assert v[dim] == pytest.approx(1.0, abs=1e-4)
+        assert out["rows"][0]["n_pooled"] == 2
+
+    def test_last_k_of_one_reproduces_the_final_position(self):
+        # The compatibility anchor: pooling one position must equal the
+        # unpooled read, or the two paths have drifted apart.
+        _, pooled = self._vec(pool="last_k", pool_k=1)
+        _, single = self._vec(position="final")
+        assert pooled.tolist() == single.tolist()
+
+    def test_max_takes_the_elementwise_maximum(self):
+        _, v = self._vec(pool="max")
+        for dim in (0, 3, 4):
+            assert v[dim] == pytest.approx(2.0)
+
+    def test_the_record_says_how_it_was_made(self):
+        out, _ = self._vec(pool="last_k", pool_k=2, pool_skip=1)
+        assert out["position"] == "pooled"
+        assert out["pool"] == "last_k"
+        assert out["pool_k"] == 2
+        assert out["pool_skip"] == 1
+
+    def test_no_pool_is_untouched(self):
+        # Adding the parameter must not change a single number in a
+        # record made without it — published geometry depends on this.
+        out, v = self._vec(position="final")
+        assert out["position"] == "final"
+        assert "pool" not in out and "pool_skip" not in out
+        assert "n_pooled" not in out["rows"][0]
+        assert v[4] == pytest.approx(2.0)
+        assert np.count_nonzero(v) == 1
+
+    def test_skipping_past_the_end_falls_back_to_the_last_position(self):
+        # Zeros would look like a vector and mean nothing.
+        out, v = self._vec(pool="mean", pool_skip=99)
+        assert out["rows"][0]["n_pooled"] == 1
+        assert v[4] == pytest.approx(2.0)
+
+    def test_pooling_needs_no_resolvable_position(self):
+        # `subject` would raise without a `subject` field; pooling
+        # never resolves a position, so it must not.
+        out = interp.residual_vectors(
+            StubModel(), [{"id": "c", "user": "aa bbb"}],
+            {"layers": [1], "position": "subject", "pool": "mean"})
+        assert out["rows"][0]["n_pooled"] == 3
+
+    def test_a_bad_pool_refuses(self):
+        with pytest.raises(ValueError, match="unknown pool"):
+            self._vec(pool="median")
+
+    def test_last_k_without_k_refuses(self):
+        with pytest.raises(ValueError, match="pool_k"):
+            self._vec(pool="last_k")
+
+    def test_negative_skip_refuses(self):
+        with pytest.raises(ValueError, match="pool_skip"):
+            self._vec(pool="mean", pool_skip=-1)
+
+
 class TestResidualDivergence:
     def test_identical_pair_diverges_nowhere(self):
         model = StubModel()

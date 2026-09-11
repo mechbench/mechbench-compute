@@ -180,8 +180,12 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
         "metric": "cosine_distance",
         "bridge_sigma": bridge_sigma,
         "layers": out_layers,
-        # A metric-table view so `table/from-records` and the object
-        # browser render it without a custom renderer.
+        # The per-layer statistics again as a flat record list, for
+        # `table/from-records` and anything else that wants rows rather
+        # than the nested `layers`. This is NOT a `metric_table` (that
+        # kind needs `columns` and `row_axis`) and it is not what the
+        # UI renders: `mst_summary` has its own view, which draws the
+        # edge-weight histogram the statistics summarize.
         "rows": rows,
         "description": (
             "Minimum spanning tree over pairwise cosine distance. `mean` is "

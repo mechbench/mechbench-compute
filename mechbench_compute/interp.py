@@ -214,6 +214,50 @@ def _position_index(model, ids: mx.array, record: Mapping[str, Any],
     raise ValueError(f"unknown position {position!r}")
 
 
+POOLS = ("mean", "max", "last_k")
+
+
+def _pool_spec(params: Mapping[str, Any]) -> dict[str, Any] | None:
+    """`pool` turns a one-position read into a whole-sequence read.
+
+    A single position is the right substrate for a prompt whose
+    meaning sits at one token — a subject, a decision point. It is the
+    wrong one for a document: embedding a story at `final` embeds its
+    ENDING, so a corpus with varied endings and identical middles
+    looks varied and no measure downstream can tell. Task 000431.
+    """
+    pool = params.get("pool")
+    if pool is None:
+        return None
+    pool = str(pool)
+    if pool not in POOLS:
+        raise ValueError(f"unknown pool {pool!r}: one of {POOLS}")
+    k = params.get("pool_k")
+    if pool == "last_k" and not (isinstance(k, int) and k >= 1):
+        raise ValueError("pool 'last_k' needs a positive integer `pool_k`")
+    skip = int(params.get("pool_skip", 0) or 0)
+    if skip < 0:
+        raise ValueError("`pool_skip` cannot be negative")
+    return {"pool": pool, "k": int(k) if pool == "last_k" else None,
+            "skip": skip}
+
+
+def _pooled(mat: np.ndarray, spec: Mapping[str, Any]) -> tuple[np.ndarray, int]:
+    """Reduce `mat` ([seq, d]) over the sequence axis. Returns the
+    vector and how many positions actually went into it, because a
+    pooled vector that does not say its own n is not auditable."""
+    sub = mat[spec["skip"]:] if spec["skip"] else mat
+    if sub.shape[0] == 0:
+        # `pool_skip` ate the whole sequence. Fall back to the last
+        # position rather than emitting zeros, which would look like a
+        # vector and mean nothing.
+        sub = mat[-1:]
+    if spec["pool"] == "last_k":
+        sub = sub[-spec["k"]:]
+    v = sub.max(axis=0) if spec["pool"] == "max" else sub.mean(axis=0)
+    return v, int(sub.shape[0])
+
+
 def residual_vectors(
     model,
     records: Sequence[Mapping[str, Any]],
@@ -233,6 +277,7 @@ def residual_vectors(
             f"unknown source {source!r}: 'resid', 'queries' or 'keys'")
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     position = params.get("position", "final")
+    pool = _pool_spec(params)
     label_coord = params.get("label_coord")
     if not records:
         raise ValueError("residuals/vectors needs at least one condition")
@@ -276,33 +321,48 @@ def residual_vectors(
     for record in records:
         ids = _tokenize(model, _prompt_of(record), template)
         result = model.run(ids, interventions=[cap])
-        pos = _position_index(model, ids, record, position)
+        # Pooling reads the whole sequence, so no position is resolved
+        # at all — and a record whose `position` would not resolve
+        # (no `subject`, say) is still poolable.
+        pos = None if pool else _position_index(model, ids, record, position)
         label = record.get("label")
         if label is None and label_coord:
             label = (record.get("coords") or {}).get(label_coord)
         for layer in layers:
             if source == "resid":
-                v = result.cache[f"blocks.{layer}.resid_{point}"][0, pos, :]
-                v = v.astype(mx.float32)
-                mx.eval(v)
+                t = result.cache[f"blocks.{layer}.resid_{point}"]
+                if pool:
+                    seq = t[0].astype(mx.float32)
+                    mx.eval(seq)
+                    v, n_pooled = _pooled(np.array(seq), pool)
+                else:
+                    v = t[0, pos, :].astype(mx.float32)
+                    mx.eval(v)
+                    v, n_pooled = np.array(v), None
                 rows.append({
                     "id": record.get("id"),
                     "label": label,
                     "layer": layer,
-                    "vector": [round(float(x), 5) for x in np.array(v)],
+                    "vector": [round(float(x), 5) for x in v],
+                    **({"n_pooled": n_pooled} if n_pooled is not None else {}),
                 })
             else:
                 key = ("q" if source == "queries" else "k")
                 t = result.cache[f"blocks.{layer}.attn.{key}"]
                 arr = np.array(t.astype(mx.float32))[0]  # [heads, L, hd]
                 for head in range(arr.shape[0]):
+                    if pool:
+                        v, n_pooled = _pooled(arr[head], pool)
+                    else:
+                        v, n_pooled = arr[head, pos, :], None
                     rows.append({
                         "id": record.get("id"),
                         "label": label,
                         "layer": layer,
                         "head": head,
-                        "vector": [round(float(x), 5)
-                                   for x in arr[head, pos, :]],
+                        "vector": [round(float(x), 5) for x in v],
+                        **({"n_pooled": n_pooled} if n_pooled is not None
+                           else {}),
                     })
         if on_item:
             on_item()
@@ -310,7 +370,12 @@ def residual_vectors(
         "kind": "residual_vectors",
         "point": point,
         "source": source,
-        "position": str(position),
+        # A pooled record says so where a reader looks for the
+        # position, rather than reporting a position it never read.
+        "position": "pooled" if pool else str(position),
+        **({"pool": pool["pool"], "pool_skip": pool["skip"],
+            **({"pool_k": pool["k"]} if pool["k"] is not None else {})}
+           if pool else {}),
         "layers": layers,
         "d_model": width,
         "template": template,
