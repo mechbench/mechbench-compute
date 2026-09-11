@@ -118,3 +118,52 @@ class TestTheBlock:
     def test_a_wrong_input_says_what_it_wanted(self):
         with pytest.raises(ValueError, match="similarity_matrix"):
             PURE_BLOCKS["~canonical/ops/vectors/mst/1"]({"matrix": [1, 2]}, {})
+
+
+class TestCentering:
+    """Anisotropy: transformer vectors sit in a narrow cone, so raw
+    cosine mostly measures the cone. Centering removes it (000431
+    follow-up, found when 024's pooled re-run disagreed with itself)."""
+
+    def _cone(self, n=40, d=16, spread=0.05, seed=0):
+        """Vectors with a large shared component and small differences —
+        the shape real residuals have."""
+        rng = np.random.default_rng(seed)
+        common = np.ones(d, dtype=np.float32) * 10.0
+        return common + rng.normal(0, spread, size=(n, d)).astype(np.float32)
+
+    def _mean_edge(self, rows, **params):
+        out = trees.mst({"vectors": {"kind": "residual_vectors", "rows": rows}},
+                        params)
+        return out["layers"][0]["mean"], out
+
+    def _rows(self, V):
+        return [{"id": f"r{i}", "layer": 23, "vector": v.tolist()}
+                for i, v in enumerate(V)]
+
+    def test_centering_expands_a_cone(self):
+        rows = self._rows(self._cone())
+        raw, _ = self._mean_edge(rows)
+        centered, _ = self._mean_edge(rows, center=True)
+        # Not a small correction: the raw distances are almost entirely
+        # the shared direction.
+        assert centered > raw * 10
+
+    def test_the_record_says_it_was_centered(self):
+        _, out = self._mean_edge(self._rows(self._cone()), center=True)
+        assert out["centered"] is True
+        assert out["metric"] == "centered_cosine_distance"
+
+    def test_uncentered_is_unchanged(self):
+        _, out = self._mean_edge(self._rows(self._cone()))
+        assert out["centered"] is False
+        assert out["metric"] == "cosine_distance"
+
+    def test_centering_a_similarity_matrix_refuses(self):
+        # The vectors are gone by then; silently not centering would be
+        # the worst outcome.
+        matrix = {"kind": "similarity_matrix",
+                  "layers": [{"layer": 23, "ids": ["a", "b"], "labels": [None, None],
+                              "matrix": [[1.0, 0.9], [0.9, 1.0]]}]}
+        with pytest.raises(ValueError, match="cannot center"):
+            trees.mst({"matrix": matrix}, {"center": True})

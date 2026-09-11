@@ -104,10 +104,32 @@ def _distance_from_similarity(matrix: Sequence[Sequence[float]]) -> np.ndarray:
     return dist
 
 
-def _vectors_to_distance(rows: Sequence[Mapping[str, Any]]) -> np.ndarray:
+def center_rows(vectors: np.ndarray) -> np.ndarray:
+    """Subtract the corpus mean before measuring distance.
+
+    Transformer representations are anisotropic: they occupy a narrow
+    cone around one dominant direction, so raw cosine between any two
+    of them is mostly a measure of that shared direction rather than
+    of how the two differ. Mean-pooled vectors are worse, because
+    averaging over a sequence amplifies the common component.
+
+    Measured on experiment 024's frontier corpus: the raw mean MST edge
+    over mean-pooled vectors is 0.0048, and 0.5026 after centering — a
+    hundredfold. The uncentered numbers were not measuring the corpus,
+    they were measuring the cone, and the corpus RANKINGS they produced
+    disagreed with each other across layer and pooling choice while the
+    centered ones agreed.
+    """
+    return vectors - vectors.mean(axis=0, keepdims=True)
+
+
+def _vectors_to_distance(rows: Sequence[Mapping[str, Any]], *,
+                         center: bool = False) -> np.ndarray:
     from mechbench_compute import geometry
 
     vectors = np.array([r["vector"] for r in rows], dtype=np.float32)
+    if center:
+        vectors = center_rows(vectors)
     return _distance_from_similarity(geometry.cosine_matrix(vectors))
 
 
@@ -121,11 +143,19 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """
     bridge_sigma = float(params.get("bridge_sigma", DEFAULT_BRIDGE_SIGMA))
     keep_edges = bool(params.get("keep_edges", True))
+    # Off by default so stored results keep their numbers; every new
+    # protocol should turn it on. See `center_rows`.
+    center = bool(params.get("center", False))
     src = (inputs.get("matrix") or inputs.get("similarity")
            or params.get("matrix"))
     vectors = inputs.get("vectors") or params.get("vectors")
 
     groups: list[dict[str, Any]] = []
+    if center and isinstance(src, Mapping) and src.get("kind") == "similarity_matrix":
+        raise ValueError(
+            "vectors/mst cannot center a similarity_matrix — the vectors "
+            "are already gone. Feed it `vectors` instead, or center "
+            "upstream in vectors/similarity.")
     if isinstance(src, Mapping) and src.get("kind") == "similarity_matrix":
         for entry in src.get("layers", []):
             groups.append({
@@ -150,7 +180,7 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
                 **({"head": head} if head is not None else {}),
                 "ids": [r.get("id") for r in sub],
                 "labels": [r.get("label") for r in sub],
-                "distance": _vectors_to_distance(sub),
+                "distance": _vectors_to_distance(sub, center=center),
             })
     else:
         raise ValueError(
@@ -177,7 +207,8 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "kind": "mst_summary",
         "name": params.get("name", "mst"),
-        "metric": "cosine_distance",
+        "metric": "centered_cosine_distance" if center else "cosine_distance",
+        "centered": center,
         "bridge_sigma": bridge_sigma,
         "layers": out_layers,
         # The per-layer statistics again as a flat record list, for
