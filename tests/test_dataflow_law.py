@@ -183,6 +183,8 @@ NOT_LEAF_STREAM: dict[str, str] = {
     "~canonical/ops/grid/1": "generator (factor-cross alias)",
     "~canonical/ops/vectors/similarity/1":
         "one residual_vectors record; its rows are not bench leaves",
+    "~canonical/ops/vectors/mst/1":
+        "one similarity matrix or vector set, not a leaf stream",
     "~canonical/ops/tools/calc/1":
         "a tool handler: its input is one call's arguments, not a leaf stream",
     "~canonical/ops/tools/bench-lookup/1":

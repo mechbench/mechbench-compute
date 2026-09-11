@@ -756,3 +756,10 @@ PURE_BLOCKS.update(_REDUCE_BLOCKS)
 from mechbench_compute.tools import PURE_TOOL_BLOCKS as _TOOL_BLOCKS
 
 PURE_BLOCKS.update(_TOOL_BLOCKS)
+
+# Variety as tree structure (task 000430): an MST over pairwise
+# distance, whose edge statistics separate a collapsed corpus from a
+# clustered one from an evenly varied one.
+from mechbench_compute.trees import PURE_TREE_BLOCKS as _TREE_BLOCKS
+
+PURE_BLOCKS.update(_TREE_BLOCKS)
