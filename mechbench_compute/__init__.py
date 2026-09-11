@@ -194,10 +194,64 @@ else:
 # Single-sourced from the installed distribution: a hardcoded literal
 # here sat at 0.11.1 while the package shipped 0.14.x, and every
 # provenance record's produced_by faithfully repeated the lie.
+
+
+def _editable_source_digest() -> str | None:
+    """A digest of the source actually on disk, for an EDITABLE install
+    only (task 000433).
+
+    Dist metadata is a promise the source need not keep. Under
+    `pip install -e`, the code can run many versions ahead of the
+    recorded version — observed on this project at 16 versions of drift
+    — and that version string is what `node_fingerprint` hashes as its
+    ONLY guard against reusing work computed by different code. Block
+    params are hashed as DECLARED, so a changed default or changed
+    block semantics moves nothing else.
+
+    So an editable install reports what it is running, not what it was
+    registered as. A released wheel is not editable and keeps its plain
+    version; the release gate asserts that.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent
+    # Not `direct_url.json`: that read returns None when the CWD is the
+    # source repo, so the check would depend on where you were standing.
+    # The condition that actually matters is simpler and cannot be
+    # fooled — is the code being imported the installed copy, or a tree
+    # someone can edit?
+    if {"site-packages", "dist-packages"} & set(root.parts):
+        return None
+    return _digest_tree(root)
+
+
+def _digest_tree(root) -> str:
+    """Twelve hex characters standing for the .py content under `root`.
+
+    Content, not mtime: a git checkout touches files it did not change,
+    and a spurious fingerprint miss costs real compute. Paths are mixed
+    in too, so moving code between files is a change.
+    """
+    import hashlib
+
+    h = hashlib.sha256()
+    for path in sorted(root.rglob("*.py")):
+        h.update(path.relative_to(root).as_posix().encode())
+        try:
+            h.update(path.read_bytes())
+        except OSError:
+            h.update(b"?")
+    return h.hexdigest()[:12]
+
+
 try:
     from importlib.metadata import version as _dist_version
 
     __version__ = _dist_version("mechbench-compute")
+    _src = _editable_source_digest()
+    if _src:
+        __version__ = f"{__version__}+src.{_src}"
+    del _src
 except Exception:  # noqa: BLE001 — source checkouts without metadata
     __version__ = "0.0.0+unknown"
 
