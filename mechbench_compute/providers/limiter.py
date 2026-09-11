@@ -56,7 +56,9 @@ class RateLimits:
     requests_limit: int | None = None
     requests_remaining: int | None = None
     requests_reset: float | None = None       # seconds from now
+    input_tokens_limit: int | None = None
     input_tokens_remaining: int | None = None
+    output_tokens_limit: int | None = None
     output_tokens_remaining: int | None = None
     tokens_reset: float | None = None
     retry_after: float | None = None
@@ -91,6 +93,9 @@ class RateLimits:
                                 "x-ratelimit-limit-requests"),
             requests_remaining=_int("anthropic-ratelimit-requests-remaining",
                                     "x-ratelimit-remaining-requests"),
+            input_tokens_limit=_int("anthropic-ratelimit-input-tokens-limit",
+                                    "x-ratelimit-limit-tokens"),
+            output_tokens_limit=_int("anthropic-ratelimit-output-tokens-limit"),
             requests_reset=_reset("anthropic-ratelimit-requests-reset",
                                   "x-ratelimit-reset-requests"),
             input_tokens_remaining=_int(

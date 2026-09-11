@@ -160,6 +160,13 @@ class Bucket:
     per_second: float
     tokens: float
     updated: float
+    #: FIFO tickets. Without them, N threads contending for one bucket
+    #: race on every wake and a thread can lose indefinitely — which is
+    #: exactly how experiment 024's first ceiling run died at 154/200
+    #: with "output_tokens never freed up". Queueing is the fix;
+    #: head-of-line waiting is the price, and it is the right price.
+    next_ticket: int = 0
+    serving: int = 0
 
     def refill(self, now: float) -> None:
         if now > self.updated:
@@ -217,36 +224,64 @@ class TokenBucketLimiter:
 
     def acquire(self, provider: str, model: str, scope: str, currency: str,
                 amount: float) -> float:
+        """Wait for `amount` of `currency`, IN LINE.
+
+        Every caller takes a ticket and only the head of the line may
+        consume, so a thread cannot be overtaken forever by luckier
+        ones. Head-of-line blocking is the cost: a large request holds
+        up smaller ones behind it, which is the honest ordering.
+        """
         waited = 0.0
-        for _ in range(self._max_waits):
-            with self._lock:
-                now = self._clock()
-                hold = self._holds.get((provider, scope), 0.0)
-                if now < hold:
-                    delay = hold - now
-                else:
-                    bucket = self._bucket(provider, model, scope, currency, now)
-                    if bucket is None:
-                        return waited          # no known limit: go
-                    bucket.refill(now)
-                    want = min(float(amount), bucket.capacity)
-                    if bucket.tokens >= want:
-                        bucket.tokens -= want
-                        return waited
-                    if bucket.per_second <= 0:
-                        # Standing count (concurrency): wait for a
-                        # release rather than for time to pass.
-                        start = self._clock()
+        with self._lock:
+            now = self._clock()
+            bucket = self._bucket(provider, model, scope, currency, now)
+            if bucket is None:
+                return waited                  # no known limit: go
+            ticket = bucket.next_ticket
+            bucket.next_ticket += 1
+            try:
+                for _ in range(self._max_waits):
+                    while bucket.serving != ticket:
                         self._slots.wait(timeout=self._slot_timeout)
-                        waited += max(0.0, self._clock() - start)
-                        self.waited_seconds = round(self.waited_seconds + waited, 6)
-                        continue
-                    delay = bucket.wait_for(want)
-            self._sleep(delay)
-            waited += delay
-            self.waited_seconds = round(self.waited_seconds + delay, 6)
-        raise RuntimeError(
-            f"{provider}/{currency} never freed up after {self._max_waits} waits")
+                    now = self._clock()
+                    hold = self._holds.get((provider, scope), 0.0)
+                    if now < hold:
+                        delay = hold - now
+                    else:
+                        bucket.refill(now)
+                        want = min(float(amount), bucket.capacity)
+                        if bucket.tokens >= want:
+                            bucket.tokens -= want
+                            return waited
+                        if bucket.per_second <= 0:
+                            # Standing count (concurrency): a slot frees
+                            # when someone releases, not when time passes.
+                            start = self._clock()
+                            self._slots.wait(timeout=self._slot_timeout)
+                            waited += max(0.0, self._clock() - start)
+                            self.waited_seconds = round(
+                                self.waited_seconds + waited, 6)
+                            continue
+                        delay = bucket.wait_for(want)
+                    # Sleep without giving up our place in line.
+                    self._lock.release()
+                    try:
+                        self._sleep(delay)
+                    finally:
+                        self._lock.acquire()
+                    waited += delay
+                    self.waited_seconds = round(self.waited_seconds + delay, 6)
+            finally:
+                # Whether we took tokens or gave up, the line moves on.
+                bucket.serving = ticket + 1
+                self._slots.notify_all()
+        from mechbench_compute.providers.errors import ProviderUnavailable
+
+        raise ProviderUnavailable(
+            f"{provider}/{currency} did not free up after "
+            f"{self._max_waits} waits — the account's limit may be lower "
+            f"than the registry's seed, or another process is draining it",
+            provider=provider)
 
     def observe(self, provider: str, model: str, scope: str,
                 limits: RateLimits) -> None:
@@ -256,17 +291,44 @@ class TokenBucketLimiter:
         currency with a reset becomes a hold until that reset."""
         with self._lock:
             now = self._clock()
-            pairs = (("requests", limits.requests_remaining, limits.requests_reset),
-                     ("input_tokens", limits.input_tokens_remaining, limits.tokens_reset),
-                     ("output_tokens", limits.output_tokens_remaining, limits.tokens_reset))
-            for currency, remaining, reset in pairs:
-                if remaining is None:
+            pairs = (
+                ("requests", limits.requests_remaining, limits.requests_reset,
+                 limits.requests_limit),
+                ("input_tokens", limits.input_tokens_remaining,
+                 limits.tokens_reset, limits.input_tokens_limit),
+                ("output_tokens", limits.output_tokens_remaining,
+                 limits.tokens_reset, limits.output_tokens_limit),
+            )
+            for currency, remaining, reset, limit in pairs:
+                if remaining is None and limit is None:
                     continue
                 bucket = self._bucket(provider, model, scope, currency, now)
                 if bucket is not None:
                     bucket.refill(now)
-                    bucket.tokens = min(bucket.tokens, float(remaining))
-                if remaining <= 0 and reset:
+                    if limit is not None and float(limit) > bucket.capacity:
+                        # The account is BIGGER than the registry's
+                        # conservative seed. A seed that can only fall is
+                        # a permanent underestimate — experiment 024's
+                        # first run stalled against an 8k/min output
+                        # ceiling the account did not actually have.
+                        bucket.capacity = float(limit)
+                        bucket.per_second = float(limit) / 60.0
+                        bucket.tokens = max(bucket.tokens, 0.0)
+                    if remaining is not None:
+                        # The PROVIDER is the authority on its own
+                        # quota, so its number wins over our local
+                        # simulation — clamped to capacity, and never
+                        # over a hold (a 429 outranks everything). The
+                        # original rule here was "downward only", which
+                        # protected against a stale header over-crediting
+                        # by at most one window and in exchange made a
+                        # low seed permanent: experiment 024's ceiling
+                        # run died against an 8k/min ceiling the account
+                        # did not have. A bounded over-credit is the
+                        # cheaper mistake.
+                        bucket.tokens = max(0.0, min(float(remaining),
+                                                     bucket.capacity))
+                if remaining is not None and remaining <= 0 and reset:
                     self._hold(provider, scope, now + float(reset))
             if limits.retry_after:
                 self._hold(provider, scope, now + float(limits.retry_after))
