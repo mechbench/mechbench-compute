@@ -41,6 +41,36 @@ def die(step: str, proc: subprocess.CompletedProcess | None = None) -> None:
     sys.exit(1)
 
 
+#: Both headings are required, and an empty list says `_None._` — see
+#: mechbench/docs/RELEASE_NOTES.md. "There were none" and "nobody
+#: thought about it" must not look the same, which is the whole point
+#: of gating on it rather than trusting it.
+REQUIRED_HEADINGS = (
+    "### Changes that raise",
+    "### Changes that alter results without raising",
+)
+
+
+def check_changelog(version: str) -> str | None:
+    """The version's entry, or a sentence saying what is wrong with it."""
+    path = REPO / "CHANGELOG.md"
+    if not path.exists():
+        return "CHANGELOG.md is missing"
+    text = path.read_text()
+    marker = f"## {version}"
+    if marker not in text:
+        return (f"CHANGELOG.md has no entry for {version}. Add one with "
+                f"both headings before releasing.")
+    start = text.index(marker)
+    nxt = text.find("\n## ", start + 1)
+    entry = text[start:] if nxt == -1 else text[start:nxt]
+    missing = [h for h in REQUIRED_HEADINGS if h not in entry]
+    if missing:
+        return (f"{version}'s entry is missing {', '.join(missing)!r}. "
+                f"An empty list is written `_None._`, not omitted.")
+    return None
+
+
 def main() -> None:
     dry = "--dry-run" in sys.argv
     m = re.search(r'^version = "([^"]+)"',
@@ -50,12 +80,17 @@ def main() -> None:
     ver = m.group(1)
     print(f"gating mechbench-compute {ver}")
 
-    print("[1/4] pytest")
+    print("[1/5] release notes")
+    problem = check_changelog(ver)
+    if problem:
+        die(f"release notes: {problem}")
+
+    print("[2/5] pytest")
     proc = run([sys.executable, "-m", "pytest", "tests/", "-q"])
     if proc.returncode != 0:
         die("pytest", proc)
 
-    print("[2/4] build")
+    print("[3/5] build")
     run(["rm", "-rf", str(REPO / "dist")])
     proc = run(["uv", "build"])
     if proc.returncode != 0:
@@ -69,7 +104,7 @@ def main() -> None:
         venv = tmp / "venv"
         home = tmp / "home"
         home.mkdir()
-        print("[3/4] fresh venv install (deps from the real index)")
+        print("[4/5] fresh venv install (deps from the real index)")
         proc = run(["uv", "venv", str(venv)])
         if proc.returncode != 0:
             die("uv venv", proc)
@@ -83,7 +118,7 @@ def main() -> None:
                if not k.startswith(("MECHBENCH_", "HF_"))}
         env["HOME"] = str(home)
 
-        print("[4/4] smoke: imports and fresh-machine truths")
+        print("[5/5] smoke: imports and fresh-machine truths")
         checks = [
             ("imports",
              ("import mechbench_compute, mechbench_compute.model_ref, "
