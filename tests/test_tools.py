@@ -322,3 +322,44 @@ class TestNearMisses:
     def test_prose_is_not(self):
         assert not T.looks_like_a_tool_call("The stall has 55 apples.")
         assert not T.looks_like_a_tool_call("55")
+
+
+class TestBareNativeArguments:
+    """A local model asked to write `calc({…})` often writes
+    `calc(37 + 18)`. Observed on gemma-4-e2b the moment the rendered
+    instruction changed (000437 follow-on) — and caught immediately,
+    because `tool_near_misses` reported 80 of 80."""
+
+    CALC = T.toolbox_from(["calc"]).tools
+
+    def test_a_bare_argument_binds_to_the_one_required_parameter(self):
+        _, calls = T.parse_tool_calls("<|tool_call>call:calc(37 + 18)",
+                                      tools=self.CALC, family="gemma")
+        assert [(c.name, c.arguments) for c in calls] == [
+            ("calc", {"expression": "37 + 18"})]
+
+    def test_trailing_markers_do_not_break_it(self):
+        text = "<|tool_call>call:calc(37 + 18)\n<tool_call|><|tool_response>"
+        _, calls = T.parse_tool_calls(text, tools=self.CALC, family="gemma")
+        assert [c.arguments for c in calls] == [{"expression": "37 + 18"}]
+
+    def test_the_text_is_the_value_not_its_result(self):
+        # Evaluating here would be doing the tool's job with none of
+        # its safety.
+        _, calls = T.parse_tool_calls("<|tool_call>call:calc(2+2)",
+                                      tools=self.CALC, family="gemma")
+        assert calls[0].arguments == {"expression": "2+2"}
+
+    def test_two_required_parameters_refuse_a_bare_argument(self):
+        two = [T.ToolDef(name="span", description="",
+                         schema={"type": "object",
+                                 "properties": {"a": {}, "b": {}},
+                                 "required": ["a", "b"]})]
+        _, calls = T.parse_tool_calls("<|tool_call>call:span(1, 2)",
+                                      tools=two, family="gemma")
+        assert calls == [], "a bare argument for two parameters is a guess"
+
+    def test_empty_arguments_are_empty_not_refused(self):
+        _, calls = T.parse_tool_calls("<|tool_call>call:calc()",
+                                      tools=self.CALC, family="gemma")
+        assert [c.arguments for c in calls] == [{}]

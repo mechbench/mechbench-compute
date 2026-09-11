@@ -13,6 +13,30 @@ nothing said so.
 
 ---
 
+## 0.41.0 — 2026-09-11
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **A bare argument in a native tool call now binds to the tool's one
+  required parameter.** `<|tool_call>call:calc(37 + 18)` parses as
+  `{"expression": "37 + 18"}` where it previously parsed as nothing.
+  More tool calls execute; runs with `tools` on a local model can
+  produce different output.
+
+  Ambiguity is still refused: a bare argument for a tool with two
+  required parameters is a guess, and this does not guess.
+
+  Found within minutes of shipping 0.40.0, because the rendered
+  instruction changed in that release and gemma-4-e2b changed format
+  in response — and `tool_near_misses` reported 80 of 80 instead of
+  the silence that hid the same class of problem for 320 generations.
+
+---
+
 ## 0.40.0 — 2026-09-11
 
 ### Changes that raise

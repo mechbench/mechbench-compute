@@ -207,8 +207,8 @@ _BARE_JSON = re.compile(r"\{[^{}]*\"name\"\s*:\s*\"[^\"]+\"[^{}]*\}", re.DOTALL)
 #: matched only the fenced block we had asked for. A family named after
 #: a model must read what that model writes.
 _NATIVE_CALL = re.compile(
-    r"<\|tool_call\|?>\s*(?:call:)?\s*([A-Za-z_][\w.]*)\s*\((.*?)\)\s*"
-    r"(?:<\|/?tool_call\|?>)?",
+    r"<\|tool_call\|?>\s*(?:call:)?\s*([A-Za-z_][\w.]*)\s*\((.*?)\)"
+    r"\s*(?:<\|?/?tool_call\|?>)?\s*(?:<\|tool_response\|?>)?",
     re.DOTALL)
 
 #: Output that was TRYING to call a tool. Used only to count near
@@ -263,12 +263,13 @@ def parse_tool_calls(text: str, *, tools: Sequence[ToolDef] = (),
     calls: list[pm.ToolCallPart] = []
     spans: list[tuple[int, int]] = []
     if family == "gemma":
+        by_name = {t.name: t for t in tools}
         for m in _NATIVE_CALL.finditer(text):
             name = m.group(1)
             if known and name not in known:
                 continue
-            args = _loads((m.group(2) or "").strip() or "{}")
-            if not isinstance(args, Mapping):
+            args = _native_args((m.group(2) or "").strip(), by_name.get(name))
+            if args is None:
                 continue
             calls.append(pm.ToolCallPart(
                 id=f"local_{len(calls)}", name=name, arguments=dict(args)))
@@ -292,6 +293,34 @@ def parse_tool_calls(text: str, *, tools: Sequence[ToolDef] = (),
     for start, end in sorted(spans, reverse=True):
         text = text[:start] + text[end:]
     return text.strip(), calls
+
+
+def _native_args(raw: str, spec: ToolDef | None) -> dict[str, Any] | None:
+    """Arguments out of `call:<tool>(…)`.
+
+    A JSON object is the easy case. But a local model asked to write
+    `calc({…})` will often write `calc(37 + 18)` instead — the bare
+    argument, no braces, no key — and refusing that is pedantry when
+    the tool takes exactly ONE required parameter: there is nothing
+    else it could have meant. Observed on gemma-4-e2b the moment the
+    rendered instruction changed (000437 follow-on); `tool_near_misses`
+    reported 80 of 80 rather than letting it pass unnoticed.
+
+    Ambiguity is still refused. Two required parameters and a bare
+    argument is a guess, and this does not guess.
+    """
+    if not raw:
+        return {}
+    parsed = _loads(raw)
+    if isinstance(parsed, Mapping):
+        return dict(parsed)
+    required = list((spec.schema.get("required") or []) if spec else [])
+    if len(required) != 1:
+        return None
+    # The literal text is the value: `calc(37 + 18)` means the
+    # expression "37 + 18", not the number 55 — evaluating it here
+    # would be doing the tool's job with none of its safety.
+    return {required[0]: raw.strip("\"'")}
 
 
 def _loads(raw: str) -> Any:
