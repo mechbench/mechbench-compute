@@ -299,49 +299,85 @@ def result_message(dialect: ToolDialect | None, name: str,
             "name": name, "content": content}
 
 
-# --- diagnosing a miss --------------------------------------------------
+# --- tool call errors ---------------------------------------------------
 
-#: Shapes that mean "this response was reaching for a tool", per
-#: dialect. Declared beside the parsers on purpose: a detector that
-#: knows a different set of formats from the parser is how a near miss
-#: goes uncounted.
-_REACHING: dict[str, tuple[str, ...]] = {
+#: Shapes that mean "this response was attempting a call", per dialect.
+#: Declared beside the parsers on purpose: a detector that knows a
+#: different set of formats from the parser is how an error goes
+#: uncounted.
+_ATTEMPTING: dict[str, tuple[str, ...]] = {
     "gemma-4": ("<|tool_call", "call:"),
     "qwen-2.5": ("<tool_call>", '"name"'),
     "llama-3": ('"name"', '"parameters"'),
 }
 _ANY_NAME = re.compile(r'(?:call:|"name"\s*:\s*")\s*([A-Za-z_][\w.]*)')
 
+#: Every way a tool call can fail. There is no "near miss" — a call
+#: that did not execute is an error, and the only question worth
+#: asking is whose.
+CAUSES = (
+    "unknown_tool",         # the model called something never offered
+    "unparseable_call",     # attempted, in a shape we could not read
+    "no_dialect",           # tools offered to a model with no protocol
+    "execution_failed",     # the tool ran and raised
+)
 
-def diagnose(text: str, tools: Sequence[ToolDef],
-             dialect: ToolDialect | None) -> str | None:
-    """Why a response that produced no call was trying to.
 
-    Returns a reason, or None when the model simply answered. The
-    reasons point at different fixes, which is the whole complaint
-    against the boolean this replaces:
+@dataclass(frozen=True)
+class ToolError:
+    """One tool call that did not produce a result.
 
-    - `unknown_tool` — the model called something we never offered.
-      Its error, or our declaration was unclear.
-    - `unparseable_arguments` — right tool, arguments we could not
-      read. OUR bug, and the one that cost experiment 024 an arm.
-    - `wrong_envelope` — tool-shaped text in no dialect we know.
-    - `no_dialect` — tools were offered to a model with no protocol.
+    Recorded per item and aggregated on the node, never silently
+    counted: an individual failure does not fail the run by default
+    (`on_tool_error`), but it is always in the results, because a run
+    that quietly did less than it was asked to is the failure mode this
+    whole area keeps producing.
     """
+
+    cause: str
+    detail: str
+    tool: str = ""
+    sample: str = ""
+
+    def to_wire(self) -> dict[str, Any]:
+        out = {"cause": self.cause, "detail": self.detail}
+        if self.tool:
+            out["tool"] = self.tool
+        if self.sample:
+            out["sample"] = self.sample
+        return out
+
+
+def call_error(text: str, tools: Sequence[ToolDef],
+               dialect: ToolDialect | None) -> ToolError | None:
+    """The error in a response that produced no executed call, or None
+    when the model simply answered.
+
+    **Answering without calling a tool is not an error.** Whether the
+    model SHOULD have called one is the experiment's question, not the
+    harness's; it is counted as a statistic instead.
+    """
+    named = _ANY_NAME.search(text)
     if dialect is None:
-        return "no_dialect" if _ANY_NAME.search(text) else None
-    markers = _REACHING.get(dialect.name, ())
-    if not any(m in text for m in markers):
+        if named:
+            return ToolError("no_dialect",
+                             "the model attempted a call but has no known "
+                             "tool protocol", named.group(1), text[:200])
+        return None
+    if not any(m in text for m in _ATTEMPTING.get(dialect.name, ())):
         return None
     known = {t.name for t in tools}
-    named = _ANY_NAME.search(text)
     if named and named.group(1) not in known:
-        return "unknown_tool"
-    # It named a tool we offered, in text that looks like this dialect,
-    # and the parser still got nothing.
-    if named:
-        return "unparseable_arguments"
-    return "wrong_envelope"
+        return ToolError(
+            "unknown_tool",
+            f"called {named.group(1)!r}, which was not offered; available: "
+            f"{', '.join(sorted(known)) or '(none)'}",
+            named.group(1), text[:200])
+    return ToolError(
+        "unparseable_call",
+        f"attempted a call in {dialect.name} but it could not be read — "
+        f"this is usually OUR parser, not the model",
+        named.group(1) if named else "", text[:200])
 
 
 # --- reporting ----------------------------------------------------------

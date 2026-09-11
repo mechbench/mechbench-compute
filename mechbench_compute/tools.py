@@ -39,7 +39,6 @@ from typing import Any
 from mechbench_compute.providers import messages as pm
 
 #: How a local family writes a tool call in plain text.
-FAMILIES = ("gemma", "generic_json")
 
 
 @dataclass(frozen=True)
@@ -197,130 +196,12 @@ def _as_text(value: Any) -> str:
 # --- local families: writing tools down, and reading calls back ------------------
 
 
-_GEMMA_BLOCK = re.compile(r"```(?:tool_code|tool_call|json)\s*(.+?)```", re.DOTALL)
-_BARE_JSON = re.compile(r"\{[^{}]*\"name\"\s*:\s*\"[^\"]+\"[^{}]*\}", re.DOTALL)
-
-#: Gemma's OWN tool-call emission, which it uses in preference to any
-#: convention we instruct: `<|tool_call>call:calc({"expression": "1+1"})`.
-#: Task 000437 — experiment 024 offered `calc` across 320 generations
-#: and parsed zero calls, because the base model wrote this and we
-#: matched only the fenced block we had asked for. A family named after
-#: a model must read what that model writes.
-_NATIVE_CALL = re.compile(
-    r"<\|tool_call\|?>\s*(?:call:)?\s*([A-Za-z_][\w.]*)\s*\((.*?)\)"
-    r"\s*(?:<\|?/?tool_call\|?>)?\s*(?:<\|tool_response\|?>)?",
-    re.DOTALL)
-
-#: Output that was TRYING to call a tool. Used only to count near
-#: misses: a correct call and no call must not look the same.
-_TOOL_SHAPED = re.compile(
-    r"<\|tool_call|```(?:tool_code|tool_call)|\bcall:\w+\s*\(|\"name\"\s*:",
-    re.IGNORECASE)
-
-
-def looks_like_a_tool_call(text: str) -> bool:
-    """Did the model appear to be calling something? A response that
-    parses to no call but looks like this is a near miss, and silence
-    about near misses is what made 000437 cost an experiment arm."""
-    return bool(_TOOL_SHAPED.search(text))
-
-
-def render_tools(tools: Sequence[ToolDef], *, family: str = "gemma") -> str:
-    """The system-prompt fragment that tells a local model what it may
-    call and how to write the call. Providers do this natively; a local
-    model has only its prompt."""
-    if family not in FAMILIES:
-        raise ValueError(f"unknown tool family {family!r} — one of {FAMILIES}")
-    if not tools:
-        return ""
-    lines = ["You can call tools. To call one, write a fenced block:", "",
-             "```tool_code", '{"name": "<tool>", "arguments": {…}}', "```", ""]
-    if family == "gemma":
-        # Gemma reaches for its own format regardless of what we ask,
-        # so say that it is accepted rather than letting the model
-        # choose between obeying us and obeying its training.
-        lines += ['Writing `<|tool_call>call:<tool>({…})` works too.', ""]
-    lines.append("Call at most one tool per turn, and wait for its result "
-                 "before continuing. Available tools:")
-    for t in tools:
-        props = ", ".join((t.schema.get("properties") or {}).keys()) or "no arguments"
-        lines.append(f"- {t.name}({props}) — {t.description or 'no description'}")
-    return "\n".join(lines)
-
-
-def parse_tool_calls(text: str, *, tools: Sequence[ToolDef] = (),
-                     family: str = "gemma") -> tuple[str, list[pm.ToolCallPart]]:
-    """Read tool calls out of what a local model wrote.
-
-    Returns (text with the call blocks removed, calls). Strict about
-    names — an unknown tool is left in the text rather than invented —
-    and forgiving about everything else, because a model that writes
-    `{'name': …}` with single quotes still meant to call the tool.
-    """
-    if family not in FAMILIES:
-        raise ValueError(f"unknown tool family {family!r} — one of {FAMILIES}")
-    known = {t.name for t in tools}
-    calls: list[pm.ToolCallPart] = []
-    spans: list[tuple[int, int]] = []
-    if family == "gemma":
-        by_name = {t.name: t for t in tools}
-        for m in _NATIVE_CALL.finditer(text):
-            name = m.group(1)
-            if known and name not in known:
-                continue
-            args = _native_args((m.group(2) or "").strip(), by_name.get(name))
-            if args is None:
-                continue
-            calls.append(pm.ToolCallPart(
-                id=f"local_{len(calls)}", name=name, arguments=dict(args)))
-            spans.append(m.span())
-    for m in list(_GEMMA_BLOCK.finditer(text)) + list(_BARE_JSON.finditer(text)):
-        if any(start <= m.start() < end for start, end in spans):
-            continue
-        raw = m.group(1) if m.lastindex else m.group(0)
-        parsed = _loads(raw.strip())
-        if not isinstance(parsed, Mapping):
-            continue
-        name = str(parsed.get("name") or "")
-        if not name or (known and name not in known):
-            continue
-        args = parsed.get("arguments")
-        if not isinstance(args, Mapping):
-            args = {k: v for k, v in parsed.items() if k not in ("name", "arguments")}
-        calls.append(pm.ToolCallPart(
-            id=f"local_{len(calls)}", name=name, arguments=dict(args)))
-        spans.append(m.span())
-    for start, end in sorted(spans, reverse=True):
-        text = text[:start] + text[end:]
-    return text.strip(), calls
-
-
-def _native_args(raw: str, spec: ToolDef | None) -> dict[str, Any] | None:
-    """Arguments out of `call:<tool>(…)`.
-
-    A JSON object is the easy case. But a local model asked to write
-    `calc({…})` will often write `calc(37 + 18)` instead — the bare
-    argument, no braces, no key — and refusing that is pedantry when
-    the tool takes exactly ONE required parameter: there is nothing
-    else it could have meant. Observed on gemma-4-e2b the moment the
-    rendered instruction changed (000437 follow-on); `tool_near_misses`
-    reported 80 of 80 rather than letting it pass unnoticed.
-
-    Ambiguity is still refused. Two required parameters and a bare
-    argument is a guess, and this does not guess.
-    """
-    if not raw:
-        return {}
-    parsed = _loads(raw)
-    if isinstance(parsed, Mapping):
-        return dict(parsed)
-    required = list((spec.schema.get("required") or []) if spec else [])
-    if len(required) != 1:
-        return None
-    # The literal text is the value: `calc(37 + 18)` means the
-    # expression "37 + 18", not the number 55 — evaluating it here
-    # would be doing the tool's job with none of its safety.
-    return {required[0]: raw.strip("\"'")}
+# The tool protocol lives in `dialects`, taken from each model's own
+# chat template (epic 000439). What stood here — a markdown fence we
+# invented, a parser for it, and two more parsers for the shapes models
+# degraded into when prompted with it — is deleted rather than left
+# beside the real thing: two ways to read a tool call is how the next
+# reader picks the wrong one.
 
 
 def _loads(raw: str) -> Any:

@@ -13,6 +13,39 @@ nothing said so.
 
 ---
 
+## 0.43.0 — 2026-09-11
+
+### Changes that raise
+
+- **`on_tool_error: "fail"`** makes a tool-call failure fatal for the
+  node. The default is `"record"` — an individual failed call does not
+  fail a run — and the name mirrors group-stats' `on_missing` rather
+  than inventing a second idiom for the same choice.
+- `FAMILIES`, `render_tools`, `parse_tool_calls` and
+  `looks_like_a_tool_call` are **deleted**. The tool protocol comes
+  from the model's chat template now (0.42.0); two ways to read a tool
+  call is how the next reader picks the wrong one.
+
+### Changes that alter results without raising
+
+- **`tool_near_misses` is gone, replaced by `tools.errors`.** Benji:
+  "It doesn't matter whether a miss is near or not. It's an error."
+  Correct — and the old name described how close the model got, which
+  is neither well-defined nor actionable.
+
+  The node now reports `tools: {dialect, responses, with_calls,
+  without_calls, errors, errors_by_cause}`, and each item carries its
+  own `tool_errors` so a failure can be sliced by the condition that
+  produced it. Causes: `unknown_tool`, `unparseable_call`,
+  `no_dialect`, `execution_failed` — the last of which was previously
+  visible only per-item in `tool_runs` and never aggregated.
+
+  **Answering without calling a tool is NOT an error**, and is counted
+  rather than faulted. Whether the model should have called one is the
+  experiment's question, not the harness's.
+
+---
+
 ## 0.42.0 — 2026-09-11
 
 Tool dialects taken from each model's own chat template (epic 000439).

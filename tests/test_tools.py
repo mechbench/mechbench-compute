@@ -99,45 +99,10 @@ class TestTheToolbox:
             T.toolbox_from(["telepathy"])
 
 
-class TestLocalParsing:
-    def test_a_fenced_call_is_read_and_removed(self):
-        box = T.toolbox_from(["calc"])
-        text, calls = T.parse_tool_calls(
-            'Working.\n```tool_code\n{"name": "calc", "arguments": '
-            '{"expression": "6*7"}}\n```\nOne moment.', tools=box.tools)
-        assert text == "Working.\n\nOne moment."
-        assert calls[0].name == "calc" and calls[0].arguments == {"expression": "6*7"}
-
-    def test_single_quotes_still_meant_a_call(self):
-        box = T.toolbox_from(["calc"])
-        _, calls = T.parse_tool_calls(
-            "```json\n{'name': 'calc', 'arguments': {'expression': '1+1'}}\n```",
-            tools=box.tools)
-        assert calls[0].arguments == {"expression": "1+1"}
-
-    def test_a_call_to_a_tool_that_does_not_exist_is_left_as_prose(self):
-        box = T.toolbox_from(["calc"])
-        text, calls = T.parse_tool_calls(
-            '```tool_code\n{"name": "launch_missiles", "arguments": {}}\n```',
-            tools=box.tools)
-        assert calls == [] and "launch_missiles" in text
-
-    def test_arguments_may_be_written_flat(self):
-        box = T.toolbox_from(["calc"])
-        _, calls = T.parse_tool_calls(
-            '{"name": "calc", "expression": "8/2"}', tools=box.tools)
-        assert calls[0].arguments == {"expression": "8/2"}
-
-    def test_the_tools_are_described_where_a_local_model_can_see_them(self):
-        box = T.toolbox_from(["calc", "bench.lookup"])
-        text = T.render_tools(box.tools)
-        assert "calc(expression)" in text
-        assert "bench.lookup(path, field)" in text
-        assert "```tool_code" in text
-
-    def test_an_unknown_family_is_refused(self):
-        with pytest.raises(ValueError, match="unknown tool family"):
-            T.parse_tool_calls("hi", family="smoke-signals")
+# `TestLocalParsing` stood here. It tested the markdown fence we
+# invented and the parsers for it — all deleted in 0.43.0. The same
+# ground is covered by `test_dialects.py`, against what each model's
+# own chat template actually renders.
 
 
 class TestTheRemoteToolLoop:
@@ -278,88 +243,3 @@ class TestThroughTheExecutor:
         assert "_block_runner" not in str(out.payload["nodes_executed"])
 
 
-class TestNativeGemmaCalls:
-    """000437 — experiment 024 offered `calc` across 320 generations and
-    parsed zero calls, because the base model wrote Gemma's own format
-    and we matched only the fenced block we had asked for."""
-
-    CALC = T.toolbox_from(["calc"]).tools
-
-    def test_the_exact_emission_from_experiment_024(self):
-        # Verbatim, from benjismith/training/results/j_fqwebae858y035vbs2cz.
-        text = '<|tool_call>call:calc({"expression": "37 + 18"})'
-        rest, calls = T.parse_tool_calls(text, tools=self.CALC, family="gemma")
-        assert [(c.name, c.arguments) for c in calls] == [
-            ("calc", {"expression": "37 + 18"})]
-        assert rest == ""
-
-    def test_the_fenced_form_still_parses(self):
-        text = '```tool_code\n{"name": "calc", "arguments": {"expression": "2+2"}}\n```'
-        _, calls = T.parse_tool_calls(text, tools=self.CALC, family="gemma")
-        assert [c.name for c in calls] == ["calc"]
-
-    def test_a_native_call_to_an_unoffered_tool_is_still_refused(self):
-        text = '<|tool_call>call:add({"expression": "1+1"})'
-        _, calls = T.parse_tool_calls(text, tools=self.CALC, family="gemma")
-        assert calls == []
-
-    def test_prose_is_not_a_tool_call(self):
-        _, calls = T.parse_tool_calls("The stall has 55 apples.",
-                                          tools=self.CALC, family="gemma")
-        assert calls == []
-
-    def test_the_instruction_mentions_the_native_form(self):
-        rendered = T.render_tools(self.CALC, family="gemma")
-        assert "<|tool_call>" in rendered
-
-
-class TestNearMisses:
-    def test_a_refused_call_is_still_tool_shaped(self):
-        assert T.looks_like_a_tool_call('<|tool_call>call:add({"x": 1})')
-        assert T.looks_like_a_tool_call(
-            '```tool_code\n{"name": "nope"}\n```')
-
-    def test_prose_is_not(self):
-        assert not T.looks_like_a_tool_call("The stall has 55 apples.")
-        assert not T.looks_like_a_tool_call("55")
-
-
-class TestBareNativeArguments:
-    """A local model asked to write `calc({…})` often writes
-    `calc(37 + 18)`. Observed on gemma-4-e2b the moment the rendered
-    instruction changed (000437 follow-on) — and caught immediately,
-    because `tool_near_misses` reported 80 of 80."""
-
-    CALC = T.toolbox_from(["calc"]).tools
-
-    def test_a_bare_argument_binds_to_the_one_required_parameter(self):
-        _, calls = T.parse_tool_calls("<|tool_call>call:calc(37 + 18)",
-                                      tools=self.CALC, family="gemma")
-        assert [(c.name, c.arguments) for c in calls] == [
-            ("calc", {"expression": "37 + 18"})]
-
-    def test_trailing_markers_do_not_break_it(self):
-        text = "<|tool_call>call:calc(37 + 18)\n<tool_call|><|tool_response>"
-        _, calls = T.parse_tool_calls(text, tools=self.CALC, family="gemma")
-        assert [c.arguments for c in calls] == [{"expression": "37 + 18"}]
-
-    def test_the_text_is_the_value_not_its_result(self):
-        # Evaluating here would be doing the tool's job with none of
-        # its safety.
-        _, calls = T.parse_tool_calls("<|tool_call>call:calc(2+2)",
-                                      tools=self.CALC, family="gemma")
-        assert calls[0].arguments == {"expression": "2+2"}
-
-    def test_two_required_parameters_refuse_a_bare_argument(self):
-        two = [T.ToolDef(name="span", description="",
-                         schema={"type": "object",
-                                 "properties": {"a": {}, "b": {}},
-                                 "required": ["a", "b"]})]
-        _, calls = T.parse_tool_calls("<|tool_call>call:span(1, 2)",
-                                      tools=two, family="gemma")
-        assert calls == [], "a bare argument for two parameters is a guess"
-
-    def test_empty_arguments_are_empty_not_refused(self):
-        _, calls = T.parse_tool_calls("<|tool_call>call:calc()",
-                                      tools=self.CALC, family="gemma")
-        assert [c.arguments for c in calls] == [{}]

@@ -87,7 +87,8 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
           model_wire: Any, params: Mapping[str, Any],
           parts: Sequence[Any] = (), call: Mapping[str, Any] | None = None,
           sampling: Mapping[str, Any] | None = None,
-          tool_runs: Sequence[Any] = ()) -> dict[str, Any]:
+          tool_runs: Sequence[Any] = (),
+          tool_errors: Sequence[Any] = ()) -> dict[str, Any]:
     meta: dict[str, Any] = {
         "coords": {**(rec.get("coords") or {}), "sample": k},
         "model": model_wire,
@@ -100,6 +101,10 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
         # What the model actually did with the capabilities it was
         # given — the point of offering them.
         meta["tool_runs"] = [dict(r) for r in tool_runs]
+    if tool_errors:
+        # On the item, not only in the node's aggregate, so a failure
+        # can be sliced by the condition that produced it.
+        meta["tool_errors"] = [dict(e) for e in tool_errors]
     tool_parts = [p.to_wire() for p in parts
                   if not isinstance(p, pm.TextPart)]
     if tool_parts:
@@ -323,12 +328,16 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
     if on_start:
         on_start(len(recs) * n)
     items: list[dict[str, Any]] = []
-    #: Tool-shaped responses that produced no call (000437), with the
-    #: reason and a sample — "we cannot read your arguments" and "you
-    #: called a tool that does not exist" need different fixes.
-    near_misses = 0
-    miss_reasons: dict[str, int] = {}
-    miss_samples: list[str] = []
+    # Tool-call errors, reported and not merely counted. An individual
+    # failure does not fail the run unless asked to: `on_tool_error`
+    # mirrors group-stats' `on_missing` rather than inventing a second
+    # idiom for the same choice.
+    on_tool_error = str(params.get("on_tool_error", "record"))
+    if on_tool_error not in ("record", "fail"):
+        raise ValueError(
+            f"on_tool_error must be 'record' or 'fail', not {on_tool_error!r}")
+    tool_errors: list[dict[str, Any]] = []
+    responses_with_calls = 0
     for rec in recs:
         req = build_request(rec, params, model=str(getattr(ref, "base", ref)),
                             provider_options={})
@@ -371,14 +380,28 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
             # the whole lesson of 000437: a correct call the parser did
             # not recognize looked exactly like no call at all, across
             # 320 generations, with nothing to notice.
-            if box and not called_a_tool:
-                why = dialects.diagnose(text, box.tools, dialect)
-                if why:
-                    near_misses += 1
-                    miss_reasons[why] = miss_reasons.get(why, 0) + 1
-                    if len(miss_samples) < 3:
-                        miss_samples.append(text[:200])
+            item_errors: list[dict[str, Any]] = []
+            if box:
+                # A tool that ran and raised is an error too, and was
+                # previously only visible per-item in `tool_runs`.
+                for r in box.runs:
+                    if r.error:
+                        item_errors.append(dialects.ToolError(
+                            "execution_failed", r.error, r.tool).to_wire())
+                if called_a_tool:
+                    responses_with_calls += 1
+                else:
+                    failed = dialects.call_error(text, box.tools, dialect)
+                    if failed is not None:
+                        item_errors.append(failed.to_wire())
+            if item_errors:
+                if on_tool_error == "fail":
+                    raise RuntimeError(
+                        f"tool call failed on {rec.get('id')!r}: "
+                        f"{item_errors[0]['cause']} — {item_errors[0]['detail']}")
+                tool_errors.extend({**e, "item": key} for e in item_errors)
             item = _item(rec, k, text, model_wire=model_wire, params=params,
+                         tool_errors=item_errors,
                          sampling={"temperature": temperature, "top_p": top_p,
                                    "seed": seed, "index": k},
                          tool_runs=[r.to_wire() for r in box.runs])
@@ -394,12 +417,27 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
         "items": items,
         # Reported even when zero: "no tool calls" and "no tool calls
         # and nobody tried" are different facts about a run.
-        **({"tool_near_misses": near_misses,
-            "tool_miss_reasons": miss_reasons,
-            "tool_miss_samples": miss_samples,
-            "tool_dialect": dialect.name if dialect else None}
-           if tool_specs else {}),
+        # Everything a reader needs to know about tool use, without
+        # re-deriving it from the items: how many responses called a
+        # tool at all (a statistic — answering directly is a legitimate
+        # outcome, not an error), and every error with its cause.
+        **({"tools": {
+            "dialect": dialect.name if dialect else None,
+            "responses": len(items),
+            "with_calls": responses_with_calls,
+            "without_calls": len(items) - responses_with_calls,
+            "errors": tool_errors,
+            "errors_by_cause": _by_cause(tool_errors),
+        }} if tool_specs else {}),
     }
+
+
+def _by_cause(errors: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for e in errors:
+        cause = str(e.get("cause", "?"))
+        out[cause] = out.get(cause, 0) + 1
+    return out
 
 
 def render_conversation(tokenizer, req: pm.ChatRequest, *,

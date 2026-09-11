@@ -253,8 +253,10 @@ class TestLocalPath:
         assert "[calls:['calc']]" in prompts[-1]
         assert '"result": 42' in prompts[-1], "the tool result reached the model"
         assert "tool:" in prompts[-1], "and did so under a tool role"
-        assert out["tool_dialect"] == "qwen-2.5"
-        assert out["tool_near_misses"] == 0
+        assert out["tools"]["dialect"] == "qwen-2.5"
+        assert out["tools"]["errors"] == []
+        assert out["tools"]["with_calls"] == 1
+        assert out["tools"]["without_calls"] == 0
 
     def test_a_model_with_no_tool_protocol_refuses_rather_than_inventing_one(
             self, monkeypatch):
@@ -300,6 +302,85 @@ class TestLocalPath:
         out = chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
                                  _records(1), {"n": 1})
         assert out["items"][0]["text"] == "55"
+
+
+class TestToolErrors:
+    """A call that did not execute is an ERROR, reported in the results
+    with its cause. There is no "near miss": the only question worth
+    asking about a failed call is whose fault it was."""
+
+    def _run(self, reply, extra=None):
+        from mechbench_compute import distill, generate
+
+        class QwenishTok:
+            def apply_chat_template(self, turns, tokenize=False,
+                                     add_generation_prompt=True, tools=None,
+                                     **kw):
+                if not tools:
+                    return "plain"
+                body = "TOOLS "
+                if any(t.get("tool_calls") for t in turns):
+                    body += ('<tool_call>\n{"name": "calc", "arguments": '
+                             '{"expression": "37 + 18"}}\n</tool_call>'
+                             "<tool_response>\n55\n</tool_response>")
+                else:
+                    body += "<tool_call>probe</tool_call>"
+                return body
+
+        class FakeModel:
+            tokenizer = QwenishTok()
+
+        import pytest as _pt
+        mp = _pt.MonkeyPatch()
+        mp.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
+        mp.setattr(distill, "prefill_decision", lambda m, ids: None)
+        mp.setattr(generate, "sample_completion_cached", lambda *a, **k: reply)
+        try:
+            return chat_mod.run_local(
+                FakeModel(), mr.parse("Qwen/Qwen2.5-3B-Instruct"), _records(1),
+                {"n": 1, "tools": ["calc"], "max_tool_rounds": 1, **(extra or {})})
+        finally:
+            mp.undo()
+
+    def test_calling_a_tool_that_was_never_offered_is_an_error(self):
+        out = self._run('<tool_call>\n{"name": "wget", "arguments": {}}\n</tool_call>')
+        errs = out["tools"]["errors"]
+        assert [e["cause"] for e in errs] == ["unknown_tool"]
+        assert errs[0]["tool"] == "wget"
+        assert "not offered" in errs[0]["detail"]
+
+    def test_an_unreadable_call_names_us_as_the_likely_cause(self):
+        out = self._run('<tool_call>\n{"name": "calc" BROKEN\n</tool_call>')
+        errs = out["tools"]["errors"]
+        assert [e["cause"] for e in errs] == ["unparseable_call"]
+        assert "OUR parser" in errs[0]["detail"]
+
+    def test_answering_without_a_tool_is_not_an_error(self):
+        # Whether the model SHOULD have called one is the experiment's
+        # question, not the harness's. It is counted, not faulted.
+        out = self._run("The stall has 55 apples.")
+        assert out["tools"]["errors"] == []
+        assert out["tools"]["without_calls"] == 1
+        assert out["tools"]["with_calls"] == 0
+
+    def test_errors_ride_on_the_item_so_they_can_be_sliced(self):
+        out = self._run('<tool_call>\n{"name": "wget", "arguments": {}}\n</tool_call>')
+        meta = out["items"][0]["metadata"]
+        assert [e["cause"] for e in meta["tool_errors"]] == ["unknown_tool"]
+
+    def test_an_error_does_not_fail_the_run_by_default(self):
+        out = self._run('<tool_call>\n{"name": "wget", "arguments": {}}\n</tool_call>')
+        assert out["items"][0]["text"]  # the response is still there
+        assert out["tools"]["errors_by_cause"] == {"unknown_tool": 1}
+
+    def test_on_tool_error_fail_makes_it_fatal_when_asked(self):
+        with pytest.raises(RuntimeError, match="unknown_tool"):
+            self._run('<tool_call>\n{"name": "wget", "arguments": {}}\n</tool_call>',
+                      {"on_tool_error": "fail"})
+
+    def test_an_unknown_policy_refuses(self):
+        with pytest.raises(ValueError, match="on_tool_error"):
+            self._run("hello", {"on_tool_error": "shrug"})
 
 
 class TestJobBudget:
