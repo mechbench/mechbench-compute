@@ -17,6 +17,11 @@ The forward-compatibility argument cuts toward strictness. A NEW
 protocol running against an OLD block is precisely the case that bit
 us, and "this runner's `vectors/mst` does not accept `center`" is
 strictly better than a quiet wrong number.
+
+**An incomplete declaration is its own bug** — a false refusal of a
+param the block does read. `tests/test_block_params.py` reads each
+declared block's module and asserts every `params.get(...)` it
+contains is listed, so the table cannot drift behind the code.
 """
 
 from __future__ import annotations
@@ -31,6 +36,14 @@ COMMON = frozenset({
 
 #: block ref -> the params it reads, beyond COMMON.
 ACCEPTED: dict[str, frozenset[str]] = {
+    "~canonical/ops/chat/1": frozenset({
+        "n", "start", "temperature", "top_p", "max_tokens", "system",
+        "tools", "max_tool_rounds", "on_tool_error", "concurrency",
+        "budget_usd", "provider_options", "base_url", "keep_fields",
+        "record_requests", "limit_scope", "cassette", "cassette_mode",
+        "cache", "json_mode", "logprobs", "messages", "messages_field",
+        "stop", "system_field", "tool_choice", "user_field",
+    }),
     "~canonical/ops/vectors/mst/1": frozenset({
         "bridge_sigma", "keep_edges", "center", "similarity",
     }),
@@ -51,7 +64,10 @@ def check_params(block: str, params: Mapping[str, object]) -> None:
     accepted = ACCEPTED.get(block)
     if accepted is None:
         return
-    unknown = sorted(set(params) - accepted - COMMON)
+    # Underscore keys are the executor's own injections (a block
+    # runner, a resume handle), never something a protocol declared.
+    unknown = sorted(k for k in set(params) - accepted - COMMON
+                     if not k.startswith("_"))
     if not unknown:
         return
     known = ", ".join(sorted(accepted | COMMON))

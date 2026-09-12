@@ -146,7 +146,7 @@ def _summary(calls: Sequence[Mapping[str, Any]], budget: Budget, *,
 
 
 def run_remote(ref, records, params, *, secrets=None, cassette=None,
-               limiter=None, job_budget: Budget | None = None,
+               cassette_mode=None, limiter=None, job_budget: Budget | None = None,
                on_item=None, on_start=None,
                resume_items=None) -> dict[str, Any]:
     """The endpoint path. `ref` is an endpoint ModelRef."""
@@ -164,7 +164,8 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     transport = make_transport(
         provider, creds or None, base_url=params.get("base_url"),
         dry_run=dry_run and tape is None, cassette=tape,
-        cassette_mode=str(params.get("cassette_mode", "replay")))
+        cassette_mode=str(cassette_mode
+                          or params.get("cassette_mode", "replay")))
     budget = budget_from(params)
     if job_budget is not None:
         # The node's cap under the job's: a graph whose node caps sum

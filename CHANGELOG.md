@@ -13,6 +13,39 @@ nothing said so.
 
 ---
 
+## 0.46.0 — 2026-09-11
+
+Memoized remote calls (task 000355, epic 000334).
+
+### Changes that raise
+
+- **`cache: true` refuses** — a memo needs a label to live under.
+  `cache: "<owner>/<project>/memos/<name>"`. A memo keyed on node
+  identity would be thrown away by every compute release, which is
+  backwards: the compute version is not part of what a provider was
+  asked, and the request hash inside the memo is what decides a hit.
+- **The `chat` block now declares its params** (000438), so a typo or
+  an unsupported option is refused by name rather than ignored.
+
+### Changes that alter results without raising
+
+- **A replayed call costs nothing.** `resp.replayed` settles at $0 and
+  releases its reservation instead of charging it — a cached re-run
+  was otherwise billing for a purchase it did not make. The original
+  call's token usage is KEPT on the record, because comparing a
+  memoized run against its first run needs it.
+- With `cache` set, a chat node loads its memo, runs the transport in
+  `auto` mode, and writes the memo back. The node's summary gains
+  `cache: {label, hits, recorded, entries}`.
+
+Also: `tests/test_block_params.py` reads each declared block's source
+and asserts every param it reads is declared. An incomplete
+declaration is a false refusal — the opposite bug from the one
+declaring params was meant to fix — and the table can no longer drift
+behind the code.
+
+---
+
 ## 0.45.0 — 2026-09-11
 
 ### Changes that raise

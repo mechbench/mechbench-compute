@@ -273,7 +273,17 @@ class Transport(ABC):
         limits = RateLimits.from_headers(resp.headers or {})
         limiter.observe(self.name, req.model, scope, limits)
         cost, cost_priced = pricing.cost_usd(self.name, req.model, usage)
-        if budget is not None:
+        if resp.replayed:
+            # A replayed call bought nothing (000355). Its usage is
+            # kept — it is what the ORIGINAL call spent, and a reader
+            # comparing a memoized run to its first run needs it — but
+            # the cost is zero and the reservation is released rather
+            # than settled, or a cached re-run would bill twice for one
+            # purchase.
+            cost, cost_priced = 0.0, True
+            if budget is not None:
+                budget.release(reservation)
+        elif budget is not None:
             budget.settle(reservation, cost)
 
         record = CallRecord(

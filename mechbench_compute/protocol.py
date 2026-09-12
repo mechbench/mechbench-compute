@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import namedtuple
 from dataclasses import dataclass
 from datetime import UTC
 from typing import Any
@@ -954,15 +955,84 @@ class ProtocolExecutor:
             # never reaches a node's identity or its emitted params.
             params = {**params, "_block_runner": self._tool_block_runner(secrets)}
         if ref.is_endpoint:
-            return chat_mod.run_remote(
+            memo = self._open_memo(params)
+            out = chat_mod.run_remote(
                 ref, records, params, secrets=secrets,
-                cassette=inputs.get("cassette") or params.get("cassette"),
+                cassette=(memo.tape if memo else
+                          inputs.get("cassette") or params.get("cassette")),
+                cassette_mode="auto" if memo else None,
                 limiter=self._limiter, job_budget=self._budget,
                 on_item=on_item, on_start=on_start,
                 resume_items=resume_items)
+            if memo:
+                out = self._close_memo(memo, out)
+            return out
         return self._run_model_block(
             self._block_chat_local, inputs, {**params, "model": ref},
             on_item=on_item, on_start=on_start, resume_items=resume_items)
+
+    #: An opened memo: the label it came from, and the cassette that
+    #: will be written back to it.
+    _Memo = namedtuple("_Memo", "label tape existing")
+
+    def _open_memo(self, params):
+        """Load this node's memo of remote calls, if it asked for one.
+
+        `cache: "<bench label>"` — an explicit label, not a derivation
+        from the node's identity. A memo keyed on node identity would
+        be thrown away by every compute release, which is exactly
+        backwards: the compute version is not part of what a provider
+        was asked, and the REQUEST hash inside the memo is what
+        decides a hit. A named memo survives a version bump, which is
+        the point of having one.
+        """
+        label = params.get("cache")
+        if not label:
+            return None
+        if label is True:
+            raise ValueError(
+                "`cache: true` has no label to store under. Name the memo: "
+                '`cache: "<owner>/<project>/memos/<name>"` — an explicit '
+                "label survives a compute release, and a derived one would "
+                "not.")
+        from mechbench_compute import bench
+        from mechbench_compute.providers.cassette import Cassette
+
+        label = str(label)
+        try:
+            obj = bench.fetch(label)
+            payload = obj.get("payload", obj)
+            tape = Cassette.from_wire(payload)
+            existing = tape.n_responses
+        except Exception:  # noqa: BLE001 — no memo yet is the ordinary case
+            tape, existing = Cassette(provider="", label=label), 0
+        return self._Memo(label, tape, existing)
+
+    def _close_memo(self, memo, out):
+        """Write the memo back, and say what it saved.
+
+        Emitted even when nothing new was recorded: a run that was a
+        complete hit is exactly the run worth being able to point at.
+        """
+        from mechbench_compute import bench
+
+        added = memo.tape.n_responses - memo.existing
+        summary = out.get("summary")
+        if isinstance(summary, dict):
+            calls = summary.get("calls") or 0
+            summary["cache"] = {
+                "label": memo.label,
+                "hits": max(0, calls - added),
+                "recorded": added,
+                "entries": memo.tape.n_responses,
+            }
+        try:
+            bench.emit(memo.label, memo.tape.to_wire(),
+                       operation="chat/memo")
+        except Exception as e:  # noqa: BLE001 — a run must not fail on its memo
+            if isinstance(summary, dict):
+                summary.setdefault("cache", {})["store_error"] = str(e)[:200]
+        return out
 
     def _block_conversation(self, inputs, params, secrets=None, on_item=None,
                             on_start=None, resume_items=None):
