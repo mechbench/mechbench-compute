@@ -13,6 +13,48 @@ nothing said so.
 
 ---
 
+## 0.51.0 — 2026-09-12
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **mbshell is built with standard Go's `wasip1` port, not TinyGo.**
+  Every guest failure found by running it traced to TinyGo: no
+  `recover` on wasm, a negative read count on directories that bufio
+  panics on (`wc -c .` killed the sandbox), and the reflect gap that
+  broke `awk`. Same source, one build flag; the binary is 15.4 MB
+  (3.8 MB gzipped) against 2.8 MB, fetched once. New pin
+  `8105ef5a…`. `awk` works; a directory argument is an ordinary
+  non-zero exit.
+- **`xargs`, `time` and `timeout` run their command in-process**
+  through a seam added to go-busybox (`go-busybox-wasi.patch`:
+  `core.RunCommand`), which mbshell points at its applet table.
+  `timeout`'s duration is parsed and not enforced — nothing to signal;
+  the sandbox wall cap is the only clock. `find` has no `-exec`
+  upstream.
+- **Waiting is virtual, in both modes.** `poll_oneoff` was denied in
+  0.50.0; Go's runtime waits inside its GC path, so any guest that
+  grew its heap died. Now every wait completes at once and the guest
+  clock jumps forward by the wait (host time plus skipped waits, or
+  the strict counter), so `sleep 30` returns in milliseconds and
+  `time sleep 5` reports five seconds. `limit="blocked_call"` no
+  longer exists.
+- **Exit statuses ≥ 126 are carried.** WASI hosts reject `proc_exit`
+  outside [0, 126) and drop the number — and 127 is "command not
+  found". The guest writes the real status to a second preopen,
+  `/.mechbench/exit`, and exits 125; the runtime reads it back.
+  Without the side channel the floor, 126, is reported.
+- `sh -c CMD NAME ARGS` sets `$0` to NAME, as POSIX says.
+- A memory cap below the guest's declared minimum (113 pages here) is
+  reported as `limit="memory_mb"` with the minimum named, not raised.
+  Go's out-of-memory exit (status 2, message on stderr, memory at
+  the cap) is classified as `memory_mb` too.
+
+---
+
 ## 0.50.0 — 2026-09-12
 
 ### Changes that raise
