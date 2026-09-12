@@ -13,6 +13,25 @@ nothing said so.
 
 ---
 
+## 0.59.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **The bench-object mount cache.** A read-only mount is
+  content-addressed, so its tree is now materialized to the guest
+  cache ONCE, under its digest, and every later run — this session or
+  another — preopens the same directory. Before, a session's mounted
+  stdlib extension was rewritten to disk on every tool call; now the
+  first call pays and the rest are free. Concurrent-safe (atomic
+  rename, a sibling `.ok` marker outside the mount dir so it stays
+  clean).
+
+---
+
 ## 0.58.0 — 2026-09-13
 
 ### Changes that raise

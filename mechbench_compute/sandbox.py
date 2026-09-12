@@ -327,14 +327,14 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         # Image object-mounts: a user's tree (pure-Python packages, a
         # data dir) materialized read-only at an absolute path. Separate
         # preopens outside `/`, so nothing here is ever captured.
-        for i, (at, tree) in enumerate(mounts):
+        for at, tree in mounts:
             if not at.startswith("/") or at.rstrip("/") in ("", EXIT_DIR):
                 raise SandboxError(
                     f"mount path {at!r} must be absolute and outside the "
                     f"working tree and {EXIT_DIR}")
-            mdir = pathlib.Path(td) / f"mount{i}"
             mblobs = (mount_blobs or {}).get(at)
-            fs.materialize(tree, mdir, blobs=mblobs if mblobs is not None else tree.blobs)
+            mdir = _materialize_mount(
+                tree, blobs=mblobs if mblobs is not None else tree.blobs)
             wasi.preopen_dir(str(mdir), at, fs_mutable=False)
         wasi.stdin_file = str(stdin_path)
         wasi.stdout_file = str(stdout_path)
@@ -438,6 +438,49 @@ def _reported_exit(meta: pathlib.Path, fallback: int) -> int:
         return int((meta / "exit").read_text().strip())
     except (OSError, ValueError):
         return fallback
+
+
+_MOUNT_LOCK = threading.Lock()
+_MOUNTS_READY: set[str] = set()
+
+
+def _materialize_mount(tree: fs.Snapshot,
+                       blobs: Mapping[str, bytes] | None = None) -> pathlib.Path:
+    """A read-only mount's host directory, materialized ONCE and reused.
+
+    A mount is read-only and content-addressed: a tree with a given
+    digest is always the same bytes, so it is materialized into the
+    guest cache under that digest and every later run — this session or
+    another — preopens the same directory. Without this the stdlib
+    extension a session mounts would be rewritten to disk on every
+    single tool call.
+    """
+    digest = tree.digest().split(":")[-1][:16]
+    cache = guests.cache_dir()
+    dest = cache / f"mount-{digest}"
+    marker = cache / f".mount-{digest}.ok"   # sibling, so the mount dir stays clean
+    with _MOUNT_LOCK:
+        if digest in _MOUNTS_READY:
+            return dest
+    if marker.is_file() and dest.is_dir():
+        with _MOUNT_LOCK:
+            _MOUNTS_READY.add(digest)
+        return dest
+    staging = pathlib.Path(tempfile.mkdtemp(prefix="mount-", dir=str(cache)))
+    import shutil
+    try:
+        fs.materialize(tree, staging, blobs=blobs if blobs is not None else tree.blobs)
+        try:
+            os.replace(staging, dest)   # atomic when dest is absent
+        except OSError:
+            shutil.rmtree(staging, ignore_errors=True)  # a racer won; same bytes
+        marker.write_bytes(b"")
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    with _MOUNT_LOCK:
+        _MOUNTS_READY.add(digest)
+    return dest
 
 
 def _resolve_hint(guest: str | os.PathLike[str]) -> str | None:

@@ -115,6 +115,25 @@ class TestObjectMounts:
             SandboxImage.parse({"mounts": [{"path": "/opt/x"}]})
 
     @needs_guest
+    def test_a_mount_is_materialized_once_and_reused(self, guest_installed):
+        # A read-only mount is content-addressed: the same tree is
+        # materialized to the cache once and every later run — this
+        # session or another — preopens the same directory.
+        import glob
+        cache = os.environ["MECHBENCH_GUEST_CACHE"]
+        before = set(glob.glob(cache + "/mount-*"))
+        img = SandboxImage.parse({
+            "mounts": [{"path": "/opt/data", "snapshot": {"n.txt": "shared\n"}}]})
+        s = SandboxSession(img)
+        for _ in range(3):
+            assert s.bash("cat /opt/data/n.txt").strip() == "shared"
+        new = set(glob.glob(cache + "/mount-*")) - before
+        assert len(new) == 1, "the mount was materialized more than once"
+        # a second session with the same tree adds no new dir
+        SandboxSession(img).bash("cat /opt/data/n.txt")
+        assert set(glob.glob(cache + "/mount-*")) - before == new
+
+    @needs_guest
     def test_a_mounted_file_is_readable_and_not_captured(self, guest_installed):
         img = SandboxImage.parse({
             "snapshot": {"work.txt": "start\n"},
