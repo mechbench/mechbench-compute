@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## 0.49.0 — 2026-09-11
+
+### Changes that raise
+
+- `cache: true` on a chat node run from a bare `ProtocolSpec` with no
+  `protocolId` still refuses and asks for a name — there is no stable
+  identity to derive one from. Inside a job there always is.
+
+### Changes that alter results without raising
+
+- **`cache: true` now works, deriving its memo label from the
+  protocol id and the node id** — `<owner>/memos/<protocolId>/<nodeId>`.
+  0.46.0 refused it and demanded an explicit name, arguing that a
+  derived label would be discarded by every compute release. That was
+  true of a label derived from the node FINGERPRINT; the protocol id
+  and node id are stable across releases and the job spec already
+  carries them. Reconsidered: refusing was friction for no gain.
+
+---
+
 ## 0.48.0 — 2026-09-11
 
 ### Changes that raise

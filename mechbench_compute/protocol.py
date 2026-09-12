@@ -226,6 +226,10 @@ class ProtocolExecutor:
         from mechbench_compute import __version__ as core_version
 
         extra = spec.extra or {}
+        # The job spec names the protocol (id + version) that produced
+        # this run. Kept for anything that wants a STABLE identity for a
+        # node across compute releases — a memo label, for one.
+        self._protocol_ref = (extra.get("protocolId"), extra.get("protocolVersion"))
         conditions = extra.get("conditions", [])
         result = self._run_model_block(
             self._block_decision_read,
@@ -561,6 +565,7 @@ class ProtocolExecutor:
             # partial from a previous attempt is reused only under an
             # equal fingerprint.
             current["nid"] = nid
+            self._current = current
             # Before anything runs: does this block actually read what
             # the protocol asked for? (000438 — a silently ignored
             # param is a wrong answer with no error.)
@@ -990,11 +995,25 @@ class ProtocolExecutor:
         if not label:
             return None
         if label is True:
-            raise ValueError(
-                "`cache: true` has no label to store under. Name the memo: "
-                '`cache: "<owner>/<project>/memos/<name>"` — an explicit '
-                "label survives a compute release, and a derived one would "
-                "not.")
+            # Derived from the PROTOCOL's identity and the node's id —
+            # both stable across compute releases, which a node
+            # fingerprint is not. The request hash inside the memo is
+            # what decides a hit; this only decides where the memo
+            # lives. Reconsidered 2026-09-11: refusing `cache: true` and
+            # demanding a name was friction for no gain, since the job
+            # spec already carries the identity needed.
+            pid, _ = getattr(self, "_protocol_ref", (None, None))
+            nid = (getattr(self, "_current", None) or {}).get("nid") \
+                if hasattr(self, "_current") else None
+            nid = nid or params.get("_nid")
+            if not pid or not nid:
+                raise ValueError(
+                    "`cache: true` needs the run's protocol id and the node "
+                    "id to derive a label, and this execution has neither "
+                    "(a bare ProtocolSpec with no protocolId). Name it: "
+                    '`cache: "<owner>/<project>/memos/<name>"`.')
+            owner = params.get("_owner") or "memos"
+            label = f"{owner}/memos/{pid}/{nid}"
         from mechbench_compute import bench
         from mechbench_compute.providers.cassette import Cassette
 

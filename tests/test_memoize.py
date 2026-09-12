@@ -117,10 +117,25 @@ class TestACachedCallIsFree:
 
 
 class TestTheMemoLabel:
-    def test_cache_true_refuses_and_says_why(self):
+    def test_cache_true_derives_a_label_from_protocol_and_node(self, monkeypatch):
+        # Stable across compute releases: the protocol id and the node
+        # id, neither of which a version bump touches.
+        from mechbench_compute import bench
         from mechbench_compute.protocol import ProtocolExecutor
 
-        with pytest.raises(ValueError, match="no label to store under"):
+        ex = ProtocolExecutor()
+        ex._protocol_ref = ("prt_abc", 3)
+        ex._current = {"nid": "grade"}
+        monkeypatch.setattr(bench, "fetch", lambda *a, **k: (_ for _ in ()).throw(KeyError("none")))
+        memo = ex._open_memo({"cache": True, "_owner": "benji/lab"})
+        assert memo.label == "benji/lab/memos/prt_abc/grade"
+
+    def test_cache_true_without_a_protocol_id_refuses_and_says_why(self):
+        # A bare spec run outside a job has no stable identity to
+        # derive from; that is the one case a name is required.
+        from mechbench_compute.protocol import ProtocolExecutor
+
+        with pytest.raises(ValueError, match="needs the run's protocol id"):
             ProtocolExecutor()._open_memo({"cache": True})
 
     def test_no_cache_is_no_memo(self):
