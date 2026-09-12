@@ -259,6 +259,7 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         guest: str | os.PathLike[str], limits: Limits | None = None,
         strict: bool = False, env: Mapping[str, str] | None = None,
         stdin: bytes | str = b"", blobs: Mapping[str, bytes] | None = None,
+        mounts: Sequence[tuple[str, fs.Snapshot]] = (),
         mount_blobs: Mapping[str, Mapping[str, bytes]] | None = None) -> Result:
     """Run `argv` inside `guest` over `snapshot`; return what happened.
 
@@ -269,6 +270,12 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
     find. `strict=True` replaces the clock and the RNG with
     deterministic ones, so the same snapshot and argv give the same
     bytes back every time — see `STRICT_VIRTUAL`.
+
+    `mounts` are `(guest_path, Snapshot)` pairs materialized READ-ONLY
+    at absolute paths outside the working tree — a user's pure-Python
+    packages over CPython's stdlib, say. They are separate preopens, so
+    they never appear in the captured result; the working tree at `/`
+    is the only thing a run can change.
     """
     import wasmtime
 
@@ -317,6 +324,18 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
                     f"host directory {m.host!r} is missing — install the guest "
                     f"with its runtime (guests.install_local(..., mounts=…))")
             wasi.preopen_dir(m.host, m.at, fs_mutable=False)
+        # Image object-mounts: a user's tree (pure-Python packages, a
+        # data dir) materialized read-only at an absolute path. Separate
+        # preopens outside `/`, so nothing here is ever captured.
+        for i, (at, tree) in enumerate(mounts):
+            if not at.startswith("/") or at.rstrip("/") in ("", EXIT_DIR):
+                raise SandboxError(
+                    f"mount path {at!r} must be absolute and outside the "
+                    f"working tree and {EXIT_DIR}")
+            mdir = pathlib.Path(td) / f"mount{i}"
+            mblobs = (mount_blobs or {}).get(at)
+            fs.materialize(tree, mdir, blobs=mblobs if mblobs is not None else tree.blobs)
+            wasi.preopen_dir(str(mdir), at, fs_mutable=False)
         wasi.stdin_file = str(stdin_path)
         wasi.stdout_file = str(stdout_path)
         wasi.stderr_file = str(stderr_path)

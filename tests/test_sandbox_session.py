@@ -95,6 +95,38 @@ class TestTheSnapshotTools:
         assert c.snapshot_in == c.snapshot_out == d and c.tool == "read_file"
 
 
+class TestObjectMounts:
+    """Read-only trees mounted at absolute paths — the user-extensible
+    stdlib, and any data dir. Guest-agnostic parts use mbshell."""
+
+    def test_a_mount_is_parsed_as_a_resolved_tree(self):
+        img = SandboxImage.parse({"mounts": [
+            {"path": "/opt/data", "snapshot": {"x.txt": "hi\n"}}]})
+        assert len(img.object_mounts) == 1
+        at, tree = img.object_mounts[0]
+        assert at == "/opt/data" and tree.get("x.txt") is not None
+
+    def test_a_bench_ref_mount_stays_unresolved_for_the_executor(self):
+        img = SandboxImage.parse({"mounts": [{"path": "/opt/corpus", "object": "benji/c"}]})
+        assert img.object_mounts == () and img.mounts[0].object == "benji/c"
+
+    def test_a_mount_without_a_tree_or_ref_is_refused(self):
+        with pytest.raises(SandboxRefused, match="needs a .snapshot.*or an .object"):
+            SandboxImage.parse({"mounts": [{"path": "/opt/x"}]})
+
+    @needs_guest
+    def test_a_mounted_file_is_readable_and_not_captured(self, guest_installed):
+        img = SandboxImage.parse({
+            "snapshot": {"work.txt": "start\n"},
+            "mounts": [{"path": "/opt/data", "snapshot": {"note.txt": "mounted\n"}}]})
+        s = SandboxSession(img)
+        assert s.bash("cat /opt/data/note.txt").strip() == "mounted"
+        s.bash("echo x > new.txt")
+        # the mount is a separate preopen: only the working tree is captured
+        assert not any("/opt/data" in p or "note.txt" in p for p in s.snapshot.paths())
+        assert s.snapshot.get("new.txt") is not None
+
+
 class TestTheImage:
     def test_an_unknown_tool_is_refused(self):
         with pytest.raises(SandboxRefused, match="unknown tool"):
@@ -285,6 +317,16 @@ class TestThePythonGuest:
         s.python(code="open('x.json','w').write('{\"n\": 7}')")
         assert s.bash("cat x.json").strip() == '{"n": 7}'
         assert [c.tool for c in s.calls] == ["python", "bash"]
+
+    def test_a_user_package_extends_the_stdlib(self, both_guests):
+        # A pure-Python package mounted at site-packages imports — the
+        # user-extensible stdlib (the bench-object mount).
+        img = SandboxImage.parse({
+            "tools": ["python"],
+            "mounts": [{"path": "/usr/local/lib/python3.13/site-packages",
+                        "snapshot": {"mymath/__init__.py": "def triple(n): return n*3\n"}}]})
+        out = SandboxSession(img).python(code="import mymath; print(mymath.triple(14))")
+        assert out.strip() == "42"
 
     def test_no_network(self, both_guests):
         r = self._sess().python(

@@ -80,7 +80,13 @@ class SandboxImage:
     limits: sandbox.Limits = field(default_factory=sandbox.Limits)
     strict: bool = False
     snapshot: fs.Snapshot = fs.EMPTY
+    #: Bench-object mounts still unresolved (a ref, no tree) — the
+    #: executor resolves these to `object_mounts` before a session runs.
     mounts: tuple[fs.Mount, ...] = ()
+    #: Read-only trees to mount at absolute paths — a user's pure-Python
+    #: packages over CPython's stdlib, a data dir. `(guest_path,
+    #: Snapshot)` pairs, materialized read-only per run.
+    object_mounts: tuple[tuple[str, fs.Snapshot], ...] = ()
 
     def __post_init__(self) -> None:
         unknown = [t for t in self.tools if t not in TOOL_NAMES]
@@ -106,28 +112,35 @@ class SandboxImage:
         lim = (limits if isinstance(limits, sandbox.Limits)
                else sandbox.Limits(**dict(limits)) if limits else sandbox.Limits())
         snap = value.get("snapshot")
-        if snap is None:
-            tree = fs.EMPTY
-        elif isinstance(snap, fs.Snapshot):
-            tree = snap
-        elif isinstance(snap, Mapping) and snap.get("kind") == fs.KIND:
-            tree = fs.Snapshot.from_wire(snap)
-        elif isinstance(snap, Mapping):
-            # A convenience: {path: content} seeds a tree inline.
-            tree = fs.seeded({str(k): v for k, v in snap.items()})
-        else:
-            raise SandboxRefused("image.snapshot must be a snapshot or a "
-                                 "{path: content} map")
-        mounts = tuple(
-            m if isinstance(m, fs.Mount)
-            else fs.Mount(at=str(m["path"] if "path" in m else m["at"]),
-                          object=str(m["object"]), digest=str(m.get("digest", "")))
-            for m in (value.get("mounts") or ()))
+        tree = fs.EMPTY if snap is None else _as_tree(snap)
+        # A mount either carries a resolved TREE (`snapshot`/inline —
+        # materialized read-only) or names a bench OBJECT (a ref the
+        # executor resolves to a tree before the session runs).
+        refs: list[fs.Mount] = []
+        resolved: list[tuple[str, fs.Snapshot]] = []
+        for m in (value.get("mounts") or ()):
+            if isinstance(m, tuple) and len(m) == 2 and isinstance(m[1], fs.Snapshot):
+                resolved.append((str(m[0]), m[1]))
+                continue
+            if isinstance(m, fs.Mount):
+                refs.append(m)
+                continue
+            at = str(m["path"] if "path" in m else m["at"])
+            src = m.get("snapshot")
+            if src is not None:
+                resolved.append((at, _as_tree(src)))
+            elif m.get("object"):
+                refs.append(fs.Mount(at=at, object=str(m["object"]),
+                                     digest=str(m.get("digest", ""))))
+            else:
+                raise SandboxRefused(
+                    f"mount at {at!r} needs a `snapshot` (a tree) or an "
+                    f"`object` (a bench ref)")
         return SandboxImage(
             base=str(value.get("base") or DEFAULT_GUEST),
             tools=tuple(value.get("tools") or DEFAULT_TOOLS),
             limits=lim, strict=bool(value.get("strict", False)),
-            snapshot=tree, mounts=mounts)
+            snapshot=tree, mounts=tuple(refs), object_mounts=tuple(resolved))
 
 
 @dataclass
@@ -274,7 +287,7 @@ class SandboxSession:
         try:
             result = sandbox.run(before, list(argv), guest=guest or self.guest,
                                   limits=self.image.limits, strict=self.image.strict,
-                                  stdin=stdin)
+                                  stdin=stdin, mounts=self.image.object_mounts)
         except sandbox.SandboxError as e:
             raise SandboxRefused(str(e)) from e
         self.snapshot = result.snapshot
@@ -325,6 +338,18 @@ class SandboxSession:
 
 
 # ------------------------------------------------------------------- helpers
+
+
+def _as_tree(value: Any) -> fs.Snapshot:
+    """A Snapshot from a Snapshot, its wire form, or a `{path: content}`
+    map (the inline convenience)."""
+    if isinstance(value, fs.Snapshot):
+        return value
+    if isinstance(value, Mapping) and value.get("kind") == fs.KIND:
+        return fs.Snapshot.from_wire(value)
+    if isinstance(value, Mapping):
+        return fs.seeded({str(k): v for k, v in value.items()})
+    raise SandboxRefused("a tree must be a Snapshot or a {path: content} map")
 
 
 def _norm(path: str) -> str:

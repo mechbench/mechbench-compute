@@ -13,6 +13,27 @@ nothing said so.
 
 ---
 
+## 0.58.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **Bench-object mounts: the user-extensible stdlib** (task 000453,
+  Benji's follow-up). An image may mount a read-only tree at an
+  absolute path — `{"path": "/usr/local/lib/python3.13/site-packages",
+  "snapshot": {…}}` — and a pure-Python package there is importable by
+  the CPython guest. `sandbox.run(..., mounts=[(at, Snapshot)])`
+  materializes each read-only as a SEPARATE preopen outside the
+  working tree, so a mount is never captured and never writable; the
+  working tree at `/` stays the only thing a run changes. An image
+  mount that names a bench `object` instead of a `snapshot` stays
+  unresolved for the executor to fetch.
+
+---
+
 ## 0.57.0 — 2026-09-13
 
 ### Changes that raise
