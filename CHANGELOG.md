@@ -13,6 +13,38 @@ nothing said so.
 
 ---
 
+## 0.47.0 — 2026-09-11
+
+Filesystem snapshots (task 000358, the base of the sandbox arc).
+
+### Changes that raise
+
+- _None._ New module: `mechbench_compute.snapshots`.
+
+### Changes that alter results without raising
+
+- _None._ Nothing consumes it yet.
+
+`Snapshot` is a directory as a content-addressed value, so a sandbox
+tool call can be `(snapshot, argv) -> (snapshot', stdout, stderr,
+exit)` — an ordinary item with lineage instead of a directory somebody
+mutated. `capture` / `materialize` / `diff` / `seeded`, with limits on
+file count and total bytes, and a symlink leaving the root refused
+rather than silently resolved.
+
+What the digest deliberately ignores: mtimes, ownership, real
+permission bits, and the order the OS returned entries in. What it
+keeps: paths, content hashes, and the executable bit — which changes
+what a later run DOES.
+
+Entries sort at construction rather than in each constructor. `os.walk`
+is depth-first, so `capture` produced `a.txt, z.txt, m/q.txt` while
+`from_wire` produced sorted order, and the digest walks entries — so
+the same tree hashed two different ways depending on how it was built.
+Caught by the test that asserts exactly that.
+
+---
+
 ## 0.46.0 — 2026-09-11
 
 Memoized remote calls (task 000355, epic 000334).
