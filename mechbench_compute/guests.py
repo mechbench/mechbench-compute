@@ -25,7 +25,26 @@ import os
 import pathlib
 import tempfile
 import urllib.request
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class GuestMount:
+    """A read-only directory preopened beside the working snapshot,
+    carrying a guest's own runtime files. The CPython guest mounts its
+    standard library here; the working tree stays at `/`.
+
+    `at` is the guest path (fixed by the guest). `host` is the local
+    directory that backs it — set by `install_local` for an unhosted
+    build, or filled by unpacking `url` (a companion tarball, verified
+    by `sha256`) once the guest is hosted. Never writable: a guest
+    corrupting its own runtime would poison the shared cache."""
+
+    at: str
+    host: str = ""
+    url: str = ""
+    sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -34,13 +53,19 @@ class Guest:
     from (a repo and commit), which is a different fact from `url`,
     where they are hosted; provenance wants both. An empty `url` means
     pinned but not yet hosted: the hash is settled, the bytes have to
-    be built locally (`install_local`) until a release hosts them."""
+    be built locally (`install_local`) until a release hosts them.
+
+    `env` and `mounts` are the guest's RUNTIME needs — an interpreter
+    that reads `PYTHONHOME` and a standard library it must find. They
+    are not part of the wasm's hash; they are how it is run."""
 
     name: str
     url: str
     sha256: str
     size: int
     source: str = ""
+    env: Mapping[str, str] = field(default_factory=dict)
+    mounts: tuple[GuestMount, ...] = ()
 
     @property
     def hosted(self) -> bool:
@@ -74,6 +99,19 @@ REGISTRY: dict[str, Guest] = {
         size=15426977,
         source="guests/mbshell (go-busybox@13f3053 + go-busybox-wasi.patch + "
                "mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch; go1.27.1 -trimpath -buildvcs=false)"),
+    # CPython 3.13.3 compiled to wasip1 with wasi-sdk — recipe in
+    # `guests/cpython/`. Its standard library is a read-only MOUNT at
+    # `/usr/local/lib/python3.13` (every module builds static, so the
+    # library is pure .py), which the guest finds via PYTHONHOME. Not
+    # hosted yet: the mount's `host` is filled by `install_local` from a
+    # local build until a release hosts the wasm and a stdlib tarball.
+    "cpython": Guest(
+        name="cpython", url="",
+        sha256="",  # filled when the build is pinned; see guests/cpython/build.sh
+        size=0,
+        source="guests/cpython (CPython v3.13.3 + wasi-sdk-34; host python3.13)",
+        env={"PYTHONHOME": "/usr/local", "PYTHONDONTWRITEBYTECODE": "1"},
+        mounts=(GuestMount(at="/usr/local/lib/python3.13"),)),
 }
 
 
@@ -181,31 +219,57 @@ def _fetch(guest: Guest, target: pathlib.Path) -> pathlib.Path:
 
 
 def install_local(name: str, path: str | os.PathLike[str], *,
-                  source: str = "", replace: bool = False) -> Guest:
+                  source: str = "", replace: bool = False,
+                  mounts: Sequence[tuple[str, str]] = (),
+                  env: Mapping[str, str] | None = None) -> Guest:
     """Register a guest from a file already on this machine — a fresh
     build, or a test fixture — computing its hash rather than trusting
     one. Copies it into the cache under its hash so later `ensure`
     calls find it without a network.
 
-    If `name` is already pinned, the file must hash to the pin. A build
-    that comes out different is a real event — a toolchain moved, or a
-    source tree did — and running it under the pinned name would make
-    the registry a lie. Pass `replace=True` to re-pin deliberately.
+    If `name` is already pinned with a hash, the file must match it. A
+    build that comes out different is a real event — a toolchain moved,
+    or a source tree did — and running it under the pinned name would
+    make the registry a lie. Pass `replace=True` to re-pin deliberately.
+    A pin with an EMPTY hash is unpinned (a guest whose reproducible
+    hash is not yet recorded) and accepts any build.
+
+    `mounts` are `(host_dir, guest_path)` pairs — a guest's read-only
+    runtime files, like CPython's standard library; `env` is the
+    guest's runtime environment. When the name is pre-declared with
+    mount TARGETS (the `at` paths) but no hosts, the hosts given here
+    fill them; `env` merges over the declared env.
     """
     src = pathlib.Path(path)
     digest = _sha256_of(src)
     pinned = REGISTRY.get(name)
-    if pinned is not None and pinned.sha256 != digest and not replace:
+    if (pinned is not None and pinned.sha256 and pinned.sha256 != digest
+            and not replace):
         raise GuestUnavailable(
             f"{src} hashes to {digest}, but {name!r} is pinned at "
             f"{pinned.sha256} (built from {pinned.source or '?'}). A build "
             f"that differs from the pin is worth understanding before it "
             f"runs under that name; pass replace=True to re-pin.")
+    resolved = tuple(GuestMount(at=at, host=str(pathlib.Path(host).resolve()))
+                     for host, at in mounts)
+    merged_env = {**(dict(pinned.env) if pinned else {}), **(dict(env) if env else {})}
     guest = Guest(name=name, url=f"file://{src.resolve()}", sha256=digest,
                   size=src.stat().st_size,
-                  source=source or (pinned.source if pinned else ""))
+                  source=source or (pinned.source if pinned else ""),
+                  env=merged_env, mounts=resolved or (pinned.mounts if pinned else ()))
     target = cache_dir() / f"{name}-{digest[:12]}.wasm"
     if not target.exists():
         target.write_bytes(src.read_bytes())
     register(guest)
     return guest
+
+
+def resolve(guest: str | os.PathLike[str], *, fetch: bool = True
+            ) -> tuple[pathlib.Path, tuple[GuestMount, ...], Mapping[str, str]]:
+    """`(wasm_path, mounts, env)` for a registered NAME (fetched and
+    verified as needed) or a bare `.wasm` PATH (no mounts, no env). The
+    sandbox calls this so a guest's runtime needs travel with it."""
+    if isinstance(guest, str) and is_registered(guest):
+        g = REGISTRY[guest]
+        return ensure(guest, fetch=fetch), g.mounts, g.env
+    return pathlib.Path(guest), (), {}

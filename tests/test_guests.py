@@ -106,7 +106,7 @@ class TestThePin:
     def test_the_real_registry_pins_the_guest(self, monkeypatch):
         monkeypatch.undo()  # the autouse fixture emptied it; look at the real one
         from mechbench_compute import guests as real
-        assert list(real.REGISTRY) == ["mbshell"], "one guest; busybox alone has no shell"
+        assert "mbshell" in real.REGISTRY, "the shell guest"
         g = real.REGISTRY["mbshell"]
         assert len(g.sha256) == 64 and g.size > 1_000_000 and g.source
         # Hosted as a GitHub release on this repo, tagged by hash, gzipped.
@@ -115,6 +115,46 @@ class TestThePin:
         assert g.url.startswith("file://") or (
             g.url.startswith("https://github.com/mechbench/mechbench-compute/releases/download/")
             and g.sha256[:12] in g.url and g.url.endswith(".wasm.gz"))
+
+
+class TestRuntimeMounts:
+    def test_install_local_records_mounts_and_env(self, tmp_path):
+        libdir = tmp_path / "lib"; libdir.mkdir()
+        g = guests.install_local("cg", _artifact(tmp_path), source="here",
+                                 mounts=[(str(libdir), "/usr/local/lib/python3.13")],
+                                 env={"PYTHONHOME": "/usr/local"})
+        assert g.env["PYTHONHOME"] == "/usr/local"
+        assert g.mounts[0].at == "/usr/local/lib/python3.13"
+        assert g.mounts[0].host == str(libdir.resolve())
+
+    def test_resolve_returns_wasm_mounts_and_env(self, tmp_path):
+        libdir = tmp_path / "lib"; libdir.mkdir()
+        guests.install_local("cg", _artifact(tmp_path),
+                             mounts=[(str(libdir), "/lib")], env={"K": "v"})
+        path, mounts, env = guests.resolve("cg")
+        assert path.is_file() and mounts[0].host == str(libdir.resolve()) and env["K"] == "v"
+
+    def test_a_bare_path_resolves_to_no_mounts(self, tmp_path):
+        p = _artifact(tmp_path)
+        path, mounts, env = guests.resolve(str(p))
+        assert path == p and mounts == () and env == {}
+
+    def test_an_empty_pin_accepts_any_build(self, tmp_path):
+        # A guest whose reproducible hash is not yet recorded (sha256="")
+        # is unpinned and takes the local build without replace=True.
+        guests.register(guests.Guest("cg", "", "", 0, source="unpinned"))
+        g = guests.install_local("cg", _artifact(tmp_path))
+        assert len(g.sha256) == 64
+
+    def test_cpython_is_declared_with_a_stdlib_mount(self, monkeypatch):
+        monkeypatch.undo()
+        from mechbench_compute import guests as real
+        cp = real.REGISTRY["cpython"]
+        assert cp.env.get("PYTHONHOME") == "/usr/local"
+        assert cp.mounts and cp.mounts[0].at == "/usr/local/lib/python3.13"
+        # Not hosted on a server (an earlier test may have install_local'd
+        # a file:// build over the pristine empty url).
+        assert not cp.url.startswith("http"), "cpython is not hosted yet"
 
 
 class TestRefusals:

@@ -39,10 +39,16 @@ from mechbench_compute import snapshots as fs
 #: in-process POSIX shell (000359); `bash` is `sh -c` in it.
 DEFAULT_GUEST = "mbshell"
 
+#: The guest that runs `python`. Distinct from the image's `base`
+#: (mbshell): one session can drive both a shell and an interpreter
+#: over the same snapshot chain, each on its own guest.
+PYTHON_GUEST = "cpython"
+
 #: Every tool a session can offer, and the applet or snapshot op behind
 #: it. The image's `tools` list selects from these; an unknown name in
-#: an image is refused rather than silently dropped.
-TOOL_NAMES = ("bash", "find", "grep", "read_file", "write_file", "list")
+#: an image is refused rather than silently dropped. `python` runs the
+#: CPython guest (000453) and is opt-in — it needs that guest installed.
+TOOL_NAMES = ("bash", "find", "grep", "python", "read_file", "write_file", "list")
 
 #: Offered by default when an image does not say — the workhorse plus
 #: the three snapshot conveniences. `find`/`grep` are opt-in: `bash`
@@ -200,6 +206,19 @@ class SandboxSession:
         argv += ["-e", str(pattern), str(path)]
         return self._run(tuple(argv), tool="grep")
 
+    def python(self, code: str = "", script: str = "") -> str:
+        """Run Python over the workspace — a `-c` snippet, or a script
+        file already in the tree. Runs the CPython guest, which shares
+        the snapshot with the shell tools, so a script `bash` wrote is
+        one `python` can run and vice versa."""
+        if script:
+            argv = ("python", str(script))
+        elif code:
+            argv = ("python", "-c", str(code))
+        else:
+            return "python: give either `code` (a snippet) or `script` (a path)"
+        return self._run(argv, tool="python", guest=PYTHON_GUEST)
+
     def read_file(self, path: str) -> str:
         """Read a file straight from the snapshot — no guest. Fails the
         way `cat` would on a missing path, as a message the model
@@ -249,10 +268,11 @@ class SandboxSession:
 
     # -- machinery -----------------------------------------------------
 
-    def _run(self, argv: tuple[str, ...], *, tool: str, stdin: str = "") -> str:
+    def _run(self, argv: tuple[str, ...], *, tool: str, stdin: str = "",
+             guest: str | None = None) -> str:
         before = self.snapshot
         try:
-            result = sandbox.run(before, list(argv), guest=self.guest,
+            result = sandbox.run(before, list(argv), guest=guest or self.guest,
                                   limits=self.image.limits, strict=self.image.strict,
                                   stdin=stdin)
         except sandbox.SandboxError as e:
@@ -371,6 +391,16 @@ _TOOL_DEFS: dict[str, dict[str, Any]] = {
             "recursive": {"type": "boolean"}},
             "required": ["pattern"]},
         "handler": {"sandbox": "grep"},
+    },
+    "python": {
+        "name": "python",
+        "description": "Run Python 3 over the workspace: a code snippet, "
+                       "or a script file already in it. The interpreter "
+                       "shares the files with the shell tools.",
+        "schema": {"type": "object", "properties": {
+            "code": {"type": "string", "description": "A snippet to run with -c."},
+            "script": {"type": "string", "description": "A script path to run."}}},
+        "handler": {"sandbox": "python"},
     },
     "read_file": {
         "name": "read_file",

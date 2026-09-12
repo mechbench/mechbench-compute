@@ -20,6 +20,13 @@ from mechbench_compute.sandbox_session import (
     SandboxImage, SandboxRefused, SandboxSession)
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+CPY_WASM = pathlib.Path(os.environ.get(
+    "MECHBENCH_CPYTHON_WASM", REPO / "guests" / "cpython" / "build" / "python.wasm"))
+CPY_STDLIB = pathlib.Path(os.environ.get(
+    "MECHBENCH_CPYTHON_STDLIB", REPO / "guests" / "cpython" / "build" / "stdlib"))
+needs_python = pytest.mark.skipif(
+    not (CPY_WASM.is_file() and CPY_STDLIB.is_dir()),
+    reason="cpython guest not built — guests/cpython/build.sh")
 BUILT = pathlib.Path(os.environ.get(
     "MECHBENCH_MBSHELL_WASM", REPO / "guests" / "mbshell" / "build" / "mbshell.wasm"))
 needs_guest = pytest.mark.skipif(
@@ -226,3 +233,72 @@ class TestThroughTheChatNode:
         params = self._params(sandbox=None, provider_options={})
         out = chat_mod.run_remote(mr.parse(params["model"]), params["records"], params)
         assert "sandbox" not in out["items"][0]["metadata"]
+
+
+@pytest.fixture(scope="module")
+def both_guests(tmp_path_factory):
+    os.environ["MECHBENCH_GUEST_CACHE"] = str(tmp_path_factory.mktemp("guests"))
+    guests.install_local("cpython", CPY_WASM, replace=True,
+                         mounts=[(str(CPY_STDLIB), "/usr/local/lib/python3.13")])
+    if BUILT.is_file():
+        guests.install_local("mbshell", BUILT)
+
+
+@needs_python
+class TestThePythonGuest:
+    """CPython over the same snapshot as the shell (task 000453). The
+    guest is installed with its standard library as a read-only mount;
+    the session picks it for `python` and mbshell for `bash`, sharing
+    one workspace."""
+
+    def _sess(self):
+        return SandboxSession(SandboxImage.parse({
+            "tools": ["bash", "python", "read_file", "write_file", "list"],
+            "snapshot": {"data/a.txt": "one two three\n", "data/b.txt": "four\n"},
+            "limits": {"memory_mb": 512, "wall_seconds": 30}}))
+
+    def test_a_snippet_runs(self, both_guests):
+        assert self._sess().python(code="print(sum(range(10)))") == "45\n"
+
+    def test_the_common_stdlib_is_there(self, both_guests):
+        out = self._sess().python(
+            code="import json,re,math,collections,hashlib,csv,statistics;"
+                 "print(hashlib.sha256(b'x').hexdigest()[:8])")
+        assert out.strip() == "2d711642"
+
+    def test_python_reads_and_writes_the_snapshot(self, both_guests):
+        s = self._sess()
+        s.python(script="")  # no-op guard
+        s.write_file("count.py",
+                     "import glob\nt=0\n"
+                     "for p in sorted(glob.glob('data/*.txt')):\n"
+                     "  t += len(open(p).read().split())\n"
+                     "open('total.txt','w').write(str(t))\n")
+        s.python(script="count.py")
+        assert s.read_file("total.txt") == "4"
+        assert s.snapshot.get("total.txt") is not None
+
+    def test_python_and_bash_share_the_workspace(self, both_guests):
+        if not BUILT.is_file():
+            pytest.skip("mbshell not built")
+        s = self._sess()
+        s.python(code="open('x.json','w').write('{\"n\": 7}')")
+        assert s.bash("cat x.json").strip() == '{"n": 7}'
+        assert [c.tool for c in s.calls] == ["python", "bash"]
+
+    def test_no_network(self, both_guests):
+        r = self._sess().python(
+            code="import socket\ns=socket.socket()\n"
+                 "s.connect(('127.0.0.1', 9))")
+        assert "[exit 1]" in r and "rror" in r
+
+    def test_subprocess_is_refused(self, both_guests):
+        r = self._sess().python(code="import subprocess; subprocess.run(['ls'])")
+        assert "wasi does not support processes" in r or "[exit 1]" in r
+
+    def test_the_guest_cannot_write_its_own_stdlib(self, both_guests):
+        # The stdlib mount is read-only: a guest scribbling on it would
+        # poison the shared cache for every other run.
+        r = self._sess().python(
+            code="open('/usr/local/lib/python3.13/os.py','a').write('x')")
+        assert "[exit 1]" in r

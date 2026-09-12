@@ -13,6 +13,37 @@ nothing said so.
 
 ---
 
+## 0.56.0 — 2026-09-12
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **The CPython guest and `python` as a tool** (task 000453). A
+  `SandboxSession` now offers `python` (opt-in in the image's tools),
+  which runs a `-c` snippet or a script over the SAME snapshot chain
+  as the shell tools — a script `bash` writes, `python` runs, and back.
+  CPython 3.13.3 compiled to wasip1 (`guests/cpython/build.sh`); the
+  clock/RNG/exit lessons from mbshell carry over unchanged, and under
+  strict mode `hash()` and seeded `random` are stable.
+- **Guests can carry runtime mounts and env** (`guests.GuestMount`,
+  `Guest.env`). The CPython guest's standard library is a read-only
+  mount at `/usr/local/lib/python3.13` (`fs_mutable=False`, so a guest
+  cannot corrupt the shared runtime), found via `PYTHONHOME`.
+  `sandbox.run` preopens a resolved guest's mounts and applies its env;
+  `guests.resolve(name)` returns `(wasm, mounts, env)`. A guest whose
+  reproducible hash is not yet recorded is pinned with an empty
+  `sha256` and `install_local` accepts any build for it.
+- The CPython guest is declared but **not hosted or hash-pinned yet**:
+  the interpreter is ~28 MB and the trimmed stdlib ~10 MB, and the
+  build's cross-machine reproducibility is unverified — so `python`
+  works only where `guests/cpython/build.sh` has run. Hosting and the
+  pin are a follow-up.
+
+---
+
 ## 0.55.0 — 2026-09-12
 
 ### Changes that raise

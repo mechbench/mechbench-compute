@@ -273,7 +273,15 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
     import wasmtime
 
     limits = limits or Limits()
-    guest_path = _resolve_guest(guest)
+    try:
+        guest_path, guest_mounts, guest_env = guests.resolve(guest)
+    except guests.GuestUnavailable as e:
+        raise SandboxError(str(e)) from e
+    if not guest_path.is_file():
+        # A registered name whose bytes are not installed says so
+        # through `resolve`; a bare path that is not there says it here.
+        raise SandboxError(
+            _resolve_hint(guest) or f"guest binary not found: {guest_path}")
 
     with tempfile.TemporaryDirectory(prefix="mechbench-sandbox-") as td:
         root = pathlib.Path(td) / "root"
@@ -294,9 +302,21 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
 
         wasi = wasmtime.WasiConfig()
         wasi.argv = list(argv)
-        wasi.env = [(k, v) for k, v in (env or {}).items()]
+        # The guest's own runtime env (PYTHONHOME, say) under the
+        # caller's — a protocol can override, the guest sets the floor.
+        wasi.env = [(k, v) for k, v in {**dict(guest_env), **(env or {})}.items()]
         wasi.preopen_dir(str(root), "/")
         wasi.preopen_dir(str(meta), EXIT_DIR)
+        # A guest's runtime mounts — CPython's standard library, say —
+        # preopened READ-ONLY (fs_mutable=False): a guest must not
+        # corrupt the shared runtime it and every other run depend on.
+        for m in guest_mounts:
+            if not m.host or not pathlib.Path(m.host).is_dir():
+                raise SandboxError(
+                    f"guest {guest_path.name} needs a mount at {m.at!r} but its "
+                    f"host directory {m.host!r} is missing — install the guest "
+                    f"with its runtime (guests.install_local(..., mounts=…))")
+            wasi.preopen_dir(m.host, m.at, fs_mutable=False)
         wasi.stdin_file = str(stdin_path)
         wasi.stdout_file = str(stdout_path)
         wasi.stderr_file = str(stderr_path)
@@ -401,24 +421,17 @@ def _reported_exit(meta: pathlib.Path, fallback: int) -> int:
         return fallback
 
 
-def _resolve_guest(guest: str | os.PathLike[str]) -> pathlib.Path:
-    """A registered name goes through the loader; anything else is a
-    path. A name that is neither registered nor a file is reported as
-    the former — `run(guest="cpython")` before CPython is pinned should
-    say "no guest named cpython", not "file not found: cpython"."""
-    if isinstance(guest, str) and guests.is_registered(guest):
-        try:
-            return guests.ensure(guest)
-        except guests.GuestUnavailable as e:
-            raise SandboxError(str(e)) from e
-    path = pathlib.Path(guest)
-    if path.is_file():
-        return path
-    if isinstance(guest, str) and os.sep not in guest and not guest.endswith(".wasm"):
-        raise SandboxError(
-            f"no guest named {guest!r} is registered — known: "
-            f"{', '.join(sorted(guests.REGISTRY)) or '(none)'}")
-    raise SandboxError(f"guest binary not found: {path}")
+def _resolve_hint(guest: str | os.PathLike[str]) -> str | None:
+    """The message for a guest that could not be found. An unregistered
+    bare NAME is reported as such — `run(guest="typo")` should say "no
+    guest named typo", not "file not found: typo" — while a `.wasm`
+    path that is not there is a plain missing-file error (returns
+    None, the caller supplies it)."""
+    if (isinstance(guest, str) and not guests.is_registered(guest)
+            and os.sep not in guest and not guest.endswith(".wasm")):
+        return (f"no guest named {guest!r} is registered — known: "
+                f"{', '.join(sorted(guests.REGISTRY)) or '(none)'}")
+    return None
 
 
 def _pages(holder: list, store) -> int:
