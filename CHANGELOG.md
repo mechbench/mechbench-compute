@@ -13,6 +13,42 @@ nothing said so.
 
 ---
 
+## 0.50.0 — 2026-09-12
+
+### Changes that raise
+
+- **`sandbox.run(snapshot, argv, guest=…)` exists** (task 000359).
+  Runs a WASI guest over a content-addressed snapshot with one
+  preopened directory, no network, fuel-metered CPU, an epoch wall
+  clock, a memory cap and an output cap; every ceiling that trips is
+  named in `Result.limit` (`fuel`, `wall_seconds`, `memory_mb`,
+  `max_files`, `max_bytes`, `blocked_call`). `poll_oneoff` is always
+  denied: a guest blocked in it is beyond epoch interruption (`sleep
+  10` under a 1 s cap ran 10,002 ms), and no tool call needs to wait.
+- **`guests.ensure(name)` fetches a pinned guest on first use and
+  verifies it by hash**; wrong bytes are deleted, never run. `busybox`
+  is pinned (go-busybox `13f3053`, TinyGo `wasip1`) but **not hosted**
+  — upstream claims MIT with no LICENSE file in the tree, so the bytes
+  come from a local build via `guests.install_local`, which refuses a
+  build that differs from the pin unless told `replace=True`.
+- New dependency: `wasmtime>=48` (8 MB, native wheel).
+
+### Changes that alter results without raising
+
+- **Strict mode virtualizes the clock and RNG rather than denying
+  them.** Denied, nothing ran: the TinyGo runtime reads the clock
+  before `main`, and CPython seeds its hash from `random_get` before
+  the first line. Strict now serves a clock starting at
+  2000-01-01T00:00:00Z that advances 1 µs per read, and SHA-256 bytes
+  seeded from the snapshot digest and argv. Verified on the one
+  witness a shell gives for free: Go map order, which `busybox`
+  shuffles every plain run and holds fixed under strict.
+- `Snapshot` carries an in-process `blobs` sidecar for content above
+  the inline threshold (0.48.0 extension, now used by `materialize`
+  when no store is passed). Not part of identity or the wire form.
+
+---
+
 ## 0.49.0 — 2026-09-11
 
 ### Changes that raise

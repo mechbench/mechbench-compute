@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mechbench-compute"
-version = "0.49.0"
+version = "0.50.0"
 description = "Composable mechanistic-interpretability primitives: hook-aware forward, interventions, activation cache, logit lens, probes, and geometry."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,6 +36,7 @@ dependencies = [
     "transformers>=4.40",
     "matplotlib>=3.8",
     "scikit-learn>=1.4",
+    "wasmtime>=48",
 ]
 
 [project.optional-dependencies]

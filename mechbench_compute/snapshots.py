@@ -135,6 +135,14 @@ class Snapshot:
     #: mutable state. They contribute to the digest by identity, never
     #: by content.
     mounts: tuple[Mount, ...] = ()
+    #: Blobs too large to inline, keyed by hash, riding WITH the value
+    #: in-process. Not identity (the digest ignores it), not on the
+    #: wire (`to_wire` drops it) — a convenience so a snapshot built by
+    #: `seeded()` or `capture()` can be materialized without the caller
+    #: threading a store through every call. A blob store passed
+    #: explicitly always wins.
+    blobs: Mapping[str, bytes] = field(default_factory=dict, compare=False,
+                                       hash=False, repr=False)
 
     def __post_init__(self) -> None:
         ordered = tuple(sorted(self.entries, key=lambda e: e.path))
@@ -256,6 +264,7 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
     if not base.is_dir():
         raise NotADirectoryError(f"not a directory: {base}")
     entries: list[Entry] = []
+    large: dict[str, bytes] = {}
     total = 0
     skip = tuple(m.at.rstrip("/") + "/" for m in mounts)
     for path in _walk(base):
@@ -284,6 +293,8 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
         digest = blob_hash(data)
         if blobs is not None:
             blobs[digest] = data
+        if len(data) > inline_max:
+            large[digest] = data
         entries.append(Entry(
             path=rel,
             size=len(data),
@@ -291,7 +302,7 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
             executable=bool(real.stat().st_mode & stat.S_IXUSR),
             data=data if len(data) <= inline_max else None,
         ))
-    return Snapshot(tuple(entries), tuple(mounts))
+    return Snapshot(tuple(entries), tuple(mounts), dict(large))
 
 
 def materialize(snapshot: Snapshot, root: str | os.PathLike[str], *,
@@ -312,11 +323,13 @@ def materialize(snapshot: Snapshot, root: str | os.PathLike[str], *,
         target.parent.mkdir(parents=True, exist_ok=True)
         data = e.data
         if data is None:
-            if blobs is None or e.blob_hash not in blobs:
+            store = blobs if blobs is not None else snapshot.blobs
+            if e.blob_hash in store:
+                data = store[e.blob_hash]
+            if data is None:
                 raise KeyError(
                     f"{e.path}: blob {e.blob_hash} is not inline and was "
                     f"not supplied — pass the blob store that captured it")
-            data = blobs[e.blob_hash]
         if blob_hash(data) != e.blob_hash:
             raise ValueError(
                 f"{e.path}: blob does not match its hash — the store is "
@@ -360,11 +373,14 @@ def seeded(files: Mapping[str, bytes | str], *,
     a protocol states its starting filesystem."""
     execs = set(executable)
     entries = []
+    large: dict[str, bytes] = {}
     for path in sorted(files):
         raw = files[path]
         data = raw.encode("utf-8") if isinstance(raw, str) else bytes(raw)
-        entries.append(Entry(path=path, size=len(data),
-                             blob_hash=blob_hash(data),
+        h = blob_hash(data)
+        if len(data) > INLINE_MAX:
+            large[h] = data
+        entries.append(Entry(path=path, size=len(data), blob_hash=h,
                              executable=path in execs,
                              data=data if len(data) <= INLINE_MAX else None))
-    return Snapshot(tuple(entries))
+    return Snapshot(tuple(entries), (), large)

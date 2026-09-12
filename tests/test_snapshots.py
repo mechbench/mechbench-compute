@@ -91,13 +91,17 @@ class TestRoundTrip:
         fs.materialize(fs.capture(src), out)
         assert os.access(out / "run.sh", os.X_OK)
 
-    def test_a_large_blob_needs_its_store(self, tmp_path):
+    def test_a_large_blob_from_the_wire_needs_its_store(self, tmp_path):
+        # In-process, a captured snapshot carries its large blobs. Once
+        # it has crossed the wire the sidecar is gone — that is where a
+        # store becomes mandatory, and where the error must be loud.
         src = write(tmp_path / "src", {"big.txt": "x" * 100})
         blobs: dict[str, bytes] = {}
         snap = fs.capture(src, inline_max=10, blobs=blobs)
+        crossed = fs.Snapshot.from_wire(snap.to_wire())
         with pytest.raises(KeyError, match="not inline"):
-            fs.materialize(snap, tmp_path / "out")
-        fs.materialize(snap, tmp_path / "out2", blobs=blobs)
+            fs.materialize(crossed, tmp_path / "out")
+        fs.materialize(crossed, tmp_path / "out2", blobs=blobs)
         assert (tmp_path / "out2" / "big.txt").read_text() == "x" * 100
 
     def test_a_corrupt_store_is_refused_not_written(self, tmp_path):
@@ -258,3 +262,30 @@ class TestTheStoredFormIsReferences:
         refs = len(dump_canonical(snap.to_wire()))
         inline = len(dump_canonical(snap.to_wire(inline=True)))
         assert inline > refs * 3, f"inline {inline} vs refs {refs}"
+
+
+class TestBlobsRideWithTheValue:
+    """A snapshot from `seeded()` or `capture()` carries its large
+    blobs in-process, so it can be materialized without the caller
+    threading a store through every call. Not identity, not wire."""
+
+    def test_a_seeded_large_file_materializes_without_a_store(self, tmp_path):
+        snap = fs.seeded({"big.bin": b"x" * (fs.INLINE_MAX + 1)})
+        fs.materialize(snap, tmp_path / "out")
+        assert (tmp_path / "out" / "big.bin").stat().st_size == fs.INLINE_MAX + 1
+
+    def test_the_sidecar_is_not_identity(self, tmp_path):
+        a = fs.seeded({"big.bin": b"x" * (fs.INLINE_MAX + 1)})
+        b = fs.Snapshot(a.entries)  # same entries, no sidecar
+        assert a.digest() == b.digest() and a == b
+
+    def test_the_sidecar_is_not_on_the_wire(self):
+        snap = fs.seeded({"big.bin": b"x" * (fs.INLINE_MAX + 1)})
+        assert "blobs" not in snap.to_wire()
+        assert "data" not in snap.to_wire()["entries"][0]
+
+    def test_an_explicit_store_wins(self, tmp_path):
+        snap = fs.seeded({"big.bin": b"x" * (fs.INLINE_MAX + 1)})
+        wrong = {k: b"y" * len(v) for k, v in snap.blobs.items()}
+        with pytest.raises(ValueError, match="does not match its hash"):
+            fs.materialize(snap, tmp_path / "out", blobs=wrong)
