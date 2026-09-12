@@ -68,14 +68,14 @@ class Entry:
     #: Present when the blob is small enough to travel with the tree.
     data: bytes | None = None
 
-    def to_wire(self) -> dict[str, Any]:
+    def to_wire(self, *, inline: bool = True) -> dict[str, Any]:
         out: dict[str, Any] = {
             "path": self.path, "size": self.size,
             "blob_hash": self.blob_hash,
         }
         if self.executable:
             out["executable"] = True
-        if self.data is not None:
+        if inline and self.data is not None:
             out["data"] = self.data
         return out
 
@@ -88,6 +88,33 @@ class Entry:
             executable=bool(value.get("executable", False)),
             data=bytes(data) if data is not None else None,
         )
+
+
+@dataclass(frozen=True)
+class Mount:
+    """A read-only tree grafted in at `at`, identified by the object it
+    came from.
+
+    **Never captured.** A mounted corpus cannot have changed — nothing
+    can write to it — so re-hashing it after every tool call is pure
+    waste, and on a 200 MB corpus it is the dominant cost of the whole
+    sandbox. Its identity is the object it was mounted from.
+    """
+
+    at: str
+    object: str
+    digest: str = ""
+
+    def to_wire(self) -> dict[str, Any]:
+        out = {"at": self.at, "object": self.object}
+        if self.digest:
+            out["digest"] = self.digest
+        return out
+
+    @staticmethod
+    def from_wire(v: Mapping[str, Any]) -> Mount:
+        return Mount(at=str(v["at"]), object=str(v["object"]),
+                     digest=str(v.get("digest", "")))
 
 
 @dataclass(frozen=True)
@@ -104,11 +131,18 @@ class Snapshot:
     """
 
     entries: tuple[Entry, ...] = ()
+    #: Read-only trees present in the sandbox but not part of its
+    #: mutable state. They contribute to the digest by identity, never
+    #: by content.
+    mounts: tuple[Mount, ...] = ()
 
     def __post_init__(self) -> None:
         ordered = tuple(sorted(self.entries, key=lambda e: e.path))
         if ordered != tuple(self.entries):
             object.__setattr__(self, "entries", ordered)
+        mounts = tuple(sorted(self.mounts, key=lambda m: m.at))
+        if mounts != tuple(self.mounts):
+            object.__setattr__(self, "mounts", mounts)
 
     @property
     def n_files(self) -> int:
@@ -140,16 +174,37 @@ class Snapshot:
             h.update(b"\x00")
             h.update(e.blob_hash.encode("ascii"))
             h.update(b"\x01" if e.executable else b"\x00")
+        for m in self.mounts:
+            # By identity, not content: the point of a mount is that we
+            # do not read it.
+            h.update(b"\x02")
+            h.update(m.at.encode("utf-8"))
+            h.update(b"\x00")
+            h.update((m.digest or m.object).encode("utf-8"))
         return "sha256:" + h.hexdigest()
 
-    def to_wire(self) -> dict[str, Any]:
+    def to_wire(self, *, inline: bool = False) -> dict[str, Any]:
+        """The stored form. Blobs are REFERENCES by default.
+
+        Measured on a 2000-file tree: 8.43 MB with blobs inline against
+        0.22 MB as hashes — 38x. A sandbox session emits one of these
+        per tool call, so inlining would put the content of the whole
+        tree on the wire for every `ls`. The blob store holds the
+        bytes; this holds the shape.
+
+        `inline=True` is for a self-contained fixture — a seeded tree
+        small enough that carrying it beats needing a store beside it.
+        """
         return {
             "kind": KIND,
             "version": 1,
             "digest": self.digest(),
             "n_files": self.n_files,
             "n_bytes": self.n_bytes,
-            "entries": [e.to_wire() for e in self.entries],
+            "entries": [(e.to_wire() if inline else e.to_wire(inline=False))
+                        for e in self.entries],
+            **({"mounts": [m.to_wire() for m in self.mounts]}
+               if self.mounts else {}),
         }
 
     @staticmethod
@@ -157,8 +212,9 @@ class Snapshot:
         if value.get("kind") != KIND:
             raise ValueError(
                 f"not a filesystem snapshot: kind={value.get('kind')!r}")
-        return Snapshot(tuple(Entry.from_wire(e)
-                              for e in value.get("entries", [])))
+        return Snapshot(
+            tuple(Entry.from_wire(e) for e in value.get("entries", [])),
+            tuple(Mount.from_wire(m) for m in value.get("mounts", [])))
 
 
 #: The empty tree is a constant, and its digest is stable.
@@ -184,7 +240,8 @@ def _walk(root: pathlib.Path) -> Iterator[pathlib.Path]:
 
 def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
             max_files: int = MAX_FILES, max_bytes: int = MAX_BYTES,
-            blobs: dict[str, bytes] | None = None) -> Snapshot:
+            blobs: dict[str, bytes] | None = None,
+            mounts: Sequence[Mount] = ()) -> Snapshot:
     """Read a directory into a snapshot.
 
     Symlinks are followed only within the tree and stored as the file
@@ -200,7 +257,14 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
         raise NotADirectoryError(f"not a directory: {base}")
     entries: list[Entry] = []
     total = 0
+    skip = tuple(m.at.rstrip("/") + "/" for m in mounts)
     for path in _walk(base):
+        rel = path.relative_to(base).as_posix()
+        if any(rel == m.at.rstrip("/") or rel.startswith(p)
+               for m, p in zip(mounts, skip, strict=True)):
+            # A mount cannot have changed; reading it back is the
+            # dominant cost on a large corpus and buys nothing.
+            continue
         real = path.resolve()
         if not str(real).startswith(str(base) + os.sep) and real != base:
             raise SnapshotLimit(
@@ -221,13 +285,13 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
         if blobs is not None:
             blobs[digest] = data
         entries.append(Entry(
-            path=path.relative_to(base).as_posix(),
+            path=rel,
             size=len(data),
             blob_hash=digest,
             executable=bool(real.stat().st_mode & stat.S_IXUSR),
             data=data if len(data) <= inline_max else None,
         ))
-    return Snapshot(tuple(entries))
+    return Snapshot(tuple(entries), tuple(mounts))
 
 
 def materialize(snapshot: Snapshot, root: str | os.PathLike[str], *,

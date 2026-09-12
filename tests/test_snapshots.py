@@ -196,3 +196,65 @@ class TestOneCanonicalOrder:
         src = write(tmp_path / "src",
                     {"z.txt": "1", "a.txt": "2", "m/q.txt": "3"})
         assert fs.capture(src).paths() == ("a.txt", "m/q.txt", "z.txt")
+
+
+class TestMountsAreNotCaptured:
+    """A read-only mount cannot have changed, so re-hashing it after
+    every tool call is the dominant cost on a large corpus and buys
+    nothing. Its identity is the object it came from."""
+
+    def test_a_mounted_tree_is_skipped(self, tmp_path):
+        root = write(tmp_path / "r", {"work.txt": "mine",
+                                      "data/big.txt": "x" * 1000,
+                                      "data/more.txt": "y" * 1000})
+        m = fs.Mount(at="data", object="benji/lab/corpus", digest="sha256:abc")
+        snap = fs.capture(root, mounts=[m])
+        assert snap.paths() == ("work.txt",)
+        assert snap.n_bytes == len("mine")
+        assert snap.mounts == (m,)
+
+    def test_the_mount_still_changes_the_digest(self, tmp_path):
+        root = write(tmp_path / "r", {"work.txt": "mine"})
+        a = fs.capture(root, mounts=[fs.Mount("data", "benji/lab/corpus-a")])
+        b = fs.capture(root, mounts=[fs.Mount("data", "benji/lab/corpus-b")])
+        assert a.digest() != b.digest(), "the mount is part of the state"
+
+    def test_without_the_mount_the_files_come_back(self, tmp_path):
+        root = write(tmp_path / "r", {"work.txt": "mine", "data/big.txt": "x"})
+        assert len(fs.capture(root).entries) == 2
+
+    def test_mounts_round_trip(self, tmp_path):
+        root = write(tmp_path / "r", {"work.txt": "mine", "data/x.txt": "y"})
+        snap = fs.capture(root, mounts=[fs.Mount("data", "benji/lab/c", "sha256:d")])
+        back = fs.Snapshot.from_wire(snap.to_wire())
+        assert back.mounts == snap.mounts and back.digest() == snap.digest()
+
+
+class TestTheStoredFormIsReferences:
+    """Measured: 2000 files at 4K is 8.43 MB with blobs inline and
+    0.22 MB as hashes. A session emits one snapshot per tool call."""
+
+    def test_blobs_are_not_inlined_by_default(self, tmp_path):
+        root = write(tmp_path / "r", {"a.txt": "hello"})
+        wire = fs.capture(root).to_wire()
+        assert "data" not in wire["entries"][0]
+        assert wire["entries"][0]["blob_hash"].startswith("sha256:")
+
+    def test_inline_is_available_for_a_fixture(self, tmp_path):
+        root = write(tmp_path / "r", {"a.txt": "hello"})
+        wire = fs.capture(root).to_wire(inline=True)
+        assert wire["entries"][0]["data"] == b"hello"
+
+    def test_the_digest_is_the_same_either_way(self, tmp_path):
+        root = write(tmp_path / "r", {"a.txt": "hello"})
+        snap = fs.capture(root)
+        assert (fs.Snapshot.from_wire(snap.to_wire()).digest()
+                == fs.Snapshot.from_wire(snap.to_wire(inline=True)).digest())
+
+    def test_the_reference_form_is_dramatically_smaller(self, tmp_path):
+        root = write(tmp_path / "r", {f"f{i}.txt": "x" * 500 for i in range(40)})
+        snap = fs.capture(root)
+        from mechbench_schema import dump_canonical
+        refs = len(dump_canonical(snap.to_wire()))
+        inline = len(dump_canonical(snap.to_wire(inline=True)))
+        assert inline > refs * 3, f"inline {inline} vs refs {refs}"

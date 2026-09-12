@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## 0.48.0 — 2026-09-11
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **`Snapshot.to_wire()` no longer inlines blobs by default.**
+  Measured on a 2000-file tree: 8.43 MB inline against 0.22 MB as
+  hash references — 38x. A sandbox session emits one snapshot per tool
+  call, so inlining put the whole tree on the wire for every `ls`.
+  `to_wire(inline=True)` keeps the self-contained form for fixtures.
+  The DIGEST is unchanged either way: inlining is a storage decision,
+  not a fact about the tree.
+- **Read-only mounts are excluded from capture.** `Mount(at, object,
+  digest)` marks a tree that cannot have changed; capture skips it and
+  the digest folds it in by IDENTITY. Mounting a 200 MB corpus was
+  costing a full re-hash on every tool call and buying nothing.
+
+---
+
 ## 0.47.0 — 2026-09-11
 
 Filesystem snapshots (task 000358, the base of the sandbox arc).
