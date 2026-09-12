@@ -1,8 +1,9 @@
 """The WASI sandbox runtime (task 000359) against the real guest.
 
-Every test here runs go-busybox compiled to wasip1 — the actual
-binary, not a stub — so what passes is what a protocol would get.
-Skipped when the guest is not on this machine.
+Every test here runs mbshell — go-busybox's applets behind an
+in-process shell, compiled to wasip1; the actual binary, not a stub —
+so what passes is what a protocol would get. Skipped when the guest
+is not built on this machine (`guests/mbshell/build.sh`).
 """
 from __future__ import annotations
 
@@ -15,35 +16,25 @@ from mechbench_compute import guests, sandbox, snapshots as fs
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 BUILT = pathlib.Path(os.environ.get(
-    "MECHBENCH_BUSYBOX_WASM",
-    "/private/tmp/claude-501/-Users-benji-dev-redthreadlabs-evalcreativity/"
-    "7062e481-d49e-40e7-b5a5-9752562db670/scratchpad/go-busybox/build/busybox.wasm"))
-MBSHELL = pathlib.Path(os.environ.get(
     "MECHBENCH_MBSHELL_WASM", REPO / "guests" / "mbshell" / "build" / "mbshell.wasm"))
 L = sandbox.Limits
 
 
-def _installed(name: str, path: pathlib.Path, tmp_path_factory) -> str:
+@pytest.fixture(scope="module")
+def guest(tmp_path_factory):
     """The guest's registered NAME, so every run resolves the way a
     protocol's would. install_local hashes the local build against
     the pin in `guests.REGISTRY`: a build that comes out different
     fails here, on purpose, rather than running under the pinned
     name."""
-    if not path.is_file():
-        pytest.skip(f"{path.name} not built on this machine")
-    os.environ.setdefault("MECHBENCH_GUEST_CACHE", str(tmp_path_factory.mktemp("guests")))
-    guests.install_local(name, path)
-    return name
+    if not BUILT.is_file():
+        pytest.skip("mbshell.wasm not built on this machine — guests/mbshell/build.sh")
+    os.environ["MECHBENCH_GUEST_CACHE"] = str(tmp_path_factory.mktemp("guests"))
+    guests.install_local("mbshell", BUILT)
+    return "mbshell"
 
 
-@pytest.fixture(scope="module")
-def guest(tmp_path_factory):
-    return _installed("busybox", BUILT, tmp_path_factory)
-
-
-@pytest.fixture(scope="module")
-def shell(tmp_path_factory):
-    return _installed("mbshell", MBSHELL, tmp_path_factory)
+shell = guest
 
 
 SEED = fs.seeded({"a.txt": "one two three\n", "sub/b.txt": "four\nfive\n",
@@ -80,7 +71,7 @@ class TestTheLoopWorks:
         assert r.ok and r.stdout == "hi\n"
 
     def test_an_unregistered_name_says_so(self, guest):
-        with pytest.raises(sandbox.SandboxError, match="no guest named 'cpython'"):
+        with pytest.raises(sandbox.SandboxError, match="no guest named 'cpython'.*known: mbshell"):
             sandbox.run(SEED, ["python3"], guest="cpython")
 
     def test_a_missing_applet_is_an_ordinary_failure(self, guest):
@@ -142,12 +133,6 @@ class TestWhatTheSandboxCannotDo:
         r = sandbox.run(fs.EMPTY, ["wget", "-O", "x", "http://example.com/"],
                         guest=guest, limits=L(wall_seconds=5))
         assert r.exit_code != 0 and "x" not in r.snapshot.paths()
-
-    def test_no_shell_in_this_guest(self, guest):
-        # go-busybox stubs ash out under wasm: the native shell forks a
-        # process per pipeline stage and WASI preview1 cannot spawn one.
-        r = sandbox.run(SEED, ["sh", "-c", "echo hi"], guest=guest)
-        assert r.exit_code != 0 and "not supported in wasm" in r.stderr
 
     def test_awk_panics_in_this_guest(self, guest):
         # TinyGo lacks reflect.Type.NumIn, which goawk needs. Recorded

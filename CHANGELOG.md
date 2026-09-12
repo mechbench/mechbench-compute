@@ -26,21 +26,22 @@ nothing said so.
   denied: a guest blocked in it is beyond epoch interruption (`sleep
   10` under a 1 s cap ran 10,002 ms), and no tool call needs to wait.
 - **`guests.ensure(name)` fetches a pinned guest on first use and
-  verifies it by hash**; wrong bytes are deleted, never run. `busybox`
-  is pinned (go-busybox `13f3053`, TinyGo `wasip1`) but **not hosted**
-  — upstream claims MIT with no LICENSE file in the tree, so the bytes
-  come from a local build via `guests.install_local`, which refuses a
-  build that differs from the pin unless told `replace=True`.
-- **`mbshell` guest pinned** (`guests/mbshell/`, buildable with
-  `build.sh`): the same applets behind an in-process POSIX shell,
-  because go-busybox's own `sh` is fork/exec and WASI cannot spawn a
-  process — it is stubbed upstream. mvdan/sh v3.12.0 with a four-item
-  WASI patch (`io.Pipe`, `io.Reader` stdin, existence-only `access`,
-  deadline only where supported) runs pipelines on goroutines and
-  hands every command to the applet table. Pipelines, redirects into
-  the snapshot, `cd`, `$(…)`, heredocs, `set -e`, `/dev/null` all
-  work; strict runs are byte-identical. Applets that exec a command
-  themselves (`xargs`, `find -exec`, `timeout`) do not work yet.
+  verifies it by hash**; wrong bytes are deleted, never run. A local
+  build goes in through `guests.install_local`, which refuses a build
+  that differs from the pin unless told `replace=True`.
+- **The guest is `mbshell`** (`guests/mbshell/`, buildable with
+  `build.sh`): go-busybox's applets (go-busybox `13f3053`, TinyGo
+  `wasip1`) behind an in-process POSIX shell, because go-busybox's
+  own `sh` is fork/exec and WASI cannot spawn a process — it is
+  stubbed upstream, so plain busybox is not pinned at all. mvdan/sh
+  v3.12.0 with a four-item WASI patch (`io.Pipe`, `io.Reader` stdin,
+  existence-only `access`, deadline only where supported) runs
+  pipelines on goroutines and hands every command to the applet
+  table. Pipelines, redirects into the snapshot, `cd`, `$(…)`,
+  heredocs, `set -e`, `/dev/null` all work; strict runs are
+  byte-identical. Applets that exec a command themselves (`xargs`,
+  `find -exec`, `timeout`) do not work yet. **Not hosted**: upstream
+  claims MIT with no LICENSE file in the tree.
 - New dependency: `wasmtime>=48` (8 MB, native wheel).
 
 ### Changes that alter results without raising

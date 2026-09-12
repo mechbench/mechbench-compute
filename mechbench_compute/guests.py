@@ -53,21 +53,16 @@ class GuestUnavailable(RuntimeError):
 
 #: name -> pinned artifact.
 #:
-#: busybox is go-busybox compiled with TinyGo to wasip1
-#: (`tinygo build -target=wasip1 -opt=z -no-debug`). Pinned by the hash
-#: of OUR build; not hosted yet — the upstream README says MIT but the
-#: tree carries no LICENSE file, and hosting a built artifact is
-#: redistribution. Until that is settled the bytes come from a local
-#: build via `install_local`, which must match this hash.
+#: mbshell is THE guest: go-busybox's applets behind an in-process
+#: POSIX shell (mvdan/sh with a small WASI patch), compiled with TinyGo
+#: to wasip1 — recipe and rationale in `guests/mbshell/`. Plain
+#: busybox is not pinned because it has no shell under wasm and never
+#: will (its ash is fork/exec). Not hosted yet: go-busybox's README
+#: says MIT but the tree carries no LICENSE file, and hosting a built
+#: artifact is redistribution. Until that is settled the bytes come
+#: from `guests/mbshell/build.sh` via `install_local`, which must match
+#: this hash.
 REGISTRY: dict[str, Guest] = {
-    "busybox": Guest(
-        name="busybox", url="",
-        sha256="7d52fbc25788a4c76914855430a8dfc7b8b2c662da93574ee9f807678326140c",
-        size=2231168,
-        source="github.com/rcarmo/go-busybox@13f3053fa3ddf4589baa610feb268f076a9555ea"),
-    # The same applets behind an in-process POSIX shell (mvdan/sh with a
-    # four-item WASI patch), because busybox's own sh is fork/exec and
-    # WASI cannot spawn a process. Recipe: guests/mbshell/build.sh.
     "mbshell": Guest(
         name="mbshell", url="",
         sha256="22e943296a4c9dc610c851bdc31c6df6f722f83afee000ef9df5e6fe08d91bdd",

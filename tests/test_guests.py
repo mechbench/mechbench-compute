@@ -93,21 +93,21 @@ class TestThePin:
         with pytest.raises(guests.GuestUnavailable, match="not hosted yet.*repo@sha.*install_local"):
             guests.ensure("g")
 
-    def test_the_real_registry_pins_both_guests(self, monkeypatch):
+    def test_the_real_registry_pins_the_guest(self, monkeypatch):
         monkeypatch.undo()  # the autouse fixture emptied it; look at the real one
         from mechbench_compute import guests as real
-        for name in ("busybox", "mbshell"):
-            g = real.REGISTRY[name]
-            assert len(g.sha256) == 64 and g.size > 1_000_000 and g.source
-            # Not hosted: an earlier test module may have install_local'd a
-            # file:// build, but nothing points at a server yet.
-            assert not g.url.startswith("http"), "hosting is blocked on the LICENSE question"
+        assert list(real.REGISTRY) == ["mbshell"], "one guest; busybox alone has no shell"
+        g = real.REGISTRY["mbshell"]
+        assert len(g.sha256) == 64 and g.size > 1_000_000 and g.source
+        # Not hosted: an earlier test module may have install_local'd a
+        # file:// build, but nothing points at a server yet.
+        assert not g.url.startswith("http"), "hosting is blocked on the LICENSE question"
 
 
 class TestRefusals:
     def test_an_unknown_guest_names_the_known_ones(self):
-        guests.register(guests.Guest("busybox", "x", "y", 1))
-        with pytest.raises(guests.GuestUnavailable, match="known: busybox"):
+        guests.register(guests.Guest("mbshell", "x", "y", 1))
+        with pytest.raises(guests.GuestUnavailable, match="known: mbshell"):
             guests.ensure("cpython")
 
     def test_no_fetch_means_no_fetch(self, tmp_path):
