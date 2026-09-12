@@ -13,25 +13,37 @@ import pytest
 
 from mechbench_compute import guests, sandbox, snapshots as fs
 
+REPO = pathlib.Path(__file__).resolve().parent.parent
 BUILT = pathlib.Path(os.environ.get(
     "MECHBENCH_BUSYBOX_WASM",
     "/private/tmp/claude-501/-Users-benji-dev-redthreadlabs-evalcreativity/"
     "7062e481-d49e-40e7-b5a5-9752562db670/scratchpad/go-busybox/build/busybox.wasm"))
-pytestmark = pytest.mark.skipif(not BUILT.is_file(),
-                                reason="busybox.wasm not built on this machine")
+MBSHELL = pathlib.Path(os.environ.get(
+    "MECHBENCH_MBSHELL_WASM", REPO / "guests" / "mbshell" / "build" / "mbshell.wasm"))
 L = sandbox.Limits
+
+
+def _installed(name: str, path: pathlib.Path, tmp_path_factory) -> str:
+    """The guest's registered NAME, so every run resolves the way a
+    protocol's would. install_local hashes the local build against
+    the pin in `guests.REGISTRY`: a build that comes out different
+    fails here, on purpose, rather than running under the pinned
+    name."""
+    if not path.is_file():
+        pytest.skip(f"{path.name} not built on this machine")
+    os.environ.setdefault("MECHBENCH_GUEST_CACHE", str(tmp_path_factory.mktemp("guests")))
+    guests.install_local(name, path)
+    return name
 
 
 @pytest.fixture(scope="module")
 def guest(tmp_path_factory):
-    """The guest's registered NAME, so every run below resolves the
-    way a protocol's would. install_local hashes the local build
-    against the pin in `guests.REGISTRY`: a build that comes out
-    different fails here, on purpose, rather than running under the
-    pinned name."""
-    os.environ["MECHBENCH_GUEST_CACHE"] = str(tmp_path_factory.mktemp("guests"))
-    guests.install_local("busybox", BUILT)
-    return "busybox"
+    return _installed("busybox", BUILT, tmp_path_factory)
+
+
+@pytest.fixture(scope="module")
+def shell(tmp_path_factory):
+    return _installed("mbshell", MBSHELL, tmp_path_factory)
 
 
 SEED = fs.seeded({"a.txt": "one two three\n", "sub/b.txt": "four\nfive\n",
@@ -142,3 +154,49 @@ class TestWhatTheSandboxCannotDo:
         # so the next reader does not spend an hour rediscovering it.
         r = sandbox.run(SEED, ["awk", "{print NF}", "a.txt"], guest=guest)
         assert r.exit_code != 0 and r.limit is None
+
+
+class TestTheShell:
+    """mbshell: the applets behind an in-process POSIX shell. Every
+    command here would have been a fork in busybox's own sh, which is
+    why that one is stubbed under wasm and this one exists."""
+
+    def sh(self, shell, script, **kw):
+        return sandbox.run(SEED, ["sh", "-c", script], guest=shell, **kw)
+
+    def test_a_pipeline(self, shell):
+        r = self.sh(shell, 'find . -name "*.txt" | wc -l')
+        assert r.ok and r.stdout == "2\n"
+
+    def test_a_redirect_lands_in_the_snapshot(self, shell):
+        r = self.sh(shell, "grep -r four . | sort > out.txt")
+        assert r.ok and r.changed.added == ("out.txt",)
+        assert r.snapshot.get("out.txt").data == b"sub/b.txt:four\n"
+
+    def test_cd_and_command_substitution(self, shell):
+        r = self.sh(shell, 'cd sub && pwd && echo $(wc -l < b.txt)')
+        assert r.ok and r.stdout == "/sub\n2\n"
+
+    def test_a_heredoc_through_a_pipe(self, shell):
+        r = self.sh(shell, "cat <<EOF | wc -c\nhello heredoc\nEOF")
+        assert r.ok and r.stdout == "14\n"
+
+    def test_dev_null_and_exit_codes(self, shell):
+        r = self.sh(shell, 'nosuch 2>/dev/null || echo "exit=$?"')
+        assert r.ok and r.stdout == "exit=127\n" and r.stderr == ""
+
+    def test_set_e_stops(self, shell):
+        r = self.sh(shell, "set -e; false; echo not-reached")
+        assert r.exit_code == 1 and r.stdout == ""
+
+    def test_strict_is_a_function_of_inputs(self, shell):
+        a = self.sh(shell, 'find . -name "*.txt" | sort | wc -l', strict=True)
+        b = self.sh(shell, 'find . -name "*.txt" | sort | wc -l', strict=True)
+        assert a.ok and (a.stdout, a.snapshot.digest()) == (b.stdout, b.snapshot.digest())
+
+    def test_applets_that_exec_do_not_work_yet(self, shell):
+        # xargs, find -exec, timeout … call exec.Command inside the
+        # applet. Routing those through the in-process table needs a
+        # seam in go-busybox. Pinned so the day it works is noticed.
+        r = self.sh(shell, 'find . -name "*.txt" | xargs wc -l')
+        assert r.exit_code == 1 and "executable file not found" in r.stderr

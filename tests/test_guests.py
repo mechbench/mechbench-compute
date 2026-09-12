@@ -93,11 +93,15 @@ class TestThePin:
         with pytest.raises(guests.GuestUnavailable, match="not hosted yet.*repo@sha.*install_local"):
             guests.ensure("g")
 
-    def test_busybox_is_pinned_in_the_real_registry(self, monkeypatch):
+    def test_the_real_registry_pins_both_guests(self, monkeypatch):
         monkeypatch.undo()  # the autouse fixture emptied it; look at the real one
         from mechbench_compute import guests as real
-        assert "busybox" in real.REGISTRY
-        assert not real.REGISTRY["busybox"].hosted, "hosting is blocked on the LICENSE question"
+        for name in ("busybox", "mbshell"):
+            g = real.REGISTRY[name]
+            assert len(g.sha256) == 64 and g.size > 1_000_000 and g.source
+            # Not hosted: an earlier test module may have install_local'd a
+            # file:// build, but nothing points at a server yet.
+            assert not g.url.startswith("http"), "hosting is blocked on the LICENSE question"
 
 
 class TestRefusals:

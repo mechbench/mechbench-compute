@@ -65,6 +65,14 @@ REGISTRY: dict[str, Guest] = {
         sha256="7d52fbc25788a4c76914855430a8dfc7b8b2c662da93574ee9f807678326140c",
         size=2231168,
         source="github.com/rcarmo/go-busybox@13f3053fa3ddf4589baa610feb268f076a9555ea"),
+    # The same applets behind an in-process POSIX shell (mvdan/sh with a
+    # four-item WASI patch), because busybox's own sh is fork/exec and
+    # WASI cannot spawn a process. Recipe: guests/mbshell/build.sh.
+    "mbshell": Guest(
+        name="mbshell", url="",
+        sha256="22e943296a4c9dc610c851bdc31c6df6f722f83afee000ef9df5e6fe08d91bdd",
+        size=2838486,
+        source="guests/mbshell (go-busybox@13f3053 + mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch)"),
 }
 
 
