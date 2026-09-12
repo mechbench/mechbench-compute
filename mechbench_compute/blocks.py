@@ -285,11 +285,39 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
 def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """Concatenate record streams, structurally recording source
     segments; each record gains a batch coordinate named after its
-    input port. Collections never mutate — growth is union."""
+    input port. Collections never mutate — growth is union.
+
+    A union of `residual_vectors` records stays a `residual_vectors`
+    record (task 000368): a base capture and an adapted capture come
+    from two model nodes, and `direction/from-vectors` reads ONE record
+    whose rows carry labels — so each row is labelled by its port when
+    it has no label of its own, and the wrapper (point, layers, width)
+    is carried, with `layers` the union. Cross-model comparison is a
+    union followed by the direction algebra, no bespoke block."""
     batch_axis = params.get("batch_axis", "batch")
+    ports = sorted(inputs.keys())
+    vector_inputs = [inputs[p] for p in ports]
+    if ports and all(isinstance(v, Mapping) and v.get("kind") == "residual_vectors"
+                     for v in vector_inputs):
+        first = vector_inputs[0]
+        rows: list[dict[str, Any]] = []
+        layers: set[int] = set()
+        segments = []
+        for port in ports:
+            rec = inputs[port]
+            segments.append({"source": port, "count": len(rec.get("rows", []))})
+            for r in rec.get("rows", []):
+                layers.add(int(r.get("layer", -1)))
+                rows.append({**r, "label": r.get("label") if r.get("label")
+                             is not None else port,
+                             "coords": {**r.get("coords", {}), batch_axis: port}})
+        return {**{k: v for k, v in first.items() if k != "rows"},
+                "kind": "residual_vectors",
+                "layers": sorted(x for x in layers if x >= 0),
+                "segments": segments, "rows": rows}
     segments = []
     records = []
-    for port in sorted(inputs.keys()):
+    for port in ports:
         recs = _records(inputs[port])
         segments.append({"source": port, "count": len(recs)})
         for r in recs:
@@ -479,6 +507,10 @@ def text_stats(inputs: Mapping[str, Any],
     field = params.get("field", "text")
     measures = params.get("measures") or []
     mode = params.get("mode", "annotate")
+    # `keep` (task 000368): an annotated row carries the whole item —
+    # text, trace, metadata — not just id + coords + measures, so a
+    # capture downstream can replay the story it was labelled on.
+    keep = bool(params.get("keep", False))
 
     freq_input = inputs.get("frequencies")
     if isinstance(freq_input, Mapping):
@@ -529,7 +561,7 @@ def text_stats(inputs: Mapping[str, Any],
     corpus_words: list[str] = []
     for r in recs:
         text = str(r.get(field, ""))
-        row = {"id": r.get("id"), "coords": coords_of(r)}
+        row = {**(r if keep else {}), "id": r.get("id"), "coords": coords_of(r)}
         for name, kind, cfg in compiled:
             if kind == "pattern":
                 probe = text.lstrip() if cfg["where"] == "prefix" else text

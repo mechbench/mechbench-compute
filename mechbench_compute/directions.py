@@ -280,10 +280,48 @@ def block_normalize(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dic
     return normalize(inputs.get("direction") or params.get("direction"))
 
 
+def similarity_matrix(named: Sequence[tuple[str, Mapping[str, Any]]]) -> dict[str, Any]:
+    """Pairwise cosines over MANY directions at once — the pressure-axis
+    geometry question (experiment 018: are eight adapters' axes
+    aligned?) in one node rather than twenty-eight. Norms ride along
+    from each direction (the magnitude before it was made unit)."""
+    if len(named) < 2:
+        raise ValueError("a similarity matrix needs at least two directions")
+    names = [n for n, _ in named]
+    vecs = [as_array(d) for _, d in named]
+    for _, d in named[1:]:
+        same_space(named[0][1], d)
+    M = np.stack([v / (np.linalg.norm(v) or 1.0) for v in vecs])
+    C = M @ M.T
+    pairs = [{"a": names[i], "b": names[j], "cosine": round(float(C[i, j]), 6)}
+             for i in range(len(names)) for j in range(i + 1, len(names))]
+    return {
+        "kind": "direction_similarity_matrix",
+        "names": names,
+        "layer": named[0][1].get("layer"),
+        "point": named[0][1].get("point"),
+        "cosines": [[round(float(x), 6) for x in row] for row in C],
+        "norms": {n: d.get("norm") for n, d in named},
+        "pairs": sorted(pairs, key=lambda p: -p["cosine"]),
+    }
+
+
 def block_similarity(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    """`a` and `b` → one cosine (unchanged). Any other set of direction
+    ports (or params.directions) → the pairwise matrix, named by port."""
     a = inputs.get("a") or params.get("a")
     b = inputs.get("b") or params.get("b")
-    return similarity(a, b)
+    if a is not None and b is not None:
+        return similarity(a, b)
+    named: list[tuple[str, Mapping[str, Any]]] = []
+    listed = inputs.get("directions") or params.get("directions")
+    if isinstance(listed, list):
+        named.extend((f"d{i}", d) for i, d in enumerate(listed))
+    for k in sorted(inputs):
+        v = inputs[k]
+        if isinstance(v, Mapping) and v.get("kind") == KIND and k != "directions":
+            named.append((k, v))
+    return similarity_matrix(named)
 
 
 def block_project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:

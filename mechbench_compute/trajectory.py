@@ -460,7 +460,10 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                              "std": round(float(a.std()), 6)})
         else:
             m = np.mean(np.stack(vals), axis=0)
-            out_rows.append({"id": str(g), "label": g, "layer": layer,
+            # Labels go out as strings: `direction/from-vectors` names its
+            # positive/negative labels as strings, and a text/stats hit
+            # arrives as the integer 1/0.
+            out_rows.append({"id": str(g), "label": str(g), "layer": layer,
                              "n_pooled": len(vals),
                              "vector": [round(float(x), 5) for x in m]})
     if mode == "vectors":

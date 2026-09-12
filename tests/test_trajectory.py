@@ -258,6 +258,40 @@ class TestWiring:
         assert [r["id"] for r in blocks.select(recs, {"where": {"hit": 1}})] == ["a"]
         assert len(blocks.select(recs, {"where": {"p": "flash"}})) == 2
 
+    def test_union_of_vector_records_stays_a_vector_record(self):
+        # base and adapted captures come from two model nodes; their
+        # union must still be what direction/from-vectors reads.
+        def vec(label_rows):
+            return {"kind": "residual_vectors", "point": "post", "source": "resid",
+                    "position": "final", "layers": [12], "d_model": D,
+                    "template": "chat", "rows": label_rows}
+        base = vec([{"id": "flash", "layer": 12, "vector": onehot(1, 1.0)}])
+        adapted = vec([{"id": "flash", "layer": 12, "vector": onehot(2, 1.0)}])
+        out = blocks.union({"base": base, "adapted": adapted}, {})
+        assert out["kind"] == "residual_vectors" and out["layers"] == [12]
+        assert [r["label"] for r in out["rows"]] == ["adapted", "base"]  # port order
+        from mechbench_compute import directions as dirs
+        d = dirs.from_vectors(out, layer=12, positive="base", negative="adapted")
+        v = np.asarray(d["vector"])
+        assert v[1] > 0 and v[2] < 0
+
+    def test_union_of_plain_records_is_unchanged(self):
+        out = blocks.union({"a": [{"id": "1"}], "b": [{"id": "2"}]}, {})
+        assert out["kind"] == "record_set"
+        assert [r["coords"]["batch"] for r in out["records"]] == ["a", "b"]
+
+    def test_text_stats_keep_retains_the_item(self):
+        items = {"items": [{"id": "s1", "text": "The old lighthouse keeper sat.",
+                            "trace": {"token_ids": [1, 2, 3]}}]}
+        params = {"mode": "annotate", "keep": True,
+                  "measures": [{"kind": "pattern", "name": "opening",
+                                "where": "prefix", "ignore_case": True,
+                                "patterns": [r"the old lighthouse"]}]}
+        rows = blocks.text_stats({"documents": items}, params)
+        assert rows[0]["opening"] == 1
+        assert rows[0]["trace"] == {"token_ids": [1, 2, 3]}  # kept for capture
+        assert rows[0]["text"].startswith("The old")
+
 
 class TestFirstKPool:
     def test_windowed_pool_reads_the_opening(self):

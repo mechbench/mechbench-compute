@@ -20,6 +20,36 @@ def _vectors(layer=3, point="post", n=4, dim=8, seed=1):
     return {"kind": "residual_vectors", "point": point, "model": "fake/m@r", "rows": rows}
 
 
+class TestSimilarityMatrix:
+    """Many directions at once (experiment 018's axis geometry): the
+    pairwise matrix named by port, norms riding along."""
+
+    def _dir(self, vec, norm_scale=1.0):
+        return d.make([x * norm_scale for x in vec], layer=12, point="resid_post",
+                      method="t")
+
+    def test_pairwise_cosines_named_by_port(self):
+        out = d.block_similarity(
+            {"die": self._dir([1, 0, 0], 2.0), "n1000": self._dir([1, 0, 0], 3.0),
+             "joint": self._dir([0, 1, 0])}, {})
+        assert out["kind"] == "direction_similarity_matrix"
+        assert out["names"] == ["die", "joint", "n1000"]  # sorted ports
+        i, j = out["names"].index("die"), out["names"].index("n1000")
+        assert out["cosines"][i][j] == 1.0
+        assert out["cosines"][i][out["names"].index("joint")] == 0.0
+        assert out["norms"] == {"die": 2.0, "joint": 1.0, "n1000": 3.0}
+        assert out["pairs"][0] == {"a": "die", "b": "n1000", "cosine": 1.0}
+
+    def test_two_named_ports_still_give_one_cosine(self):
+        out = d.block_similarity({"a": self._dir([1, 0, 0]),
+                                  "b": self._dir([0, 1, 0])}, {})
+        assert out["kind"] == "direction_similarity" and out["cosine"] == 0.0
+
+    def test_one_direction_is_refused(self):
+        with pytest.raises(ValueError, match="at least two"):
+            d.block_similarity({"only": self._dir([1, 0, 0])}, {})
+
+
 class TestMake:
     def test_unit_and_provenance(self):
         x = d.make([3.0, 4.0], layer=2, point="resid_post", method="test", sources=["a"])

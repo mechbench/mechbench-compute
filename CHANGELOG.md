@@ -13,6 +13,34 @@ nothing said so.
 
 ---
 
+## 0.63.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **A `union` of `residual_vectors` records is a `residual_vectors`
+  record** (task 000368), rows labelled by their port when unlabelled,
+  the wrapper carried, `layers` the union. It used to be a `record_set`
+  that no vector block could read, so no working protocol depended on
+  the old output — but a union node over vector records now emits a
+  different kind. Cross-model comparison (base vs adapted, experiment
+  018) is a union followed by `direction/from-vectors`.
+- **`text/stats` `keep: true`** carries the whole item (text, trace,
+  metadata) on an annotated row, so a capture downstream can replay
+  the story it was labelled on. Off by default; rows are unchanged
+  without it.
+- **`direction/similarity` over many ports** returns the pairwise
+  cosine matrix (`direction_similarity_matrix`: names, cosines, norms,
+  sorted pairs). `a`+`b` still return the single cosine.
+- `trajectory/aggregate` `as: "vectors"` emits string labels, so a
+  text/stats hit (the integer 1/0) meets `from-vectors`' string
+  labels.
+
+---
+
 ## 0.62.0 — 2026-09-13
 
 ### Changes that raise
