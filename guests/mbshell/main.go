@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"mvdan.cc/sh/v3/expand"
@@ -144,6 +145,41 @@ var applets = map[string]appletFunc{
 func init() {
 	applets["sh"] = shell
 	applets["ash"] = shell
+	// Applets that would exec a command (xargs, time, timeout) call
+	// back into this table instead. See go-busybox-wasi.patch.
+	core.RunCommand = func(stdio *core.Stdio, name string, args []string) (int, bool) {
+		run, ok := applets[name]
+		if !ok {
+			return 127, false
+		}
+		return call(run, stdio, name, args), true
+	}
+}
+
+// call runs one applet and turns a panic inside it into a failed
+// command rather than a dead sandbox. Known panics: TinyGo's
+// os.File.Read returns a negative count on a directory and bufio
+// panics on it (`wc -c .`); awk trips a reflect gap.
+func call(run appletFunc, stdio *core.Stdio, name string, args []string) (code int) {
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Fprintf(stdio.Err, "%s: internal error: %v\n", name, p)
+			code = 2
+		}
+	}()
+	return run(stdio, args)
+}
+
+// exit ends the program with `code`. WASI hosts reject proc_exit
+// outside [0, 126) and discard the number, so a status of 126 or more
+// — 127 is "command not found" — goes through the sandbox's side
+// channel when it is mounted, and the process exits 125.
+func exit(code int) {
+	if code >= 126 {
+		_ = os.WriteFile("/.mechbench/exit", []byte(strconv.Itoa(code)), 0o644)
+		code = 125
+	}
+	os.Exit(code)
 }
 
 func main() {
@@ -151,15 +187,15 @@ func main() {
 	applet, args := resolveApplet(os.Args)
 	if applet == "" {
 		printAppletList(stdio)
-		os.Exit(core.ExitUsage)
+		exit(core.ExitUsage)
 	}
 	run, ok := applets[applet]
 	if !ok {
 		stdio.Errorf("busybox: applet not found: %s\n", applet)
 		printAppletList(stdio)
-		os.Exit(core.ExitUsage)
+		exit(core.ExitUsage)
 	}
-	os.Exit(run(stdio, args))
+	exit(call(run, stdio, applet, args))
 }
 
 func resolveApplet(args []string) (string, []string) {
@@ -200,7 +236,7 @@ func dispatch(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 				return interp.ExitStatus(1)
 			}
 		}
-		code := run(&core.Stdio{In: hc.Stdin, Out: hc.Stdout, Err: hc.Stderr}, args[1:])
+		code := call(run, &core.Stdio{In: hc.Stdin, Out: hc.Stdout, Err: hc.Stderr}, args[0], args[1:])
 		if code != 0 {
 			return interp.ExitStatus(code)
 		}
@@ -208,7 +244,8 @@ func dispatch(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 	}
 }
 
-// shell is `sh -c CMD`, `sh FILE`, or `sh` reading the script on stdin.
+// shell is `sh -c CMD [NAME [ARG…]]`, `sh FILE [ARG…]`, or `sh` reading
+// the script on stdin. NAME becomes $0, as POSIX says.
 func shell(stdio *core.Stdio, args []string) int {
 	var src io.Reader
 	name := "sh"
@@ -217,6 +254,9 @@ func shell(stdio *core.Stdio, args []string) int {
 	case len(args) >= 2 && args[0] == "-c":
 		src = strings.NewReader(args[1])
 		params = args[2:]
+		if len(params) > 0 {
+			name, params = params[0], params[1:]
+		}
 	case len(args) >= 1 && !strings.HasPrefix(args[0], "-"):
 		f, err := os.Open(args[0])
 		if err != nil {

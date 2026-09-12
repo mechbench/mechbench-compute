@@ -1,0 +1,174 @@
+diff --git a/pkg/applets/ls/blocks_other.go b/pkg/applets/ls/blocks_other.go
+new file mode 100644
+index 0000000..a13602a
+--- /dev/null
++++ b/pkg/applets/ls/blocks_other.go
+@@ -0,0 +1,7 @@
++//go:build !wasip1
++
++package ls
++
++import "syscall"
++
++func blocksOf(st *syscall.Stat_t) int64 { return int64(st.Blocks) }
+diff --git a/pkg/applets/ls/blocks_wasip1.go b/pkg/applets/ls/blocks_wasip1.go
+new file mode 100644
+index 0000000..affe91a
+--- /dev/null
++++ b/pkg/applets/ls/blocks_wasip1.go
+@@ -0,0 +1,8 @@
++//go:build wasip1
++
++package ls
++
++import "syscall"
++
++// WASI's filestat has no block count. (mechbench seam)
++func blocksOf(st *syscall.Stat_t) int64 { return 0 }
+diff --git a/pkg/applets/ls/ls.go b/pkg/applets/ls/ls.go
+index 5814599..d0757d2 100644
+--- a/pkg/applets/ls/ls.go
++++ b/pkg/applets/ls/ls.go
+@@ -311,7 +311,7 @@ func getBlocks(path string, info fs.FileInfo) int64 {
+ 	if sys := info.Sys(); sys != nil {
+ 		if stat, ok := sys.(*syscall.Stat_t); ok {
+ 			// st_blocks is in 512-byte units; convert to 1024-byte
+-			return stat.Blocks / 2
++			return blocksOf(stat) / 2
+ 		}
+ 	}
+ 	// Fallback: estimate from size (round up to 4K blocks)
+diff --git a/pkg/applets/time/time_wasm.go b/pkg/applets/time/time_wasm.go
+index 608a8ef..9fe153e 100644
+--- a/pkg/applets/time/time_wasm.go
++++ b/pkg/applets/time/time_wasm.go
+@@ -2,10 +2,35 @@
+ 
+ package time
+ 
+-import "github.com/rcarmo/go-busybox/pkg/core"
++import (
++	"time"
+ 
+-// Run is a stub that returns an error on WASM platforms where time is unsupported.
++	"github.com/rcarmo/go-busybox/pkg/core"
++	"github.com/rcarmo/go-busybox/pkg/core/timeutil"
++)
++
++// Run under wasm runs COMMAND in-process through core.RunCommand and
++// reports real elapsed time from the host's clock — which, under a
++// strict sandbox, is a virtual one. (mechbench seam)
+ func Run(stdio *core.Stdio, args []string) int {
+-	stdio.Errorf("time: not supported in wasm\n")
+-	return core.ExitFailure
++	if len(args) == 0 {
++		return core.UsageError(stdio, "time", "missing command")
++	}
++	if core.RunCommand == nil {
++		stdio.Errorf("time: not supported in wasm\n")
++		return core.ExitFailure
++	}
++	start := time.Now()
++	code, found := core.RunCommand(stdio, args[0], args[1:])
++	elapsed := time.Since(start)
++	if !found {
++		stdio.Errorf("time: %s: not found\n", args[0])
++		return 127
++	}
++	sec := elapsed.Seconds()
++	spec := timeutil.DurationSpec{Duration: elapsed, Unit: "s", Value: sec}
++	stdio.Errorf("real\t%s\n", timeutil.FormatDuration(spec))
++	stdio.Errorf("user\t0.00\n")
++	stdio.Errorf("sys\t0.00\n")
++	return code
+ }
+diff --git a/pkg/applets/timeout/timeout_wasm.go b/pkg/applets/timeout/timeout_wasm.go
+index 303958c..1e41038 100644
+--- a/pkg/applets/timeout/timeout_wasm.go
++++ b/pkg/applets/timeout/timeout_wasm.go
+@@ -2,10 +2,42 @@
+ 
+ package timeout
+ 
+-import "github.com/rcarmo/go-busybox/pkg/core"
++import (
++	"strings"
+ 
+-// Run is a stub that returns an error on WASM platforms where timeout is unsupported.
++	"github.com/rcarmo/go-busybox/pkg/core"
++	"github.com/rcarmo/go-busybox/pkg/core/timeutil"
++)
++
++// Run under wasm runs COMMAND in-process through core.RunCommand and
++// returns its status. DURATION is parsed for validity and then NOT
++// enforced: there is no process to signal and a goroutine cannot be
++// preempted, so the sandbox's own wall-clock cap is the only clock.
++// (mechbench seam)
+ func Run(stdio *core.Stdio, args []string) int {
+-	stdio.Errorf("timeout: not supported in wasm\n")
+-	return core.ExitFailure
++	i := 0
++	for i < len(args) && strings.HasPrefix(args[i], "-") {
++		switch args[i] {
++		case "-s", "--signal", "-k", "--kill-after":
++			i += 2
++		default:
++			i++
++		}
++	}
++	if len(args)-i < 2 {
++		return core.UsageError(stdio, "timeout", "missing duration or command")
++	}
++	if _, err := timeutil.ParseDuration(args[i]); err != nil {
++		return core.UsageError(stdio, "timeout", "invalid duration")
++	}
++	if core.RunCommand == nil {
++		stdio.Errorf("timeout: not supported in wasm\n")
++		return core.ExitFailure
++	}
++	code, found := core.RunCommand(stdio, args[i+1], args[i+2:])
++	if !found {
++		stdio.Errorf("timeout: %s: not found\n", args[i+1])
++		return 127
++	}
++	return code
+ }
+diff --git a/pkg/applets/xargs/xargs.go b/pkg/applets/xargs/xargs.go
+index 928d9e9..6ff507e 100644
+--- a/pkg/applets/xargs/xargs.go
++++ b/pkg/applets/xargs/xargs.go
+@@ -191,6 +191,16 @@ func runOne(stdio *core.Stdio, cmdName string, cmdArgs []string, trace bool) int
+ 	if trace {
+ 		stdio.Errorf("%s\n", strings.Join(fullArgs, " "))
+ 	}
++	if core.RunCommand != nil {
++		// In-process. The child's stdin is empty, as an exec'd one's
++		// would be (cmd.Stdin unset reads from the null device).
++		code, found := core.RunCommand(&core.Stdio{In: strings.NewReader(""), Out: stdio.Out, Err: stdio.Err}, cmdName, cmdArgs)
++		if !found {
++			stdio.Errorf("xargs: %s: not found\n", cmdName)
++			return 127
++		}
++		return code
++	}
+ 	cmd := exec.Command(cmdName, cmdArgs...) // #nosec G204
+ 	cmd.Stdout = stdio.Out
+ 	cmd.Stderr = stdio.Err
+diff --git a/pkg/core/core.go b/pkg/core/core.go
+index b59058d..e15ec80 100644
+--- a/pkg/core/core.go
++++ b/pkg/core/core.go
+@@ -22,6 +22,13 @@ type Stdio struct {
+ 	Err io.Writer
+ }
+ 
++// RunCommand, when set, runs a command by name IN-PROCESS instead of
++// spawning it — for hosts with no processes to spawn (wasm), where the
++// multi-call binary is the only program there is. nil means applets
++// exec as usual. Returns the exit status and whether the name was
++// known. (mechbench seam)
++var RunCommand func(stdio *Stdio, name string, args []string) (int, bool)
++
+ // DefaultStdio returns Stdio configured with os.Stdin, os.Stdout, os.Stderr.
+ func DefaultStdio() *Stdio {
+ 	return &Stdio{

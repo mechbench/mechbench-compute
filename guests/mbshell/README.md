@@ -1,7 +1,7 @@
 # mbshell — the sandbox's shell guest
 
-go-busybox's applets behind an in-process POSIX shell, compiled to
-`wasip1`. Task 000359.
+go-busybox's applets behind an in-process POSIX shell, standard Go
+compiled to `wasip1`. Task 000359.
 
 ## Why not busybox's own `sh`
 
@@ -17,10 +17,23 @@ exec handler. `main.go` is that handler: a table lookup into the
 go-busybox applets, wired to the pipe ends through `core.Stdio`. No
 process is ever created; `find . | wc -l` is two goroutines and a pipe.
 
-## What is patched, and why (`mvdan-sh-wasi.patch`, v3.12.0)
+## Why standard Go, not TinyGo
+
+go-busybox builds with TinyGo for size (2.8 MB). Every guest failure
+found by running it under the sandbox traced to TinyGo's wasm target:
+`recover()` does nothing, so any applet panic kills the sandbox;
+`os.File.Read` on a directory returns a negative count, which bufio
+panics on (`wc -c .`, `sed p .`); `reflect.Type.NumIn` is missing, so
+`awk` panics. Standard Go's `wasip1` port (official since 1.21) has
+none of these. Same source, one build flag, 15.4 MB (3.8 MB gzipped),
+fetched once. 3–5 ms per call.
+
+## What is patched, and why
+
+`mvdan-sh-wasi.patch` (v3.12.0):
 
 - `os.Pipe()` → `io.Pipe()` at the three sites (pipelines, heredocs,
-  here-strings). TinyGo's `os.Pipe` on wasip1 returns ENOSYS.
+  here-strings). WASI has no pipe syscall.
 - The interpreter's `stdin` is an `io.Reader`, not an `*os.File`;
   `stdinFile` is the identity. The file type only existed so exec'd
   processes could inherit a descriptor.
@@ -29,25 +42,34 @@ process is ever created; `find . | wc -l` is two goroutines and a pipe.
   silently.
 - `read -t` keeps its deadline only when stdin supports one.
 
-`/dev/null` is served by `main.go`'s open handler — the sandbox
-preopens one directory and there is no `/dev` in it.
+`go-busybox-wasi.patch` (commit `13f3053`):
+
+- `core.RunCommand`: a hook that runs a command by name in-process.
+  `xargs` calls it instead of `exec.Command`; `time` and `timeout` get
+  wasm variants that use it (`timeout` parses its duration and does
+  not enforce it — nothing to signal, and the sandbox's wall cap is
+  the only clock).
+- `ls` reads `Stat_t.Blocks`, which wasip1's `Stat_t` lacks.
+
+`main.go` itself: `/dev/null` from the open handler (one preopened
+directory, no `/dev`); `$0` from `sh -c CMD NAME`; and exit statuses
+≥ 126 — which WASI hosts refuse to carry — written to
+`/.mechbench/exit`, a second preopen the runtime reads back.
 
 ## What does not work in this guest
 
-- Applets that exec a command themselves — `xargs`, `find -exec`,
-  `time`, `timeout`, `watch`, `nohup`, `nice` — fail with
-  `exec: "wc": executable file not found`. Routing them through the
-  in-process table needs a seam in go-busybox (a fork), not done yet.
-- `awk` panics: TinyGo lacks `reflect.Type.NumIn`, which goawk needs.
-- Standard Go's `GOOS=wasip1` will not build go-busybox as-is
-  (`ls` reads `Stat_t.Blocks`, absent there); TinyGo is the toolchain.
+- `find -exec` — not implemented upstream.
+- `nice`, `nohup`, `setsid`, `ionice`, `taskset`, `watch`,
+  `start-stop-daemon` — process management; they exec and fail.
+- Network applets (`wget`, `nc`, `dig`) — no sockets to open.
 
 ## Build
 
     ./build.sh     # prints sha256 + size for guests.py
 
-Toolchain used for the recorded hash: go 1.27.1, tinygo 0.42.0
-(LLVM 22.1.4), macOS arm64. Output ≈ 2.8 MB.
+Reproducible: `-trimpath`, pinned upstream commit and module version,
+toolchain named in the output (go 1.27.1 for the recorded hash).
+Needs `go` on PATH.
 
 ## Licensing, before hosting
 

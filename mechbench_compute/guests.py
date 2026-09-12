@@ -54,20 +54,21 @@ class GuestUnavailable(RuntimeError):
 #: name -> pinned artifact.
 #:
 #: mbshell is THE guest: go-busybox's applets behind an in-process
-#: POSIX shell (mvdan/sh with a small WASI patch), compiled with TinyGo
-#: to wasip1 — recipe and rationale in `guests/mbshell/`. Plain
-#: busybox is not pinned because it has no shell under wasm and never
-#: will (its ash is fork/exec). Not hosted yet: go-busybox's README
-#: says MIT but the tree carries no LICENSE file, and hosting a built
-#: artifact is redistribution. Until that is settled the bytes come
-#: from `guests/mbshell/build.sh` via `install_local`, which must match
-#: this hash.
+#: POSIX shell (mvdan/sh with a small WASI patch), compiled with
+#: standard Go's wasip1 port — recipe and rationale in
+#: `guests/mbshell/`. Plain busybox is not pinned because it has no
+#: shell under wasm and never will (its ash is fork/exec). Not hosted
+#: yet: go-busybox's README says MIT but the tree carries no LICENSE
+#: file, and hosting a built artifact is redistribution. Until that is
+#: settled the bytes come from `guests/mbshell/build.sh` via
+#: `install_local`, which must match this hash.
 REGISTRY: dict[str, Guest] = {
     "mbshell": Guest(
         name="mbshell", url="",
-        sha256="22e943296a4c9dc610c851bdc31c6df6f722f83afee000ef9df5e6fe08d91bdd",
-        size=2838486,
-        source="guests/mbshell (go-busybox@13f3053 + mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch)"),
+        sha256="8105ef5ae2d52d06a3ac65947bf269c747e981c14c44d9e50dee2068a8632ae6",
+        size=15427010,
+        source="guests/mbshell (go-busybox@13f3053 + go-busybox-wasi.patch + "
+               "mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch; go1.27.1 -trimpath)"),
 }
 
 

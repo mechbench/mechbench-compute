@@ -39,6 +39,15 @@ from mechbench_compute import snapshots as fs
 #: model reading the result knows it saw a prefix and not the whole.
 TRUNCATED = "\n[output truncated at {n} bytes]"
 
+#: A second, empty preopen the guest can write its TRUE exit status
+#: into. WASI hosts reject `proc_exit` outside [0, 126) — wasmtime
+#: reports "invalid exit status" with the number discarded — and 127
+#: is what every shell says for "command not found". A guest that
+#: wants to exit ≥ 126 writes the number to `<EXIT_DIR>/exit` and
+#: exits 125; the host reads the file if it is there. Outside the
+#: snapshot root, so never captured; invisible to `ls /`.
+EXIT_DIR = "/.mechbench"
+
 
 @dataclass(frozen=True)
 class Limits:
@@ -113,27 +122,35 @@ class SandboxError(RuntimeError):
 #: is a record of nothing.
 #:
 #: Replaced, not denied. The first cut denied them, and every run died
-#: at startup: the TinyGo runtime reads the clock before `main`, and
-#: CPython seeds its hash from `random_get` before the first line of
-#: the script. A language runtime needs these to exist. What it does
-#: not need is for them to be real — so strict hands it a clock that
-#: starts at a fixed instant and advances one microsecond per read, and
-#: a byte stream seeded from the snapshot and argv. The run is then a
-#: pure function of its inputs, which is the whole point.
-STRICT_VIRTUAL = ("clock_time_get", "clock_res_get", "random_get")
+#: at startup: a language runtime reads the clock before `main` and
+#: seeds its hash from `random_get` before the first line. A runtime
+#: needs these to exist. What it does not need is for them to be real —
+#: so strict hands it a clock that starts at a fixed instant and
+#: advances one microsecond per read, and a byte stream seeded from the
+#: snapshot and argv. The run is then a pure function of its inputs,
+#: which is the whole point.
+STRICT_VIRTUAL = ("clock_res_get", "random_get")
+
+#: Replaced ALWAYS, strict or not. `poll_oneoff` is how a guest sleeps
+#: or waits, and a guest blocked inside it is beyond the reach of epoch
+#: interruption — the trap fires only when control returns to wasm, so
+#: `sleep 10` under a 1 s wall cap ran for 10,002 ms (measured). It
+#: cannot be denied either: Go's runtime waits inside its own GC path,
+#: so a denial killed every guest that grew its heap. Instead every
+#: wait completes at once AND the clock jumps forward by the wait —
+#: without the jump, Go's scheduler re-reads the clock, finds the
+#: deadline unmet, and polls again until real time catches up. So the
+#: clock is always ours too: host time plus every wait the guest has
+#: skipped, or the strict counter. Nothing a sandboxed guest waits FOR
+#: can happen — no network, no other process, stdin is a file — so a
+#: completed wait is the truth, not a lie, and `sleep 5` followed by a
+#: timestamp reads five seconds later either way.
+ALWAYS_VIRTUAL = ("poll_oneoff", "clock_time_get")
 
 #: Where the strict clock starts: 2000-01-01T00:00:00Z, in nanoseconds.
 #: Any fixed instant would do; this one is recognizable in a log.
 STRICT_EPOCH_NS = 946_684_800 * 1_000_000_000
 STRICT_TICK_NS = 1_000
-
-#: Denied ALWAYS. `poll_oneoff` is how a guest sleeps or waits, and a
-#: guest blocked inside it is beyond the reach of epoch interruption —
-#: the trap fires only when control returns to wasm, so `sleep 10`
-#: under a 1 s wall cap ran for 10,002 ms (measured). Nothing a tool
-#: call legitimately does needs to wait on the wall clock; stdin is a
-#: file, so no read ever blocks. Denied, sleep fails in 0 ms.
-ALWAYS_DENIED = ("poll_oneoff",)
 
 
 def _cap(text: bytes, limit: int, name: str,
@@ -168,6 +185,8 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
     with tempfile.TemporaryDirectory(prefix="mechbench-sandbox-") as td:
         root = pathlib.Path(td) / "root"
         fs.materialize(snapshot, root, blobs=blobs)  # falls back to snapshot.blobs
+        meta = pathlib.Path(td) / "meta"
+        meta.mkdir()
         stdout_path = pathlib.Path(td) / "stdout"
         stderr_path = pathlib.Path(td) / "stderr"
         stdin_path = pathlib.Path(td) / "stdin"
@@ -190,6 +209,7 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         wasi.argv = list(argv)
         wasi.env = [(k, v) for k, v in (env or {}).items()]
         wasi.preopen_dir(str(root), "/")
+        wasi.preopen_dir(str(meta), EXIT_DIR)
         wasi.stdin_file = str(stdin_path)
         wasi.stdout_file = str(stdout_path)
         wasi.stderr_file = str(stderr_path)
@@ -197,9 +217,8 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
 
         linker = wasmtime.Linker(engine)
         linker.define_wasi()
-        _deny(linker, store, module, ALWAYS_DENIED, "blocked_call")
-        if strict:
-            _virtualize(linker, store, module, snapshot, argv)
+        virtual = _Virtual(snapshot, argv, strict)
+        virtual.install(linker, store, module)
 
         # Wall clock: the epoch ticks once per 100 ms from a thread, and
         # the store traps when its deadline passes. Coarse, and enough.
@@ -228,7 +247,7 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
                     f"WASI command")
             start(store)
         except wasmtime.ExitTrap as e:
-            exit_code = int(e.code)
+            exit_code = _reported_exit(meta, int(e.code))
         except wasmtime.Trap as e:
             text = str(e)
             low = text.lower()
@@ -237,12 +256,27 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
                 limit = "fuel"
             elif "epoch" in low or "interrupt" in low:
                 limit = "wall_seconds"
-            elif "[blocked_call]" in text:
-                limit = "blocked_call"
             elif _out_of_memory(instance_holder, store, limits, text):
                 limit = "memory_mb"
             else:
                 stderr_path.write_bytes(stderr_path.read_bytes() + f"\n[trap] {text}".encode())
+        except wasmtime.WasmtimeError as e:
+            text = str(e)
+            if "invalid exit status" in text:
+                # The guest exited ≥ 126 without using the side channel.
+                # 126 is the floor of what we know.
+                exit_code = _reported_exit(meta, 126)
+            elif "memory minimum size" in text and "exceeds" in text:
+                # The cap is below what the guest declares it needs to
+                # start at all — a limit the protocol set, so a Result.
+                exit_code, limit = -1, "memory_mb"
+                stderr_path.write_bytes(
+                    stderr_path.read_bytes()
+                    + f"\n[limit] memory_mb={limits.memory_mb} is below the guest's "
+                      f"minimum: {text}".encode())
+            else:
+                raise SandboxError(
+                    f"guest {guest_path.name} could not be run: {text}") from e
         finally:
             stop.set()
             ticker.join(timeout=1.0)
@@ -256,6 +290,8 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         truncated: list[str] = []
         out = _cap(stdout_path.read_bytes(), limits.output_bytes, "stdout", truncated)
         err = _cap(stderr_path.read_bytes(), limits.output_bytes, "stderr", truncated)
+        if limit is None and exit_code != 0 and _oom_exit(instance_holder, store, limits, err):
+            limit = "memory_mb"
         try:
             after = fs.capture(root, max_files=limits.max_files,
                                max_bytes=limits.max_bytes,
@@ -275,6 +311,14 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
             fuel_used=(limits.fuel - fuel_left) if fuel_left is not None else None,
             limit=limit, truncated=tuple(truncated),
         )
+
+
+def _reported_exit(meta: pathlib.Path, fallback: int) -> int:
+    """The status the guest wrote to the side channel, else `fallback`."""
+    try:
+        return int((meta / "exit").read_text().strip())
+    except (OSError, ValueError):
+        return fallback
 
 
 def _resolve_guest(guest: str | os.PathLike[str]) -> pathlib.Path:
@@ -297,6 +341,26 @@ def _resolve_guest(guest: str | os.PathLike[str]) -> pathlib.Path:
     raise SandboxError(f"guest binary not found: {path}")
 
 
+def _pages(holder: list, store) -> int:
+    if not holder:
+        return 0
+    try:
+        mem = holder[0].exports(store).get("memory")
+        return mem.size(store) if mem is not None else 0
+    except Exception:  # noqa: BLE001 — a store mid-trap may refuse
+        return 0
+
+
+def _oom_exit(holder: list, store, limits: Limits, stderr: str) -> bool:
+    """Go's runtime does not trap on a refused grow: it prints
+    `fatal error: out of memory` and exits 2. The phrase alone is not
+    evidence — a guest can print anything — so it counts only with the
+    memory most of the way to the cap when the guest died."""
+    if "out of memory" not in stderr.lower():
+        return False
+    return _pages(holder, store) * 65536 >= limits.memory_mb * 1024 * 1024 * 0.5
+
+
 def _out_of_memory(holder: list, store, limits: Limits, trap_text: str) -> bool:
     """Did the guest die because it hit the memory cap?
 
@@ -316,93 +380,104 @@ def _out_of_memory(holder: list, store, limits: Limits, trap_text: str) -> bool:
     if any(m in low for m in ("runtime.alloc", "out of memory", "malloc",
                               "memory allocation")):
         return True
-    if not holder or "unreachable" not in low:
+    if "unreachable" not in low:
         return False
-    try:
-        mem = holder[0].exports(store).get("memory")
-        pages = mem.size(store) if mem is not None else 0
-    except Exception:  # noqa: BLE001 — a store mid-trap may refuse
-        return False
-    return pages * 65536 >= limits.memory_mb * 1024 * 1024 * 0.5
+    return _pages(holder, store) * 65536 >= limits.memory_mb * 1024 * 1024 * 0.5
 
 
-def _deny(linker, store, module, names: Sequence[str], reason: str) -> None:
-    """Shadow selected WASI imports with traps.
+class _Virtual:
+    """Stand-ins for the WASI calls through which a guest sees the
+    outside world: the clock, the RNG, and waiting.
 
-    Defined AFTER `define_wasi()` with shadowing allowed, so ours win.
-    A guest calling one gets a trap that names the reason, not a zero
-    it might mistake for a timestamp or a completed wait.
+    Waiting is always virtual (`ALWAYS_VIRTUAL`). The clock and RNG
+    are virtual only under strict: a clock from `STRICT_EPOCH_NS`
+    advancing `STRICT_TICK_NS` per read — advancing, so a guest that
+    spins until time passes still finishes, and by a fixed step, so it
+    finishes the same way every time — and SHA-256 in counter mode over
+    a seed drawn from the snapshot digest and argv. WASI's errno for
+    success is 0.
     """
-    import wasmtime
 
-    linker.allow_shadowing = True
-    for imp in module.imports:
-        if imp.module != "wasi_snapshot_preview1" or imp.name not in names:
-            continue
-        ftype = imp.type
-        if not isinstance(ftype, wasmtime.FuncType):
-            continue
-        name = imp.name
+    #: WASI preview1 wire layouts: subscription is 48 bytes, event 32.
+    SUB, EV = 48, 32
 
-        def trap(*_args, _name=name, _reason=reason):
-            raise wasmtime.Trap(
-                f"[{_reason}] {_name} is denied — a guest must not block "
-                f"on the wall clock")
+    def __init__(self, snapshot: fs.Snapshot, argv: Sequence[str], strict: bool):
+        import hashlib
+        self.strict = strict
+        self.clock = STRICT_EPOCH_NS   # strict: the counter clock
+        self.skipped = 0               # plain: nanoseconds of waits skipped
+        self.seed = hashlib.sha256(
+            b"mechbench-sandbox-strict\0" + snapshot.digest().encode()
+            + b"\0" + b"\0".join(a.encode() for a in argv)).digest()
+        self.counter = 0
 
-        linker.define(store, "wasi_snapshot_preview1", name,
-                      wasmtime.Func(store, ftype, trap))
+    def install(self, linker, store, module) -> None:
+        import wasmtime
 
+        names = set(ALWAYS_VIRTUAL) | (set(STRICT_VIRTUAL) if self.strict else set())
+        linker.allow_shadowing = True
+        for imp in module.imports:
+            if imp.module != "wasi_snapshot_preview1" or imp.name not in names:
+                continue
+            if not isinstance(imp.type, wasmtime.FuncType):
+                continue
+            linker.define(store, "wasi_snapshot_preview1", imp.name,
+                          wasmtime.Func(store, imp.type, getattr(self, imp.name),
+                                        access_caller=True))
 
-def _virtualize(linker, store, module, snapshot: fs.Snapshot,
-                argv: Sequence[str]) -> None:
-    """Replace the clock and the RNG with deterministic stand-ins.
+    def _now(self, clock_id: int) -> int:
+        if self.strict:
+            self.clock += STRICT_TICK_NS
+            return self.clock
+        # 0 realtime, 1 monotonic, 2/3 cpu time — all move with the
+        # host, all carry the skipped waits.
+        base = time.time_ns() if clock_id == 0 else time.monotonic_ns()
+        return base + self.skipped
 
-    The clock starts at `STRICT_EPOCH_NS` and advances `STRICT_TICK_NS`
-    per read — advancing, so a guest that spins until time passes
-    still finishes, and by a fixed step, so it finishes the same way
-    every time. The RNG is SHA-256 in counter mode over a seed drawn
-    from the snapshot digest and argv: different inputs get different
-    bytes, the same inputs get the same bytes, and neither is the
-    host's entropy. WASI's errno for success is 0.
-    """
-    import hashlib
-    import struct
+    def _skip(self, ns: int) -> None:
+        if self.strict:
+            self.clock += ns
+        else:
+            self.skipped += ns
 
-    import wasmtime
-
-    linker.allow_shadowing = True
-    clock = [STRICT_EPOCH_NS]
-    seed = hashlib.sha256(b"mechbench-sandbox-strict\0" + snapshot.digest().encode()
-                          + b"\0" + b"\0".join(a.encode() for a in argv)).digest()
-    counter = [0]
-
-    def clock_time_get(caller, _id, _precision, out):
-        clock[0] += STRICT_TICK_NS
-        caller.get("memory").write(caller, struct.pack("<Q", clock[0]), out)
+    def clock_time_get(self, caller, clock_id, _precision, out):
+        import struct
+        caller.get("memory").write(caller, struct.pack("<Q", self._now(clock_id)), out)
         return 0
 
-    def clock_res_get(caller, _id, out):
+    def clock_res_get(self, caller, _id, out):
+        import struct
         caller.get("memory").write(caller, struct.pack("<Q", STRICT_TICK_NS), out)
         return 0
 
-    def random_get(caller, buf, length):
-        chunks = []
-        need = length
+    def random_get(self, caller, buf, length):
+        import hashlib
+        chunks, need = [], length
         while need > 0:
-            block = hashlib.sha256(seed + counter[0].to_bytes(8, "little")).digest()
-            counter[0] += 1
+            block = hashlib.sha256(self.seed + self.counter.to_bytes(8, "little")).digest()
+            self.counter += 1
             chunks.append(block[:need])
             need -= len(block)
         caller.get("memory").write(caller, b"".join(chunks), buf)
         return 0
 
-    stand_ins = {"clock_time_get": clock_time_get, "clock_res_get": clock_res_get,
-                 "random_get": random_get}
-    for imp in module.imports:
-        if imp.module != "wasi_snapshot_preview1" or imp.name not in STRICT_VIRTUAL:
-            continue
-        if not isinstance(imp.type, wasmtime.FuncType):
-            continue
-        linker.define(store, "wasi_snapshot_preview1", imp.name,
-                      wasmtime.Func(store, imp.type, stand_ins[imp.name],
-                                    access_caller=True))
+    def poll_oneoff(self, caller, subs, events, n, nevents_out):
+        """Every subscription fires now. A clock subscription (tag 0)
+        moves the strict clock to its deadline; fd subscriptions (1, 2)
+        report ready — every fd a guest has is a file."""
+        mem = caller.get("memory")
+        for i in range(n):
+            raw = bytes(mem.read(caller, subs + self.SUB * i, subs + self.SUB * (i + 1)))
+            userdata, tag = raw[0:8], raw[8]
+            if tag == 0:
+                clock_id = int.from_bytes(raw[16:20], "little")
+                timeout = int.from_bytes(raw[24:32], "little")
+                absolute = int.from_bytes(raw[40:42], "little") & 1
+                now = self._now(clock_id)
+                deadline = timeout if absolute else now + timeout
+                if deadline > now:
+                    self._skip(deadline - now)
+            event = userdata + b"\0\0" + bytes([tag]) + b"\0" * 5 + b"\0" * 16
+            mem.write(caller, event, events + self.EV * i)
+        mem.write(caller, int(n).to_bytes(4, "little"), nevents_out)
+        return 0
