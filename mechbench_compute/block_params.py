@@ -42,7 +42,7 @@ ACCEPTED: dict[str, frozenset[str]] = {
         "budget_usd", "provider_options", "base_url", "keep_fields",
         "record_requests", "limit_scope", "cassette", "cassette_mode",
         "cache", "json_mode", "logprobs", "messages", "messages_field",
-        "stop", "system_field", "tool_choice", "user_field",
+        "stop", "system_field", "tool_choice", "user_field", "sandbox",
     }),
     "~canonical/ops/vectors/mst/1": frozenset({
         "bridge_sigma", "keep_edges", "center", "similarity",

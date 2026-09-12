@@ -13,6 +13,38 @@ nothing said so.
 
 ---
 
+## 0.54.0 — 2026-09-12
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **The sandbox tool provider** (task 000360): a chat or conversation
+  node may declare a `sandbox` image, and the model is offered tools
+  that drive a snapshot chain. `SandboxSession` holds the current
+  snapshot; `bash` (mbshell's `sh -c`), `find` and `grep` run in the
+  guest and advance it; `read_file`, `write_file` and `list` operate
+  on the snapshot directly with no guest. Every call is recorded on
+  the item's `metadata.sandbox` as `{tool, argv, exit_code, limit,
+  snapshot_in, snapshot_out, changed, stdout, stderr}` — the
+  filesystem's history call by call. Tools are ours, thin and few
+  (the MCP decision stands); the image (`SandboxImage`) is the
+  standard-library base users augment — tool allowlist, limits,
+  strict mode, read-only mounts, starting tree.
+- A tool handler may now be `{"sandbox": "<method>"}`, dispatched
+  against a session bound to the `Toolbox` (stateful, so it does not
+  ride in the handler dict, which is copied into every provenance
+  record). `toolbox_from(..., session=…)` binds it. Existing
+  `{"block"}` and `{"protocol"}` handlers are unchanged.
+- The `chat` block accepts a `sandbox` param. A node without one is
+  unchanged — same items, no `sandbox` key. Resume replays a spooled
+  item wholesale, so a recorded session is byte-identical without
+  special handling.
+
+---
+
 ## 0.53.0 — 2026-09-12
 
 ### Changes that raise

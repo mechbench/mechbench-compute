@@ -67,10 +67,10 @@ class ToolDef:
         schema = value.get("schema") or value.get("input_schema") or {
             "type": "object", "properties": {}}
         handler = value.get("handler") or {}
-        if handler and not ({"block", "protocol"} & set(handler)):
+        if handler and not ({"block", "protocol", "sandbox"} & set(handler)):
             raise ValueError(
-                f"tool {name!r}: a handler is {{'block': <ref>}} or "
-                "{'protocol': <id>}")
+                f"tool {name!r}: a handler is {{'block': <ref>}}, "
+                "{'protocol': <id>} or {'sandbox': <method>}")
         return ToolDef(name=name, description=str(value.get("description", "")),
                        schema=dict(schema), handler=dict(handler))
 
@@ -111,12 +111,17 @@ class Toolbox:
     executor for handlers it must own (model blocks, sub-protocols);
     pure blocks run here."""
 
-    def __init__(self, tools: Sequence[Any] = (), *, block_runner=None) -> None:
+    def __init__(self, tools: Sequence[Any] = (), *, block_runner=None,
+                 session=None) -> None:
         self.tools = [ToolDef.parse(t) for t in tools]
         self._by_name = {t.name: t for t in self.tools}
         if len(self._by_name) != len(self.tools):
             raise ValueError("tool names must be unique within a toolbox")
         self._runner = block_runner
+        # A sandbox session (task 000360): stateful, so it binds to the
+        # toolbox rather than riding in a handler dict, which is copied
+        # into every provenance record and must stay serializable.
+        self._session = session
         self.runs: list[ToolRun] = []
 
     def __bool__(self) -> bool:
@@ -159,6 +164,23 @@ class Toolbox:
             raise ValueError(
                 f"tool {tool.name!r} has no handler — it can be offered to a "
                 "model but not run")
+        method = handler.get("sandbox")
+        if method is not None:
+            # A sandbox tool advances the session's snapshot chain; the
+            # session is bound to the toolbox, and the arguments are the
+            # method's keyword parameters (validated by the schema the
+            # model was given, forgiving here).
+            if self._session is None:
+                raise ValueError(
+                    f"tool {tool.name!r} is a sandbox tool, but this toolbox "
+                    "was built without a session — offer it from a node that "
+                    "declares a `sandbox` image")
+            fn = getattr(self._session, str(method), None)
+            if fn is None:
+                raise ValueError(
+                    f"tool {tool.name!r}: the session has no method "
+                    f"{method!r}")
+            return fn(**dict(arguments))
         ref = handler.get("block")
         params = dict(handler.get("params") or {})
         # A handler block sees the call's arguments on its own port AND
@@ -305,9 +327,10 @@ BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
 }
 
 
-def toolbox_from(value: Any, *, block_runner=None) -> Toolbox:
+def toolbox_from(value: Any, *, block_runner=None, session=None) -> Toolbox:
     """A toolbox from a params list: tool objects, or the NAME of a
-    built-in ("calc"), so the common case is one word."""
+    built-in ("calc"), so the common case is one word. `session` binds
+    a sandbox session (task 000360) for any `{"sandbox": …}` handlers."""
     tools: list[Any] = []
     for entry in value or ():
         if isinstance(entry, str):
@@ -319,4 +342,4 @@ def toolbox_from(value: Any, *, block_runner=None) -> Toolbox:
             tools.append(BUILTIN_TOOLS[entry])
         else:
             tools.append(entry)
-    return Toolbox(tools, block_runner=block_runner)
+    return Toolbox(tools, block_runner=block_runner, session=session)

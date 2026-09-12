@@ -35,7 +35,7 @@ from typing import Any
 from mechbench_compute.providers import Budget, budget_from, make_transport
 from mechbench_compute.providers import limiter as pl
 from mechbench_compute.providers import messages as pm
-from mechbench_compute.tools import Toolbox, toolbox_from
+from mechbench_compute.tools import toolbox_from
 
 #: What a chat node emits per item, for both paths.
 ITEM_KIND = "~canonical/kinds/text"
@@ -83,12 +83,39 @@ def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
     })
 
 
+def _sandbox_and_tools(params: Mapping[str, Any]) -> tuple[Any, tuple[Any, ...]]:
+    """`(image, combined_tool_specs)` for a node. When the node
+    declares a `sandbox` image, its tools are appended to any the
+    protocol listed, so the model is offered both. `image` is None when
+    there is no sandbox — the ordinary tool path, unchanged."""
+    tool_specs = list(params.get("tools") or ())
+    if params.get("sandbox") is None:
+        return None, tuple(tool_specs)
+    from mechbench_compute.sandbox_session import SandboxImage, SandboxSession
+
+    image = SandboxImage.parse(params["sandbox"])
+    return image, tuple(tool_specs + SandboxSession(image).tool_defs())
+
+
+def _new_box(image: Any, specs: Sequence[Any], *, block_runner):
+    """A fresh toolbox and its session (or None). One per item, so the
+    snapshot chain and its provenance belong to that item alone."""
+    session = None
+    if image is not None:
+        from mechbench_compute.sandbox_session import SandboxSession
+
+        session = SandboxSession(image)
+    return (toolbox_from(specs, block_runner=block_runner, session=session),
+            session)
+
+
 def _item(rec: Mapping[str, Any], k: int, text: str, *,
           model_wire: Any, params: Mapping[str, Any],
           parts: Sequence[Any] = (), call: Mapping[str, Any] | None = None,
           sampling: Mapping[str, Any] | None = None,
           tool_runs: Sequence[Any] = (),
-          tool_errors: Sequence[Any] = ()) -> dict[str, Any]:
+          tool_errors: Sequence[Any] = (),
+          sandbox_calls: Sequence[Any] = ()) -> dict[str, Any]:
     meta: dict[str, Any] = {
         "coords": {**(rec.get("coords") or {}), "sample": k},
         "model": model_wire,
@@ -105,6 +132,10 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
         # On the item, not only in the node's aggregate, so a failure
         # can be sliced by the condition that produced it.
         meta["tool_errors"] = [dict(e) for e in tool_errors]
+    if sandbox_calls:
+        # The snapshot chain this item drove — what the filesystem did,
+        # call by call. The final snapshot's digest is the last one.
+        meta["sandbox"] = [c.to_wire() for c in sandbox_calls]
     tool_parts = [p.to_wire() for p in parts
                   if not isinstance(p, pm.TextPart)]
     if tool_parts:
@@ -184,15 +215,13 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     scope = str(params.get("limit_scope") or pl.scope_for(provider, creds))
 
     # Tools are ordinary blocks (task 000340); each item gets its own
-    # toolbox so the runs it records are its own even under the pool.
-    tool_specs = params.get("tools") or ()
+    # toolbox so the runs it records are its own even under the pool. A
+    # `sandbox` image (000360) adds its tools and a per-item session.
+    image, tool_specs = _sandbox_and_tools(params)
     max_tool_rounds = int(params.get("max_tool_rounds", 3))
     block_runner = params.get("_block_runner")
 
-    def new_toolbox() -> Toolbox:
-        return toolbox_from(tool_specs, block_runner=block_runner)
-
-    specs = new_toolbox().specs()
+    specs = toolbox_from(tool_specs).specs()
 
     recs = _records(records)
     if on_start:
@@ -226,7 +255,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
 
     def one(entry):
         pos, key, rec, k, req = entry
-        box = new_toolbox()
+        box, session = _new_box(image, tool_specs, block_runner=block_runner)
         extra_calls: list[Any] = []
         # The tool loop: answer, run what it asked for, hand back the
         # results, ask again — bounded, because a model and its tools
@@ -248,7 +277,8 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                      sampling={"temperature": params.get("temperature"),
                                "max_tokens": int(params.get("max_tokens", 1024)),
                                "seed": req.seed, "index": k},
-                     tool_runs=[r.to_wire() for r in box.runs])
+                     tool_runs=[r.to_wire() for r in box.runs],
+                     sandbox_calls=(session.calls if session else ()))
         return pos, key, item, out.call, extra_calls
 
     if plan:
@@ -308,7 +338,7 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
     # result. Same tools, same handlers, same provenance as the remote
     # path — only the transport differs.
     max_tool_rounds = int(params.get("max_tool_rounds", 3))
-    tool_specs = params.get("tools") or ()
+    image, tool_specs = _sandbox_and_tools(params)
     block_runner = params.get("_block_runner")
     tok = model.tokenizer
     # The model's own chat template decides how tools are declared,
@@ -352,7 +382,7 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
                     on_item(key, resume_items[key], True)
                 continue
             rng = _np.random.default_rng(item_seed(seed, rec.get("id"), k))
-            box = tool_mod.toolbox_from(tool_specs, block_runner=block_runner)
+            box, session = _new_box(image, tool_specs, block_runner=block_runner)
             turn = req
             called_a_tool = False
             for round_no in range(max_tool_rounds + 1):
@@ -411,7 +441,8 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
                          tool_errors=item_errors,
                          sampling={"temperature": temperature, "top_p": top_p,
                                    "seed": seed, "index": k},
-                         tool_runs=[r.to_wire() for r in box.runs])
+                         tool_runs=[r.to_wire() for r in box.runs],
+                         sandbox_calls=(session.calls if session else ()))
             items.append(item)
             if on_item:
                 on_item(key, item)
