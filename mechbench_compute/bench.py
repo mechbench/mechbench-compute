@@ -33,6 +33,7 @@ import os
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -65,16 +66,73 @@ def configure(*, api_url: str | None = None, api_key: str | None = None) -> None
         _DEFAULTS["key"] = api_key
 
 
+def _config_file() -> Path:
+    """Where `mechbench login` writes the credential — the same file the
+    CLI reads (mechbench_runner/paths.py). A function, not a constant, so
+    a test can point it at a fixture."""
+    return Path.home() / ".mechbench" / "config.toml"
+
+
+def _stored() -> tuple[str, str] | None:
+    """The `(api_url, api_key)` pair `mechbench login` stored, or None.
+
+    Read straight from `~/.mechbench/config.toml` with the standard-library
+    TOML reader — deliberately NOT by importing mechbench-runner, which
+    embeds this package and must not be imported back. The file format
+    (`[runner]` table, `api_url`/`api_key`) is the contract; a malformed or
+    absent file reads as "not logged in", never as an error.
+    """
+    import tomllib
+
+    try:
+        data = tomllib.loads(_config_file().read_text("utf-8"))
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return None
+    table = data.get("runner")
+    if not isinstance(table, dict):
+        return None
+    url, key = table.get("api_url"), table.get("api_key")
+    if isinstance(url, str) and isinstance(key, str) and url and key:
+        return url, key
+    return None
+
+
 def _config(api_url: str | None, api_key: str | None) -> tuple[str, str]:
-    url = api_url or _DEFAULTS.get("url") or os.environ.get("MECHBENCH_API_URL", "")
-    key = api_key or _DEFAULTS.get("key") or os.environ.get("MECHBENCH_API_KEY", "")
+    """Resolve (url, key) the way the CLI does, so an experiment script
+    imports neither (task 000450). In order: explicit argument, then
+    `configure()`, then the environment, then the credential
+    `mechbench login` stored.
+
+    `MECHBENCH_API_KEY` owns the credential entirely when set — its URL is
+    the env URL, and the stored file is not consulted — mirroring
+    mechbench_runner/credentials.py, so a production key can never be sent
+    to a localhost URL taken from a leftover config file.
+    """
+    url = api_url or _DEFAULTS.get("url")
+    key = api_key or _DEFAULTS.get("key")
+
+    env_key = os.environ.get("MECHBENCH_API_KEY")
+    if not key and env_key:
+        key = env_key
+        url = url or os.environ.get("MECHBENCH_API_URL")
+    else:
+        url = url or os.environ.get("MECHBENCH_API_URL")
+        if not key:
+            stored = _stored()
+            if stored:
+                # Take the file's URL with its key, unless a URL was named
+                # explicitly — never half a pairing from each source.
+                key = stored[1]
+                if not (api_url or _DEFAULTS.get("url")):
+                    url = stored[0]
+
     if not url:
         raise BenchError(
-            "no API url: set MECHBENCH_API_URL, call "
+            "no API url: set MECHBENCH_API_URL, run `mechbench login`, call "
             "mechbench_compute.bench.configure(api_url=...), or pass api_url=")
     if not key:
         raise BenchError(
-            "no API key: set MECHBENCH_API_KEY, call "
+            "no API key: set MECHBENCH_API_KEY, run `mechbench login`, call "
             "mechbench_compute.bench.configure(api_key=...), or pass api_key=")
     return url.rstrip("/"), key
 
@@ -103,13 +161,13 @@ def _tls(url: str) -> ssl.SSLContext | None:
 
 def _request(method: str, url: str, key: str, body: bytes | None = None,
              headers: dict[str, str] | None = None,
-             return_headers: bool = False) -> Any:
+             return_headers: bool = False, timeout: float = 60) -> Any:
     req = urllib.request.Request(url, data=body, method=method)
     req.add_header("Authorization", f"Bearer {key}")
     for h, v in (headers or {}).items():
         req.add_header(h, v)
     try:
-        with urllib.request.urlopen(req, timeout=60, context=_tls(url)) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=_tls(url)) as resp:
             raw = resp.read()
             ctype = resp.headers.get("content-type", "")
             resp_headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -225,12 +283,20 @@ def get_kind(kind_path: str, *, api_url: str | None = None,
     return _request("GET", f"{url}/kinds/{kind_path}", key)
 
 
-def fetch(target: str, *, api_url: str | None = None,
-          api_key: str | None = None, with_meta: bool = False) -> Any:
-    """Fetch an object; CBOR objects are decoded, JSON parsed, other
-    mime types returned as bytes. ``with_meta=True`` returns
-    ``(payload, meta)`` where meta carries the server's
-    ``content_hash`` (task 000260 — record what resolved)."""
+def _unwrap_envelope(obj: Any) -> Any:
+    """The payload inside an Emitted envelope, or the object unchanged.
+
+    An envelope is a mapping carrying BOTH `payload` and `provenance`;
+    a typed record (its own top-level `provenance`, no `payload`) and a
+    bare payload are left alone. The same rule the CLI and the API's
+    binding matcher use — one definition of "the envelope"."""
+    if isinstance(obj, dict) and "payload" in obj and "provenance" in obj:
+        return obj["payload"]
+    return obj
+
+
+def _fetch_decoded(target: str, api_url: str | None, api_key: str | None,
+                   with_meta: bool) -> Any:
     import mechbench_schema as ms
 
     url, key = _config(api_url, api_key)
@@ -244,9 +310,36 @@ def fetch(target: str, *, api_url: str | None = None,
         try:
             decoded = ms.load_raw(bytes(raw))
             return (decoded, meta) if with_meta else decoded
-        except Exception:
+        except Exception:  # noqa: BLE001 — not CBOR/JSON: hand back the bytes
             return (bytes(raw), meta) if with_meta else bytes(raw)
     return (raw, meta) if with_meta else raw
+
+
+def fetch(target: str, *, api_url: str | None = None,
+          api_key: str | None = None, with_meta: bool = False) -> Any:
+    """Fetch an object and return its PAYLOAD (task 000450).
+
+    CBOR objects are decoded, JSON parsed, other mime types returned as
+    bytes. An Emitted envelope is unwrapped — the payload is what a reader
+    wants, and stripping it by hand
+    (`(lambda o: o.get("payload", o))(...)`) was the idiom in every
+    experiment. Use `fetch_envelope()` for the rare read that needs the
+    provenance. ``with_meta=True`` returns ``(payload, meta)`` where meta
+    carries the server's ``content_hash`` (task 000260)."""
+    got = _fetch_decoded(target, api_url, api_key, with_meta)
+    if with_meta:
+        obj, meta = got
+        return _unwrap_envelope(obj), meta
+    return _unwrap_envelope(got)
+
+
+def fetch_envelope(target: str, *, api_url: str | None = None,
+                   api_key: str | None = None, with_meta: bool = False) -> Any:
+    """The object exactly as stored — the Emitted envelope with its
+    provenance, not just the payload. What `fetch` returned before task
+    000450; for the caller that wants lineage, params fingerprint, or the
+    producing tool version."""
+    return _fetch_decoded(target, api_url, api_key, with_meta)
 
 
 def fetch_items(target: str, offset: int = 0, limit: int = 20, *,
@@ -372,4 +465,137 @@ def list_prefix_hashes(prefix: str, *, api_url: str | None = None,
         return out
     except Exception:  # noqa: BLE001 — resume is an optimization, never a gate
         return {}
+
+
+# --- runs, jobs, results -----------------------------------------------------
+#
+# The library under the three CLI verbs (task 000450): launch a protocol,
+# watch its jobs, find a run by what it ran, read a node's result. Before
+# this, every experiment wrote its own `api()` over httpx — config,
+# credential and transport all borrowed from a module whose job is protocol
+# graphs. The `mechbench run/watch/result` verbs (mechbench-runner, task
+# 000448) are thin wrappers over these; there is one implementation.
+
+#: A job is finished — successfully or not — in exactly these states.
+TERMINAL = ("done", "failed", "cancelled", "interrupted")
+
+
+def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
+           budget: float | None = None, api_url: str | None = None,
+           api_key: str | None = None) -> dict:
+    """Bind a protocol and queue its job. `POST /protocols/:ref/runs`.
+
+    Returns the bare run, with `id` and `jobId` on it (task 000451) —
+    record the job id at once; a job id in a scrollback is a job id lost.
+    """
+    url, key = _config(api_url, api_key)
+    body: dict[str, Any] = {"bindings": dict(bindings or {})}
+    if budget is not None:
+        body["budgetUsd"] = budget
+    return _request(
+        "POST", f"{url}/protocols/{protocol}/runs", key,
+        body=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, timeout=90)
+
+
+def get_job(job_id: str, *, api_url: str | None = None,
+            api_key: str | None = None) -> dict:
+    """`GET /jobs/:id` — the bare job row (status, progress, spend,
+    resultPath)."""
+    url, key = _config(api_url, api_key)
+    return _request("GET", f"{url}/jobs/{job_id}", key)
+
+
+def _progress_sig(j: dict) -> tuple:
+    """The job's progress-bearing fields, so `watch` yields on a real
+    change and not on an identical poll."""
+    node = (j.get("progressNode") or {}).get("id")
+    return (j.get("status"), j.get("progressNum"), j.get("progressDen"),
+            j.get("progressUnit"), node, j.get("spentUsd"))
+
+
+def watch(jobs: list[str], *, interval: float = 4.0, api_url: str | None = None,
+          api_key: str | None = None):
+    """Poll jobs to a terminal state, yielding `(job_id, job)` each time a
+    job's progress CHANGES — never the same state twice, so a long run does
+    not bury its interesting moment under identical lines. A transient fetch
+    error yields `(job_id, {"status": None, "error": <str>})` and the poll
+    continues; the job is retried next round. The generator is exhausted
+    once every job is terminal.
+
+    It prints nothing: the caller renders (the CLI) or collects the final
+    states (`last = dict(bench.watch(jobs))` keeps the terminal one per job,
+    since each job's last yield is its terminal state).
+    """
+    import time
+
+    url, key = _config(api_url, api_key)
+    last: dict[str, tuple] = {}
+    pending = list(dict.fromkeys(jobs))  # de-dup, preserve order
+    while pending:
+        for jid in list(pending):
+            try:
+                j = _request("GET", f"{url}/jobs/{jid}", key)
+            except BenchError as e:
+                yield jid, {"status": None, "error": str(e)}
+                continue
+            sig = _progress_sig(j)
+            if sig != last.get(jid):
+                last[jid] = sig
+                yield jid, j
+            if j.get("status") in TERMINAL:
+                pending.remove(jid)
+        if pending:
+            time.sleep(interval)
+
+
+def results_for(protocol: str, **bindings: Any) -> list[dict]:
+    """The protocol's runs, newest first, filtered by binding value
+    (`GET /protocols/:ref/runs?binding.k=v`, task 000449). Each carries
+    its `jobId`, `jobStatus` and `resultPath` — the end of the job-id
+    sidecars an experiment used to maintain by hand.
+
+    A string binding matches raw; a structured one (a model ref) is sent as
+    canonical JSON, which the server parses and deep-equals — so
+    `results_for("024", ref={"provider": "x", "model": "y"})` filters too.
+    Credentials come from the environment or `mechbench login`; pass a
+    custom endpoint through `configure()`.
+    """
+    import urllib.parse
+
+    url, key = _config(None, None)
+    params = [
+        (f"binding.{k}",
+         v if isinstance(v, str)
+         else json.dumps(v, sort_keys=True, separators=(",", ":")))
+        for k, v in bindings.items()
+    ]
+    path = f"{url}/protocols/{protocol}/runs"
+    if params:
+        path += "?" + urllib.parse.urlencode(params)
+    return _request("GET", path, key)
+
+
+def result(job: str | dict, node: str, *, api_url: str | None = None,
+           api_key: str | None = None) -> Any:
+    """One node's output, unwrapped (task 000450).
+
+    `job` is a job id, or any object carrying `resultPath` — a run row from
+    `results_for`, or a job row from `get_job` — which is read directly,
+    saving a round trip. The Emitted envelope is stripped (via `fetch`);
+    what returns is the payload.
+    """
+    from collections.abc import Mapping
+
+    if isinstance(job, Mapping):
+        base = job.get("resultPath")
+        if not base:
+            raise BenchError("that run/job has no result path yet")
+    else:
+        row = get_job(job, api_url=api_url, api_key=api_key)
+        base = row.get("resultPath")
+        if not base:
+            raise BenchError(
+                f"job {job} has no result yet (status {row.get('status')})")
+    return fetch(f"{base}/{node}", api_url=api_url, api_key=api_key)
 

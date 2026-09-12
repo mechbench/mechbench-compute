@@ -13,6 +13,35 @@ nothing said so.
 
 ---
 
+## 0.61.0 — 2026-09-13
+
+### Changes that raise
+
+- **`bench.fetch` returns the PAYLOAD, not the Emitted envelope** (task
+  000450). A reader that indexed the envelope by hand —
+  `fetch(x)["payload"]` — now raises `KeyError`; the payload is what
+  `fetch(x)` returns, and `fetch_envelope(x)` returns the full envelope
+  with provenance for the caller that wants lineage. The idiom every
+  experiment reader carried, `(lambda o: o.get("payload", o))(fetch(...))`,
+  is now redundant. Internal callers that normalized with
+  `o.get("payload", o)` keep working — the unwrap only strips a mapping
+  carrying BOTH `payload` and `provenance`, so a payload or a typed record
+  is untouched — the loud break is only for a hard index.
+
+### Changes that alter results without raising
+
+- _None._ The rest of 000450 is additive. `bench.launch`, `bench.watch`,
+  `bench.results_for`, `bench.result` and `bench.get_job` move the
+  launch / watch / find-by-binding / read plumbing that every experiment
+  re-derived over httpx into the library — one implementation, which the
+  `mechbench run/watch/result` verbs now wrap. And credential resolution
+  discovers `~/.mechbench/config.toml` (what `mechbench login` wrote), so
+  an experiment script imports neither transport nor key: environment,
+  then `configure()`, then that file, with `MECHBENCH_API_KEY` still
+  owning the pair when set. No existing result changes.
+
+---
+
 ## 0.60.0 — 2026-09-13
 
 ### Changes that raise

@@ -46,8 +46,11 @@ def main() -> None:
                     inputs=[parent], fidelity="text")
     check("emit child with input", r2.get("lineageParents") == 1)
 
-    back = bench.fetch(parent)
-    check("round-trip", back["payload"]["values"] == [1, 2, 3])
+    back = bench.fetch(parent)  # returns the payload now (task 000450)
+    check("round-trip", back["values"] == [1, 2, 3])
+    env = bench.fetch_envelope(parent)
+    check("envelope on request", env["payload"]["values"] == [1, 2, 3]
+          and "provenance" in env)
 
     page = bench.fetch_items(child, offset=2, limit=3)
     check("item pagination", page["total"] == 7 and len(page["items"]) == 3
