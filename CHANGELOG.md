@@ -13,6 +13,35 @@ nothing said so.
 
 ---
 
+## 0.52.0 — 2026-09-12
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **The compiled guest is cached.** Compiling the 15 MB standard-Go
+  module took 1.1 s on every call; a tool call is otherwise 5 ms.
+  One engine per process, one epoch ticker, a store per run, and the
+  compiled module kept in memory with a serialized copy in the guest
+  cache (10 ms to load, keyed by guest identity and wasmtime version).
+  Found by the conformance battery: 456 runs took ten minutes, now 48 s.
+- **`limit="stack"`** names the wasm call stack ceiling (wasmtime's
+  512 KiB default) that unbounded recursion in the guest hits — it
+  was an unclassified trap.
+- **Guest conformance battery** (`tests/test_guest_battery.py`):
+  every applet against file, empty, binary, large, unicode,
+  directory, deep, many-files and missing inputs, plus the no-path
+  and network applets, asserting the robustness contract — no trap,
+  no panic, bounded time, read-only means read-only. 488 runs pass.
+  A new applet upstream fails the coverage test until templated or
+  excluded with a reason. CI now builds the guest from the pinned
+  recipe before the tests, which refuse a build off the pin, so every
+  push is also a reproducibility check.
+
+---
+
 ## 0.51.0 — 2026-09-12
 
 ### Changes that raise

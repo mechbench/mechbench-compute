@@ -7,9 +7,14 @@ One function, and its signature is the design:
 The guest sees exactly one directory — the materialized snapshot —
 and nothing else. No network (wasmtime's WASI has no network API to
 switch off; absence is the default state). CPU is fuel-metered, wall
-clock is epoch-interrupted, memory is capped, output is capped. Every
-limit that trips is reported by name in the result rather than as a
-truncated-looking success.
+clock is epoch-interrupted, memory is capped, the wasm call stack is
+capped, output is capped. Every limit that trips is reported by name
+in the result rather than as a truncated-looking success.
+
+The guest module is compiled once per process and kept — compiling
+the 15 MB standard-Go guest is 1.1 s, deserializing its compiled form
+is 10 ms, and a tool call is otherwise 5 ms. One engine, one epoch
+ticker, a store per run.
 
 Architecture A, chosen on measurement (see 000359): the guest's file
 I/O goes through wasmtime's WASI in Rust straight to the host, and
@@ -85,6 +90,8 @@ class Result:
     changed: fs.Diff
     duration_ms: int
     fuel_used: int | None = None
+    #: One of `fuel`, `wall_seconds`, `memory_mb`, `stack`, `max_files`,
+    #: `max_bytes` — or None.
     limit: str | None = None
     truncated: tuple[str, ...] = ()
 
@@ -153,6 +160,78 @@ STRICT_EPOCH_NS = 946_684_800 * 1_000_000_000
 STRICT_TICK_NS = 1_000
 
 
+#: How often the shared engine's epoch advances. Wall-clock caps are
+#: rounded up to this.
+EPOCH_TICK_S = 0.1
+
+_ENGINE_LOCK = threading.Lock()
+_ENGINE: Any = None
+_MODULES: dict[tuple[str, int, int], Any] = {}
+
+
+def _engine():
+    """The one engine, with its epoch ticker. Stores are per run and
+    set their deadline relative to the epoch when they start, so a
+    single ticker serves any number of concurrent runs."""
+    global _ENGINE
+    import wasmtime
+
+    with _ENGINE_LOCK:
+        if _ENGINE is None:
+            config = wasmtime.Config()
+            config.consume_fuel = True
+            config.epoch_interruption = True
+            _ENGINE = wasmtime.Engine(config)
+
+            def tick(engine=_ENGINE) -> None:
+                while True:
+                    time.sleep(EPOCH_TICK_S)
+                    engine.increment_epoch()
+
+            threading.Thread(target=tick, daemon=True,
+                             name="mechbench-sandbox-epoch").start()
+        return _ENGINE
+
+
+def _module(engine, path: pathlib.Path):
+    """The compiled guest: from memory, else from the serialized copy
+    beside the guest cache, else compiled and both are filled. The
+    on-disk form is keyed by guest identity and wasmtime version;
+    deserializing trusts the bytes, so only our own cache dir is read."""
+    import importlib.metadata
+
+    import wasmtime
+
+    st = path.stat()
+    key = (str(path), st.st_size, st.st_mtime_ns)
+    with _ENGINE_LOCK:
+        cached = _MODULES.get(key)
+    if cached is not None:
+        return cached
+    version = importlib.metadata.version("wasmtime")
+    cwasm = guests.cache_dir() / f"{path.stem}-{st.st_size}-wasmtime{version}.cwasm"
+    module = None
+    if cwasm.is_file():
+        try:
+            module = wasmtime.Module.deserialize(engine, cwasm.read_bytes())
+        except Exception:  # noqa: BLE001 — a stale or foreign artifact; recompile
+            module = None
+    if module is None:
+        try:
+            module = wasmtime.Module.from_file(engine, str(path))
+        except Exception as e:  # noqa: BLE001 — a bad binary is a runtime fault
+            raise SandboxError(f"guest {path.name} will not load: {e}") from e
+        try:
+            tmp = cwasm.with_suffix(f".{os.getpid()}.part")
+            tmp.write_bytes(module.serialize())
+            os.replace(tmp, cwasm)
+        except OSError:
+            pass
+    with _ENGINE_LOCK:
+        _MODULES[key] = module
+    return module
+
+
 def _cap(text: bytes, limit: int, name: str,
          truncated: list[str]) -> str:
     if len(text) <= limit:
@@ -192,14 +271,8 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         stdin_path = pathlib.Path(td) / "stdin"
         stdin_path.write_bytes(stdin.encode() if isinstance(stdin, str) else bytes(stdin))
 
-        config = wasmtime.Config()
-        config.consume_fuel = True
-        config.epoch_interruption = True
-        engine = wasmtime.Engine(config)
-        try:
-            module = wasmtime.Module.from_file(engine, str(guest_path))
-        except Exception as e:  # noqa: BLE001 — a bad binary is a runtime fault
-            raise SandboxError(f"guest {guest_path.name} will not load: {e}") from e
+        engine = _engine()
+        module = _module(engine, guest_path)
 
         store = wasmtime.Store(engine)
         store.set_fuel(limits.fuel)
@@ -220,18 +293,10 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         virtual = _Virtual(snapshot, argv, strict)
         virtual.install(linker, store, module)
 
-        # Wall clock: the epoch ticks once per 100 ms from a thread, and
-        # the store traps when its deadline passes. Coarse, and enough.
-        deadline_ticks = max(1, int(limits.wall_seconds * 10))
-        store.set_epoch_deadline(deadline_ticks)
-        stop = threading.Event()
-
-        def tick() -> None:
-            while not stop.wait(0.1):
-                engine.increment_epoch()
-
-        ticker = threading.Thread(target=tick, daemon=True)
-        ticker.start()
+        # Wall clock: the shared ticker advances the epoch every
+        # EPOCH_TICK_S, and the store traps when its deadline passes.
+        # Coarse, and enough.
+        store.set_epoch_deadline(max(1, int(limits.wall_seconds / EPOCH_TICK_S)))
 
         started = time.monotonic()
         exit_code = 0
@@ -256,6 +321,10 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
                 limit = "fuel"
             elif "epoch" in low or "interrupt" in low:
                 limit = "wall_seconds"
+            elif "call stack exhausted" in low:
+                # The wasm call stack, wasmtime's default 512 KiB —
+                # unbounded recursion in the guest, not its heap.
+                limit = "stack"
             elif _out_of_memory(instance_holder, store, limits, text):
                 limit = "memory_mb"
             else:
@@ -277,9 +346,6 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
             else:
                 raise SandboxError(
                     f"guest {guest_path.name} could not be run: {text}") from e
-        finally:
-            stop.set()
-            ticker.join(timeout=1.0)
         duration_ms = int((time.monotonic() - started) * 1000)
         fuel_left = None
         try:

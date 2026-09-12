@@ -15,4 +15,11 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e . pytest
+      # The sandbox guest is built from pinned sources and must hash to
+      # the pin in mechbench_compute/guests.py — the tests refuse a
+      # build that differs, so this is also the reproducibility check.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - run: guests/mbshell/build.sh
       - run: python -m pytest tests/ -q
