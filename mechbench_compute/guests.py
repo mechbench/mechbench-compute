@@ -65,10 +65,10 @@ class GuestUnavailable(RuntimeError):
 REGISTRY: dict[str, Guest] = {
     "mbshell": Guest(
         name="mbshell", url="",
-        sha256="8105ef5ae2d52d06a3ac65947bf269c747e981c14c44d9e50dee2068a8632ae6",
-        size=15427010,
+        sha256="5090c2c1646c2b96f32baa7aac87535f8cf5e8895f01fd0cca65c3668a69ae62",
+        size=15426977,
         source="guests/mbshell (go-busybox@13f3053 + go-busybox-wasi.patch + "
-               "mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch; go1.27.1 -trimpath)"),
+               "mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch; go1.27.1 -trimpath -buildvcs=false)"),
 }
 
 

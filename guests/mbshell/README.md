@@ -67,9 +67,12 @@ directory, no `/dev`); `$0` from `sh -c CMD NAME`; and exit statuses
 
     ./build.sh     # prints sha256 + size for guests.py
 
-Reproducible: `-trimpath`, pinned upstream commit and module version,
-toolchain named in the output (go 1.27.1 for the recorded hash).
-Needs `go` on PATH.
+Reproducible: `-trimpath`, `-buildvcs=false` (the recipe lives inside
+a git repo and Go would otherwise stamp the binary with its commit and
+dirty flag — CI caught that), pinned upstream commit and module
+version, toolchain named in the output (go 1.27.1 for the recorded
+hash). Same hash from inside the repo and from a copy outside any git
+repo. Needs `go` on PATH.
 
 ## Licensing, before hosting
 

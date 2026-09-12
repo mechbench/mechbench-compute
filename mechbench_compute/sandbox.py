@@ -28,6 +28,7 @@ content store is its own business, and nothing above it should know.
 
 from __future__ import annotations
 
+import atexit
 import os
 import pathlib
 import tempfile
@@ -230,6 +231,19 @@ def _module(engine, path: pathlib.Path):
     with _ENGINE_LOCK:
         _MODULES[key] = module
     return module
+
+
+def _release_cached() -> None:
+    """Drop the cached modules and engine while wasmtime's FFI is still
+    loaded. Left to interpreter teardown, their finalizers run after
+    the library handle is gone and print a TypeError to stderr."""
+    global _ENGINE
+    with _ENGINE_LOCK:
+        _MODULES.clear()
+        _ENGINE = None
+
+
+atexit.register(_release_cached)
 
 
 def _cap(text: bytes, limit: int, name: str,

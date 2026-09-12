@@ -13,6 +13,27 @@ nothing said so.
 
 ---
 
+## 0.52.1 — 2026-09-12
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **mbshell pin `5090c2c1…`**: built with `-buildvcs=false`. The
+  recipe sits inside the compute git repo, and Go stamped the binary
+  with that repo's commit and dirty flag, so the 0.52.0 pin
+  reproduced on this machine and on no other. CI's first build of the
+  guest hashed differently and every guest test refused to run —
+  which is the check working. Now the same hash from inside the repo
+  and from a copy outside any git repo.
+- Cached wasmtime modules and the engine are released at interpreter
+  exit, before the FFI is unloaded; their finalizers printed a
+  `TypeError` on shutdown.
+
+---
+
 ## 0.52.0 — 2026-09-12
 
 ### Changes that raise
