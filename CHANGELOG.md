@@ -13,6 +13,30 @@ nothing said so.
 
 ---
 
+## 0.53.0 — 2026-09-12
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **mbshell is hosted.** `guests.ensure("mbshell")` fetches it on
+  first use from a GitHub release on this repo
+  (`mbshell-5090c2c1646c`), gzipped, and verifies the decompressed
+  bytes against the pin; a local build is no longer needed to run
+  the sandbox. `NOTICE` ships beside the binary with every bundled
+  license. Benji's call on the license question: go-busybox declares
+  MIT in its README, and a declaration is a license — the missing
+  file is upstream issue #3, not a blocker.
+- `_fetch` decompresses a `.gz` URL on the way down; the pin is
+  always the hash of what runs. It trusts certifi's CA bundle, as
+  `bench.py` and `providers/http.py` already do — the python.org
+  framework build on macOS has no system bundle, and the first real
+  fetch failed with CERTIFICATE_VERIFY_FAILED.
+
+---
+
 ## 0.52.1 — 2026-09-12
 
 ### Changes that raise

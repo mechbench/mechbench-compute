@@ -74,8 +74,21 @@ version, toolchain named in the output (go 1.27.1 for the recorded
 hash). Same hash from inside the repo and from a copy outside any git
 repo. Needs `go` on PATH.
 
-## Licensing, before hosting
+## Hosting and licensing
 
-mvdan/sh is BSD-3-Clause. go-busybox's README says MIT but the tree at
-the pinned commit has **no LICENSE file**; hosting a built artifact is
-redistribution and waits on that (see 000359).
+The built guest is a **GitHub release on this repo**, tagged
+`mbshell-<sha12>`, with the gzipped binary, `SHA256SUMS`, and `NOTICE`
+beside it. `guests.ensure("mbshell")` fetches it on first use,
+decompresses, and verifies the hash of the decompressed bytes against
+the pin in `mechbench_compute/guests.py`. To re-pin: run `build.sh`,
+create a release with the new tag and assets, update the pin and URL.
+
+`NOTICE` carries every license in the binary: go-busybox is MIT **as
+declared in its README** (the tree has no LICENSE file; upstream
+issue #3 asks for one), mvdan/sh BSD-3-Clause, goawk MIT, golang.org/x
+and the Go runtime BSD-3-Clause.
+
+Nobody needs Go to *use* the guest. Rebuilding it needs go 1.27.1
+(a 65 MB download, 270 MB installed), git, patch, and network access
+to proxy.golang.org and GitHub; no C toolchain. A cold build is under
+four seconds.

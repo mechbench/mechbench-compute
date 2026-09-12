@@ -6,9 +6,10 @@ WebAssembly. They are not vendored into the wheel: CPython-on-WASI is
 20–30 MB and would triple what `pip install mechbench-compute` costs
 for every user who never runs a sandbox. Instead each guest is a
 **pinned artifact**: a URL, a sha256, and a size, built by us from a
-pinned upstream commit and hosted where model weights live. The runner
-fetches it the first time a protocol asks, verifies the hash, and
-keeps it under `~/.mechbench/guests/`.
+pinned upstream commit and hosted as a GitHub release on this repo,
+tagged by guest and hash. The runner fetches it the first time a
+protocol asks, verifies the hash, and keeps it under
+`~/.mechbench/guests/`.
 
 The hash is the contract. A fetched file that does not match is
 deleted, never used, and the failure names what was expected — the
@@ -18,6 +19,7 @@ a binary we did not pin is not a sandbox.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import os
 import pathlib
@@ -57,14 +59,17 @@ class GuestUnavailable(RuntimeError):
 #: POSIX shell (mvdan/sh with a small WASI patch), compiled with
 #: standard Go's wasip1 port — recipe and rationale in
 #: `guests/mbshell/`. Plain busybox is not pinned because it has no
-#: shell under wasm and never will (its ash is fork/exec). Not hosted
-#: yet: go-busybox's README says MIT but the tree carries no LICENSE
-#: file, and hosting a built artifact is redistribution. Until that is
-#: settled the bytes come from `guests/mbshell/build.sh` via
-#: `install_local`, which must match this hash.
+#: shell under wasm and never will (its ash is fork/exec).
+#:
+#: Hosted as a GitHub release on this repo, tagged by guest and hash,
+#: with the third-party NOTICE beside it: go-busybox is MIT as declared
+#: in its README (no LICENSE file in the tree; upstream issue #3),
+#: mvdan/sh BSD-3-Clause, goawk MIT, golang.org/x BSD-3-Clause. The
+#: hosted form is gzipped; the pin is the decompressed bytes.
 REGISTRY: dict[str, Guest] = {
     "mbshell": Guest(
-        name="mbshell", url="",
+        name="mbshell",
+        url="https://github.com/mechbench/mechbench-compute/releases/download/mbshell-5090c2c1646c/mbshell-5090c2c1646c.wasm.gz",
         sha256="5090c2c1646c2b96f32baa7aac87535f8cf5e8895f01fd0cca65c3668a69ae62",
         size=15426977,
         source="guests/mbshell (go-busybox@13f3053 + go-busybox-wasi.patch + "
@@ -125,14 +130,36 @@ def ensure(name: str, *, fetch: bool = True) -> pathlib.Path:
     return _fetch(guest, target)
 
 
+def _tls_context():
+    """A TLS context that trusts certifi's bundle. The python.org
+    framework build on macOS ships with no system CA bundle wired in,
+    so a plain urlopen fails with CERTIFICATE_VERIFY_FAILED on the
+    first fetch — which is how this line got here."""
+    import ssl
+
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
 def _fetch(guest: Guest, target: pathlib.Path) -> pathlib.Path:
+    """Download, decompress if the URL ends in .gz, verify, install.
+
+    A standard-Go guest is 15 MB raw and 4 MB gzipped, and CloudFront
+    will not compress objects over 10 MB, so the hosted form is the
+    .gz. The pin is always the hash of the DECOMPRESSED bytes — what
+    runs — so a re-compression upstream changes nothing.
+    """
     tmp_fd, tmp_name = tempfile.mkstemp(prefix=f"{guest.name}-", suffix=".part",
                                         dir=str(target.parent))
     tmp = pathlib.Path(tmp_name)
     try:
         with os.fdopen(tmp_fd, "wb") as out, urllib.request.urlopen(
-                guest.url, timeout=120) as resp:
-            for chunk in iter(lambda: resp.read(1 << 20), b""):
+                guest.url, timeout=300, context=_tls_context()) as resp:
+            stream = gzip.GzipFile(fileobj=resp) if guest.url.endswith(".gz") else resp
+            for chunk in iter(lambda: stream.read(1 << 20), b""):
                 out.write(chunk)
         got = _sha256_of(tmp)
         if got != guest.sha256:

@@ -65,6 +65,16 @@ class TestTheHashIsTheContract:
         path = guests.ensure("g")
         assert path.read_bytes() == data and digest[:12] in path.name
 
+    def test_a_gzipped_url_is_decompressed_and_hashed_raw(self, tmp_path):
+        import gzip
+        data = b"\0asm the real bytes " * 1000
+        served = tmp_path / "served.wasm.gz"
+        served.write_bytes(gzip.compress(data))
+        guests.register(guests.Guest(name="g", url=served.as_uri(),
+                                     sha256=hashlib.sha256(data).hexdigest(), size=len(data)))
+        path = guests.ensure("g")
+        assert path.read_bytes() == data, "the pin is the decompressed bytes"
+
     def test_size_is_checked_too(self, tmp_path):
         served = tmp_path / "served.wasm"
         data = b"\0asm sized"
@@ -99,9 +109,12 @@ class TestThePin:
         assert list(real.REGISTRY) == ["mbshell"], "one guest; busybox alone has no shell"
         g = real.REGISTRY["mbshell"]
         assert len(g.sha256) == 64 and g.size > 1_000_000 and g.source
-        # Not hosted: an earlier test module may have install_local'd a
-        # file:// build, but nothing points at a server yet.
-        assert not g.url.startswith("http"), "hosting is blocked on the LICENSE question"
+        # Hosted as a GitHub release on this repo, tagged by hash, gzipped.
+        # (An earlier test module may have install_local'd a file:// build
+        # over it, so accept either.)
+        assert g.url.startswith("file://") or (
+            g.url.startswith("https://github.com/mechbench/mechbench-compute/releases/download/")
+            and g.sha256[:12] in g.url and g.url.endswith(".wasm.gz"))
 
 
 class TestRefusals:
