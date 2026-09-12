@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## 0.60.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **A chat item carries its final sandbox workspace** as a browsable
+  fs-snapshot on `metadata.sandbox_final` (task 000362). Blobs ride
+  INLINE when the whole tree is under 1 MB, so the UI file browser can
+  preview file bytes with no blob route; a larger workspace falls back
+  to references (shape without content). Mounts are excluded — they are
+  read-only inputs, not the session's product. A snapshot is emitted
+  as a separate ADDRESSABLE bench object only later, when a large
+  workspace makes the per-item inline cost worth the executor plumbing
+  (a follow-on).
+
+---
+
 ## 0.59.0 — 2026-09-13
 
 ### Changes that raise

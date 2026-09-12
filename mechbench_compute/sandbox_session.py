@@ -196,6 +196,22 @@ class SandboxSession:
         self.guest = guest or self.image.base
         self.calls: list[SandboxCall] = []
 
+    def final_wire(self, inline_cap: int = 1 << 20) -> dict[str, Any] | None:
+        """The final workspace as an fs-snapshot object, for the UI's
+        file browser (task 000362). `None` when nothing ran and the
+        tree is empty.
+
+        Blobs ride INLINE when the whole tree is under `inline_cap`, so
+        the browser can preview file bytes with no blob route; a larger
+        workspace falls back to references (shape without content) and
+        the browser shows sizes but not previews. Mounts are excluded —
+        they are read-only inputs, not the session's product."""
+        working = replace(self.snapshot, mounts=())
+        if not working.entries:
+            return None
+        inline = working.n_bytes <= inline_cap
+        return working.to_wire(inline=inline)
+
     # -- the tools -----------------------------------------------------
 
     def bash(self, command: str, stdin: str = "") -> str:

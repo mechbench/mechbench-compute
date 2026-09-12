@@ -115,7 +115,8 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
           sampling: Mapping[str, Any] | None = None,
           tool_runs: Sequence[Any] = (),
           tool_errors: Sequence[Any] = (),
-          sandbox_calls: Sequence[Any] = ()) -> dict[str, Any]:
+          sandbox_calls: Sequence[Any] = (),
+          sandbox_snapshot: Any = None) -> dict[str, Any]:
     meta: dict[str, Any] = {
         "coords": {**(rec.get("coords") or {}), "sample": k},
         "model": model_wire,
@@ -136,6 +137,9 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
         # The snapshot chain this item drove — what the filesystem did,
         # call by call. The final snapshot's digest is the last one.
         meta["sandbox"] = [c.to_wire() for c in sandbox_calls]
+    if sandbox_snapshot is not None:
+        # The final workspace as a browsable fs-snapshot (task 000362).
+        meta["sandbox_final"] = sandbox_snapshot
     tool_parts = [p.to_wire() for p in parts
                   if not isinstance(p, pm.TextPart)]
     if tool_parts:
@@ -278,7 +282,8 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                                "max_tokens": int(params.get("max_tokens", 1024)),
                                "seed": req.seed, "index": k},
                      tool_runs=[r.to_wire() for r in box.runs],
-                     sandbox_calls=(session.calls if session else ()))
+                     sandbox_calls=(session.calls if session else ()),
+                     sandbox_snapshot=(session.final_wire() if session else None))
         return pos, key, item, out.call, extra_calls
 
     if plan:
@@ -442,7 +447,8 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
                          sampling={"temperature": temperature, "top_p": top_p,
                                    "seed": seed, "index": k},
                          tool_runs=[r.to_wire() for r in box.runs],
-                         sandbox_calls=(session.calls if session else ()))
+                         sandbox_calls=(session.calls if session else ()),
+                         sandbox_snapshot=(session.final_wire() if session else None))
             items.append(item)
             if on_item:
                 on_item(key, item)

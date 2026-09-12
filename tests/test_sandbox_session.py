@@ -95,6 +95,28 @@ class TestTheSnapshotTools:
         assert c.snapshot_in == c.snapshot_out == d and c.tool == "read_file"
 
 
+class TestTheFinalWorkspace:
+    def test_empty_session_has_no_final_snapshot(self):
+        assert SandboxSession(_image(snapshot=fs.EMPTY)).final_wire() is None
+
+    def test_small_workspace_inlines_content(self):
+        s = SandboxSession(_image(snapshot=fs.seeded({"r.txt": "report\n"})))
+        wire = s.final_wire()
+        assert wire["n_files"] == 1 and wire["entries"][0]["data"] == b"report\n"
+
+    def test_large_workspace_falls_back_to_references(self):
+        s = SandboxSession(_image(snapshot=fs.seeded({"big.bin": b"x" * 2048})))
+        wire = s.final_wire(inline_cap=1024)
+        assert "data" not in wire["entries"][0], "over the cap: references, no inline bytes"
+
+    def test_mounts_are_not_part_of_the_product(self):
+        img = SandboxImage.parse({
+            "snapshot": {"w.txt": "work\n"},
+            "mounts": [{"path": "/opt/data", "snapshot": {"m.txt": "mounted\n"}}]})
+        wire = SandboxSession(img).final_wire()
+        assert "mounts" not in wire and wire["n_files"] == 1
+
+
 class TestObjectMounts:
     """Read-only trees mounted at absolute paths — the user-extensible
     stdlib, and any data dir. Guest-agnostic parts use mbshell."""
@@ -265,6 +287,23 @@ class TestThroughTheChatNode:
         }
         base.update(kw)
         return base
+
+    def test_the_final_workspace_rides_the_item_as_a_browsable_snapshot(self):
+        from mechbench_compute import chat as chat_mod
+        from mechbench_compute import model_ref as mr
+        params = {
+            "model": {"provider": "mock", "model": "mock-large"},
+            "budget_usd": 1.0,
+            "records": [{"id": "r0", "user": "x"}],
+            "sandbox": {"tools": ["list"], "snapshot": {"a.txt": "hi\n"}},
+            "max_tool_rounds": 1,
+            "provider_options": {"mock": {"tool_call": "list"}},
+        }
+        out = chat_mod.run_remote(mr.parse(params["model"]), params["records"], params)
+        snap = out["items"][0]["metadata"].get("sandbox_final")
+        assert snap and snap["kind"] == "fs_snapshot" and snap["n_files"] == 1
+        # small workspace -> content inline, so the browser can preview it
+        assert snap["entries"][0]["data"] == b"hi\n"
 
     def test_a_chat_node_offers_the_sandbox_and_records_the_chain(self):
         from mechbench_compute import chat as chat_mod
