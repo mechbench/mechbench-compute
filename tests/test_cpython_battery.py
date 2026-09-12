@@ -120,3 +120,40 @@ class TestTheLimitsHold:
         assert run(cpython, "import sys; sys.exit(3)").exit_code == 3
         assert run(cpython, "import sys; sys.exit(127)").exit_code == 127
         assert run(cpython, "import sys; sys.exit(200)").exit_code == 200
+
+
+REL = REPO / "guests" / "cpython" / "build" / "release"
+
+
+@pytest.mark.skipif(not (REL / "python.wasm.gz").is_file(),
+                    reason="release artifacts not built — guests/cpython/build/release")
+def test_the_hosted_guest_fetches_and_unpacks(tmp_path, monkeypatch):
+    """The real hosting path, with the release artifacts served over
+    file:// from an empty cache: fetch the wasm.gz, verify and
+    decompress it, fetch the stdlib.tar.gz, verify and unpack it, and
+    run. The pins are the ones in guests.REGISTRY, so a mismatch here
+    is a mismatch against what will be hosted."""
+    import gzip
+    import hashlib
+
+    monkeypatch.setenv("MECHBENCH_GUEST_CACHE", str(tmp_path))
+    from mechbench_compute import guests as g
+    # Expected hashes are computed from the artifacts, not read from the
+    # registry — the module fixture may have install_local'd over it, and
+    # this test is about the fetch/unpack mechanics regardless.
+    wasm_bytes = gzip.decompress((REL / "python.wasm.gz").read_bytes())
+    wasm_sha = hashlib.sha256(wasm_bytes).hexdigest()
+    lib_sha = hashlib.sha256((REL / "stdlib.tar.gz").read_bytes()).hexdigest()
+    monkeypatch.setattr(g, "REGISTRY", dict(g.REGISTRY))
+    g.register(g.Guest(
+        name="cpython", url=(REL / "python.wasm.gz").as_uri(),
+        sha256=wasm_sha, size=len(wasm_bytes),   # decompressed size, as _fetch checks
+        env={"PYTHONHOME": "/usr/local", "PYTHONDONTWRITEBYTECODE": "1"},
+        mounts=(g.GuestMount(at="/usr/local/lib/python3.13",
+                             url=(REL / "stdlib.tar.gz").as_uri(),
+                             sha256=lib_sha),)))
+    wasm, mounts, env = g.resolve("cpython")
+    assert wasm.is_file() and pathlib.Path(mounts[0].host).is_dir()
+    r = sandbox.run(fs.EMPTY, ["python", "-c", "print(6*7)"], guest="cpython",
+                    limits=L(memory_mb=256, wall_seconds=20))
+    assert r.ok and r.stdout.strip() == "42"

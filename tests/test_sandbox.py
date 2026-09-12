@@ -74,16 +74,6 @@ class TestTheLoopWorks:
         with pytest.raises(sandbox.SandboxError, match="no guest named 'ruby'.*known:"):
             sandbox.run(SEED, ["ruby"], guest="ruby")
 
-    def test_a_registered_but_uninstalled_guest_says_how_to_get_it(self, guest):
-        # cpython is declared but not built/hosted here — the message
-        # points at the recipe, not a generic not-found. (Skip if a
-        # sibling test module already install_local'd a real build.)
-        from mechbench_compute import guests as g
-        if g.REGISTRY["cpython"].sha256:
-            pytest.skip("cpython was installed by another test module")
-        with pytest.raises(sandbox.SandboxError, match="cpython.*not hosted|build it"):
-            sandbox.run(SEED, ["python", "-c", "1"], guest="cpython")
-
     def test_a_missing_applet_is_an_ordinary_failure(self, guest):
         r = sandbox.run(SEED, ["python3", "-c", "1"], guest=guest)
         assert r.exit_code != 0 and r.limit is None

@@ -151,10 +151,15 @@ class TestRuntimeMounts:
         from mechbench_compute import guests as real
         cp = real.REGISTRY["cpython"]
         assert cp.env.get("PYTHONHOME") == "/usr/local"
-        assert cp.mounts and cp.mounts[0].at == "/usr/local/lib/python3.13"
-        # Not hosted on a server (an earlier test may have install_local'd
-        # a file:// build over the pristine empty url).
-        assert not cp.url.startswith("http"), "cpython is not hosted yet"
+        m = cp.mounts[0]
+        assert m.at == "/usr/local/lib/python3.13"
+        # Hosted: the wasm is a release .wasm.gz and the stdlib mount a
+        # release .tar.gz, each pinned by its own hash. (A local test
+        # may have install_local'd a file:// build over it.)
+        assert cp.url.startswith("file://") or (
+            cp.url.startswith("https://github.com/mechbench/mechbench-compute/releases/")
+            and cp.url.endswith(".wasm.gz") and len(cp.sha256) == 64)
+        assert m.host or (m.url.endswith(".tar.gz") and len(m.sha256) == 64)
 
 
 class TestRefusals:

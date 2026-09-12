@@ -13,6 +13,30 @@ nothing said so.
 
 ---
 
+## 0.57.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **The CPython guest is hosted and pinned** (task 000453). `python`
+  now works on any machine: `guests.resolve("cpython")` fetches the
+  interpreter (`python.wasm.gz`, pin over the decompressed bytes) and
+  its standard library (`stdlib.tar.gz`, pin over the archive),
+  verifies both hashes, and unpacks the stdlib into the guest cache as
+  a read-only mount. A GitHub release on this repo holds them, with a
+  PSF NOTICE. Rebuilt with `-ffile-prefix-map` so the wasm carries no
+  build path.
+- **Guest runtime mounts can be hosted**: `GuestMount` gains `url` +
+  `sha256`; `resolve` fetches and unpacks a `.tar.gz` mount on first
+  use (tar extraction guarded with `filter="data"`), reusing the
+  unpacked tree by hash. A local build still fills the mount host
+  through `install_local(..., mounts=…)`.
+
+---
+
 ## 0.56.0 — 2026-09-12
 
 ### Changes that raise

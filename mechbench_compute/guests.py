@@ -102,16 +102,22 @@ REGISTRY: dict[str, Guest] = {
     # CPython 3.13.3 compiled to wasip1 with wasi-sdk — recipe in
     # `guests/cpython/`. Its standard library is a read-only MOUNT at
     # `/usr/local/lib/python3.13` (every module builds static, so the
-    # library is pure .py), which the guest finds via PYTHONHOME. Not
-    # hosted yet: the mount's `host` is filled by `install_local` from a
-    # local build until a release hosts the wasm and a stdlib tarball.
+    # library is pure .py), which the guest finds via PYTHONHOME. Both
+    # the wasm and the stdlib tarball are hosted as a GitHub release;
+    # `-ffile-prefix-map` in build.sh keeps the wasm free of build
+    # paths. The wasm pin is the decompressed bytes; the mount pin is
+    # the .tar.gz bytes.
     "cpython": Guest(
-        name="cpython", url="",
-        sha256="",  # filled when the build is pinned; see guests/cpython/build.sh
-        size=0,
-        source="guests/cpython (CPython v3.13.3 + wasi-sdk-34; host python3.13)",
+        name="cpython",
+        url="https://github.com/mechbench/mechbench-compute/releases/download/cpython-0e9a1065ab0d/python.wasm.gz",
+        sha256="0e9a1065ab0db40e5b42a49083f0b09c517f2cd4ff650914de8006ab9d079da3",
+        size=29207565,
+        source="guests/cpython (CPython v3.13.3 + wasi-sdk-34 + -ffile-prefix-map; host python3.13)",
         env={"PYTHONHOME": "/usr/local", "PYTHONDONTWRITEBYTECODE": "1"},
-        mounts=(GuestMount(at="/usr/local/lib/python3.13"),)),
+        mounts=(GuestMount(
+            at="/usr/local/lib/python3.13",
+            url="https://github.com/mechbench/mechbench-compute/releases/download/cpython-0e9a1065ab0d/stdlib.tar.gz",
+            sha256="0e271acc56651af4a3031f307dcf6575a69c4a5c0a228c74e922a2a825ee6266"),)),
 }
 
 
@@ -264,12 +270,75 @@ def install_local(name: str, path: str | os.PathLike[str], *,
     return guest
 
 
+def _ensure_mount(name: str, mount: GuestMount, *, fetch: bool) -> GuestMount:
+    """A mount with its `host` filled: a local directory as-is, or a
+    hosted `.tar.gz` (verified by `sha256` of the archive bytes)
+    unpacked into the cache. Read-only content, so once unpacked under
+    its hash it is reused."""
+    if mount.host and pathlib.Path(mount.host).is_dir():
+        return mount
+    if not mount.url:
+        raise GuestUnavailable(
+            f"guest {name!r} needs a runtime mount at {mount.at!r} but it is "
+            f"neither built locally nor hosted — run the guest's build.sh and "
+            f"install_local it with mounts=…")
+    dest = cache_dir() / f"{name}-lib-{mount.sha256[:12]}"
+    marker = dest / ".ok"
+    if marker.is_file():
+        return GuestMount(at=mount.at, host=str(dest), url=mount.url, sha256=mount.sha256)
+    if not fetch:
+        raise GuestUnavailable(
+            f"guest {name!r} mount at {mount.at!r} is not unpacked and "
+            f"fetching is disabled")
+    import io
+    import tarfile
+
+    tmp_fd, tmp_name = tempfile.mkstemp(prefix=f"{name}-lib-", suffix=".tgz",
+                                        dir=str(cache_dir()))
+    tmp = pathlib.Path(tmp_name)
+    try:
+        with os.fdopen(tmp_fd, "wb") as out, urllib.request.urlopen(
+                mount.url, timeout=300, context=_tls_context()) as resp:
+            for chunk in iter(lambda: resp.read(1 << 20), b""):
+                out.write(chunk)
+        got = _sha256_of(tmp)
+        if got != mount.sha256:
+            raise GuestUnavailable(
+                f"guest {name!r} mount from {mount.url} hashed to {got}, "
+                f"expected {mount.sha256}. Not kept.")
+        import shutil
+
+        staging = pathlib.Path(tempfile.mkdtemp(prefix=f"{name}-lib-",
+                                                dir=str(cache_dir())))
+        with tarfile.open(tmp, "r:gz") as tf:
+            # `filter='data'` refuses members that escape the destination
+            # or carry unsafe types (links, devices) — a tarball we host,
+            # but verified anyway.
+            try:
+                tf.extractall(staging, filter="data")
+            except TypeError:  # Python < 3.12 without the backport
+                tf.extractall(staging)
+        (staging / ".ok").write_bytes(b"")
+        try:
+            os.replace(staging, dest)   # atomic when dest does not exist
+        except OSError:
+            # A concurrent unpack won the slot; its content is the same
+            # bytes (same hash), so use it and drop ours.
+            shutil.rmtree(staging, ignore_errors=True)
+        return GuestMount(at=mount.at, host=str(dest), url=mount.url, sha256=mount.sha256)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def resolve(guest: str | os.PathLike[str], *, fetch: bool = True
             ) -> tuple[pathlib.Path, tuple[GuestMount, ...], Mapping[str, str]]:
     """`(wasm_path, mounts, env)` for a registered NAME (fetched and
     verified as needed) or a bare `.wasm` PATH (no mounts, no env). The
-    sandbox calls this so a guest's runtime needs travel with it."""
+    sandbox calls this so a guest's runtime needs travel with it — a
+    hosted mount is fetched and unpacked here on first use."""
     if isinstance(guest, str) and is_registered(guest):
         g = REGISTRY[guest]
-        return ensure(guest, fetch=fetch), g.mounts, g.env
+        wasm = ensure(guest, fetch=fetch)
+        mounts = tuple(_ensure_mount(guest, m, fetch=fetch) for m in g.mounts)
+        return wasm, mounts, g.env
     return pathlib.Path(guest), (), {}

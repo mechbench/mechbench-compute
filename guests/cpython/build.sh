@@ -31,8 +31,15 @@ fi
 
 export WASI_SDK_PATH="$PWD/wasi-sdk"
 export PATH="$PWD/wasmtime:$PATH"
+BUILD_ROOT="$PWD"
 cd cpython
-# wasi.py sets SOURCE_DATE_EPOCH from the tag's commit — reproducible.
+# -ffile-prefix-map strips the build path from __FILE__ so the artifact
+# carries no local path and rebuilds are path-independent; wasi.py sets
+# SOURCE_DATE_EPOCH from the tag's commit. Together these make the hash
+# a function of the sources and toolchain, not where they sit.
+export CFLAGS="-ffile-prefix-map=${BUILD_ROOT}=/build"
+export LDFLAGS="-ffile-prefix-map=${BUILD_ROOT}=/build"
+python3.13 Tools/wasm/wasi.py clean >/dev/null 2>&1 || true
 python3.13 Tools/wasm/wasi.py build
 
 WASM=cross-build/wasm32-wasip1/python.wasm
