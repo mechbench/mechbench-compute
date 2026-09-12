@@ -214,7 +214,7 @@ def _position_index(model, ids: mx.array, record: Mapping[str, Any],
     raise ValueError(f"unknown position {position!r}")
 
 
-POOLS = ("mean", "max", "last_k")
+POOLS = ("mean", "max", "last_k", "first_k")
 
 
 def _pool_spec(params: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -225,6 +225,10 @@ def _pool_spec(params: Mapping[str, Any]) -> dict[str, Any] | None:
     wrong one for a document: embedding a story at `final` embeds its
     ENDING, so a corpus with varied endings and identical middles
     looks varied and no measure downstream can tell. Task 000431.
+
+    `first_k` (task 000368) is the windowed read: `pool_skip` positions
+    in, `pool_k` positions wide — a story's opening after its envelope,
+    where experiment 014 fit its outcome axis (tokens 5..30).
     """
     pool = params.get("pool")
     if pool is None:
@@ -233,12 +237,12 @@ def _pool_spec(params: Mapping[str, Any]) -> dict[str, Any] | None:
     if pool not in POOLS:
         raise ValueError(f"unknown pool {pool!r}: one of {POOLS}")
     k = params.get("pool_k")
-    if pool == "last_k" and not (isinstance(k, int) and k >= 1):
-        raise ValueError("pool 'last_k' needs a positive integer `pool_k`")
+    if pool in ("last_k", "first_k") and not (isinstance(k, int) and k >= 1):
+        raise ValueError(f"pool {pool!r} needs a positive integer `pool_k`")
     skip = int(params.get("pool_skip", 0) or 0)
     if skip < 0:
         raise ValueError("`pool_skip` cannot be negative")
-    return {"pool": pool, "k": int(k) if pool == "last_k" else None,
+    return {"pool": pool, "k": int(k) if pool in ("last_k", "first_k") else None,
             "skip": skip}
 
 
@@ -254,6 +258,8 @@ def _pooled(mat: np.ndarray, spec: Mapping[str, Any]) -> tuple[np.ndarray, int]:
         sub = mat[-1:]
     if spec["pool"] == "last_k":
         sub = sub[-spec["k"]:]
+    elif spec["pool"] == "first_k":
+        sub = sub[: spec["k"]]
     v = sub.max(axis=0) if spec["pool"] == "max" else sub.mean(axis=0)
     return v, int(sub.shape[0])
 

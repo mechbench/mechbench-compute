@@ -498,6 +498,34 @@ def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
         headers={"Content-Type": "application/json"}, timeout=90)
 
 
+def create_protocol(owner: str, project: str, name: str, *, graph: dict,
+                    description: str = "", signature: dict | None = None,
+                    owner_kind: str = "user", api_url: str | None = None,
+                    api_key: str | None = None) -> dict:
+    """Register a protocol: `POST /protocols` with its graph and
+    signature. Returns the bare protocol (id, version, name, ...).
+
+    The authoring half of an experiment used to carry its own `api()`
+    for exactly this call; it belongs beside `launch`, which runs what
+    this registers.
+    """
+    url, key = _config(api_url, api_key)
+    body: dict[str, Any] = {
+        "ownerKind": owner_kind, "ownerHandle": owner, "projectSlug": project,
+        "name": name, "description": description, "graph": graph,
+    }
+    if signature is not None:
+        body["signature"] = signature
+    out = _request(
+        "POST", f"{url}/protocols", key,
+        body=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, timeout=90)
+    # The protocols routes still answer `{protocol: …}` — the one wrapper
+    # 000451 left behind (task 000456). Unwrapped here, once, so no
+    # caller has to; drop this line when the route goes bare.
+    return out.get("protocol", out) if isinstance(out, dict) else out
+
+
 def get_job(job_id: str, *, api_url: str | None = None,
             api_key: str | None = None) -> dict:
     """`GET /jobs/:id` — the bare job row (status, progress, spend,

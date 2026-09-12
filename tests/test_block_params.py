@@ -19,12 +19,23 @@ SOURCES = {
     "~canonical/ops/chat/1": "chat.py",
     "~canonical/ops/vectors/mst/1": "trees.py",
     "~canonical/ops/residuals/vectors/1": "interp.py",
+    "~canonical/ops/trajectory/capture/1": "trajectory.py",
+    "~canonical/ops/trajectory/project/1": "trajectory.py",
+    "~canonical/ops/trajectory/compare/1": "trajectory.py",
+    "~canonical/ops/trajectory/aggregate/1": "trajectory.py",
+    "~canonical/ops/tokenize/stats/1": "tokenizer_stats.py",
 }
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
 
-#: `interp.py` implements many blocks; only the ones reachable from
-#: `residual_vectors` belong to its declaration.
-SCOPED = {"~canonical/ops/residuals/vectors/1": "def residual_vectors("}
+#: A module that implements many blocks: only the params read from the
+#: named function (to the next top-level `def`) belong to that block.
+SCOPED = {
+    "~canonical/ops/residuals/vectors/1": "def residual_vectors(",
+    "~canonical/ops/trajectory/capture/1": "def capture(",
+    "~canonical/ops/trajectory/project/1": "def project(",
+    "~canonical/ops/trajectory/compare/1": "def compare(",
+    "~canonical/ops/trajectory/aggregate/1": "def aggregate(",
+}
 
 
 def _params_read(path: pathlib.Path, start_at: str | None = None) -> set[str]:

@@ -112,6 +112,29 @@ class TestLaunch:
         assert "budgetUsd" not in json.loads(fake.calls[-1]["body"])
 
 
+class TestCreateProtocol:
+    def test_it_posts_the_graph_and_returns_the_bare_protocol(self, fake):
+        # The protocols routes still wrap (`{protocol: …}`, task 000456);
+        # the library unwraps once so no author does.
+        fake.add("POST", "/protocols", {"protocol": {"id": "prt_1", "version": 1,
+                                                     "name": "018-axes"}})
+        out = bench.create_protocol("benji", "lab", "018-axes",
+                                    graph={"nodes": [], "edges": []},
+                                    description="d",
+                                    signature={"inputs": [], "outputs": []})
+        assert out == {"id": "prt_1", "version": 1, "name": "018-axes"}
+        import json
+        body = json.loads(fake.calls[-1]["body"])
+        assert body["ownerHandle"] == "benji" and body["projectSlug"] == "lab"
+        assert body["graph"] == {"nodes": [], "edges": []}
+        assert body["signature"] == {"inputs": [], "outputs": []}
+        assert fake.calls[-1]["url"].endswith("/protocols")
+
+    def test_a_bare_reply_passes_through(self, fake):
+        fake.add("POST", "/protocols", {"id": "prt_2", "version": 1})
+        assert bench.create_protocol("o", "p", "n", graph={})["id"] == "prt_2"
+
+
 class TestWatch:
     def test_it_yields_only_on_change_until_terminal(self, fake):
         fake.add("GET", "/jobs/j", Seq([

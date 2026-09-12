@@ -692,6 +692,13 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_lens_positions, inputs, params,
                     on_item=on_item, on_start=expand)
+            elif block == "~canonical/ops/trajectory/capture/1":
+                results[nid] = self._run_model_block(
+                    self._block_trajectory_capture, inputs, params,
+                    on_item=on_item, on_start=expand)
+            elif block == "~canonical/ops/tokenize/stats/1":
+                results[nid] = self._run_model_block(
+                    self._block_tokenize_stats, inputs, params)
             elif block == "~canonical/ops/residuals/vectors/1":
                 results[nid] = self._run_model_block(
                     self._block_residual_vectors, inputs, params,
@@ -1251,6 +1258,29 @@ class ProtocolExecutor:
         records = _records(inputs.get("records") or params.get("records"))
         return interp.residual_divergence(
             model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_trajectory_capture(self, inputs, params, on_item=None,
+                                  on_start=None):
+        """~canonical/ops/trajectory/capture/1 (task 000368) — one
+        position's vector at every layer, or one layer's vector at every
+        position along a sequence, replayed from the trace when the
+        records carry one."""
+        from mechbench_compute import trajectory
+        from mechbench_compute.blocks import _records
+
+        model = self._model_loaded(params.get("model"))
+        records = _records(inputs.get("records") or params.get("records"))
+        return trajectory.capture(
+            model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_tokenize_stats(self, inputs, params):
+        """~canonical/ops/tokenize/stats/1 (task 000377) — the bound
+        model's tokenizer over items, a vocabulary or records: depth
+        inventory, fragmentation, scripts, the naturalism gate."""
+        from mechbench_compute import tokenizer_stats
+
+        model = self._model_loaded(params.get("model"))
+        return tokenizer_stats.block(model, inputs, params)
 
     def _run_model_block(self, fn, inputs, params, *args, **kwargs):
         """Model-block wrapper: load the bound model, fuse an adapter

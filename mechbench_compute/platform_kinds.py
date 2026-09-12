@@ -19,6 +19,49 @@ def manifests():
     series_map = {"rows": "layers", "x": "layer", "y": "entropy_bits",
                   "label": "top1"}
     return [
+        # Trajectory (task 000368): the residual stream read along one
+        # axis — a position across layers, or a layer across positions.
+        # Rows carry the vector; the table view shows step, layer,
+        # position, token and norm, which is what a reader scans.
+        ms.KindManifest(
+            path="~canonical/kinds/trajectory",
+            title="Residual trajectory",
+            version="1",
+            item_schema={
+                "type": "object",
+                "required": ["step", "layer", "position", "vector"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "label": {},
+                    "step": {"type": "integer"},
+                    "layer": {"type": "integer"},
+                    "position": {"type": "integer"},
+                    "token": {"type": ["string", "null"]},
+                    "norm": {"type": "number"},
+                    "vector": {"type": "array", "items": {"type": "number"}},
+                },
+            },
+            renderer=ms.RendererBinding(
+                primitive="table", field_map={"rows": "rows"}),
+        ),
+        # Tokenizer diagnostics (task 000377): the depth inventory as
+        # rows (depth, count, share) plus scalar summaries and the gate.
+        ms.KindManifest(
+            path="~canonical/kinds/tokenizer-stats",
+            title="Tokenizer diagnostics",
+            version="1",
+            item_schema={
+                "type": "object",
+                "required": ["depth", "count", "share"],
+                "properties": {
+                    "depth": {"type": "integer"},
+                    "count": {"type": "integer"},
+                    "share": {"type": "number"},
+                },
+            },
+            renderer=ms.RendererBinding(
+                primitive="table", field_map={"rows": "rows"}),
+        ),
         # ConditionSet (epic 000258): PromptFactory's output. Every
         # condition carries its axis COORDINATES as structured data —
         # downstream blocks (GroupBy, PairedDelta) operate on coords,

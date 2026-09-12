@@ -13,6 +13,48 @@ nothing said so.
 
 ---
 
+## 0.62.0 — 2026-09-13
+
+### Changes that raise
+
+- **`select`'s `where` now also matches top-level record fields.** A key
+  that is not a coord is read from the record itself, so a field that
+  `text/stats` `annotate` wrote (a pattern hit) filters. A protocol whose
+  `where` key was absent from coords AND absent from the record still
+  matches nothing, as before; one whose key was absent from coords but
+  PRESENT on the record now matches where it used to match nothing.
+  Loud in the sense that a count changes visibly, not silently — but
+  audit any `select` that relied on a non-coord key being ignored.
+
+### Changes that alter results without raising
+
+- _None._ Everything else is additive (lexicon epic 000364):
+  - **Trajectories as a kind** (task 000368): `trajectory/capture`
+    reads the residual stream along one axis — a position across
+    layers (the funnel), or a layer across positions along a sequence
+    (the trace) — REPLAYING a trace-fidelity record's exact
+    `token_ids` from where generation began, rather than
+    re-tokenizing its text. `trajectory/project` (scalar coordinate
+    along a direction), `trajectory/compare` (per-step cosine, angle,
+    norm ratio, the divergence step) and `trajectory/aggregate` (mean
+    trajectory + spread per step; a windowed mean per group; or a
+    windowed mean emitted as `residual_vectors` so
+    `direction/from-vectors` reads it unchanged).
+  - **`pool: "first_k"`** on `residuals/vectors`: the windowed read
+    (`pool_skip` in, `pool_k` wide) — a story's opening after its
+    envelope.
+  - **Tokenizer diagnostics** (task 000377): `tokenize/stats` measures
+    items — or a `target_map` vocabulary, or records — as continuations
+    of a prefix: the depth inventory (histogram, mean, max), the
+    single-token fraction, tokens per word, Unicode script
+    composition, and the naturalism gate as a pass/fail readout naming
+    its violators.
+  - **`bench.create_protocol`**: registering a protocol joins
+    `launch`/`watch`/`result` in the library; the author half of an
+    experiment no longer carries its own `api()`.
+
+---
+
 ## 0.61.0 — 2026-09-13
 
 ### Changes that raise

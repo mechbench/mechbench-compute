@@ -51,6 +51,26 @@ ACCEPTED: dict[str, frozenset[str]] = {
         "layers", "position", "point", "source", "template", "label_coord",
         "skip_empty", "pool", "pool_k", "pool_skip",
     }),
+    # Trajectories (task 000368).
+    "~canonical/ops/trajectory/capture/1": frozenset({
+        "axis", "layers", "layer", "point", "position", "positions",
+        "template", "replay", "label_coord", "label_field", "vocab_top",
+        "max_steps",
+    }),
+    "~canonical/ops/trajectory/project/1": frozenset({
+        "trajectory", "direction", "keep_vectors",
+    }),
+    "~canonical/ops/trajectory/compare/1": frozenset({
+        "a", "b", "pair_by", "threshold",
+    }),
+    "~canonical/ops/trajectory/aggregate/1": frozenset({
+        "trajectory", "by", "as", "steps",
+    }),
+    # Tokenizer diagnostics (task 000377).
+    "~canonical/ops/tokenize/stats/1": frozenset({
+        "prefix", "vocabulary", "field", "expect_depth", "keep_items",
+        "top_fragmented",
+    }),
 }
 
 

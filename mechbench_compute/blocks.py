@@ -163,8 +163,11 @@ def _records(x: Any) -> list[dict[str, Any]]:
 
 
 def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Filter records by coords equality; optionally project fields.
-    where: {coord: value | [values]}; fields: [names] keeps id+coords
+    """Filter records by equality; optionally project fields.
+    where: {key: value | [values]} — a key is read from `coords` when it
+    is a coord, and from the record itself otherwise, so a field that
+    `text/stats` `annotate` wrote (a pattern hit is a field, not a
+    coord) filters too (task 000368). fields: [names] keeps id+coords
     plus the named fields."""
     recs = _records(records)
     where: Mapping[str, Any] = params.get("where") or {}
@@ -172,7 +175,8 @@ def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
     for r in recs:
         coords = r.get("coords", {})
         ok = all(
-            coords.get(k) in (v if isinstance(v, list) else [v])
+            (coords.get(k) if k in coords else r.get(k))
+            in (v if isinstance(v, list) else [v])
             for k, v in where.items()
         )
         if not ok:
@@ -609,6 +613,11 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "~canonical/ops/vectors/similarity/1":
         lambda inputs, params: _vector_similarity(inputs, params),
 }
+
+# Trajectory readouts (task 000368): pure numpy over trajectory records.
+from mechbench_compute.trajectory import PURE as _TRAJECTORY_PURE
+
+PURE_BLOCKS.update(_TRAJECTORY_PURE)
 
 
 def _vector_similarity(inputs, params):
