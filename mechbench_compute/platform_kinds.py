@@ -14,6 +14,8 @@ from __future__ import annotations
 def manifests():
     import mechbench_schema as ms
 
+    from mechbench_compute import sandbox_kinds as sk
+
     series_map = {"rows": "layers", "x": "layer", "y": "entropy_bits",
                   "label": "top1"}
     return [
@@ -111,6 +113,22 @@ def manifests():
             },
             renderer=ms.RendererBinding(
                 primitive="table", field_map={"rows": "layers"}),
+        ),
+        # The sandbox's browsable object (task 000361): a
+        # content-addressed tree, rendered as a file table. The UI's
+        # snapshot browser (000362) reads this shape; a real tree
+        # renderer is 000418's job (extend the renderer vocabulary),
+        # and `table` is the honest default until then. The image and
+        # the tool-call are contracts in `sandbox_kinds`, not renderable
+        # kinds: an image is composer config, a tool-call is a record
+        # inside a transcript.
+        ms.KindManifest(
+            path=sk.FS_SNAPSHOT_KIND,
+            title="Filesystem snapshot",
+            version="1",
+            item_schema=sk.FS_SNAPSHOT_SCHEMA,
+            renderer=ms.RendererBinding(
+                primitive="table", field_map={"rows": "entries"}),
         ),
     ]
 

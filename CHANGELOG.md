@@ -13,6 +13,31 @@ nothing said so.
 
 ---
 
+## 0.55.0 — 2026-09-12
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **The sandbox catalog** (task 000361): `mechbench_compute.sandbox_kinds`
+  pins the shapes the composer (000341) and the UI trace/browser
+  (000362) consume — `FS_SNAPSHOT_SCHEMA`, `SANDBOX_IMAGE_SCHEMA`,
+  `SANDBOX_TOOL_CALL_SCHEMA`, all tested against the ACTUAL wire output
+  of `Snapshot.to_wire`, `SandboxImage` and `SandboxCall` so a schema
+  cannot drift from the code. `sandbox_tool_catalog()` gives the tool
+  picker its name/description/schema list; `default_image_wire()` gives
+  it a ready-to-edit image.
+- **`~canonical/kinds/fs-snapshot` is registered** (a `KindManifest` in
+  `platform_kinds`): a browsable tree, rendered as a file table
+  (`rows=entries`). The image and the tool-call are contracts, not
+  renderable kinds — an image is composer config, a tool-call is a
+  record inside a transcript — so they are schemas, not manifests. A
+  real tree renderer is 000418's job; `table` is the honest default.
+
+---
+
 ## 0.54.0 — 2026-09-12
 
 ### Changes that raise
