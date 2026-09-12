@@ -47,6 +47,28 @@ rm -rf build/stdlib && cp -R build/upstream/cpython/Lib build/stdlib
          pydoc_data site-packages
   find . -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true )
 
+# The exit side channel, from the Python side: sys.exit(>=126) writes
+# the true status to /.mechbench/exit (WASI clamps proc_exit there).
+cat > build/stdlib/sitecustomize.py <<'SITE'
+"""mechbench sandbox: carry exit statuses that WASI cannot."""
+import sys as _sys
+_orig_exit = _sys.exit
+def _exit(code=0):
+    try:
+        n = int(code)
+    except (TypeError, ValueError):
+        _orig_exit(code); return
+    if n >= 126:
+        try:
+            with open("/.mechbench/exit", "w") as f:
+                f.write(str(n))
+        except OSError:
+            pass
+        _orig_exit(125)
+    _orig_exit(code)
+_sys.exit = _exit
+SITE
+
 echo "python.wasm  sha256 $(shasum -a 256 build/python.wasm | cut -d' ' -f1)"
 echo "python.wasm  size   $(stat -f %z build/python.wasm 2>/dev/null || stat -c %s build/python.wasm)"
 echo "stdlib       files  $(find build/stdlib -name '*.py' | wc -l | tr -d ' ')"
