@@ -5,8 +5,9 @@ hand-written example that can drift from the code.
 """
 from __future__ import annotations
 
-import jsonschema
 import pytest
+
+jsonschema = pytest.importorskip("jsonschema")  # test-only, not a runtime dep
 
 from mechbench_compute import sandbox
 from mechbench_compute import sandbox_kinds as sk
