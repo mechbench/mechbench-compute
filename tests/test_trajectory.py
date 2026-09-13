@@ -144,6 +144,40 @@ class TestCapturePositionsAxis:
             trajectory.capture(StubModel(), [{"id": "a", "text": "x"}],
                                {"axis": "positions"})
 
+    def test_reduce_mean_over_a_step_window(self):
+        # positions 1..3 of "a bb ccc dddd": tokens 2,3,4 at layer 0 (scale 1)
+        m = StubModel()
+        out = trajectory.capture(m, [{"id": "a", "text": "a bb ccc dddd"}],
+                                 {"axis": "positions", "layer": 0, "positions": "all",
+                                  "steps": {"range": [1, 4]}, "reduce": "mean"})
+        assert out["reduce"] == "mean" and len(out["rows"]) == 1
+        row = out["rows"][0]
+        assert row["n_pooled"] == 3 and row["steps"] == [1, 4]
+        v = row["vector"]  # rounded to 5 places on the wire
+        third = pytest.approx(1 / 3, abs=1e-4)
+        assert v[2] == third and v[3] == third and v[4] == third
+        assert v[1] == 0.0
+
+    def test_project_at_capture_time_emits_coords_only(self):
+        m = StubModel()
+        d = {"kind": "direction", "vector": onehot(3, 1.0), "layer": 0,
+             "point": "post", "provenance": {"method": "test"}}
+        out = trajectory.capture(m, [{"id": "a", "text": "a bb ccc"}],
+                                 {"axis": "positions", "layer": 1, "positions": "all",
+                                  "project": d})
+        assert out["kind"] == "trajectory_projection"
+        assert out["direction"]["method"] == "test"
+        # layer 1 scales by 2; token 3 sits at position 2 ("bb" -> 1 + 2 % 7 = 3)
+        assert [r["coord"] for r in out["rows"]] == [0.0, 0.0, 2.0, 0.0]
+        assert all("vector" not in r for r in out["rows"])
+
+    def test_project_dimension_mismatch_is_refused(self):
+        with pytest.raises(ValueError, match="dims"):
+            trajectory.capture(StubModel(), [{"id": "a", "text": "x"}],
+                               {"axis": "positions", "layer": 0,
+                                "project": {"kind": "direction", "vector": [1.0, 0.0],
+                                            "layer": 0, "point": "post"}})
+
 
 def _traj(rows, axis="positions", d=D):
     return {"kind": "trajectory", "axis": axis, "d_model": d, "point": "post",

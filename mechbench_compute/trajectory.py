@@ -140,6 +140,33 @@ def capture(
     max_steps = params.get("max_steps")
     if not records:
         raise ValueError("trajectory/capture needs at least one record")
+    # Two ways to keep a corpus-scale trajectory small enough to be an
+    # object (200 stories × 160 steps × d_model is ~80M floats):
+    #   reduce: "mean" — ONE pooled vector per record over the selected
+    #           steps (a window like {"range": [5, 30]} via `steps`) —
+    #           what an outcome axis is fit on.
+    #   project: <direction> — read the scalar coordinate along a
+    #           direction AT capture time and emit no vectors at all —
+    #           the trace itself, 200 × 160 numbers.
+    reduce = params.get("reduce")
+    if reduce not in (None, "mean"):
+        raise ValueError("reduce must be 'mean' when given")
+    step_window = params.get("steps")
+    lo, hi = (None, None)
+    if isinstance(step_window, Mapping) and "range" in step_window:
+        lo, hi = int(step_window["range"][0]), int(step_window["range"][1])
+    direction = params.get("project")
+    dvec = None
+    if direction is not None:
+        from mechbench_compute import directions as dirs
+
+        if not isinstance(direction, Mapping) or "vector" not in direction:
+            raise ValueError("`project` must be a direction record")
+        dvec = dirs.as_array(direction)
+        if dvec.shape[0] != model.arch.d_model:
+            raise ValueError(
+                f"project: direction has {dvec.shape[0]} dims; the model has "
+                f"{model.arch.d_model}")
 
     if axis == "layers":
         layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
@@ -208,22 +235,38 @@ def capture(
             mx.eval(seq)
             mat = np.array(seq)
             idx = _position_indices(position, seq_len, gen_start, prompt_len)
+            if lo is not None:
+                # `steps` counts from the trajectory's own start.
+                idx = [p for s, p in enumerate(idx) if lo <= s < hi]
             if max_steps:
                 idx = idx[: int(max_steps)]
-            running = len(rows) + len(idx)
-            if running * width > MAX_VECTOR_FLOATS:
+            if not idx:
                 raise ValueError(
-                    f"trajectory exceeds the {MAX_VECTOR_FLOATS}-float cap at "
-                    f"record {record.get('id')!r}; set `max_steps` or capture "
-                    "fewer records")
-            for step, p in enumerate(idx):
-                rows.append(_row(record, label, step, layer, p, mat[p], tok,
-                                 arr, model, vocab_top))
+                    f"record {record.get('id')!r}: no positions in the window")
+            if reduce == "mean":
+                v = mat[idx].mean(axis=0)
+                row = _row(record, label, 0, layer, idx[0], v, tok, arr, model, 0)
+                row.update({"token": None, "n_pooled": len(idx),
+                            "steps": [int(lo or 0), int(hi) if hi else len(idx)]})
+                rows.append(_projected(row, v, dvec))
+            else:
+                if dvec is None:
+                    running = len(rows) + len(idx)
+                    if running * width > MAX_VECTOR_FLOATS:
+                        raise ValueError(
+                            f"trajectory exceeds the {MAX_VECTOR_FLOATS}-float "
+                            f"cap at record {record.get('id')!r}; set `max_steps`, "
+                            "`reduce`, or `project`, or capture fewer records")
+                for step, p in enumerate(idx):
+                    row = _row(record, label, step, layer, p, mat[p], tok, arr,
+                               model, vocab_top)
+                    rows.append(_projected(row, mat[p], dvec))
         if on_item:
             on_item()
 
+    prov = (direction.get("provenance") or {}) if isinstance(direction, Mapping) else {}
     return {
-        "kind": "trajectory",
+        "kind": "trajectory_projection" if dvec is not None else "trajectory",
         "axis": axis,
         "point": point,
         "layers": layers,
@@ -235,6 +278,12 @@ def capture(
                   else ("text" if used_trace == 0 else "mixed"),
         "n_items": len(records),
         **({"max_steps": int(max_steps)} if max_steps else {}),
+        **({"reduce": reduce, "steps": step_window} if reduce else {}),
+        **({"direction": {"layer": direction.get("layer"),
+                          "point": direction.get("point"),
+                          "method": prov.get("method"),
+                          **({"labels": prov["labels"]} if prov.get("labels") else {})}}
+           if dvec is not None else {}),
         "rows": rows,
     }
 
@@ -254,6 +303,17 @@ def _row(record, label, step, layer, pos, vec: np.ndarray, tok, arr, model,
     if vocab_top:
         row["vocab_top"] = _vocab_top(model, vec, vocab_top)
     return row
+
+
+def _projected(row: dict[str, Any], vec: np.ndarray,
+               dvec: np.ndarray | None) -> dict[str, Any]:
+    """With a direction, a row is its scalar coordinate and carries no
+    vector — the trace itself, small enough to be an object."""
+    if dvec is None:
+        return row
+    out = {k: v for k, v in row.items() if k != "vector"}
+    out["coord"] = round(float(np.asarray(vec, dtype=np.float32) @ dvec), 6)
+    return out
 
 
 def _vocab_top(model, vec: np.ndarray, k: int) -> list[dict[str, Any]]:

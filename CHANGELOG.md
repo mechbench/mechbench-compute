@@ -13,6 +13,35 @@ nothing said so.
 
 ---
 
+## 0.64.0 — 2026-09-13
+
+### Changes that raise
+
+- **An adapter whose deltas name modules this architecture does not
+  expose is refused, naming them.** Gemma 4's KV-shared tail (layers
+  15..34) has no `v_proj` under mlx-vlm 0.6.15; adapters trained in
+  August 2026 carry a `v_proj` delta for every layer. `lora.fuse` used
+  to fail on the first such layer with a bare AttributeError; it now
+  says which modules, on which layers, and how to proceed. Found by
+  the 018 recomposition, which fused eleven such adapters.
+
+### Changes that alter results without raising
+
+- **`adapter_skip_missing: true`** (a model-node param, in COMMON)
+  fuses the applicable deltas and puts every skipped module on the
+  node's result as `adapter_skipped_modules` — the number is never
+  without its caveat. Off by default: nothing changes for an adapter
+  that fits, and one that does not still refuses.
+- `trajectory/capture` gains `reduce: "mean"` over a `steps` window
+  (one pooled vector per record — what an outcome axis is fit on) and
+  `project: <direction>` at capture time (the scalar trace, no
+  vectors). Both exist because a corpus-scale trajectory (200 stories
+  × 160 steps × d_model) is ~80M floats, forty times the object cap;
+  the outcome axis and the traces are the two small things it was
+  ever for. The direction may arrive on an edge.
+
+---
+
 ## 0.63.0 — 2026-09-13
 
 ### Changes that raise

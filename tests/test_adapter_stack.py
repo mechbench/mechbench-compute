@@ -26,7 +26,9 @@ def recorded(monkeypatch):
     monkeypatch.setattr(
         lora,
         "fuse",
-        lambda lm, weights, scale: calls["fused"].append((weights, scale)) or f"h{len(calls['fused'])}",
+        # `**kw`: fuse also takes skip_missing / skipped (0.64.0); the
+        # stack's sequencing is what is under test, not those.
+        lambda lm, weights, scale, **kw: calls["fused"].append((weights, scale)) or f"h{len(calls['fused'])}",
     )
     monkeypatch.setattr(
         lora, "restore", lambda lm, handle: calls["restored"].append(handle)

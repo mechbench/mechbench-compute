@@ -32,6 +32,8 @@ from collections.abc import Mapping
 COMMON = frozenset({
     "records", "documents", "vectors", "matrix", "collection", "items",
     "name", "description", "dry_run", "model", "adapter", "seed",
+    # Adapter fusion wiring, read by the executor wrapper, not the block.
+    "adapter_scale", "adapter_skip_missing",
 })
 
 #: block ref -> the params it reads, beyond COMMON.
@@ -55,7 +57,7 @@ ACCEPTED: dict[str, frozenset[str]] = {
     "~canonical/ops/trajectory/capture/1": frozenset({
         "axis", "layers", "layer", "point", "position", "positions",
         "template", "replay", "label_coord", "label_field", "vocab_top",
-        "max_steps",
+        "max_steps", "reduce", "steps", "project",
     }),
     "~canonical/ops/trajectory/project/1": frozenset({
         "trajectory", "direction", "keep_vectors",

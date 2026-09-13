@@ -1270,6 +1270,10 @@ class ProtocolExecutor:
 
         model = self._model_loaded(params.get("model"))
         records = _records(inputs.get("records") or params.get("records"))
+        # A direction to project onto at capture time usually arrives on
+        # an edge (from a from-vectors node), not as a literal param.
+        if inputs.get("project") is not None and params.get("project") is None:
+            params = {**params, "project": inputs["project"]}
         return trajectory.capture(
             model, records, params, on_item=on_item, on_start=on_start)
 
@@ -1293,10 +1297,16 @@ class ProtocolExecutor:
         # materialize there), so this call and the block's own no-op
         # re-call resolve identically.
         model = self._model_loaded(mval)
-        with self._adapter_fused(model, inputs, params, ref=ref):
-            return fn(inputs, params, *args, **kwargs)
+        skipped: list[str] = []
+        with self._adapter_fused(model, inputs, params, ref=ref, skipped=skipped):
+            result = fn(inputs, params, *args, **kwargs)
+        if skipped and isinstance(result, dict):
+            # Deltas the architecture could not take (lora.fuse): the
+            # result says so, next to its numbers, never only in a log.
+            result["adapter_skipped_modules"] = skipped
+        return result
 
-    def _adapter_fused(self, model, inputs, params, ref=None):
+    def _adapter_fused(self, model, inputs, params, ref=None, skipped=None):
         """Context manager: fuse the model's adapter STACK (000312 Arc
         B), run the block, restore in reverse.
 
@@ -1329,7 +1339,10 @@ class ProtocolExecutor:
                 if node_level and "adapter_scale" in params
                 else None
             )
-            handles = fuse_adapter_stack(model.lm, payloads, override)
+            handles = fuse_adapter_stack(
+                model.lm, payloads, override,
+                skip_missing=bool(params.get("adapter_skip_missing", False)),
+                skipped=skipped)
             try:
                 yield handles
             finally:

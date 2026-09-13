@@ -25,7 +25,7 @@ import math
 import re
 
 import mlx.core as mx
-import mlx.nn as nn
+from mlx import nn
 from mlx.utils import tree_flatten
 
 __all__ = [
@@ -124,13 +124,23 @@ def load_adapter(path: str) -> dict[str, mx.array]:
 
 
 def fuse(lm, weights: dict[str, mx.array],
-         scale: float) -> dict[tuple[int, str], mx.array]:
+         scale: float, *, skip_missing: bool = False,
+         skipped: list[str] | None = None) -> dict[tuple[int, str], mx.array]:
     """Merge adapter deltas into ``lm``'s projection weights in place:
     ``W += scale · (B @ A)`` with ``scale = alpha / rank`` from training.
 
     Operates on the raw (unwrapped) modules of a fresh model. Returns a
     handle of the original weights; pass it to ``restore`` to undo the
     merge exactly (re-subtracting in low precision would not round-trip).
+
+    An adapter may carry deltas for modules this architecture's current
+    implementation does not expose — Gemma 4's KV-shared tail (layers
+    15..34) has no ``v_proj`` under mlx-vlm 0.6.15, while adapters trained
+    in August 2026 carry one for every layer. That is a change in the
+    environment under the experiment, and it must not be silent: by
+    default it refuses, naming the modules. With ``skip_missing`` the
+    applicable deltas fuse and every skipped module is appended to
+    ``skipped`` (``"layer.container.proj"``), for the caller to report.
     """
     pairs: dict[tuple[int, str, str], dict[str, mx.array]] = {}
     for key, w in weights.items():
@@ -140,12 +150,29 @@ def fuse(lm, weights: dict[str, mx.array],
         i, container, proj, ab = (int(m.group(1)), m.group(2),
                                   m.group(3), m.group(4))
         pairs.setdefault((i, container, proj), {})[ab] = w
+    missing = [(i, c, p) for (i, c, p) in sorted(pairs)
+               if not hasattr(getattr(lm.model.layers[i], c, None), p)]
+    if missing and not skip_missing:
+        by_proj: dict[str, list[int]] = {}
+        for i, c, p in missing:
+            by_proj.setdefault(f"{c}.{p}", []).append(i)
+        detail = "; ".join(f"{k} on layers {v[0]}..{v[-1]} ({len(v)})"
+                           for k, v in by_proj.items())
+        raise ValueError(
+            f"adapter carries deltas for modules this architecture does not "
+            f"expose: {detail}. It was trained under a different model "
+            f"implementation. Pass adapter_skip_missing: true to fuse the "
+            f"rest — the skipped modules are then reported on the result.")
     handle: dict[tuple[int, str, str], mx.array] = {}
     for (i, container, proj), ab in sorted(pairs.items()):
         if set(ab) != {"a", "b"}:
             raise ValueError(
                 f"adapter is missing lora_a or lora_b for layer {i} "
                 f"{container}.{proj}")
+        if (i, container, proj) in missing:
+            if skipped is not None:
+                skipped.append(f"{i}.{container}.{proj}")
+            continue
         mod = getattr(getattr(lm.model.layers[i], container), proj)
         handle[(i, container, proj)] = mod.weight
         mod.weight = mod.weight + (scale * (ab["b"] @ ab["a"])).astype(
@@ -163,7 +190,9 @@ def restore(lm, handle: dict[tuple[int, str, str], mx.array]) -> None:
              for i, c, p in handle])
 
 
-def fuse_adapter_stack(lm, payloads, override_scale=None):
+def fuse_adapter_stack(lm, payloads, override_scale=None, *,
+                       skip_missing: bool = False,
+                       skipped: list[str] | None = None):
     """Fuse an ORDERED adapter stack onto ``lm`` (task 000312 Arc B).
 
     Successive fine-tuning rounds compose by fusing left to right: each
@@ -195,7 +224,8 @@ def fuse_adapter_stack(lm, payloads, override_scale=None):
         try:
             with open(path, "wb") as f:
                 f.write(payload["data"])
-            handles.append(fuse(lm, load_adapter(path), scale=scale))
+            handles.append(fuse(lm, load_adapter(path), scale=scale,
+                                skip_missing=skip_missing, skipped=skipped))
         finally:
             os.unlink(path)
     return handles
