@@ -13,6 +13,23 @@ nothing said so.
 
 ---
 
+## 0.67.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **`bench.cancel(job, reason=…)`** withdraws a job that has not started
+  (task 000463, api `POST /jobs/:id/cancel`) — the counterpart of
+  `launch`, which until now had no undo. Queued or preparing only;
+  idempotent, with `alreadyCancelled` on a repeat; a running job is
+  refused by the server and surfaces as a `BenchError`. Needs an API on
+  or after the 000463 change.
+
+---
+
 ## 0.66.0 — 2026-09-13
 
 ### Changes that raise

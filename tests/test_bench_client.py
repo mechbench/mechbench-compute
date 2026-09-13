@@ -135,6 +135,31 @@ class TestCreateProtocol:
         assert bench.create_protocol("o", "p", "n", graph={})["id"] == "prt_2"
 
 
+class TestCancel:
+    def test_it_posts_the_reason_and_returns_the_new_state(self, fake):
+        fake.add("POST", "/jobs/j1/cancel",
+                 {"ok": True, "status": "cancelled", "from": "queued"})
+        out = bench.cancel("j1", reason="duplicate launch")
+        assert out == {"ok": True, "status": "cancelled", "from": "queued"}
+        import json
+        call = fake.calls[-1]
+        assert call["method"] == "POST" and call["url"].endswith("/jobs/j1/cancel")
+        assert json.loads(call["body"]) == {"reason": "duplicate launch"}
+
+    def test_no_reason_sends_an_empty_body(self, fake):
+        fake.add("POST", "/cancel", {"ok": True, "status": "cancelled"})
+        bench.cancel("j2")
+        import json
+        assert json.loads(fake.calls[-1]["body"]) == {}
+
+    def test_a_running_job_surfaces_the_servers_refusal(self, fake):
+        fake.add("POST", "/cancel",
+                 bench.BenchError("POST .../cancel -> 409: a running job cannot "
+                                  "be cancelled"))
+        with pytest.raises(bench.BenchError, match="running job cannot be"):
+            bench.cancel("j3")
+
+
 class TestWatch:
     def test_it_yields_only_on_change_until_terminal(self, fake):
         fake.add("GET", "/jobs/j", Seq([

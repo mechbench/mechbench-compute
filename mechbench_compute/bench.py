@@ -526,6 +526,27 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
     return out.get("protocol", out) if isinstance(out, dict) else out
 
 
+def cancel(job_id: str, *, reason: str = "", api_url: str | None = None,
+           api_key: str | None = None) -> dict:
+    """Withdraw a job that has not started yet (task 000463).
+
+    `POST /jobs/:id/cancel`. Works while no compute has been spent —
+    `queued`, and `preparing`, where the runner is fetching weights — and
+    is refused for a running job, which a server cannot stop. Idempotent:
+    cancelling twice answers the same, with `alreadyCancelled` set, so two
+    people draining a queue do not race. Returns `{ok, status, from}`.
+
+    The counterpart of `launch`: before this the only way to unsend a job
+    was to let it run.
+    """
+    url, key = _config(api_url, api_key)
+    body = {"reason": reason} if reason else {}
+    return _request(
+        "POST", f"{url}/jobs/{job_id}/cancel", key,
+        body=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"})
+
+
 def get_job(job_id: str, *, api_url: str | None = None,
             api_key: str | None = None) -> dict:
     """`GET /jobs/:id` — the bare job row (status, progress, spend,
