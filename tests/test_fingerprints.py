@@ -109,6 +109,19 @@ class TestTheVersionIsHonest:
         assert all(c in "0123456789abcdef" for c in d)
         assert d == mechbench_compute._editable_source_digest()
 
+    def test_a_source_import_labels_itself_with_the_tree_s_own_number(self):
+        # The label beside the digest is the checkout's pyproject
+        # version, not the metadata of whenever `pip install -e` last
+        # ran — the docs site was stamped "0.60.0+src…" from a tree at
+        # 0.74.0 because nobody reinstalls on a bump.
+        import pathlib
+        import re
+
+        pyproject = pathlib.Path(mechbench_compute.__file__).resolve().parent.parent / "pyproject.toml"
+        declared = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(), re.M).group(1)
+        assert mechbench_compute.__version__.split("+")[0] == declared
+        assert mechbench_compute._source_version() == declared
+
 
 class TestTheSourceDigest:
     def _tree(self, root: pathlib.Path, files: dict[str, str]):

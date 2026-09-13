@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ (Fingerprints on a source checkout change with the label
+  below, as they do on any bump; a released wheel is unaffected.)
+
+### Other
+
+- **A source checkout labels itself with its own pyproject version.**
+  `__version__` under an editable install was `<dist metadata>+src.<digest>`,
+  and the metadata is whatever number the tree had when `pip install -e`
+  last ran — the docs site went out stamped "generated from 0.60.0+src…"
+  from a tree at 0.74.0. The digest already named the exact code; the
+  number beside it now comes from the checkout's `pyproject.toml`.
+
+---
+
 ## 0.74.0 — 2026-09-13
 
 ### Changes that raise

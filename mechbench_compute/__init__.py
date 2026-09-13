@@ -244,13 +244,33 @@ def _digest_tree(root) -> str:
     return h.hexdigest()[:12]
 
 
+def _source_version() -> str | None:
+    """The version the source checkout DECLARES, from its pyproject.
+
+    Dist metadata under an editable install is whatever number the tree
+    had when `pip install -e` last ran, and nobody re-runs that on a
+    version bump — the docs site was stamped "generated from 0.60.0"
+    from a tree at 0.74.0. The digest already says exactly which code;
+    the label beside it should be the one the tree itself claims.
+    """
+    import pathlib
+    import re
+
+    pyproject = pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml"
+    try:
+        m = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(), re.M)
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
 try:
     from importlib.metadata import version as _dist_version
 
     __version__ = _dist_version("mechbench-compute")
     _src = _editable_source_digest()
     if _src:
-        __version__ = f"{__version__}+src.{_src}"
+        __version__ = f"{_source_version() or __version__}+src.{_src}"
     del _src
 except Exception:  # noqa: BLE001 — source checkouts without metadata
     __version__ = "0.0.0+unknown"
