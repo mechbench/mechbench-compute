@@ -13,6 +13,37 @@ nothing said so.
 
 ---
 
+## 0.70.0 — 2026-09-13
+
+### Changes that raise
+
+- **An un-encodable param or result now raises, by name, instead of
+  being hidden** (000488 follow-up). Two places used to swallow it.
+  `resume.node_fingerprint` fell back to `repr()` when canonical
+  encoding failed; it now raises `TypeError` naming the offending param.
+  And the executor hashes a node's result BEFORE emitting it, so a result
+  carrying a live object fails locally as `CBOREncodeError` rather than
+  surfacing as a network error after the upload is refused. Both were
+  exactly what kept 000488 invisible: the fingerprint quietly hashed an
+  18 MB Python repr of the adapter bytes, and the emit path turned an
+  un-serializable result into "write operation timed out".
+
+### Changes that alter results without raising
+
+- **Node fingerprints for adapted-model nodes change.** The fingerprint
+  is now over params in their WIRE form — `{base, adapters}` — where it
+  was previously over `repr()` of the resolved object (adapter bytes
+  included) once encoding failed. Two consequences: an adapted node's
+  fingerprint no longer depends on the fetched payload, only on what the
+  run declared, which is what the resume contract always claimed; and a
+  spool written by an earlier version for an adapted node will not match
+  and restarts that node. No stored result changes value. Base-model
+  nodes are unaffected: their params were always encodable.
+- `hf/push-adapter` writes the base model ID into the model card rather
+  than the resolved ref, which for an adapted `$model` was its repr.
+
+---
+
 ## 0.69.0 — 2026-09-13
 
 ### Changes that raise

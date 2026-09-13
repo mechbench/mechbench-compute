@@ -139,18 +139,43 @@ def node_fingerprint(*, block: str, params: Mapping[str, Any],
     attempts only under an equal fingerprint."""
     from mechbench_schema import dump_canonical
 
+    # Params in their WIRE form (000488). A resolved ModelRef rides
+    # through execution as an object carrying the adapter's bytes; a
+    # fingerprint is over what the run DECLARED — {base, adapters} —
+    # which is also the only form two attempts can be compared on.
     body = {
         "block": block,
-        "params": dict(params),
+        "params": {k: (v.to_wire() if hasattr(v, "to_wire") else v)
+                   for k, v in params.items()},
         "inputs": list(input_hashes),
         "compute": core_version,
         "model": model,
     }
     try:
         raw = dump_canonical(body)
-    except Exception:  # noqa: BLE001 — a param that will not serialize
-        raw = repr(sorted(body.items())).encode()
+    except Exception as e:  # noqa: BLE001 — name the param, do not hide it
+        # This used to fall back to repr(). That silently fingerprinted
+        # adapted runs over an 18 MB Python repr of the adapter bytes,
+        # and swallowed the exact error that would have exposed 000488
+        # in August. A param that cannot serialize is a bug in the block
+        # that accepted it, and the only honest fingerprint is none.
+        bad = [k for k, v in body["params"].items()
+               if not _encodes(v)]
+        raise TypeError(
+            f"node fingerprint for {block!r}: params {bad or '?'} do not "
+            f"canonical-encode ({type(e).__name__}: {e}); a block must "
+            f"carry wire forms in its params, never live objects") from e
     return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def _encodes(value: Any) -> bool:
+    from mechbench_schema import dump_canonical
+
+    try:
+        dump_canonical(value)
+        return True
+    except Exception:  # noqa: BLE001 — that is the question being asked
+        return False
 
 
 # --- training state ----------------------------------------------------------

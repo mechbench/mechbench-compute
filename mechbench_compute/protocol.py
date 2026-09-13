@@ -730,6 +730,13 @@ class ProtocolExecutor:
                     on_item=on_item, on_start=expand)
             else:
                 raise ValueError(f"unknown block: {block!r}")
+            # Hash BEFORE emitting (000488). The hash canonical-encodes
+            # the result, so a result carrying a live object fails here,
+            # locally and by name — instead of being serialized by the
+            # emit path, rejected or dropped by the network, and read as
+            # a transport fault. That ordering hid a 6 GB result for a
+            # night; this one makes the same mistake a failing test.
+            node_hashes[nid] = resume_mod.content_hash(results[nid])
             if result_base:
                 out = bench.emit(
                     f"{result_base}/{nid}",
@@ -742,7 +749,6 @@ class ProtocolExecutor:
                 node_paths[nid] = out["path"]
             if isinstance(results[nid], dict) and results[nid].get("spend"):
                 spend_by_node[nid] = results[nid]["spend"]
-            node_hashes[nid] = resume_mod.content_hash(results[nid])
             if self._on_node_done is not None:
                 self._on_node_done(nid, node_paths.get(nid), fingerprint)
             # An expanded node's items already covered its worth — the
@@ -1631,7 +1637,9 @@ class ProtocolExecutor:
         private = bool(params.get("private", True))
         dry_run = bool(params.get("dry_run", False))
         lora = payload.get("lora") or {}
-        base_model = payload.get("base_model") or params.get("model")
+        # The base id, never the resolved object: this lands in a model
+        # card, where a ModelRef would render as its repr (000488).
+        base_model = payload.get("base_model") or _tokenizer_id(params.get("model"))
 
         with tempfile.TemporaryDirectory() as d:
             out = peft_export(payload, d)
