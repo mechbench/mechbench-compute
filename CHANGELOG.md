@@ -13,6 +13,52 @@ nothing said so.
 
 ---
 
+## 0.74.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._ `check_params` refuses exactly what it refused in 0.73.0: the
+  set of accepted names per op is unchanged, and `test_block_params`
+  proves it against the code reads as before.
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- **The operation lexicon: `mechbench_compute.lexicon`.** Every canonical
+  op is now declared once, as an `Op` with a summary, a description,
+  what it takes by edge, what it emits, a runnable example, and every
+  parameter as a `Param` with a type, a default (or REQUIRED) and a
+  sentence on its effect. `block_params.ACCEPTED` and `COMMON` are
+  derived from it; the table that lived there is gone.
+
+  Why a declaration rather than documentation: the docs site was
+  rendering parameter NAMES from `ACCEPTED` and a first sentence from
+  each docstring, and the result was a page reading "The declarative
+  points × operations grammar with a decision or capture readout" over a
+  bare list of eight names with no types, defaults or effects. Nobody
+  could use the platform from it. Putting the description beside the
+  name means the existing bidirectional gate covers it: a documented
+  parameter the block does not read fails `test_block_params`, and so
+  does one it reads that nobody documented. A docs-side description
+  file would have drifted within a week.
+
+  `tests/test_lexicon.py` (220 tests) gates the rest: nothing blank,
+  every example accepted by `check_params`, summaries one sentence, and
+  no house idioms — a bare task number, "step 07", an epic — anywhere in
+  the published text. The docs site's own idiom-stripping and
+  "still-internal" report are deleted; the text is authored for a
+  stranger at the source.
+
+  Authored against the code, not from memory: each entry was written
+  after reading the block, so the defaults are the ones the code uses
+  (`intervene.top_k` is 5, `direction/vocab.top_k` is 10; `generate`'s
+  temperature is 0.9 and `chat`'s is the provider's unless local).
+
+---
+
 ## 0.73.0 — 2026-09-13
 
 ### Changes that raise
