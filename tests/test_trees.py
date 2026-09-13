@@ -189,9 +189,13 @@ class TestParamChecking:
                      {"center": True, "bridge_sigma": 2.0, "name": "v",
                       "vectors": {}, "keep_edges": False})
 
-    def test_an_undeclared_block_is_unchecked(self):
+    def test_an_unregistered_block_is_unchecked(self):
+        # Every CANONICAL op is declared now (000478), so the unchecked
+        # case is a block this runner does not know — an extension's op
+        # (000410), which is the api's business and not ours. This test
+        # used to name `text/stats`, which was merely undeclared.
         from mechbench_compute.block_params import check_params
-        check_params("~canonical/ops/text/stats/1", {"anything": 1})
+        check_params("~someone/ops/custom/1", {"anything": 1})
 
     def test_pooling_params_are_accepted_on_residual_vectors(self):
         from mechbench_compute.block_params import check_params

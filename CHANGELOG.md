@@ -13,6 +13,49 @@ nothing said so.
 
 ---
 
+## 0.72.0 — 2026-09-13
+
+### Changes that raise
+
+- **All 54 canonical ops now declare their params, so all 54 refuse one
+  they do not read** (task 000478). 000438 introduced the check and made
+  declaration opt-in — "listing all forty at once would be a refactor
+  with no failing test behind it" — which left 46 of 54 ops accepting
+  anything and silently ignoring what they did not read. That is the
+  same failure 000438 was filed for, standing open everywhere it had not
+  been found.
+
+  **A protocol that sets a param one of those 46 ops does not read now
+  raises**, naming the param and the block. That is the point, and it is
+  the kind of raise worth taking: the alternative is the original bug,
+  where six variety jobs asked for `center: true`, all six succeeded, and
+  all six were uncentered. Every one of the 46 real protocol nodes across
+  the experiment corpus was checked against the new table and accepted,
+  so nothing in the existing body of work is refused — but a protocol
+  carrying a param that never did anything will now say so.
+
+  One was found that way: experiment 024 set `tool_family: "gemma"` on a
+  chat node. Chat has no such param — the tool dialect is DETECTED from
+  the model's own chat template (`dialects.dialect_for`), never declared
+  — so the Gemma parser was in force regardless and 024's numbers are
+  unaffected. The line only misled its reader, which is precisely what an
+  ignored param does.
+
+- **`require_resume` joins `COMMON`.** It is authored in a node's params
+  and read by the EXECUTOR (epic 000320), never by a block, so it is
+  wiring rather than operation. It is not underscore-prefixed like the
+  executor's own injections because a protocol writes it.
+
+### Changes that alter results without raising
+
+- **`vectors/mst` no longer accepts `similarity`.** It was declared and
+  never read: `similarity` is an input PORT, taken from `inputs`, so a
+  protocol passing it as a param was accepted and ignored — the 000438
+  bug inside the 000438 fix. No stored result changes; a protocol that
+  did this was already not getting what it asked for.
+
+---
+
 ## 0.71.0 — 2026-09-13
 
 ### Changes that raise
