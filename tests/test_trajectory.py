@@ -171,6 +171,29 @@ class TestCapturePositionsAxis:
         assert [r["coord"] for r in out["rows"]] == [0.0, 0.0, 2.0, 0.0]
         assert all("vector" not in r for r in out["rows"])
 
+    def test_the_cap_counts_what_is_emitted_not_what_is_read(self):
+        # 014's shape: many records × many steps. As vectors this is over
+        # the cap; with `project` it is coordinates, and with `reduce` it
+        # is one vector per record — both must be allowed through.
+        from mechbench_compute import interp
+        records = [{"id": f"s{i}", "text": "a bb ccc dddd"} for i in range(60)]
+        big = {"axis": "positions", "layer": 0, "positions": "all", "max_steps": 4}
+        monkey = interp.MAX_VECTOR_FLOATS
+        try:
+            # vectors 60×4×8 = 1920 over; reduce 60×8 = 480 under; project 0.
+            interp.MAX_VECTOR_FLOATS = 1000
+            with pytest.raises(ValueError, match="exceeds the"):
+                trajectory.capture(StubModel(), records, big)
+            d = {"kind": "direction", "vector": onehot(3, 1.0), "layer": 0,
+                 "point": "post"}
+            out = trajectory.capture(StubModel(), records, {**big, "project": d})
+            assert out["kind"] == "trajectory_projection" and len(out["rows"]) == 240
+            out2 = trajectory.capture(StubModel(), records,
+                                      {**big, "reduce": "mean"})
+            assert len(out2["rows"]) == 60  # one pooled vector each
+        finally:
+            interp.MAX_VECTOR_FLOATS = monkey
+
     def test_project_dimension_mismatch_is_refused(self):
         with pytest.raises(ValueError, match="dims"):
             trajectory.capture(StubModel(), [{"id": "a", "text": "x"}],

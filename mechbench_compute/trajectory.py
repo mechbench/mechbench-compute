@@ -186,13 +186,26 @@ def capture(
         steps_per = int(max_steps) if max_steps else None
 
     width = model.arch.d_model
-    if steps_per is not None:
-        total = len(records) * steps_per * width
+    # The cap counts the floats this node will EMIT, not the ones it
+    # reads: `project` emits one scalar per step and no vectors at all,
+    # and `reduce` emits one pooled vector per record. Counting steps ×
+    # width regardless refused exactly the two configurations that exist
+    # to stay under it (a 100-story trace is 23M floats as vectors and
+    # 15k numbers as coordinates).
+    if direction is not None:
+        per_record = 0
+    elif reduce == "mean":
+        per_record = width
+    else:
+        per_record = None if steps_per is None else steps_per * width
+    if per_record:
+        total = len(records) * per_record
         if total > MAX_VECTOR_FLOATS:
             raise ValueError(
-                f"{len(records)} records × {steps_per} steps × {width} dims "
-                f"= {total} floats exceeds the {MAX_VECTOR_FLOATS} cap — "
-                "capture fewer records, layers or steps")
+                f"{len(records)} records × {per_record // width} steps × "
+                f"{width} dims = {total} floats exceeds the "
+                f"{MAX_VECTOR_FLOATS} cap — set `reduce`, `project`, or "
+                "`max_steps`, or capture fewer records")
     if on_start:
         on_start(len(records))
 

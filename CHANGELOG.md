@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## 0.66.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **`trajectory/capture`'s float cap counts what the node EMITS, not
+  what it reads.** It counted records × steps × d_model regardless, so
+  it refused exactly the two configurations that exist to stay under
+  it: `project` (scalars, no vectors) and `reduce` (one pooled vector
+  per record). A 100-story, 150-step trace is 23M floats as vectors and
+  15k numbers as coordinates; the first is rightly refused and the
+  second was wrongly refused with it. Found by experiment 014's
+  recomposition, which failed at its last node after 38 minutes of
+  generation.
+
+---
+
 ## 0.65.0 — 2026-09-13
 
 ### Changes that raise
