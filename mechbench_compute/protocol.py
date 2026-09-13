@@ -864,7 +864,9 @@ class ProtocolExecutor:
                         "sampling": {"temperature": temperature,
                                      "top_p": top_p, "seed": seed,
                                      "index": k},
-                        "model": params.get("model"),
+                        # The wire form, never the resolved object: the
+                        # object carries the adapter bytes (000488).
+                        "model": _wire_model(params.get("model")),
                     },
                 }
                 if fidelity == "trace":
@@ -873,13 +875,13 @@ class ProtocolExecutor:
                         tok, full_ids)
                     item["trace"] = {
                         "token_ids": [int(t) for t in full_ids],
-                        "tokenizer": str(params.get("model")),
+                        "tokenizer": _tokenizer_id(params.get("model")),
                         "text": full_text,
                         "offsets": [[int(a), int(b)] for a, b in offs],
                         "generation_spans": [{
                             "token_start": len(ids),
                             "token_end": len(full_ids),
-                            "model": params.get("model"),
+                            "model": _wire_model(params.get("model")),
                             "temperature": temperature,
                             "top_p": top_p,
                             "seed": k,
@@ -2173,6 +2175,27 @@ def _wire_params(params):
         k: (v.to_wire() if hasattr(v, "to_wire") else v)
         for k, v in params.items()
     }
+
+
+def _wire_model(value):
+    """What a RESULT may record about its model: the wire form, never
+    the resolved object (000488).
+
+    A resolved ModelRef carries `adapter_payloads` — the fetched
+    safetensors bytes — and a record that embeds the object embeds
+    those bytes. The generate block did exactly that, in two fields
+    per item plus a `str()` of the object in a third, at ~32 MB per
+    item against the 4.5 KB a base-model item weighs; a 20-story
+    result was a 640 MB body and killed the API process on arrival.
+    A bare string (an HF id) passes through unchanged.
+    """
+    return value.to_wire() if hasattr(value, "to_wire") else value
+
+
+def _tokenizer_id(value):
+    """The tokenizer a trace was cut with, as an id. For a ModelRef
+    that is its base — adapters do not change the vocabulary."""
+    return value.base if hasattr(value, "base_kind") else str(value)
 
 
 def _last_logp(logits: mx.array) -> np.ndarray:

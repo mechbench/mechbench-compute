@@ -13,6 +13,39 @@ nothing said so.
 
 ---
 
+## 0.69.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **A generated item no longer embeds the resolved model object** (task
+  000488). For a model bound with adapters, `metadata.model` and
+  `trace.generation_spans[].model` now record the wire form —
+  `{"base": {...}, "adapters": [{"bench": ...}]}` — and `trace.tokenizer`
+  records the base model id. Before, all three held the resolved
+  `ModelRef`: the first two as a dump of the object, the third as its
+  `str()`. That object carries `adapter_payloads`, the fetched safetensors
+  bytes, so every story shipped the entire adapter three times — about
+  32 MB per item against the 4.5 KB a base-model item weighs. A 20-story
+  result was a 640 MB request body; experiment 014's 200-story arm would
+  have been ~6.4 GB. The API process (2 GB) was OOM-killed on receipt
+  every time, which is what its "write operation timed out" and 502
+  responses were.
+
+  Items from a BASE model (a bare HF id) are unchanged byte for byte.
+  Items from an adapted model change shape in those three fields, and
+  any resumable-node fingerprint or content hash over such an item
+  changes with them — which is moot, since no adapted item was ever
+  successfully stored. The item's content hash also becomes computable
+  at all: `resume.content_hash` canonical-encodes the result directly and
+  raised `CBOREncodeError` on the object, which is how the bug was found
+  running the block outside the runner.
+
+---
+
 ## 0.68.0 — 2026-09-12
 
 ### Changes that raise
