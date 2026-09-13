@@ -38,10 +38,18 @@ nothing said so.
   This is a correctness fix with a measured cost. Experiment 014's adapted
   run died twice at node `gen` on a single un-retried PUT — once at 197 of
   200 generated stories, once at 200 of 200 — and lost about 35 minutes of
-  generation each time. The payload was 0.9 MB and the API answered
-  normally seconds later, so neither loss had a cause worth having. The
-  first was explained by a prod deploy landing mid-upload; the second had
-  no such excuse, which is what made it a bug rather than bad luck.
+  generation each time.
+
+  **Correction, the same night:** the reasoning given here for that
+  incident was wrong, and the retry does not fix it. The failure was
+  deterministic, not a blip — prod accepts 30 MB in six seconds and
+  **stalls on 72 MB without answering**, which is why the adapted arm
+  always failed where the 0.9 MB base arm always succeeded (task 000484).
+  Against that, the retry spends five attempts and five minutes on a
+  request that cannot succeed. It still earns its place against the blips
+  and deploy windows it was written for, but it is not why 014 now
+  finishes. A payload over the limit should be refused locally, which
+  000484 covers.
 
   Nothing about a successful call changes, and no result changes value.
   What changes is that a run which previously ended at the first network
