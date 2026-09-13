@@ -264,7 +264,7 @@ def capture(
         if on_item:
             on_item()
 
-    prov = (direction.get("provenance") or {}) if isinstance(direction, Mapping) else {}
+    prov = (direction.get("derivation") or {}) if isinstance(direction, Mapping) else {}
     return {
         "kind": "trajectory_projection" if dvec is not None else "trajectory",
         "axis": axis,
@@ -364,11 +364,11 @@ def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
         row["coord"] = round(float(v @ dv), 6)
         rows.append(row)
     out = {k: v for k, v in traj.items() if k != "rows"}
-    prov = d.get("provenance") or {}
+    prov = d.get("derivation") or {}
     out.update({
         "kind": "trajectory_projection",
         # What it was projected onto, as the direction record says it:
-        # method and labels ride in the direction's provenance.
+        # method and labels ride in the direction's derivation.
         "direction": {"layer": d.get("layer"), "point": d.get("point"),
                       "method": prov.get("method"),
                       **({"labels": prov["labels"]} if prov.get("labels") else {})},

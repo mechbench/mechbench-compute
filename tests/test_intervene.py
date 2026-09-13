@@ -192,7 +192,7 @@ class TestRunReadout:
         assert ctrl["top"][0]["token"] == " light"
         assert steered["top"][0]["token"] == "t0"
         assert steered["entropy_bits"] < ctrl["entropy_bits"]
-        assert out["spec"][0]["direction"]["provenance"]["method"] == "t"  # wire form, no vector
+        assert out["spec"][0]["direction"]["derivation"]["method"] == "t"  # wire form, no vector
 
     def test_capture_readout(self):
         model = _FakeModel()

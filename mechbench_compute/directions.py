@@ -42,6 +42,10 @@ def make(vector: Any, *, layer: int | None, point: str, method: str,
         prov["labels"] = dict(labels)
     if extra:
         prov.update(dict(extra))
+    # `derivation`, not `provenance`: the latter is the Emitted envelope's
+    # field, and bench.emit refuses to wrap a payload that carries one —
+    # so a direction node's result could never be emitted inside a run
+    # until this was renamed (found by the 018 recomposition).
     return {
         "kind": KIND,
         "layer": None if layer is None else int(layer),
@@ -50,7 +54,7 @@ def make(vector: Any, *, layer: int | None, point: str, method: str,
         "vector": [round(float(x), 6) for x in v],
         "norm": round(norm, 6),
         "unit": bool(unit),
-        "provenance": prov,
+        "derivation": prov,
     }
 
 
@@ -148,15 +152,15 @@ def add(directions: Sequence[Mapping[str, Any]],
         same_space(directions[0], d)
     v = sum(w * as_array(d) for w, d in zip(ws, directions, strict=True))
     return make(v, layer=directions[0]["layer"], point=directions[0]["point"],
-                method="add", sources=[str(d.get("provenance", {}).get("method"))
+                method="add", sources=[str(d.get("derivation", {}).get("method"))
                                        for d in directions],
-                model=directions[0].get("provenance", {}).get("model"),
+                model=directions[0].get("derivation", {}).get("model"),
                 extra={"weights": ws})
 
 
 def average(directions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     out = add(directions)
-    out["provenance"]["method"] = "average"
+    out["derivation"]["method"] = "average"
     return out
 
 
@@ -179,13 +183,13 @@ def orthogonalize(d: Mapping[str, Any],
     if float(np.linalg.norm(v)) < 1e-8:
         raise ValueError("direction lies entirely in the span of `against`")
     return make(v, layer=d["layer"], point=d["point"], method="orthogonalize",
-                model=d.get("provenance", {}).get("model"),
+                model=d.get("derivation", {}).get("model"),
                 extra={"against": len(basis)})
 
 
 def normalize(d: Mapping[str, Any]) -> dict[str, Any]:
     return make(as_array(d), layer=d["layer"], point=d["point"], method="normalize",
-                model=d.get("provenance", {}).get("model"))
+                model=d.get("derivation", {}).get("model"))
 
 
 def similarity(a: Mapping[str, Any], b: Mapping[str, Any]) -> dict[str, Any]:

@@ -289,12 +289,12 @@ def _wire_spec(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             if isinstance(w.get(k), Mapping):
                 w[k] = {"kind": "direction", "layer": w[k].get("layer"),
                         "point": w[k].get("point"),
-                        "provenance": w[k].get("provenance")}
+                        "derivation": w[k].get("derivation")}
         if isinstance(w.get("source"), Mapping):
             w["source"] = {"kind": w["source"].get("kind"),
                            "n_rows": len(w["source"].get("rows", []))}
         if isinstance(w.get("condition"), Mapping) and isinstance(w["condition"].get("direction"), Mapping):
-            w["condition"] = {**w["condition"], "direction": {"provenance": w["condition"]["direction"].get("provenance")}}
+            w["condition"] = {**w["condition"], "direction": {"derivation": w["condition"]["direction"].get("derivation")}}
         out.append(w)
     return out
 

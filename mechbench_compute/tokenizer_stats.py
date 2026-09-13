@@ -92,7 +92,11 @@ def tokenizer_stats(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
     items = _items_of(inputs, params)
     prefix = str(params.get("prefix", "") or "")
     prefix_ids = encode(tokenizer, prefix) if prefix else []
+    # A hole must always bind, and run bindings are strings: "" (or
+    # "none") means no gate, and a numeric string is the expected depth.
     expect = params.get("expect_depth")
+    if isinstance(expect, str):
+        expect = None if expect.strip().lower() in ("", "none") else expect
     keep = bool(params.get("keep_items", False))
     top_n = int(params.get("top_fragmented", 10) or 0)
 

@@ -55,7 +55,7 @@ class TestMake:
         x = d.make([3.0, 4.0], layer=2, point="resid_post", method="test", sources=["a"])
         assert x["kind"] == "direction" and x["d"] == 2
         assert abs(np.linalg.norm(x["vector"]) - 1.0) < 1e-6 and x["norm"] == 5.0
-        assert x["provenance"]["method"] == "test" and x["provenance"]["sources"] == ["a"]
+        assert x["derivation"]["method"] == "test" and x["derivation"]["sources"] == ["a"]
 
     def test_zero_refused(self):
         with pytest.raises(ValueError):
@@ -67,8 +67,8 @@ class TestProducers:
         v = _vectors()
         x = d.from_vectors(v, layer=3, positive="pos", negative="neg")
         assert x["layer"] == 3 and x["point"] == "resid_post"
-        assert x["provenance"]["labels"] == {"positive": "pos", "negative": "neg"}
-        assert x["provenance"]["n_positive"] == 4
+        assert x["derivation"]["labels"] == {"positive": "pos", "negative": "neg"}
+        assert x["derivation"]["n_positive"] == 4
         # the difference is ~ +4 on every coordinate: all-positive unit vector
         assert all(c > 0 for c in x["vector"])
 
@@ -77,7 +77,7 @@ class TestProducers:
         x = d.from_pca(v, layer=3)
         m = d.from_vectors(v, layer=3, positive="pos", negative="neg")
         assert abs(d.similarity(x, m)["cosine"]) > 0.95
-        assert 0.5 < x["provenance"]["explained"] <= 1.0
+        assert 0.5 < x["derivation"]["explained"] <= 1.0
 
     def test_missing_layer_refused(self):
         with pytest.raises(ValueError):
@@ -90,14 +90,14 @@ class TestArithmetic:
         b = d.make([1.0, 1.0, 0.0], layer=1, point="resid_post", method="t")
         o = d.orthogonalize(b, [a])
         assert abs(d.similarity(o, a)["cosine"]) < 1e-6
-        assert o["provenance"]["method"] == "orthogonalize"
+        assert o["derivation"]["method"] == "orthogonalize"
 
     def test_add_and_average(self):
         a = d.make([1.0, 0.0], layer=1, point="resid_post", method="t")
         b = d.make([0.0, 1.0], layer=1, point="resid_post", method="t")
         s = d.add([a, b], [1.0, 1.0])
         assert np.allclose(s["vector"], [np.sqrt(0.5)] * 2, atol=1e-6)
-        assert d.average([a, b])["provenance"]["method"] == "average"
+        assert d.average([a, b])["derivation"]["method"] == "average"
 
     def test_spaces_must_match(self):
         a = d.make([1.0, 0.0], layer=1, point="resid_post", method="t")
@@ -125,7 +125,7 @@ class TestBlocks:
         sim = PURE_BLOCKS["~canonical/ops/direction/similarity/1"]({"a": x, "b": x}, {})
         assert abs(sim["cosine"] - 1.0) < 1e-6
         avg = PURE_BLOCKS["~canonical/ops/direction/average/1"]({"d1": x, "d2": x}, {})
-        assert avg["provenance"]["method"] == "average"
+        assert avg["derivation"]["method"] == "average"
 
     def test_levels_declared(self):
         from mechbench_compute import resume as rm

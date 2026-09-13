@@ -161,7 +161,7 @@ class TestCapturePositionsAxis:
     def test_project_at_capture_time_emits_coords_only(self):
         m = StubModel()
         d = {"kind": "direction", "vector": onehot(3, 1.0), "layer": 0,
-             "point": "post", "provenance": {"method": "test"}}
+             "point": "post", "derivation": {"method": "test"}}
         out = trajectory.capture(m, [{"id": "a", "text": "a bb ccc"}],
                                  {"axis": "positions", "layer": 1, "positions": "all",
                                   "project": d})
@@ -253,7 +253,7 @@ class TestAggregate:
         assert by["lh"]["n_pooled"] == 4
         # the direction algebra reads it unchanged
         d = dirs.from_vectors(out, layer=0, positive="lh", negative="other")
-        assert d["provenance"]["method"] == "diff_of_means"
+        assert d["derivation"]["method"] == "diff_of_means"
         v = np.asarray(d["vector"])
         assert v[1] > 0 and v[2] < 0
 

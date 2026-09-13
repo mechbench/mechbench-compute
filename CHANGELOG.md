@@ -13,6 +13,29 @@ nothing said so.
 
 ---
 
+## 0.65.0 — 2026-09-13
+
+### Changes that raise
+
+- **A direction record's `provenance` block is now `derivation`.** The
+  old name collided with the Emitted envelope's field: `bench.emit`
+  refuses to wrap a payload that already carries `provenance`, so a
+  `direction/*` node's result could never be emitted inside a run —
+  every protocol with a direction node failed at that node with
+  "payload already carries provenance". Found by the 018
+  recomposition, the first job to run one. A reader of
+  `direction["provenance"]` now gets a KeyError; the block's contents
+  (`method`, `sources`, `model`, `labels`, per-method extras) are
+  unchanged under the new key, and the intervene wire form follows.
+
+### Changes that alter results without raising
+
+- `tokenize/stats` reads `expect_depth` `""` (or `"none"`) as no gate,
+  because a protocol hole must always bind and run bindings are
+  strings.
+
+---
+
 ## 0.64.0 — 2026-09-13
 
 ### Changes that raise
