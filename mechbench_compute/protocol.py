@@ -1126,8 +1126,14 @@ class ProtocolExecutor:
 
     def _block_ablate_layers(self, inputs, params, on_item=None,
                              on_start=None):
-        """~canonical/ops/ablate/layers/1 — the mechbench-experiments
-        port (steps 02/04/34/35): per-layer or per-sublayer Δ log p."""
+        """Zero one layer — or one sublayer — at a time and measure the
+        change in the target's log probability.
+
+        The coarsest causal readout there is, and usually the first one
+        worth running: it says WHERE in the stack the prediction is being
+        built before any finer instrument is pointed at it. (The
+        mechbench-experiments port of steps 02/04/34/35.)
+        """
         from mechbench_compute import interp
         from mechbench_compute.blocks import _records
 
@@ -1186,8 +1192,16 @@ class ProtocolExecutor:
 
     def _block_logit_attribution(self, inputs, params, on_item=None,
                                  on_start=None):
-        """~canonical/ops/attribution/logits/1 — steps 32/33, self-
-        validating per-layer DLA (000142's apply_ln)."""
+        """Decompose the target's logit into each layer's direct
+        contribution, and check that the parts sum to the whole.
+
+        Direct logit attribution is a bookkeeping identity rather than a
+        causal claim: it says what each layer WROTE toward the answer
+        through the unembedding, not what would happen without it. The
+        self-check is the point — a decomposition that does not reconstruct
+        the logit is measuring the wrong thing, which is why the final
+        norm's per-position scale has to be folded in. (Steps 32/33.)
+        """
         from mechbench_compute import interp
         from mechbench_compute.blocks import _records
 
@@ -1198,7 +1212,14 @@ class ProtocolExecutor:
 
     def _block_patch_trace(self, inputs, params, on_item=None,
                            on_start=None):
-        """~canonical/ops/patch/trace/1 — causal tracing (step 09)."""
+        """Replace an activation with the one another run had at the same
+        place, and measure how much of the answer comes back.
+
+        Causal tracing: where a clean run and a corrupted one differ, the
+        activation whose restoration recovers the prediction is where the
+        information was being carried. Unlike ablation this localizes
+        content rather than participation. (Step 09.)
+        """
         from mechbench_compute import interp
         from mechbench_compute.blocks import _records
 
@@ -1220,7 +1241,14 @@ class ProtocolExecutor:
 
     def _block_ablate_heads(self, inputs, params, on_item=None,
                             on_start=None):
-        """~canonical/ops/ablate/heads/1 — step 07's head sweep."""
+        """Zero one attention head at a time and measure what the answer
+        loses, head by head.
+
+        A drop is evidence that the head PARTICIPATES in the prediction,
+        not that it is responsible for it: ablation removes a
+        contribution without telling you what the contribution was.
+        (The mechbench-experiments port of step 07's head sweep.)
+        """
         from mechbench_compute import interp
         from mechbench_compute.blocks import _records
 
@@ -1231,9 +1259,14 @@ class ProtocolExecutor:
 
     def _block_lens_positions(self, inputs, params, on_item=None,
                               on_start=None):
-        """~canonical/ops/lens/positions/1 — step 08's question as a
-        block: where in the sequence, at what depth, does the target
-        become visible through the unembedding?"""
+        """Read the target's probability at every (layer, position), by
+        projecting each mid-stack residual through the unembedding.
+
+        The logit lens over a whole sequence rather than one point: where
+        in the text, and how deep in the stack, does the answer become
+        visible? "Visible at layer k" means decodable there, which is not
+        the same as decided there. (Step 08's question as a block.)
+        """
         from mechbench_compute import interp
         from mechbench_compute.blocks import _records
 
@@ -1257,8 +1290,14 @@ class ProtocolExecutor:
 
     def _block_residual_divergence(self, inputs, params, on_item=None,
                                    on_start=None):
-        """~canonical/ops/residuals/divergence/1 — matched-pair
-        per-(layer, position) divergence maps (000050/000052)."""
+        """For a matched pair of prompts, how far apart the residual
+        streams run at every (layer, position).
+
+        The map that answers "where do these two inputs stop being
+        processed the same way?" — the first thing to look at when two
+        conditions behave differently and nobody knows yet where the
+        difference begins.
+        """
         from mechbench_compute import interp
         from mechbench_compute.blocks import _records
 
@@ -1437,9 +1476,11 @@ class ProtocolExecutor:
 
     def _block_merge(self, inputs, params, secrets=None, result_base=None,
                      on_item=None, on_start=None):
-        """~canonical/ops/merge/1 (000312 Arc C): collapse a ModelRef's
-        adapter stack into a standalone checkpoint, published where the
-        run says — the platform's own store, or Hugging Face.
+        """Collapse a model's adapter stack into one standalone
+        checkpoint, published to the bench or to Hugging Face.
+
+        What turns "base plus these three adapters" into a single thing
+        someone else can load.
 
         The merge never loads the model: it is a delta-shard rewrite
         (see checkpoint.py), so peak memory is one shard. Destination

@@ -143,6 +143,13 @@ def from_pca(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
 
 def add(directions: Sequence[Mapping[str, Any]],
         weights: Sequence[float] | None = None) -> dict[str, Any]:
+    """Weighted sum of directions in one space, re-normalized.
+
+    The composition primitive: steering along "formal" and "terse" at
+    once is their sum, and `weights` sets the mix. Every input must share
+    a layer and point — adding across spaces is meaningless, and
+    `same_space` refuses it rather than returning a plausible vector.
+    """
     if not directions:
         raise ValueError("add needs at least one direction")
     ws = [1.0] * len(directions) if weights is None else [float(w) for w in weights]
@@ -159,6 +166,13 @@ def add(directions: Sequence[Mapping[str, Any]],
 
 
 def average(directions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """The equal-weight mean of several directions: the shared component.
+
+    Distinct from `add` only in intent and in what the derivation
+    records, since both normalize — but the question "what do these
+    adapters have in common?" is answered by the mean of their UNIT
+    directions, which weights each one equally however long it is.
+    """
     out = add(directions)
     out["derivation"]["method"] = "average"
     return out
@@ -188,6 +202,13 @@ def orthogonalize(d: Mapping[str, Any],
 
 
 def normalize(d: Mapping[str, Any]) -> dict[str, Any]:
+    """A direction rescaled to unit length, keeping its space and model.
+
+    Directions are stored unit already, so this is for the case where one
+    arrived otherwise — hand-built, or read from an external source —
+    and for making the normalization an explicit, recorded step rather
+    than an implicit one.
+    """
     return make(as_array(d), layer=d["layer"], point=d["point"], method="normalize",
                 model=d.get("derivation", {}).get("model"))
 

@@ -411,12 +411,15 @@ def table_from_records(records: Any,
 
 def viz_spec(records: Any, params: Mapping[str, Any],
                source_label: str | None = None) -> dict[str, Any]:
-    """~canonical/ops/viz/spec/1 — a viz is a bench object (task
-    000277; renamed from viz_spec by 000309 — "viz" is the level of
-    abstraction the primitive targets): a presentation spec over the upstream table/records. When
-    the executor knows the input's label the spec REFERENCES it
-    (`source`, lineage-true, renders live); otherwise the rows ride
-    inline (`data.rows`) so the viz stays self-contained."""
+    """A chart as a bench object: how to present an upstream table, stored
+    beside it rather than drawn once and thrown away.
+
+    When the executor knows the input's label the spec REFERENCES it
+    (`source`, lineage-true, so the chart re-renders as the data
+    changes); otherwise the rows ride inline (`data.rows`) and the viz
+    stays self-contained. Renamed from `viz_spec` by task 000309 — "viz"
+    is the level of abstraction the primitive targets.
+    """
     enc = params.get("encoding") or {}
     x = enc.get("x") or params.get("x")
     y = enc.get("y") or params.get("y")

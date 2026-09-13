@@ -13,6 +13,27 @@ nothing said so.
 
 ---
 
+## 0.73.0 — 2026-09-13
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **Eleven operations gained a first sentence that means something to a
+  stranger.** No behaviour changes; docstrings only. The documentation
+  site generates each operation's summary from its docstring, so the
+  first sentence is now published — and eleven of them read as lab notes:
+  `ablate/heads` was "step 07's head sweep", `patch/trace` was "causal
+  tracing (step 09)", `direction/add`, `average` and `normalize` had none
+  at all. Each now opens with a sentence that stands on its own and keeps
+  its in-house detail after it, which is the shape a docstring wants
+  anyway: the reader who needs the experiment-step reference is the
+  second reader, not the first.
+
+---
+
 ## 0.72.0 — 2026-09-13
 
 ### Changes that raise
