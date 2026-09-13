@@ -37,7 +37,7 @@ class FakeReq:
         return self
 
     def __call__(self, method, url, key, body=None, headers=None,
-                 return_headers=False, timeout=60):
+                 return_headers=False, timeout=60, attempts=None):
         self.calls.append({"method": method, "url": url, "body": body,
                            "headers": headers, "timeout": timeout})
         for (m, sub), val in self.script.items():

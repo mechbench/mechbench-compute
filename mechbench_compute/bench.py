@@ -44,6 +44,27 @@ class BenchError(RuntimeError):
     """A bench API call failed; the message carries the server detail."""
 
 
+class BenchTransportError(BenchError):
+    """The call never got an answer the server stands behind: a dead
+    socket, a timeout, or a 5xx that survived every retry.
+
+    Separate from `BenchError` because the two mean opposite things to a
+    caller holding expensive compute. A 4xx says the payload is wrong and
+    will still be wrong next time. A transport failure says nothing about
+    the payload, so a host can keep the bytes and try again later instead
+    of discarding the work that produced them (000464).
+    """
+
+
+#: Bounded retry for failures that carry no verdict on the request.
+#: Five attempts with exponential backoff and jitter spans ~2 minutes,
+#: which covers a prod deploy's restart window. Small enough that a
+#: genuinely dead API still surfaces in a couple of minutes, not hours.
+_RETRY_ATTEMPTS = 5
+_RETRY_BASE_DELAY = 2.0
+_RETRY_STATUS = frozenset({502, 503, 504, 429})
+
+
 #: Set by a host that already holds credentials — see `configure()`.
 _DEFAULTS: dict[str, str] = {}
 
@@ -159,23 +180,67 @@ def _tls(url: str) -> ssl.SSLContext | None:
     return ssl.create_default_context(cafile=certifi.where())
 
 
+def _retry_delay(attempt: int) -> float:
+    """Exponential backoff with full jitter, for attempt 1, 2, 3…
+
+    Jitter matters here even with one client: a runner emitting several
+    nodes, or several runners riding out the same deploy, otherwise retry
+    in lockstep and hit the API at the same instants.
+    """
+    import random
+
+    return random.uniform(0.0, _RETRY_BASE_DELAY * (2 ** (attempt - 1)))
+
+
 def _request(method: str, url: str, key: str, body: bytes | None = None,
              headers: dict[str, str] | None = None,
-             return_headers: bool = False, timeout: float = 60) -> Any:
-    req = urllib.request.Request(url, data=body, method=method)
-    req.add_header("Authorization", f"Bearer {key}")
-    for h, v in (headers or {}).items():
-        req.add_header(h, v)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_tls(url)) as resp:
-            raw = resp.read()
-            ctype = resp.headers.get("content-type", "")
-            resp_headers = {k.lower(): v for k, v in resp.headers.items()}
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")[:500]
-        raise BenchError(f"{method} {url} -> {e.code}: {detail}") from None
-    except urllib.error.URLError as e:
-        raise BenchError(f"{method} {url} unreachable: {e.reason}") from None
+             return_headers: bool = False, timeout: float = 60,
+             attempts: int = _RETRY_ATTEMPTS) -> Any:
+    """One API call, retrying only what carries no verdict (000464).
+
+    Retried: a dead or timing-out socket, and 502/503/504/429. Each is
+    silent about whether the request was acceptable, and every write in
+    this module is safe to repeat — object PUTs are content-addressed, so
+    the second attempt either writes identical bytes or is a no-op.
+
+    Never retried: any other 4xx or 5xx. A rejected payload does not
+    become acceptable by being sent again, and retrying it turns a clear
+    error into a slow one.
+    """
+    import time
+
+    last: Exception | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        req = urllib.request.Request(url, data=body, method=method)
+        req.add_header("Authorization", f"Bearer {key}")
+        for h, v in (headers or {}).items():
+            req.add_header(h, v)
+        try:
+            with urllib.request.urlopen(
+                    req, timeout=timeout, context=_tls(url)) as resp:
+                raw = resp.read()
+                ctype = resp.headers.get("content-type", "")
+                resp_headers = {k.lower(): v for k, v in resp.headers.items()}
+            break
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:500]
+            if e.code not in _RETRY_STATUS:
+                raise BenchError(
+                    f"{method} {url} -> {e.code}: {detail}") from None
+            last = BenchTransportError(
+                f"{method} {url} -> {e.code}: {detail}")
+        except urllib.error.URLError as e:
+            # Includes socket.timeout on read/write, which is how the
+            # 014 loss surfaced: "The write operation timed out".
+            last = BenchTransportError(f"{method} {url} unreachable: {e.reason}")
+        except TimeoutError as e:
+            last = BenchTransportError(f"{method} {url} unreachable: {e}")
+        if attempt >= max(1, attempts):
+            raise last from None
+        delay = _retry_delay(attempt)
+        print(f"[bench] {method} {url} failed ({last}); "
+              f"retry {attempt + 1}/{attempts} in {delay:.1f}s")
+        time.sleep(delay)
     if ctype.startswith("application/json"):
         parsed = json.loads(raw)
         return (parsed, resp_headers) if return_headers else parsed

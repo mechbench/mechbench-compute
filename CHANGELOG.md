@@ -13,6 +13,42 @@ nothing said so.
 
 ---
 
+## 0.68.0 — 2026-09-12
+
+### Changes that raise
+
+- **`bench.BenchTransportError`**, a subclass of `BenchError`, is raised
+  when a call never got a verdict: a dead socket, a timeout, or a
+  502/503/504/429 that survived every retry (task 000464). Existing
+  `except BenchError` handlers are unaffected. A host that wants to tell
+  "the API was unreachable" from "the payload was rejected" can now do it
+  by class instead of by matching the message.
+
+### Changes that alter results without raising
+
+- **`bench._request` retries what carries no verdict.** Five attempts with
+  exponential backoff and full jitter, spanning roughly two minutes — long
+  enough to ride out a prod deploy's restart window. Retried: a dead or
+  timing-out socket, and 502/503/504/429. **Never retried: any other 4xx
+  or 5xx**, because a rejected payload does not become acceptable by being
+  sent again, and retrying it turns a clear error into a slow one. Repeats
+  are safe by construction: object writes are content-addressed, so a
+  second attempt writes identical bytes or no-ops.
+
+  This is a correctness fix with a measured cost. Experiment 014's adapted
+  run died twice at node `gen` on a single un-retried PUT — once at 197 of
+  200 generated stories, once at 200 of 200 — and lost about 35 minutes of
+  generation each time. The payload was 0.9 MB and the API answered
+  normally seconds later, so neither loss had a cause worth having. The
+  first was explained by a prod deploy landing mid-upload; the second had
+  no such excuse, which is what made it a bug rather than bad luck.
+
+  Nothing about a successful call changes, and no result changes value.
+  What changes is that a run which previously ended at the first network
+  blip now finishes.
+
+---
+
 ## 0.67.0 — 2026-09-13
 
 ### Changes that raise
