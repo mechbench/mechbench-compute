@@ -64,6 +64,12 @@ _RETRY_ATTEMPTS = 5
 _RETRY_BASE_DELAY = 2.0
 _RETRY_STATUS = frozenset({502, 503, 504, 429})
 
+#: The API's request-body ceiling for one object, mirrored so an emit
+#: can refuse locally (000484). The server is authoritative — it returns
+#: 413 with `limitBytes` — and this constant must move with it
+#: (`mechbench-api/src/lib/body_limit.ts`). 64 MiB.
+MAX_OBJECT_BYTES = 64 * 1024 * 1024
+
 
 #: Set by a host that already holds credentials — see `configure()`.
 _DEFAULTS: dict[str, str] = {}
@@ -310,6 +316,17 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
         body_obj = envelope.model_dump(mode="python")
 
     body = ms.dump_canonical(body_obj)
+    if len(body) > MAX_OBJECT_BYTES:
+        # Refused HERE, in one line, rather than after a minute per
+        # attempt against a server that will not take it (000484). The
+        # API enforces the same ceiling with a 413; this is the version
+        # that names the size before any bytes leave the machine.
+        raise BenchError(
+            f"emit {target!r}: the canonical body is {len(body):,} bytes, "
+            f"over the API's {MAX_OBJECT_BYTES:,}-byte object limit. Split "
+            f"the result, lower its fidelity, or store the large part by "
+            f"reference. (A result this size usually means a record is "
+            f"carrying something it should not — bytes, a live object.)")
     import hashlib
 
     digest = hashlib.sha256(body).hexdigest()

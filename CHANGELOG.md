@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## 0.71.0 — 2026-09-13
+
+### Changes that raise
+
+- **`bench.emit` refuses a body over 64 MiB before sending it** (task
+  000484), with a `BenchError` naming the size and the limit. The API
+  enforces the same ceiling with a 413 (`code: BODY_TOO_LARGE`,
+  `limitBytes`, `receivedBytes`); this is the version that says so in one
+  line rather than after five retries of a minute each. `MAX_OBJECT_BYTES`
+  mirrors `mechbench-api/src/lib/body_limit.ts` and must move with it.
+  Legitimate results today are under 1 MB; a body this large usually
+  means a record is carrying bytes or a live object it should not (which
+  is exactly what 000488 was).
+
+### Changes that alter results without raising
+
+- _None._
+
+---
+
 ## 0.70.0 — 2026-09-13
 
 ### Changes that raise
