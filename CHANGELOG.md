@@ -13,6 +13,24 @@ nothing said so.
 
 ---
 
+## 0.76.1 — 2026-09-14
+
+### Changes that raise
+
+- **`logits/decision` refuses an empty battery.** A read over zero
+  conditions raised nothing and emitted an empty collection, which a
+  reader takes for a finding. It now fails with `logits/decision: no
+  conditions to read`. Found the same evening by experiment 002's
+  re-run: its battery object had been written by hand as a `collection`
+  whose list sat under `records`, and 0.76.0 read `items` only.
+
+### Changes that alter results without raising
+
+- `lexicon.items_of` reads a `collection` whose list was written under
+  an older field name (`records`, `conditions`, `rows`), as it already
+  did for unkinded objects. A protocol that fed such an object to a
+  block and got an empty result in 0.76.0 gets its items in 0.76.1.
+
 ## 0.76.0 — 2026-09-14
 
 ### Changes that raise

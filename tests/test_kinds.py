@@ -163,6 +163,8 @@ class TestTheContainer:
         assert K.items_of({"kind": "decision_read", "conditions": [1]}) == [1]
         assert K.items_of({"kind": "record_set", "records": [1]}) == [1]
         assert K.items_of({"records": [1]}) == [1]
+        # A container written with its list under an older name still reads.
+        assert K.items_of({"kind": COLLECTION, "item_kind": "records/record", "records": [1]}) == [1]
         with pytest.raises(ValueError):
             K.items_of({"kind": "records/table", "columns": []})
         with pytest.raises(ValueError):

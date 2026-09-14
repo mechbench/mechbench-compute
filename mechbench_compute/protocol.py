@@ -2141,6 +2141,13 @@ class ProtocolExecutor:
         conditions = inputs.get("conditions") or params.get("conditions") or []
         if isinstance(conditions, dict):
             conditions = lexicon.items_of(conditions)
+        if not conditions:
+            # An empty read is never what a protocol meant: the battery
+            # did not arrive, and a silent empty collection would be read
+            # as a finding.
+            raise ValueError(
+                "logits/decision: no conditions to read — wire records to "
+                "the `conditions` port or pass them by param")
         if on_start:
             on_start(len(conditions))
         rollout = params.get("rollout")

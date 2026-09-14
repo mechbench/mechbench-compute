@@ -791,11 +791,12 @@ def items_of(obj: Any) -> list[Any]:
     if not isinstance(obj, Mapping):
         raise ValueError("not a collection: a list or a mapping was expected")
     k = obj.get("kind")
-    if k == COLLECTION:
-        return list(obj.get("items") or [])
+    if k == COLLECTION and isinstance(obj.get("items"), list):
+        return list(obj["items"])
     if isinstance(k, str) and k in _LEGACY_ITEMS_FIELD:
         return list(obj.get(_LEGACY_ITEMS_FIELD[k]) or [])
-    # An unkinded object: the older field names win, as they always did.
+    # An unkinded object, or a container written with the list under an
+    # older field name: the older names win, as they always did.
     for f in ("records", "conditions", "rows", "items"):
         if isinstance(obj.get(f), list):
             return list(obj[f])
