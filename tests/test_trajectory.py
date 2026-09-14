@@ -77,19 +77,24 @@ class TestCaptureLayersAxis:
                                  {"axis": "layers", "position": "final"})
         assert out["item_kind"] == "trajectory/point" and out["axis"] == "layers"
         assert [r["step"] for r in out["items"]] == [0, 1, 2, 3]
-        assert [r["layer"] for r in out["items"]] == [0, 1, 2, 3]
+        assert [r["space"]["layer"] for r in out["items"]] == [0, 1, 2, 3]
+        assert out["items"][2]["space"] == {"model": "stub/model", "layer": 2,
+                                            "point": "resid_post", "head": None, "d": D}
         # final token of "hi there" is 1 + 5 % 7 = 6; layer L scales by L+1
         assert out["items"][2]["vector"] == onehot(6, 3.0)
         assert out["items"][2]["position"] == 2
         assert out["items"][2]["norm"] == 3.0
+        assert out["items"][2]["token"] == {"id": 6, "text": "t6"}
 
     def test_vocab_top_reads_the_unembedding(self):
         m = StubModel()
         out = trajectory.capture(m, [{"id": "a", "user": "hi"}],
                                  {"axis": "layers", "layers": [1], "vocab_top": 2})
-        top = out["items"][0]["vocab_top"]
-        assert top[0]["token"] == "t3"  # "hi" -> 1 + 2 % 7 = 3, one-hot at 3
-        assert 0 < top[0]["p"] <= 1
+        vocab = out["items"][0]["vocab"]
+        top = vocab["top"]
+        assert top[0]["token"]["text"] == "t3"  # "hi" -> 1 + 2 % 7 = 3, one-hot at 3
+        assert 0 < top[0]["p"] <= 1 and top[0]["logp"] <= 0
+        assert len(top) == 2 and vocab["entropy_bits"] >= 0
 
 
 class TestCapturePositionsAxis:
@@ -101,7 +106,7 @@ class TestCapturePositionsAxis:
         assert out["axis"] == "positions" and out["layers"] == [2]
         assert out["replay"] == "text"
         assert [r["position"] for r in out["items"]] == [0, 1, 2, 3]
-        assert [r["token"] for r in out["items"]] == ["t0", "t2", "t3", "t4"]
+        assert [r["token"]["text"] for r in out["items"]] == ["t0", "t2", "t3", "t4"]
         assert out["items"][1]["vector"] == onehot(2, 3.0)
 
     def test_replays_the_stored_trace_not_the_text(self):
@@ -137,7 +142,8 @@ class TestCapturePositionsAxis:
         out = trajectory.capture(m, [{"id": "a", "text": "x", "hit": 1}],
                                  {"axis": "positions", "layer": 0,
                                   "positions": "all", "label_field": "hit"})
-        assert out["items"][0]["label"] == 1
+        # The retired param writes the field as the `label` coordinate.
+        assert out["items"][0]["coords"]["label"] == 1
 
     def test_needs_a_layer(self):
         with pytest.raises(ValueError, match="needs `layer`"):
@@ -165,10 +171,12 @@ class TestCapturePositionsAxis:
         out = trajectory.capture(m, [{"id": "a", "text": "a bb ccc"}],
                                  {"axis": "positions", "layer": 1, "positions": "all",
                                   "project": d})
-        assert out["item_kind"] == "trajectory/point" and out["projected"]
-        assert out["direction"]["method"] == "test"
+        assert out["item_kind"] == "activations/coordinate" and out["projected"]
+        assert out["items"][0]["direction"]["method"] == "test"
+        assert out["items"][0]["direction"]["space"]["layer"] == 0
         # layer 1 scales by 2; token 3 sits at position 2 ("bb" -> 1 + 2 % 7 = 3)
         assert [r["coord"] for r in out["items"]] == [0.0, 0.0, 2.0, 0.0]
+        assert [r["step"] for r in out["items"]] == [0, 1, 2, 3]
         assert all("vector" not in r for r in out["items"])
 
     def test_the_cap_counts_what_is_emitted_not_what_is_read(self):
@@ -219,9 +227,11 @@ class TestProject:
         d = {"kind": "direction", "vector": onehot(1, 1.0), "layer": 0,
              "point": "post", "method": "test"}
         out = trajectory.project({"trajectory": t, "direction": d}, {})
-        assert out["item_kind"] == "trajectory/point" and out["projected"]
+        assert out["item_kind"] == "activations/coordinate" and out["projected"]
         assert [r["coord"] for r in out["items"]] == [2.0, 0.0]
+        assert [r["step"] for r in out["items"]] == [0, 1]
         assert "vector" not in out["items"][0]
+        assert out["items"][0]["space"]["layer"] == 0
 
     def test_dimension_mismatch_is_refused(self):
         t = _traj([_row("a", 0, onehot(1, 1.0))])
@@ -271,9 +281,10 @@ class TestAggregate:
                                    {"by": "label", "as": "vectors",
                                     "steps": {"range": [0, 2]}})
         assert out["item_kind"] == "activations/vector" and out["layers"] == [0]
-        by = {r["label"]: r for r in out["items"]}
+        by = {r["coords"]["label"]: r for r in out["items"]}
         assert by["lh"]["vector"] == onehot(1, 3.0)  # mean of 1,3,3,5
         assert by["lh"]["n_pooled"] == 4
+        assert by["lh"]["space"]["layer"] == 0
         # the direction algebra reads it unchanged
         d = dirs.from_vectors(out, layer=0, positive="lh", negative="other")
         assert d["derivation"]["method"] == "diff_of_means"
@@ -325,10 +336,12 @@ class TestWiring:
         base = vec([{"id": "flash", "layer": 12, "vector": onehot(1, 1.0)}])
         adapted = vec([{"id": "flash", "layer": 12, "vector": onehot(2, 1.0)}])
         out = blocks.union({"base": base, "adapted": adapted}, {})
-        assert out["item_kind"] == "activations/vector" and out["layers"] == [12]
-        assert [r["label"] for r in out["items"]] == ["adapted", "base"]  # port order
+        assert out["item_kind"] == "activations/vector" and "layers" not in out
+        # Every item carries its own space; the port is the batch coordinate.
+        assert [r["coords"]["batch"] for r in out["items"]] == ["adapted", "base"]  # port order
+        assert all(r["space"]["layer"] == 12 and "label" not in r for r in out["items"])
         from mechbench_compute import directions as dirs
-        d = dirs.from_vectors(out, layer=12, positive="base", negative="adapted")
+        d = dirs.from_vectors(out, layer=12, axis="batch", positive="base", negative="adapted")
         v = np.asarray(d["vector"])
         assert v[1] > 0 and v[2] < 0
 

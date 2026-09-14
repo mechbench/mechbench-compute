@@ -13,6 +13,70 @@ nothing said so.
 
 ---
 
+## 0.77.0 — 2026-09-15
+
+### Changes that raise
+
+- **A direction is built in a `space`.** `directions.make(vector,
+  space, method=…)` replaces `make(vector, layer=…, point=…)`; the
+  space is `shapes.space(model=, layer=, point=, d=)`. A caller of the
+  old signature gets `TypeError`.
+- **The grouping ops take an `axis`, not a `label`.**
+  `direction/from-vectors` and `intervene/steer` read the items' value on
+  the `axis` coordinate (`direction: {axis, positive, negative}`);
+  `direction/from-pca` takes `axis` and `value`; `geometry/similarity`,
+  `geometry/mst` and `trajectory/aggregate` group on it. `axis` defaults
+  to `label`, which also reads the retired `label` field, so older
+  vector collections group as they did. `records/union` no longer
+  invents labels: the port is the value on the `batch_axis` coordinate,
+  and a direction across a union names `axis: "batch"`.
+- **`eval/expectation` emits a collection of `eval/verdict`**, `pass` a
+  boolean (null with a `note` when unjudgeable) and the pass rate in the
+  header's `summary`; the `ALL` row is gone, and so is the table.
+- `intervene/layers` no longer carries a record's baseline as an item
+  with `layer: null`; baselines are the header's `conditions`
+  (`{id, target, baseline_logp}`), as `intervene/heads` already did.
+- `trajectory/capture` with `project`, and `trajectory/project`, emit a
+  collection of `activations/coordinate`, not points without vectors;
+  `trajectory/aggregate` reads either.
+- The op aliases retired in 0.75.0 were to be refused in this release.
+  They still resolve (with the warning) until 0.80.0: the protocols
+  stored on the bench spell the old names and their migration is
+  scheduled work, not a side effect.
+
+### Changes that alter results without raising
+
+- **Every vector item carries its `space`** — `{model, layer, point,
+  head, d}` — and the record's `coords`; `layer`, `head` and `label` are
+  no longer fields of the item. `activations/vectors`, `direction/*`,
+  `trajectory/*`, `intervene/apply`'s captures and `records/union` all
+  build through `shapes.vector`; `same_space` is one check. The
+  captured token rides along as `token: {id, text}`. Bytes change;
+  numbers do not.
+- **Every next-token summary is a `logits/distribution`**:
+  `entropy_bits`, `top` (ranked `{token, p, logp}`, `top_k` of them) and
+  `tracked` (name → `{token, p, logp}` for the tokens asked about).
+  `logits/decision` (was `top_tokens` and `outcome_mass`),
+  `intervene/apply` and `intervene/steer` (were `top`/`track_logp`/
+  `tracks`/`outcome_mass`; steer's alpha is now `factor` and the sweep
+  the header's `sweep`), `logits/funnel` (one item per record per layer
+  keyed `(id, layer)`, was one document with `metadata.layers` of
+  `top1`), `direction/vocab` (two distributions) and
+  `trajectory/capture`'s `vocab`. Readers of older reads go through
+  `shapes.distribution_of`.
+- **Every scalar field over model axes is an `activations/grid`**:
+  `axes` and `measures` indexed in axis order. `logits/lens`
+  (`logprob`, `rank`), `logits/attribution` (`contribution`),
+  `activations/divergence` (`divergence`), `activations/attention`
+  (`weight` over `[layer, head, query, key]`), `intervene/trace`
+  (`recovery`; `value_a`/`value_b` replace `p_target_clean`/`corrupt`)
+  and `intervene/heads` (`mean_delta`). Tokens are `token: {id, text}`
+  where a target is named.
+- `records/pair` is read by `a`/`b`; `clean`/`corrupt` are still read.
+- `intervene/apply`'s capture readout emits `captures` as a collection
+  of `activations/vector` (one per hook point, each in its space), and a
+  capture readout is accepted on another intervention's `source` port.
+
 ## 0.76.2 — 2026-09-14
 
 ### Changes that raise

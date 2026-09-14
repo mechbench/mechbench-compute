@@ -1,14 +1,16 @@
 """Directions as first-class objects (task 000367, epic 000364).
 
-A `direction` is a unit vector at a (layer, point) with provenance: how
-it was made (difference of means, PCA, a probe's weight, an SAE
-feature, a trained steering vector, arithmetic over other directions),
-from which objects, on which model. One object type flows through
-`intervene` (add / project-out / rotate), probe-apply, attribution and
-the vocabulary projection, so a direction found one way can be tried
-every other way without conversion.
+A `direction/vector` is a unit vector in a model's activation space
+with provenance: how it was made (difference of means, PCA, a probe's
+weight, an SAE feature, a trained steering vector, arithmetic over
+other directions), from which objects, on which model. It is an
+`activations/vector` — `{space, vector, norm}` — plus `unit` and
+`derivation`, so one object type flows through `intervene/apply`
+(add / project-out / rotate), `direction/project`, attribution and the
+vocabulary projection, and a direction found one way can be tried every
+other way without conversion.
 
-Producers here are pure (numpy over vector records) except
+Producers here are pure (numpy over vector items) except
 `vocab_projection`, which needs a model's unembedding.
 """
 
@@ -19,7 +21,14 @@ from typing import Any
 
 import numpy as np
 
+from mechbench_compute import shapes as S
+
 KIND = "direction/vector"
+
+#: The coordinate the grouping ops read when none is named: the retired
+#: `label` field is read as a `label` coordinate, so older vector
+#: collections group as they did.
+DEFAULT_AXIS = "label"
 
 
 def _is_direction(d: Any) -> bool:
@@ -37,11 +46,11 @@ def _is_direction(d: Any) -> bool:
 # --- construction ----------------------------------------------------------
 
 
-def make(vector: Any, *, layer: int | None, point: str, method: str,
-         sources: Sequence[str] = (), model: str | None = None,
-         labels: Mapping[str, Any] | None = None,
-         extra: Mapping[str, Any] | None = None,
-         unit: bool = True) -> dict[str, Any]:
+def make(vector: Any, sp: Mapping[str, Any], *, method: str,
+         sources: Sequence[str] = (), labels: Mapping[str, Any] | None = None,
+         extra: Mapping[str, Any] | None = None, unit: bool = True) -> dict[str, Any]:
+    """A direction in space `sp`. `labels` is the grouping it was built
+    from (`{axis, positive, negative}`); `extra` rides in the derivation."""
     v = np.asarray(vector, dtype=np.float32).reshape(-1)
     norm = float(np.linalg.norm(v))
     if unit:
@@ -49,25 +58,18 @@ def make(vector: Any, *, layer: int | None, point: str, method: str,
             raise ValueError("a zero vector cannot be a direction")
         v = v / norm
     prov: dict[str, Any] = {"method": method, "sources": list(sources),
-                            "model": model}
+                            "model": sp.get("model")}
     if labels:
-        prov["labels"] = dict(labels)
+        prov.update({k: v_ for k, v_ in labels.items() if v_ is not None})
     if extra:
         prov.update(dict(extra))
     # `derivation`, not `provenance`: the latter is the Emitted envelope's
-    # field, and bench.emit refuses to wrap a payload that carries one —
-    # so a direction node's result could never be emitted inside a run
-    # until this was renamed (found by the 018 recomposition).
-    return {
-        "kind": KIND,
-        "layer": None if layer is None else int(layer),
-        "point": str(point),
-        "d": int(v.size),
-        "vector": [round(float(x), 6) for x in v],
-        "norm": round(norm, 6),
-        "unit": bool(unit),
-        "derivation": prov,
-    }
+    # field, and bench.emit refuses to wrap a payload that carries one.
+    item = S.vector(v, sp)
+    item["norm"] = round(norm, 6)
+    item["unit"] = bool(unit)
+    item["derivation"] = prov
+    return {"kind": KIND, **item}
 
 
 def as_array(d: Mapping[str, Any]) -> np.ndarray:
@@ -77,66 +79,70 @@ def as_array(d: Mapping[str, Any]) -> np.ndarray:
 
 
 def same_space(a: Mapping[str, Any], b: Mapping[str, Any]) -> None:
-    for k in ("layer", "point", "d"):
-        if a.get(k) != b.get(k):
-            raise ValueError(
-                f"directions live in different spaces: {k} {a.get(k)!r} vs {b.get(k)!r}")
+    S.same_space(a, b, what="directions")
 
 
-def _point_of(vectors: Mapping[str, Any], override: str | None) -> str:
-    if override:
-        return override
-    p = str(vectors.get("point", "post"))
-    return p if "." in p or p.startswith("resid_") else f"resid_{p}"
+def space_of(d: Mapping[str, Any]) -> dict[str, Any]:
+    return S.space_of(d)
 
 
-def _rows_at(vectors: Mapping[str, Any], layer: int) -> list[Mapping[str, Any]]:
+def _items_at(vectors: Mapping[str, Any], layer: int) -> list[Mapping[str, Any]]:
     from mechbench_compute.lexicon import kinds as K
 
     if not isinstance(vectors, Mapping) or K.item_kind_of(vectors) != "activations/vector":
         raise ValueError("expected a collection of activations/vector")
-    rows = [r for r in K.items_of(vectors) if r.get("layer") == layer]
+    rows = [r for r in K.items_of(vectors) if S.layer_of(r) == layer]
     if not rows:
-        raise ValueError(f"the vectors record has no rows at layer {layer}")
+        raise ValueError(f"the vectors collection has no items at layer {layer}")
     return rows
+
+
+def _space_at(vectors: Mapping[str, Any], rows: Sequence[Mapping[str, Any]],
+              point: str | None) -> dict[str, Any]:
+    """The rows' shared space, with the point overridden when asked."""
+    sp = S.space_of(rows[0], header=vectors)
+    if point:
+        sp["point"] = S._point_name(str(point))
+    sp["head"] = None
+    return sp
 
 
 # --- producers --------------------------------------------------------------
 
 
 def from_vectors(vectors: Mapping[str, Any], *, layer: int, positive: str,
-                 negative: str, point: str | None = None,
+                 negative: str, axis: str = DEFAULT_AXIS, point: str | None = None,
                  source: str | None = None) -> dict[str, Any]:
-    """Difference of means: centroid(positive) − centroid(negative) at
-    `layer`, over a residual_vectors record whose rows carry `label`."""
-    rows = _rows_at(vectors, layer)
-    pos = np.array([r["vector"] for r in rows if r.get("label") == positive],
+    """Difference of means: centroid(`positive`) − centroid(`negative`)
+    at `layer`, the groups being the items' values on the `axis`
+    coordinate."""
+    rows = _items_at(vectors, layer)
+    pos = np.array([r["vector"] for r in rows if str(S.label_of(r, axis)) == str(positive)],
                    dtype=np.float32)
-    neg = np.array([r["vector"] for r in rows if r.get("label") == negative],
+    neg = np.array([r["vector"] for r in rows if str(S.label_of(r, axis)) == str(negative)],
                    dtype=np.float32)
     if len(pos) == 0 or len(neg) == 0:
         raise ValueError(
-            f"no rows at layer {layer} for labels {positive!r}/{negative!r}")
-    return make(pos.mean(0) - neg.mean(0), layer=layer,
-                point=_point_of(vectors, point), method="diff_of_means",
-                sources=[source] if source else [],
-                model=vectors.get("model"),
-                labels={"positive": positive, "negative": negative},
+            f"no items at layer {layer} with {axis}={positive!r}/{negative!r}")
+    return make(pos.mean(0) - neg.mean(0), _space_at(vectors, rows, point),
+                method="diff_of_means", sources=[source] if source else [],
+                labels={"axis": axis, "positive": positive, "negative": negative},
                 extra={"n_positive": len(pos), "n_negative": len(neg)})
 
 
 def from_pca(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
-             label: str | None = None, point: str | None = None,
+             axis: str = DEFAULT_AXIS, value: Any = None, point: str | None = None,
              source: str | None = None) -> dict[str, Any]:
-    """A principal component of the (centered) rows at `layer`, optionally
-    restricted to one label. Sign is fixed so the largest-magnitude
-    coordinate is positive (a component has no intrinsic sign)."""
-    rows = _rows_at(vectors, layer)
-    if label is not None:
-        rows = [r for r in rows if r.get("label") == label]
+    """A principal component of the (centered) items at `layer`,
+    optionally only those whose `axis` coordinate is `value`. Sign is
+    fixed so the largest-magnitude coordinate is positive (a component
+    has no intrinsic sign)."""
+    rows = _items_at(vectors, layer)
+    if value is not None:
+        rows = [r for r in rows if str(S.label_of(r, axis)) == str(value)]
     x = np.array([r["vector"] for r in rows], dtype=np.float32)
     if len(x) < 2:
-        raise ValueError("PCA needs at least two rows")
+        raise ValueError("PCA needs at least two items")
     x = x - x.mean(0, keepdims=True)
     _, s, vt = np.linalg.svd(x, full_matrices=False)
     if component >= len(s):
@@ -145,11 +151,11 @@ def from_pca(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
     if v[np.argmax(np.abs(v))] < 0:
         v = -v
     explained = float(s[component] ** 2 / max(float((s ** 2).sum()), 1e-12))
-    return make(v, layer=layer, point=_point_of(vectors, point), method="pca",
-                sources=[source] if source else [], model=vectors.get("model"),
-                labels={"label": label} if label else None,
+    return make(v, _space_at(vectors, rows, point), method="pca",
+                sources=[source] if source else [],
+                labels=({"axis": axis, "value": value} if value is not None else None),
                 extra={"component": int(component), "explained": round(explained, 4),
-                       "n_rows": len(x)})
+                       "n_items": len(x)})
 
 
 # --- arithmetic (pure) --------------------------------------------------------
@@ -161,8 +167,8 @@ def add(directions: Sequence[Mapping[str, Any]],
 
     The composition primitive: steering along "formal" and "terse" at
     once is their sum, and `weights` sets the mix. Every input must share
-    a layer and point — adding across spaces is meaningless, and
-    `same_space` refuses it rather than returning a plausible vector.
+    a space — adding across spaces is meaningless, and `same_space`
+    refuses it rather than returning a plausible vector.
     """
     if not directions:
         raise ValueError("add needs at least one direction")
@@ -172,10 +178,8 @@ def add(directions: Sequence[Mapping[str, Any]],
     for d in directions[1:]:
         same_space(directions[0], d)
     v = sum(w * as_array(d) for w, d in zip(ws, directions, strict=True))
-    return make(v, layer=directions[0]["layer"], point=directions[0]["point"],
-                method="add", sources=[str(d.get("derivation", {}).get("method"))
-                                       for d in directions],
-                model=directions[0].get("derivation", {}).get("model"),
+    return make(v, space_of(directions[0]), method="add",
+                sources=[str(d.get("derivation", {}).get("method")) for d in directions],
                 extra={"weights": ws})
 
 
@@ -210,9 +214,7 @@ def orthogonalize(d: Mapping[str, Any],
         v = v - float(v @ b) * b
     if float(np.linalg.norm(v)) < 1e-8:
         raise ValueError("direction lies entirely in the span of `against`")
-    return make(v, layer=d["layer"], point=d["point"], method="orthogonalize",
-                model=d.get("derivation", {}).get("model"),
-                extra={"against": len(basis)})
+    return make(v, space_of(d), method="orthogonalize", extra={"against": len(basis)})
 
 
 def normalize(d: Mapping[str, Any]) -> dict[str, Any]:
@@ -223,8 +225,7 @@ def normalize(d: Mapping[str, Any]) -> dict[str, Any]:
     and for making the normalization an explicit, recorded step rather
     than an implicit one.
     """
-    return make(as_array(d), layer=d["layer"], point=d["point"], method="normalize",
-                model=d.get("derivation", {}).get("model"))
+    return make(as_array(d), space_of(d), method="normalize")
 
 
 def similarity(a: Mapping[str, Any], b: Mapping[str, Any]) -> dict[str, Any]:
@@ -232,40 +233,41 @@ def similarity(a: Mapping[str, Any], b: Mapping[str, Any]) -> dict[str, Any]:
     va, vb = as_array(a), as_array(b)
     cos = float(va @ vb / max(float(np.linalg.norm(va) * np.linalg.norm(vb)), 1e-12))
     return {"kind": "geometry/similarity", "metric": "cosine", "cosine": round(cos, 6),
-            "layer": a["layer"], "point": a["point"]}
+            "space": space_of(a)}
 
 
 def project_rows(vectors: Mapping[str, Any], d: Mapping[str, Any]) -> dict[str, Any]:
-    """Each row of a residual_vectors record at the direction's layer,
+    """Each item of a vector collection at the direction's layer,
     projected onto the direction: the scalar coordinate along it."""
-    rows = _rows_at(vectors, int(d["layer"]))
+    layer = S.layer_of(d)
+    rows = _items_at(vectors, layer)
     u = as_array(d)
     out = []
     for r in rows:
         v = np.asarray(r["vector"], dtype=np.float32)
         if v.size != u.size:
             raise ValueError("vector width does not match the direction")
-        out.append({k: r[k] for k in r if k != "vector"} | {"projection": round(float(v @ u), 5)})
+        out.append(S.coordinate(float(v @ u), S.space_of(r, header=vectors), d,
+                                id=r.get("id"), coords=S.coords_of(r),
+                                token=r.get("token")))
     from mechbench_compute.lexicon import kinds as K
 
-    return K.collection("activations/coordinate", out, layer=d["layer"], point=d["point"])
+    return K.collection("activations/coordinate", out, projected=True)
 
 
 # --- the unembedding as a lens -------------------------------------------------------
 
 
 def vocab_projection(model, d: Mapping[str, Any], *, top_k: int = 10) -> dict[str, Any]:
-    """What a direction 'says' in token space: the top tokens of the
-    unembedding applied to +d and to −d (the final norm is scale-
-    invariant, so a unit direction is as good as any multiple)."""
+    """What a direction 'says' in token space: the distribution the
+    unembedding gives +d and −d (the final norm is scale-invariant, so a
+    unit direction is as good as any multiple)."""
     u = as_array(d)
-    out: dict[str, Any] = {"kind": "direction/vocab", "layer": d["layer"],
-                           "point": d["point"], "top_k": int(top_k)}
+    out: dict[str, Any] = {"kind": "direction/vocab", "space": space_of(d), "top_k": int(top_k)}
     for name, sign in (("positive", 1.0), ("negative", -1.0)):
-        probs = model.decoded_distribution(sign * u)
-        order = np.argsort(-probs)[:top_k]
-        out[name] = [{"token": model.tokenizer.decode([int(t)]),
-                      "p": round(float(probs[int(t)]), 5)} for t in order]
+        probs = np.asarray(model.decoded_distribution(sign * u), dtype=np.float64)
+        logp = np.log(np.clip(probs, 1e-300, None))
+        out[name] = S.distribution(logp, model.tokenizer, top_k=top_k)
     return out
 
 
@@ -289,16 +291,19 @@ def _directions_from(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> li
 def block_from_vectors(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     vectors = inputs.get("vectors") or params.get("vectors")
     return from_vectors(vectors, layer=int(params["layer"]),
+                        axis=str(params.get("axis") or DEFAULT_AXIS),
                         positive=str(params["positive"]), negative=str(params["negative"]),
                         point=params.get("point"), source=params.get("source"))
 
 
 def block_from_pca(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     vectors = inputs.get("vectors") or params.get("vectors")
+    # `label` is the retired spelling of `value` on the `label` axis.
+    value = params.get("value", params.get("label"))
     return from_pca(vectors, layer=int(params["layer"]),
                     component=int(params.get("component", 0)),
-                    label=params.get("label"), point=params.get("point"),
-                    source=params.get("source"))
+                    axis=str(params.get("axis") or DEFAULT_AXIS), value=value,
+                    point=params.get("point"), source=params.get("source"))
 
 
 def block_add(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
@@ -340,8 +345,7 @@ def similarity_matrix(named: Sequence[tuple[str, Mapping[str, Any]]]) -> dict[st
         "kind": "geometry/similarity",
         "metric": "cosine",
         "names": names,
-        "layer": named[0][1].get("layer"),
-        "point": named[0][1].get("point"),
+        "space": space_of(named[0][1]),
         "cosines": [[round(float(x), 6) for x in row] for row in C],
         "norms": {n: d.get("norm") for n, d in named},
         "pairs": sorted(pairs, key=lambda p: -p["cosine"]),

@@ -127,8 +127,9 @@ class TestAblateLayers:
             model, [{"id": "c1", "user": "the tower is in"}], {})
         assert out["item_kind"] == "intervene/ablation"
         assert out["layers"] == [0, 1, 2, 3]
-        deltas = {r["layer"]: r["delta_logp"] for r in out["items"]
-                  if r.get("layer") is not None}
+        deltas = {r["layer"]: r["delta_logp"] for r in out["items"]}
+        assert all(r["layer"] is not None for r in out["items"])
+        assert out["conditions"][0]["id"] == "c1" and "baseline_logp" in out["conditions"][0]
         for layer in range(N_LAYERS):
             assert deltas[layer] == pytest.approx(
                 _expected_delta(layer), abs=1e-3)
@@ -150,8 +151,9 @@ class TestAblateLayers:
         model = StubModel()
         out = interp.ablate_layers(
             model, [{"id": "c", "user": "a b", "target": "word"}], {"layers": [0]})
-        meta = next(r for r in out["items"] if r.get("layer") is None)
-        assert meta["target_id"] == 1 + (len("word") % 7)
+        meta = out["conditions"][0]
+        assert meta["target"]["id"] == 1 + (len("word") % 7)
+        assert meta["target"]["text"] == f"t{1 + (len('word') % 7)}"
 
     def test_sublayer_components_route_to_their_hooks(self):
         model = StubModel()
@@ -174,18 +176,22 @@ class TestResidualVectors:
             model, [{"id": "c", "user": "aa bbb", "label": "en"}],
             {"layers": [1], "position": "final"})
         row = out["items"][0]
-        assert row["label"] == "en"
-        v = np.array(row["vector"])
+        # The retired `label` field becomes the `label` coordinate.
+        assert row["coords"] == {"label": "en"} and "label" not in row
+        assert row["space"] == {"model": None, "layer": 1, "point": "resid_post", "head": None, "d": D_MODEL}
         # final token of "aa bbb" is id 1+(3%7)=4; layer 1 scale = 2
+        assert row["token"] == {"id": 4, "text": "t4"}
+        v = np.array(row["vector"])
         assert v[4] == pytest.approx(2.0)
         assert np.count_nonzero(v) == 1
+        assert row["norm"] == pytest.approx(2.0)
 
     def test_label_coord_pulls_from_coords(self):
         model = StubModel()
         out = interp.residual_vectors(
             model, [{"id": "c", "user": "a", "coords": {"language": "fr"}}],
             {"layers": [0], "label_coord": "language"})
-        assert out["items"][0]["label"] == "fr"
+        assert out["items"][0]["coords"] == {"language": "fr", "label": "fr"}
 
     def test_the_float_cap_refuses_a_runaway_capture(self, monkeypatch):
         monkeypatch.setattr(interp, "MAX_VECTOR_FLOATS", 10)
@@ -286,7 +292,8 @@ class TestResidualDivergence:
             model, [{"id": "p", "a": "over the hill", "b": "over the hill"}],
             {"layers": [0, 1]})
         pair = out["items"][0]
-        flat = [x for row in pair["divergence"] for x in row]
+        assert pair["axes"] == ["layer", "position"]
+        flat = [x for row in pair["measures"]["divergence"] for x in row]
         assert all(x == pytest.approx(0.0, abs=1e-4) for x in flat)
 
     def test_a_one_word_swap_diverges_exactly_there(self):
@@ -295,7 +302,7 @@ class TestResidualDivergence:
         out = interp.residual_divergence(
             model, [{"id": "p", "a": "go over it", "b": "go under it"}],
             {"layers": [0]})
-        div = out["items"][0]["divergence"][0]
+        div = out["items"][0]["measures"]["divergence"][0]
         assert div[0] == pytest.approx(0.0, abs=1e-4)  # BOS
         assert div[1] == pytest.approx(0.0, abs=1e-4)  # 'go'
         assert div[2] == pytest.approx(1.0, abs=1e-4)  # the swapped word
@@ -374,9 +381,10 @@ class TestLensPositions:
             {"layers": [0, 1]})
         row = out["items"][0]
         assert out["item_kind"] == "logits/lens"
+        assert row["axes"] == ["layer", "position"] and row["target"]["id"] == 4
         # 'bbb' -> id 4; it sits at position 2 (BOS, aa, bbb, aa)
-        ranks = np.array(row["rank"])
-        lps = np.array(row["logprob"])
+        ranks = np.array(row["measures"]["rank"])
+        lps = np.array(row["measures"]["logprob"])
         assert ranks[0, 2] == 0  # top readout exactly where the token is
         assert ranks[0, 1] > 0  # and not where it is not
         assert lps[0, 2] > lps[0, 1]
@@ -392,7 +400,7 @@ class TestPatchTrace:
             {"layers": [0], "metric": "logprob"})
         pair = out["items"][0]
         assert pair["metric"] == "logprob"
-        rec = np.array(pair["recovery"])
+        rec = np.array(pair["measures"]["recovery"])
         assert rec[0, 1] > 1.0  # log-space recovery is loud
         assert abs(rec[0, 0]) < 1e-3
 
@@ -412,14 +420,23 @@ class TestPatchTrace:
             model, [{"id": "p", "clean": clean, "corrupt": corrupt}],
             {"layers": [0, 1], "metric": "prob"})
         pair = out["items"][0]
-        rec = np.array(pair["recovery"])  # [layer][pos]
+        rec = np.array(pair["measures"]["recovery"])  # [layer][pos]
         assert rec.shape[1] == 4  # BOS + 3 words
         # patching the differing position recovers the clean answer fully
         assert rec[0, 1] > 0.5
         # patching agreeing positions recovers nothing
         assert abs(rec[0, 0]) < 1e-3
         assert abs(rec[0, 3]) < 1e-3
-        assert pair["p_target_clean"] > pair["p_target_corrupt"]
+        assert pair["value_a"] > pair["value_b"]
+        assert pair["target"]["text"] == "t5"
+
+    def test_a_and_b_are_the_pair_fields(self):
+        model = StubModel()
+        model.clean_second = 1 + (len("over") % 7)
+        out = interp.patch_trace(
+            model, [{"id": "p", "a": "over the hill", "b": "under the hill"}],
+            {"layers": [0], "metric": "prob"})
+        assert np.array(out["items"][0]["measures"]["recovery"])[0, 1] > 0.5
 
     def test_unequal_pairs_report(self):
         out = interp.patch_trace(
@@ -434,7 +451,8 @@ class TestAttentionPatterns:
         out = interp.attention_patterns(
             model, [{"id": "c", "user": "a b c"}], {"layers": [1]})
         row = out["items"][0]
-        heads = row["layers"][0]["heads"]
+        assert row["axes"] == ["layer", "head", "query", "key"]
+        heads = row["measures"]["weight"][0]
         assert len(heads) == 2  # stub n_heads
         m = np.array(heads[0])
         assert m.shape == (4, 4)
@@ -457,7 +475,9 @@ class TestAblateHeads:
         model = StubModel()
         out = interp.ablate_heads(
             model, [{"id": "c", "user": "a"}], {"layers": [0, 2]})
-        m = np.array(out["mean_delta"])  # [2 layers][2 heads]
+        assert out["kind"] == "intervene/heads" and out["axes"] == ["layer", "head"]
+        m = np.array(out["measures"]["mean_delta"])  # [2 layers][2 heads]
+        assert out["conditions"][0]["target"]["text"] == "t2"
         assert m.shape == (2, 2)
         # stub penalty = (layer+1) + head/10: deeper layer and higher
         # head both hurt more
@@ -504,8 +524,10 @@ class TestLogitAttribution:
         assert out["item_kind"] == "logits/attribution"
         row = out["items"][0]
         # embedding + one component per layer
-        assert len(row["contributions"]) == N_LAYERS + 1
+        assert row["axes"] == ["component"]
+        assert len(row["measures"]["contribution"]) == N_LAYERS + 1
         assert out["components"][0] == "embed"
+        assert row["target"]["id"] == 1 + (len("word") % 7)
         add = row["additivity"]
         assert set(add) == {"summed", "true_logit", "residual"}
         assert add["residual"] == pytest.approx(
@@ -551,8 +573,11 @@ class TestSteerInject:
         assert getattr(add, "alpha", None) == 4.0
         assert getattr(add, "layer_idx", None) == 2
         rows = out["items"]
-        assert [r["alpha"] for r in rows] == [0.0, 4.0]
+        assert [r["factor"] for r in rows] == [0.0, 4.0]
+        assert out["sweep"] == [0.0, 4.0]
+        assert out["direction"]["axis"] == "label"
         assert len(rows[0]["top"]) == 5
+        assert set(rows[0]["top"][0]) == {"token", "p", "logp"}
 
     def test_missing_layer_in_vectors_refuses_with_directions(self):
         model = StubModel()
@@ -635,8 +660,9 @@ class TestQKSources:
             model, [{"id": "c", "user": "a b", "label": "x"}],
             {"layers": [1], "source": "queries"})
         assert out["source"] == "queries"
-        heads = sorted(r["head"] for r in out["items"])
+        heads = sorted(r["space"]["head"] for r in out["items"])
         assert heads == [0, 1]
+        assert out["items"][0]["space"]["point"] == "attn.q"
         v0 = np.array(out["items"][0]["vector"])
         assert v0[0] == pytest.approx(2.0)  # head 0, layer 1 scale
 
@@ -678,8 +704,9 @@ class TestSteerTracks:
              "direction": {"positive": "a", "negative": "b"}},
             inputs={"vectors": {"kind": "residual_vectors", "rows": rows}})
         row = out["items"][0]
-        assert set(row["tracks"]) == {"city", "money"}
-        assert isinstance(row["tracks"]["city"], float)
+        assert set(row["tracked"]) == {"city", "money"}
+        assert isinstance(row["tracked"]["city"]["logp"], float)
+        assert row["tracked"]["city"]["token"]["text"] == "t5"  # "word" -> 1 + 4 % 7
 
 
 class TestEmptyDocuments:

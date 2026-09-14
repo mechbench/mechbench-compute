@@ -289,13 +289,14 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
     segments; each record gains a batch coordinate named after its
     input port. Collections never mutate — growth is union.
 
-    A union of `residual_vectors` records stays a `residual_vectors`
-    record (task 000368): a base capture and an adapted capture come
-    from two model nodes, and `direction/from-vectors` reads ONE record
-    whose rows carry labels — so each row is labelled by its port when
-    it has no label of its own, and the wrapper (point, layers, width)
-    is carried, with `layers` the union. Cross-model comparison is a
+    A union of vector collections stays a vector collection (task
+    000368): a base capture and an adapted capture come from two model
+    nodes, and `direction/from-vectors` reads ONE collection whose items
+    are grouped on a coordinate — the port name, on the `batch_axis`
+    coordinate, is that grouping. Every item carries its own `space`, so
+    the header carries no union of layers. Cross-model comparison is a
     union followed by the direction algebra, no bespoke block."""
+    from mechbench_compute import shapes as S
     from mechbench_compute.lexicon import kinds as K
 
     batch_axis = params.get("batch_axis", "batch")
@@ -305,23 +306,23 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
                      for v in vector_inputs):
         first = vector_inputs[0]
         rows: list[dict[str, Any]] = []
-        layers: set[int] = set()
         segments = []
         for port in ports:
             rec = inputs[port]
             rec_rows = K.items_of(rec)
             segments.append({"source": port, "count": len(rec_rows)})
             for r in rec_rows:
-                layers.add(int(r.get("layer", -1)))
-                rows.append({**r, "label": r.get("label") if r.get("label")
-                             is not None else port,
-                             "coords": {**r.get("coords", {}), batch_axis: port}})
+                item = dict(r)
+                item["space"] = S.space_of(r, header=rec)
+                item["coords"] = {**S.coords_of(r), batch_axis: port}
+                # The retired flattened spelling is not carried forward.
+                for k in ("layer", "head", "label"):
+                    item.pop(k, None)
+                rows.append(item)
         header = {k: v for k, v in first.items()
                   if k not in ("kind", "item_kind", "key", "items", "rows",
-                               "layers", "segments")}
-        return K.collection("activations/vector", rows, **header,
-                            layers=sorted(x for x in layers if x >= 0),
-                            segments=segments)
+                               "layers", "segments", "model")}
+        return K.collection("activations/vector", rows, **header, segments=segments)
     segments = []
     records = []
     for port in ports:
@@ -694,102 +695,97 @@ def eval_expectation(inputs: Mapping[str, Any],
     expectations = {r["id"]: r["expect"]
                     for r in _records(inputs.get("expectations")
                                        or params.get("expectations"))}
+    from mechbench_compute import shapes as S
+    from mechbench_compute.lexicon import kinds as K
+
     rows = []
     n_pass = 0
     n_judged = 0
+    n_unjudgeable = 0
     for c in results:
         exp = expectations.get(c["id"])
         if not exp:
             continue
         expect_type = exp.get("type") or exp["kind"]
-        row: dict[str, Any] = {"id": c["id"], "expect": expect_type,
-                                "entropy_bits": c.get("entropy_bits")}
+        # One shape to read: the distribution's `tracked` holds each
+        # named outcome's mass, `top` the ranked tokens. A read written
+        # before the shape existed is read through `distribution_of`.
+        dist = S.distribution_of(c)
+        tracked = dist.get("tracked") or {}
+        row: dict[str, Any] = {"id": c["id"], "coords": dict(c.get("coords") or {}),
+                               "expect": expect_type,
+                               "entropy_bits": dist.get("entropy_bits")}
+
+        def mass_of(name: str) -> float:
+            t = tracked.get(str(name))
+            if t is not None and t.get("p") is not None:
+                return float(t["p"])
+            # Not tracked: the ranked tokens, by exact text.
+            return sum(float(t["p"]) for t in dist.get("top") or []
+                       if str(t["token"].get("text")).strip() == str(name).strip()
+                       and t.get("p") is not None)
+
         ok = False
         if expect_type == "uniform":
-            # Where the outcome masses come from, in order of authority:
-            # an explicit outcome_mass map (rollout-aggregated reads),
-            # else DERIVED from top_tokens by exact token text. The
-            # first spinner-fairness run on prod judged pass=False on a
-            # distribution whose KL from uniform was 0.01 bits, because
-            # this branch consulted only a field that plain decision
-            # reads never emit — a verdict that looked like a
-            # measurement but was a missing input (task 000315).
-            masses = c.get("outcome_mass") or {}
-            if not masses:
-                masses = {}
-                for t in c.get("top_tokens") or []:
-                    key = str(t["token"]).strip()
-                    masses[key] = masses.get(key, 0.0) + float(t["p"])
             over = exp["over"]
-            ps = [float(masses.get(str(o), 0.0)) for o in over]
+            ps = [mass_of(o) for o in over]
             tot = sum(ps)
             if tot > 0:
                 kl = sum(q / tot * math.log2((q / tot) / (1.0 / len(over)))
                          for q in ps if q > 0)
                 row["kl_bits"] = round(kl, 4)
-                row["outcome_mass"] = round(tot, 4)
+                row["mass"] = round(tot, 4)
                 ok = kl <= float(exp.get("max_kl_bits", 0.1))
             else:
                 # Nothing to judge is not a failure — it is a hole in
                 # the read, and it must not masquerade as one more
                 # False among real verdicts.
-                row["pass"] = "unjudgeable: no outcome mass in the read"
+                row["pass"] = None
+                row["note"] = "unjudgeable: no mass on any outcome in the read"
+                n_unjudgeable += 1
                 rows.append(row)
                 continue
         elif expect_type == "weights":
-            masses = c.get("outcome_mass") or {}
-            if not masses:
-                masses = {}
-                for t in c.get("top_tokens") or []:
-                    key = str(t["token"]).strip()
-                    masses[key] = masses.get(key, 0.0) + float(t["p"])
             wsum = sum(float(v) for v in exp["weights"].values())
             target = {str(k): float(v) / wsum
                       for k, v in exp["weights"].items() if float(v) > 0}
-            ps = [float(masses.get(o, 0.0)) for o in target]
+            ps = [mass_of(o) for o in target]
             tot = sum(ps)
             if tot > 0:
                 kl = sum(
                     (q / tot) * math.log2((q / tot) / target[o])
                     for o, q in zip(target, ps) if q > 0)
                 row["kl_bits"] = round(kl, 4)
-                row["outcome_mass"] = round(tot, 4)
+                row["mass"] = round(tot, 4)
                 ok = kl <= float(exp.get("max_kl_bits", 0.1))
             else:
-                row["pass"] = "unjudgeable: no outcome mass in the read"
+                row["pass"] = None
+                row["note"] = "unjudgeable: no mass on any outcome in the read"
+                n_unjudgeable += 1
                 rows.append(row)
                 continue
         elif expect_type == "answer":
             want = str(exp["value"])
-            p = None
-            for t in c.get("top_tokens") or []:
-                if t["token"] == want:
-                    p = float(t["p"])
-                    break
+            p = mass_of(want) if (want in tracked or dist.get("top")) else None
+            if p == 0.0 and want not in tracked:
+                p = None
             row["p_expected"] = round(p, 4) if p is not None else None
             ok = p is not None and p >= float(exp.get("min_p", 0.99))
         elif expect_type == "min_entropy":
-            ok = float(c.get("entropy_bits") or 0.0) >= float(exp["bits"])
+            ok = float(dist.get("entropy_bits") or 0.0) >= float(exp["bits"])
         else:
             raise ValueError(f"unknown expectation type: {expect_type!r}")
         row["pass"] = ok
         n_judged += 1
         n_pass += int(ok)
         rows.append(row)
-    rows.append({"id": "ALL", "expect": "aggregate",
-                 "pass_rate": round(n_pass / n_judged, 4) if n_judged else None,
-                 "n_pass": n_pass, "n_judged": n_judged})
-    cols = {"id": "string", "expect": "string", "entropy_bits": "number",
-            "kl_bits": "number", "outcome_mass": "number",
-            "p_expected": "number", "pass": "string",
-            "pass_rate": "number", "n_pass": "number", "n_judged": "number"}
-    return {"kind": "records/table",
-            "name": params.get("name", "expectation-eval"),
-            "description": params.get("description", ""),
-            "row_axis": "condition",
-            "columns": [{"name": k, "dtype": d} for k, d in cols.items()],
-            "rows": [{k: (str(v) if k == "pass" else v)
-                       for k, v in r.items()} for r in rows]}
+    return K.collection(
+        "eval/verdict", rows,
+        name=params.get("name", "expectation-eval"),
+        description=params.get("description", ""),
+        summary={"pass_rate": round(n_pass / n_judged, 4) if n_judged else None,
+                 "n_pass": n_pass, "n_judged": n_judged,
+                 "n_unjudgeable": n_unjudgeable})
 
 
 # Directions as first-class objects (task 000367): pure producers and

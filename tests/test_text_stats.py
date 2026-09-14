@@ -132,7 +132,7 @@ def test_weights_expectation_kind():
         "max_kl_bits": 0.05}}]
     out = eval_expectation({"results": results,
                             "expectations": expectations}, {})
-    row = next(r for r in out["rows"] if r["id"] == "p1")
+    row = next(r for r in out["items"] if r["id"] == "p1")
     # masses normalize to .75/.25 vs target .75/.25 -> tiny KL, pass
     assert row["kl_bits"] < 0.01
-    assert row["pass"] == "True"
+    assert row["pass"] is True

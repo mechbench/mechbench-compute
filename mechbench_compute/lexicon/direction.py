@@ -7,10 +7,12 @@ on which model. One object flows everywhere a direction is used — into
 `direction/vocab` — so a direction found one way can be tried every
 other way without conversion.
 
-The record: `{"kind": "direction/vector", "layer": 14, "point": "resid_post",
-"d": 2048, "vector": [...], "norm": 37.2, "unit": true, "derivation":
-{"method": "diff_of_means", "sources": [...], "model": "...", ...}}`.
-`norm` is the magnitude before normalisation, which some readings use.
+The record is an `activations/vector` with a derivation: `{"kind":
+"direction/vector", "space": {"model": "...", "layer": 14, "point":
+"resid_post", "d": 2048}, "vector": [...], "norm": 37.2, "unit": true,
+"derivation": {"method": "diff_of_means", "sources": [...], "model":
+"...", ...}}`. `norm` is the magnitude before normalisation, which some
+readings use.
 """
 
 from __future__ import annotations
@@ -51,30 +53,37 @@ FROM_VECTORS = Op(
         "the other."
     ),
     description="""\
-Among the vectors record's rows at `layer`, take the mean of those labelled
-`positive` and subtract the mean of those labelled `negative`. The result,
-normalised to unit length, points from the negative group toward the
-positive one. The derivation records both labels and how many rows went
-into each centroid; `norm` keeps the un-normalised magnitude.
+Among the collection's items at `layer`, take the mean of those whose
+`axis` coordinate is `positive` and subtract the mean of those at
+`negative`. The result, normalised to unit length, points from the negative
+group toward the positive one. The derivation records the axis, both values
+and how many items went into each centroid; `norm` keeps the un-normalised
+magnitude.
 
 This is the difference-of-means method — the simplest and most robust way
 to find a concept direction, and the one most steering results are built on.
 """,
     inputs=(
-        "`vectors` (by edge, or the `vectors` param) — a `residual_vectors` "
-        "record whose rows carry `label`, with rows at the chosen `layer`."
+        "`vectors` (by edge, or the `vectors` param) — a collection of "
+        "`activations/vector` with items at the chosen `layer`, grouped on "
+        "the `axis` coordinate."
     ),
-    emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"diff_of_means"`.'),
+    emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"diff_of_means"`, with `axis`, `positive`, `negative`, `n_positive` and `n_negative`.'),
     params=(
-        P("layer", "int", "The layer whose rows the centroids are taken from."),
-        P("positive", "string", "The label of the rows the direction points toward."),
-        P("negative", "string", "The label of the rows the direction points away from."),
+        P("layer", "int", "The layer whose items the centroids are taken from."),
+        P("axis", "string",
+          "The coordinate the items are grouped on. `label` reads the older "
+          "`label` field as well.",
+          "label"),
+        P("positive", "string", "The `axis` value of the items the direction points toward."),
+        P("negative", "string", "The `axis` value of the items the direction points away from."),
         _point(),
         _source(),
     ),
     example={
         "vectors": {"$fetch": "$vectors"},
         "layer": 14,
+        "axis": "register",
         "positive": "formal",
         "negative": "casual",
     },
@@ -87,30 +96,37 @@ FROM_PCA = Op(
         "vectors — the axis along which they vary most."
     ),
     description="""\
-The rows at `layer` (optionally only those with one `label`) are centred and
-decomposed by SVD; the requested `component` becomes the direction. A
-principal component has no intrinsic sign, so the sign is fixed by making
-the largest-magnitude coordinate positive. The derivation records the
-fraction of variance the component explains and the number of rows.
+The items at `layer` (optionally only those whose `axis` coordinate is
+`value`) are centred and decomposed by SVD; the requested `component`
+becomes the direction. A principal component has no intrinsic sign, so the
+sign is fixed by making the largest-magnitude coordinate positive. The
+derivation records the fraction of variance the component explains and the
+number of items.
 
-At least two rows are needed.
+At least two items are needed.
 """,
     inputs=(
-        "`vectors` (by edge, or the `vectors` param) — a `residual_vectors` "
-        "record with rows at the chosen `layer`."
+        "`vectors` (by edge, or the `vectors` param) — a collection of "
+        "`activations/vector` with items at the chosen `layer`."
     ),
     emits=(
-        Emits('direction/vector', collection=False, doc='`derivation.method` is `"pca"`, with `derivation.component`, `derivation.explained` and `derivation.n_rows`.')
+        Emits('direction/vector', collection=False, doc='`derivation.method` is `"pca"`, with `derivation.component`, `derivation.explained` and `derivation.n_items`.')
     ),
     params=(
-        P("layer", "int", "The layer whose rows are decomposed."),
+        P("layer", "int", "The layer whose items are decomposed."),
         P("component", "int",
           "Which principal component: `0` is the direction of greatest "
           "variance, `1` the next, and so on.",
           0),
+        P("axis", "string",
+          "The coordinate `value` is read on, when only one group is used.",
+          "label"),
+        P("value", "string",
+          "Use only the items whose `axis` coordinate is this value. By "
+          "default every item at the layer is used.",
+          None),
         P("label", "string",
-          "Use only the rows with this label. By default every row at the "
-          "layer is used.",
+          "The older spelling of `value` on the `label` axis.",
           None),
         _point(),
         _source(),
@@ -234,19 +250,19 @@ PROJECT = Op(
         "each prompt's scalar coordinate along that axis."
     ),
     description="""\
-For each row of the vectors record at the direction's layer, the dot
-product of the row's vector with the unit direction. The rows keep their
-`id`, `label` and other fields, so the result groups and plots the same way
-the vectors did. A quick way to see whether a direction separates the
-labels it was built from — or ones it was not.
+For each item of the collection at the direction's layer, the dot product
+of the item's vector with the unit direction. Each coordinate keeps the
+item's `id`, `coords` and `space`, so the result groups and plots the same
+way the vectors did. A quick way to see whether a direction separates the
+groups it was built from — or ones it was not.
 """,
     inputs=(
-        "`vectors` (by edge, or the `vectors` param) — a `residual_vectors` "
-        "record with rows at the direction's layer. `direction` (by edge or "
-        "param) — the direction."
+        "`vectors` (by edge, or the `vectors` param) — a collection of "
+        "`activations/vector` with items at the direction's layer. "
+        "`direction` (by edge or param) — the direction."
     ),
     emits=(
-        Emits('activations/coordinate', collection=True, doc='One item per input vector: the item without its `vector`, plus `projection`. The header carries `layer` and `point`.')
+        Emits('activations/coordinate', collection=True, doc="One item per input vector: `id`, `coords`, `space`, the `direction`'s identity and `coord`, the dot product with the unit direction.")
     ),
     params=(
         P("direction", "direction",
@@ -273,7 +289,7 @@ list), and each one's original `norm` rides along. All must share a space.
         "Either `a` and `b` (by edge or param), or any set of direction "
         "ports and/or the `directions` param."
     ),
-    emits=Emits('geometry/similarity', collection=False, doc='For two directions: `cosine`. For many: `names`, `cosines` (the matrix), `norms` and `pairs` (every pair with its cosine, most similar first). `metric` is `cosine` either way.'),
+    emits=Emits('geometry/similarity', collection=False, doc='For two directions: `cosine`. For many: `names`, `cosines` (the matrix), `norms` and `pairs` (every pair with its cosine, most similar first). `metric` is `cosine` and `space` the shared space either way.'),
     params=(
         P("a", "direction", "The first of exactly two directions.", None),
         P("b", "direction", "The second of exactly two directions.", None),
@@ -304,7 +320,7 @@ reads.
 """,
     inputs=_DIRECTION_IN,
     emits=(
-        Emits('direction/vocab', collection=False, doc='`positive` and `negative`, each a list of `{token, p}` for the top tokens of that sign.')
+        Emits('direction/vocab', collection=False, doc="`space`, `top_k`, and `positive` and `negative` — each a distribution (`entropy_bits`, `top` as `{token, p, logp}`) of the unembedding applied to that sign.")
     ),
     params=(
         P("direction", "direction",

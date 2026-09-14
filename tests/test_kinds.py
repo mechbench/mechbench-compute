@@ -137,12 +137,14 @@ class TestTheContainer:
                      "items": [{"id": "x"}], "model": "m"}
 
     def test_canonical_collection_sorts_by_key_and_is_idempotent(self):
+        def sp(layer, head=None):
+            return {"model": "m", "layer": layer, "point": "resid_post", "head": head, "d": 2}
         c = K.collection("activations/vector", [
-            {"id": "b", "layer": 2, "head": None}, {"id": "a", "layer": 3, "head": None},
-            {"id": "a", "layer": 1, "head": 1}, {"id": "a", "layer": 1, "head": None},
+            {"id": "b", "space": sp(2)}, {"id": "a", "space": sp(3)},
+            {"id": "a", "space": sp(1, 1)}, {"id": "a", "space": sp(1)},
         ])
         s = K.canonical_collection(c)
-        assert [(i["id"], i["layer"], i["head"]) for i in s["items"]] == [
+        assert [(i["id"], i["space"]["layer"], i["space"].get("head")) for i in s["items"]] == [
             ("a", 1, None), ("a", 1, 1), ("a", 3, None), ("b", 2, None)]
         assert K.canonical_collection(s) == s
         # The same items in any order hash the same.

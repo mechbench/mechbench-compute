@@ -136,15 +136,15 @@ Every edge into the node is one input; its port name becomes the record's
 value on the `batch_axis` coordinate, so the source of every record stays
 visible downstream. `segments` records how many came from each port.
 
-A union of `residual_vectors` records stays a `residual_vectors` record:
-rows from a base capture and an adapted capture become one record whose rows
-are labelled by their port (when they have no label of their own), which is
-exactly what `direction/from-vectors` reads. Cross-model comparison is a
-union followed by the direction algebra.
+A union of vector collections stays a vector collection: items from a base
+capture and an adapted capture become one collection whose items carry the
+port they came from on the `batch_axis` coordinate — the grouping
+`direction/from-vectors` reads with `axis` set to it. Cross-model comparison
+is a union followed by the direction algebra.
 """,
-    inputs="Any number of edges, each carrying a record list, a collection, or a `residual_vectors` record. Port names are the batch labels.",
+    inputs="Any number of edges, each carrying a collection (of records, or of `activations/vector`). Port names are the values on the batch coordinate.",
     emits=(
-        Emits('records/record', collection=True, doc="Every input's records, each with the batch coordinate; the header's `segments` says how many came from each port. When every input was a collection of `activations/vector`, so is the output, with `layers` the union.")
+        Emits('records/record', collection=True, doc="Every input's records, each with the batch coordinate; the header's `segments` says how many came from each port. When every input was a collection of `activations/vector`, so is the output, every item keeping its own `space`.")
     ),
     params=(
         P("batch_axis", "string",
@@ -181,7 +181,7 @@ The output keeps `coords`, so it feeds `records/stats` directly.
           "means one baseline for everything.",
           None),
     ),
-    example={"value": "track_logp", "baseline_where": {"alpha": 0}, "match_on": ["prompt"]},
+    example={"value": "entropy_bits", "baseline_where": {"alpha": 0}, "match_on": ["prompt"]},
 )
 
 GROUP_STATS = Op(
@@ -366,20 +366,21 @@ expectation record has an `expect` object:
 | `answer` | the expected token's probability is at least `min_p` | `value`, `min_p` (default 0.99) |
 | `min_entropy` | the read's entropy is at least `bits` | `bits` |
 
-Outcome masses come from the read's `outcome_mass` when present, else from
-its `top_tokens` by exact token text. A read with no mass on any outcome is
-reported as *unjudgeable* rather than counted as a failure — a hole in the
-read must not masquerade as a verdict.
+Outcome masses come from the read's `tracked` (each outcome by its own
+name), else from its `top` by exact token text. A read with no mass on any
+outcome is reported as *unjudgeable* (`pass: null` with a `note`) rather
+than counted as a failure — a hole in the read must not masquerade as a
+verdict.
 
-The final row, id `ALL`, carries the pass rate: the number a write-up cites.
+The header's `summary` carries the pass rate: the number a write-up cites.
 """,
     inputs=(
-        "`results` (by edge or param) — a `decision_read` record or its "
-        "conditions. `expectations` (by edge or param) — records "
-        "`{id, expect}`."
+        "`results` (by edge or param) — a collection of `logits/decision` "
+        "(or of any kind that extends `logits/distribution`). `expectations` "
+        "(by edge or param) — records `{id, expect}`."
     ),
     emits=(
-        Emits('records/table', collection=False, doc='One row per judged result (`expect`, `entropy_bits`, `kl_bits`, `outcome_mass`, `p_expected`, `pass`) and the `ALL` row (`pass_rate`, `n_pass`, `n_judged`).')
+        Emits('eval/verdict', collection=True, doc='One verdict per judged result: `id`, `coords`, `expect`, `entropy_bits`, `kl_bits`, `mass`, `p_expected`, and `pass` (null with a `note` when unjudgeable). The header\'s `summary` carries `pass_rate`, `n_pass`, `n_judged` and `n_unjudgeable`.')
     ),
     params=(
         P("results", "record | list[record]",
@@ -439,22 +440,27 @@ VECTORS_SIMILARITY = Op(
         "similarity, nearest-neighbour purity, silhouette."
     ),
     description="""\
-For each layer (and head, for Q/K vectors) in the record, the full cosine
-matrix over its rows. When every row is labelled and there is more than one
-label, the block also reports the mean cosine within labels, between labels,
-their gap, the fraction of rows whose nearest neighbour shares their label,
-and the silhouette score.
+For each layer (and head, for Q/K vectors) in the collection, the full
+cosine matrix over its items. When every item has a value on the `axis`
+coordinate and there is more than one value, the block also reports the mean
+cosine within groups, between groups, their gap, the fraction of items whose
+nearest neighbour shares their group, and the silhouette score.
 
 Raw cosine between transformer activations is dominated by a shared
 direction they all lean toward; for a variety measure prefer `geometry/mst`
 with `center: true`, which subtracts it.
 """,
-    inputs="`vectors` (by edge, or the `vectors` param) — a `residual_vectors` record.",
+    inputs="`vectors` (by edge, or the `vectors` param) — a collection of `activations/vector`.",
     emits=(
-        Emits('geometry/similarity', collection=True, doc='One item per group: `{layer, head?, ids, labels, matrix, separation?, nn_purity?, silhouette?}`. The header carries `position`, `point` and `metric`.')
+        Emits('geometry/similarity', collection=True, doc='One item per group: `{layer, head?, space, ids, labels, matrix, separation?, nn_purity?, silhouette?}`, `labels` being the items\' values on the `axis` coordinate. The header carries `position`, `point`, `metric` and `axis`.')
     ),
-    params=(),
-    example={},
+    params=(
+        P("axis", "string",
+          "The coordinate the separation metrics group on. `label` reads the "
+          "older `label` field as well.",
+          "label"),
+    ),
+    example={"axis": "genre"},
 )
 
 VECTORS_MST = Op(
@@ -488,12 +494,16 @@ The tree is built deterministically (ties break toward the lower index), so
 a run that reproduces its numbers reproduces its tree.
 """,
     inputs=(
-        "`vectors` (by edge or param) — a `residual_vectors` record; or "
-        "`matrix` / `similarity` (by edge, or the `matrix` param) — a "
-        "`similarity_matrix` from `geometry/similarity`."
+        "`vectors` (by edge or param) — a collection of `activations/vector`; "
+        "or `matrix` / `similarity` (by edge, or the `matrix` param) — a "
+        "collection of `geometry/similarity`."
     ),
-    emits=Emits('geometry/mst', collection=True, doc='One item per group (a layer, or a layer and head): `n`, `n_edges`, `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`, `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels`, and `edges` as `[i, j, weight]` when kept. The header carries `metric`, `centered` and `bridge_sigma`. `records/table` reads the items as its rows.'),
+    emits=Emits('geometry/mst', collection=True, doc='One item per group (a layer, or a layer and head): `n`, `n_edges`, `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`, `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels` (the items\' values on the `axis` coordinate), and `edges` as `[i, j, weight]` when kept. The header carries `metric`, `centered`, `bridge_sigma` and `axis`. `records/table` reads the items as its rows.'),
     params=(
+        P("axis", "string",
+          "The coordinate reported as each item's label. `label` reads the "
+          "older `label` field as well.",
+          "label"),
         P("center", "bool",
           "Subtract the mean vector before measuring distance. Recommended "
           "on; requires `vectors` rather than a similarity matrix.",

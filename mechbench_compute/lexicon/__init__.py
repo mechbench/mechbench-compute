@@ -109,9 +109,11 @@ ALIASES: dict[str, str] = {
     "tools/bench-lookup": "tools/lookup",
 }
 
-#: The compute release that drops the aliases: two minors after the
-#: one that introduced them (0.75.0).
-ALIASES_REMOVED_IN = "0.77.0"
+#: The compute release that drops the aliases. Named 0.77.0 when they
+#: were introduced (0.75.0); moved to 0.80.0 in 0.77.0 because the
+#: protocols stored on the bench still spell the old names and their
+#: migration is a scheduled task, not a side effect of a release.
+ALIASES_REMOVED_IN = "0.80.0"
 
 _VERSION_TAIL = re.compile(r"/\d+$")
 _warned: set[str] = set()

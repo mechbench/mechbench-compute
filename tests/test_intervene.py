@@ -12,10 +12,12 @@ import pytest
 
 from mechbench_compute import directions as dirs
 from mechbench_compute import intervene as iv
+from mechbench_compute import shapes as S
+from mechbench_compute.lexicon import kinds as K
 
 
 def _dir(vec, layer=2, point="resid_post"):
-    return dirs.make(vec, layer=layer, point=point, method="t")
+    return dirs.make(vec, S.space(model=None, layer=layer, point=point, d=len(vec)), method="t")
 
 
 def _spec(**kw):
@@ -189,8 +191,9 @@ class TestRunReadout:
         # the control residual is [0, 1, 2, 3], so its top token is id 3
         # (" light" in the fake tokenizer); adding +10 along coordinate 0
         # makes id 0 ("t0") the top token
-        assert ctrl["top"][0]["token"] == " light"
-        assert steered["top"][0]["token"] == "t0"
+        assert ctrl["top"][0]["token"]["text"] == " light"
+        assert steered["top"][0]["token"]["text"] == "t0"
+        assert set(ctrl["top"][0]) == {"token", "p", "logp"}
         assert steered["entropy_bits"] < ctrl["entropy_bits"]
         assert out["spec"][0]["direction"]["derivation"]["method"] == "t"  # wire form, no vector
 
@@ -201,8 +204,35 @@ class TestRunReadout:
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "project_out", "direction": d}],
                       "readout": {"kind": "capture", "points": ["blocks.2.resid_post"]}})
         ctrl, done = out["items"]
-        assert ctrl["captures"]["blocks.2.resid_post"][1] == 1.0
-        assert abs(done["captures"]["blocks.2.resid_post"][1]) < 1e-6
+        # Captures are a collection of activations/vector, one per point,
+        # each in the space the hook name says.
+        cap_ctrl, cap_done = K.items_of(ctrl["captures"])[0], K.items_of(done["captures"])[0]
+        assert cap_ctrl["id"] == "blocks.2.resid_post"
+        assert cap_ctrl["space"]["layer"] == 2 and cap_ctrl["space"]["point"] == "resid_post"
+        assert cap_ctrl["vector"][1] == 1.0
+        assert abs(cap_done["vector"][1]) < 1e-6
+
+    def test_a_capture_readout_is_a_source(self):
+        # One intervention's capture patches into another: the captured
+        # residual at layer 2 becomes the `mean` replacement there.
+        model = _FakeModel()
+        captured = iv.run(model, [{"id": "r1", "user": "hi"}],
+                          {"spec": [{"point": "resid_post", "layers": [2], "op": "scale",
+                                     "strength": 3.0}],
+                           "control": False,
+                           "readout": {"type": "capture", "points": ["blocks.2.resid_post"]}})
+        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+                     {"spec": [{"point": "resid_post", "layers": [2], "op": "mean"}],
+                      "control": True, "readout": {"type": "capture",
+                                                   "points": ["blocks.2.resid_post"]}},
+                     inputs={"source": captured})
+        ctrl, patched = out["items"]
+        v_ctrl = np.array(K.items_of(ctrl["captures"])[0]["vector"])
+        v_src = np.array(K.items_of(captured["items"][0]["captures"])[0]["vector"])
+        v_patched = np.array(K.items_of(patched["captures"])[0]["vector"])
+        assert np.allclose(v_patched, v_src, atol=1e-5)
+        assert not np.allclose(v_patched, v_ctrl)
+        assert out["spec"][0]["source"]["item_kind"] == "intervene/readout"
 
     def test_direction_by_port_fills_the_spec(self):
         model = _FakeModel()
@@ -210,7 +240,7 @@ class TestRunReadout:
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "add", "strength": 5.0}],
                       "control": False},
                      inputs={"direction": _dir([1, 0, 0, 0])})
-        assert out["items"][0]["top"][0]["token"] == "t0"
+        assert out["items"][0]["top"][0]["token"]["text"] == "t0"
 
     def test_empty_spec_refused(self):
         with pytest.raises(iv.SpecError):
@@ -234,12 +264,12 @@ def test_real_project_out_zeroes_the_projection_at_the_point():
     base = model.run(model.tokenize("The old lighthouse keeper", chat_template=False),
                      capture=[f"blocks.{layer}.resid_post"])
     v = np.array(base.cache[f"blocks.{layer}.resid_post"][0, -1].astype(mx.float32))
-    d = dirs.make(v, layer=layer, point="resid_post", method="self")
+    d = dirs.make(v, S.space(model=E2B, layer=layer, point="resid_post", d=v.size), method="self")
     out = iv.run(model, [{"id": "lh", "user": "The old lighthouse keeper"}],
                  {"spec": [{"point": "resid_post", "layers": [layer], "op": "project_out", "direction": d}],
                   "readout": {"kind": "capture", "points": [f"blocks.{layer}.resid_post"]}})
     ctrl, done = out["items"]
     u = np.array(d["vector"], np.float32)
-    proj_ctrl = float(np.array(ctrl["captures"][f"blocks.{layer}.resid_post"]) @ u)
-    proj_done = float(np.array(done["captures"][f"blocks.{layer}.resid_post"]) @ u)
+    proj_ctrl = float(np.array(K.items_of(ctrl["captures"])[0]["vector"]) @ u)
+    proj_done = float(np.array(K.items_of(done["captures"])[0]["vector"]) @ u)
     assert abs(proj_ctrl) > 1.0 and abs(proj_done) < 0.05 * abs(proj_ctrl)

@@ -32,6 +32,7 @@ import mlx.core as mx
 import numpy as np
 
 from mechbench_compute import directions as dirs
+from mechbench_compute import shapes as S
 
 OPS = ("zero", "mean", "resample", "patch", "add", "scale", "clamp",
        "project_out", "rotate")
@@ -76,15 +77,49 @@ def _as_list(x: Any) -> list[int]:
     return [int(i) for i in x]
 
 
-def _rows_matrix(source: Mapping[str, Any], layer: int | None) -> np.ndarray:
+def _hook_space(name: str) -> tuple[int | None, str]:
+    """`blocks.14.resid_post` → (14, "resid_post"); a whole-model point
+    → (None, name)."""
+    parts = name.split(".")
+    if parts[0] == "blocks" and len(parts) >= 3 and parts[1].isdigit():
+        return int(parts[1]), ".".join(parts[2:])
+    return None, name
+
+
+def _source_items(source: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The vector items a `source` offers: a collection of
+    activations/vector as it is, or every vector captured by a capture
+    readout (`intervene/readout` items' `captures`), so one intervention's
+    capture is another's source."""
     from mechbench_compute.lexicon import kinds as K
 
-    if not isinstance(source, Mapping) or K.item_kind_of(source) != "activations/vector":
+    if not isinstance(source, Mapping):
         raise SpecError("`source` must be a collection of activations/vector")
-    rows = [r for r in K.items_of(source)
-            if layer is None or r.get("layer") == layer]
+    ik = K.item_kind_of(source)
+    if ik == "activations/vector":
+        return list(K.items_of(source))
+    if ik == "intervene/readout":
+        out: list[Mapping[str, Any]] = []
+        for item in K.items_of(source):
+            caps = item.get("captures")
+            if isinstance(caps, Mapping) and K.item_kind_of(caps) == "activations/vector":
+                out.extend(K.items_of(caps))
+        if out:
+            return out
+        raise SpecError("`source` is a readout collection with no captures")
+    raise SpecError("`source` must be a collection of activations/vector "
+                    "or a capture readout")
+
+
+def _rows_matrix(source: Mapping[str, Any], layer: int | None,
+                 point: str | None = None) -> np.ndarray:
+    rows = [r for r in _source_items(source)
+            if (layer is None or S.layer_of(r) == layer)
+            and (point is None or S.space_of(r).get("point") == point
+                 or "space" not in r)]
     if not rows:
-        raise SpecError(f"`source` has no rows at layer {layer}")
+        raise SpecError(f"`source` has no vectors at layer {layer}"
+                        + (f", point {point!r}" if point else ""))
     return np.array([r["vector"] for r in rows], dtype=np.float32)
 
 
@@ -153,7 +188,12 @@ class Spec:
         # per-position replacement rows for mean / resample / patch
         rows = None
         if self.source is not None:
-            rows = _rows_matrix(self.source, layer)
+            try:
+                rows = _rows_matrix(self.source, layer, self.point)
+            except SpecError:
+                # A source captured at another point still serves an op
+                # that only needs vectors of the right width.
+                rows = _rows_matrix(self.source, layer)
         rng = self._rng
 
         def _positions(L: int) -> list[int]:
@@ -289,12 +329,14 @@ def _wire_spec(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
         w = dict(it)
         for k in ("direction", "direction2"):
             if isinstance(w.get(k), Mapping):
-                w[k] = {"kind": "direction/vector", "layer": w[k].get("layer"),
-                        "point": w[k].get("point"),
+                w[k] = {"kind": "direction/vector", "space": S.space_of(w[k]),
                         "derivation": w[k].get("derivation")}
         if isinstance(w.get("source"), Mapping):
-            w["source"] = {"kind": w["source"].get("kind"),
-                           "n_rows": len(w["source"].get("rows", []))}
+            from mechbench_compute.lexicon import kinds as K
+
+            src = w["source"]
+            w["source"] = {"kind": src.get("kind"), "item_kind": K.item_kind_of(src),
+                           "n_items": len(K.items_of(src)) if K.item_kind_of(src) else 0}
         if isinstance(w.get("condition"), Mapping) and isinstance(w["condition"].get("direction"), Mapping):
             w["condition"] = {**w["condition"], "direction": {"derivation": w["condition"]["direction"].get("derivation")}}
         out.append(w)
@@ -305,12 +347,7 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
         inputs: Mapping[str, Any] | None = None,
         on_item: Callable | None = None,
         on_start: Callable[[int], None] | None = None) -> dict[str, Any]:
-    from mechbench_compute.interp import (
-        _last_logp,
-        _prompt_of,
-        _target_token_id,
-        _tokenize,
-    )
+    from mechbench_compute.interp import _last_logp, _prompt_of, _tokenize
 
     inputs = inputs or {}
     items = list(params.get("spec") or [])
@@ -344,15 +381,18 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
     if on_start:
         on_start(len(records) * len(factors))
 
+    from mechbench_compute.interp import _tracked_ids
+    from mechbench_compute.lexicon import kinds as K
+
+    mid = S.model_id_of(model)
     rows: list[dict[str, Any]] = []
     for record in records:
         prompt = _prompt_of(record)
         ids = _tokenize(model, prompt, template)
         flat = [int(t) for t in np.array(ids).reshape(-1)]
         tokens = [model.tokenizer.decode([t]) for t in flat]
-        track = record.get("track") or params.get("track")
-        track_id = _target_token_id(model, str(track)) if track else None
-        outcomes = record.get("outcomes", params.get("outcomes"))
+        tracked = _tracked_ids(model, record, tracked=params.get("tracked"),
+                               outcomes=params.get("outcomes"), track=params.get("track"))
         for factor in factors:
             key = f"{record.get('id')}:{factor}"
             if factor == 0.0:
@@ -370,22 +410,11 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
             if rk == "decision":
                 res = model.run(ids, interventions=ivs)
                 lp = _last_logp(res.logits)
-                probs = np.exp(lp.astype(np.float64))
-                nz = probs[probs > 0]
-                order = np.argsort(-lp)[:top_k]
                 row: dict[str, Any] = {
                     "id": record.get("id"), "coords": dict(record.get("coords", {})),
                     "factor": factor,
-                    "entropy_bits": round(float(-(nz * np.log2(nz)).sum()), 4),
-                    "top": [{"token": model.tokenizer.decode([int(t)]),
-                             "logp": round(float(lp[int(t)]), 3)} for t in order],
+                    **S.distribution(lp, model.tokenizer, top_k=top_k, tracked=tracked),
                 }
-                if track_id is not None:
-                    row["track_logp"] = round(float(lp[track_id]), 3)
-                if outcomes:
-                    row["outcome_mass"] = {
-                        str(o): round(float(probs[_target_token_id(model, str(o))]), 5)
-                        for o in outcomes}
             else:
                 points = [str(p) for p in readout.get("points", [])]
                 if not points:
@@ -394,19 +423,23 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
                 L = len(flat)
                 pos = readout.get("position", "final")
                 pidx = L - 1 if pos in (None, "final") else (int(pos) + L) % L
-                row = {"id": record.get("id"), "coords": dict(record.get("coords", {})),
-                       "factor": factor, "position": pidx, "captures": {}}
+                caps = []
                 for p in points:
                     t = res.cache[p]
                     v = t[0, pidx] if t.ndim == 3 else t[0]
                     # bf16 has no numpy buffer protocol: cast first.
-                    arr = np.array(v.astype(mx.float32)).reshape(-1)
-                    row["captures"][p] = [round(float(x), 5) for x in arr[:4096]]
+                    arr = np.array(v.astype(mx.float32)).reshape(-1)[:4096]
+                    cl, cp = _hook_space(p)
+                    caps.append(S.vector(
+                        arr, S.space(model=mid, layer=cl, point=cp, d=int(arr.size)),
+                        id=p, coords=dict(record.get("coords", {})),
+                        token=S.token(model.tokenizer, flat[pidx])))
+                row = {"id": record.get("id"), "coords": dict(record.get("coords", {})),
+                       "factor": factor, "position": pidx,
+                       "captures": K.collection("activations/vector", caps)}
             rows.append(row)
             if on_item:
                 on_item(key, row)
-    from mechbench_compute.lexicon import kinds as K
-
     return K.collection(
         "intervene/readout", rows,
         spec=_wire_spec(filled),

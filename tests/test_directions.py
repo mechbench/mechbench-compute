@@ -6,6 +6,11 @@ import numpy as np
 import pytest
 
 from mechbench_compute import directions as d
+from mechbench_compute import shapes as S
+
+
+def _space(layer, d_=3, point="resid_post"):
+    return S.space(model="fake/m@r", layer=layer, point=point, d=d_)
 
 
 def _vectors(layer=3, point="post", n=4, dim=8, seed=1):
@@ -13,9 +18,9 @@ def _vectors(layer=3, point="post", n=4, dim=8, seed=1):
     base = rng.normal(size=dim)
     rows = []
     for i in range(n):
-        rows.append({"condition": f"p{i}", "label": "pos", "layer": layer,
+        rows.append({"id": f"p{i}", "label": "pos", "layer": layer,
                      "vector": [float(x) for x in base + rng.normal(scale=0.1, size=dim) + 2.0]})
-        rows.append({"condition": f"n{i}", "label": "neg", "layer": layer,
+        rows.append({"id": f"n{i}", "label": "neg", "layer": layer,
                      "vector": [float(x) for x in base + rng.normal(scale=0.1, size=dim) - 2.0]})
     return {"kind": "residual_vectors", "point": point, "model": "fake/m@r", "rows": rows}
 
@@ -25,8 +30,7 @@ class TestSimilarityMatrix:
     pairwise matrix named by port, norms riding along."""
 
     def _dir(self, vec, norm_scale=1.0):
-        return d.make([x * norm_scale for x in vec], layer=12, point="resid_post",
-                      method="t")
+        return d.make([x * norm_scale for x in vec], _space(12, len(vec)), method="t")
 
     def test_pairwise_cosines_named_by_port(self):
         out = d.block_similarity(
@@ -52,22 +56,27 @@ class TestSimilarityMatrix:
 
 class TestMake:
     def test_unit_and_provenance(self):
-        x = d.make([3.0, 4.0], layer=2, point="resid_post", method="test", sources=["a"])
-        assert x["kind"] == "direction/vector" and x["d"] == 2
+        x = d.make([3.0, 4.0], _space(2, 2), method="test", sources=["a"])
+        assert x["kind"] == "direction/vector" and x["space"]["d"] == 2
+        assert x["space"] == {"model": "fake/m@r", "layer": 2, "point": "resid_post", "head": None, "d": 2}
         assert abs(np.linalg.norm(x["vector"]) - 1.0) < 1e-6 and x["norm"] == 5.0
         assert x["derivation"]["method"] == "test" and x["derivation"]["sources"] == ["a"]
 
     def test_zero_refused(self):
         with pytest.raises(ValueError):
-            d.make([0.0, 0.0], layer=0, point="resid_post", method="t")
+            d.make([0.0, 0.0], _space(0, 2), method="t")
 
 
 class TestProducers:
     def test_diff_of_means_points_from_neg_to_pos(self):
         v = _vectors()
         x = d.from_vectors(v, layer=3, positive="pos", negative="neg")
-        assert x["layer"] == 3 and x["point"] == "resid_post"
-        assert x["derivation"]["labels"] == {"positive": "pos", "negative": "neg"}
+        # The fixture is the older flattened spelling: `layer` on the row,
+        # `point` and `model` on the header, `label` as a field. The space
+        # is assembled from it and the label read as the `label` axis.
+        assert x["space"] == {"model": "fake/m@r", "layer": 3, "point": "resid_post", "head": None, "d": 8}
+        assert x["derivation"]["axis"] == "label"
+        assert (x["derivation"]["positive"], x["derivation"]["negative"]) == ("pos", "neg")
         assert x["derivation"]["n_positive"] == 4
         # the difference is ~ +4 on every coordinate: all-positive unit vector
         assert all(c > 0 for c in x["vector"])
@@ -86,32 +95,38 @@ class TestProducers:
 
 class TestArithmetic:
     def test_orthogonalize_removes_the_component(self):
-        a = d.make([1.0, 0.0, 0.0], layer=1, point="resid_post", method="t")
-        b = d.make([1.0, 1.0, 0.0], layer=1, point="resid_post", method="t")
+        a = d.make([1.0, 0.0, 0.0], _space(1), method="t")
+        b = d.make([1.0, 1.0, 0.0], _space(1), method="t")
         o = d.orthogonalize(b, [a])
         assert abs(d.similarity(o, a)["cosine"]) < 1e-6
         assert o["derivation"]["method"] == "orthogonalize"
 
     def test_add_and_average(self):
-        a = d.make([1.0, 0.0], layer=1, point="resid_post", method="t")
-        b = d.make([0.0, 1.0], layer=1, point="resid_post", method="t")
+        a = d.make([1.0, 0.0], _space(1, 2), method="t")
+        b = d.make([0.0, 1.0], _space(1, 2), method="t")
         s = d.add([a, b], [1.0, 1.0])
         assert np.allclose(s["vector"], [np.sqrt(0.5)] * 2, atol=1e-6)
         assert d.average([a, b])["derivation"]["method"] == "average"
 
     def test_spaces_must_match(self):
-        a = d.make([1.0, 0.0], layer=1, point="resid_post", method="t")
-        b = d.make([1.0, 0.0], layer=2, point="resid_post", method="t")
-        with pytest.raises(ValueError):
+        a = d.make([1.0, 0.0], _space(1, 2), method="t")
+        b = d.make([1.0, 0.0], _space(2, 2), method="t")
+        with pytest.raises(ValueError, match="different spaces"):
             d.add([a, b])
+        c = d.make([1.0, 0.0], S.space(model="other/m", layer=1, point="resid_post", d=2), method="t")
+        with pytest.raises(ValueError, match="model"):
+            d.add([a, c])
 
     def test_project_rows(self):
         v = _vectors()
         m = d.from_vectors(v, layer=3, positive="pos", negative="neg")
         pr = d.project_rows(v, m)
-        pos = [r["projection"] for r in pr["items"] if r["label"] == "pos"]
-        neg = [r["projection"] for r in pr["items"] if r["label"] == "neg"]
+        assert pr["item_kind"] == "activations/coordinate"
+        pos = [r["coord"] for r in pr["items"] if r["coords"]["label"] == "pos"]
+        neg = [r["coord"] for r in pr["items"] if r["coords"]["label"] == "neg"]
         assert min(pos) > max(neg)
+        assert pr["items"][0]["direction"]["method"] == "diff_of_means"
+        assert pr["items"][0]["space"]["layer"] == 3
 
 
 class TestBlocks:

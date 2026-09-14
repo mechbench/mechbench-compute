@@ -2017,6 +2017,9 @@ class ProtocolExecutor:
         f_user = params.get("user_field", "user")
         f_prefill = params.get("prefill_field", "prefill")
         n_layers = len(model.lm.model.layers)
+        top_k = int(params.get("top_k", 5))
+        from mechbench_compute import shapes as S
+        from mechbench_compute.interp import _tracked_ids
 
         if on_start:
             on_start(len(records))
@@ -2031,39 +2034,26 @@ class ProtocolExecutor:
             r = model.run(
                 mx.array([ids]),
                 interventions=[Capture.residual(layers=range(n_layers))])
-            layers = []
+            tracked = _tracked_ids(model, rec, tracked=params.get("tracked"))
             for i in range(n_layers):
                 row = model.project_to_logits(
                     r.cache[f"blocks.{i}.resid_post"])[0, -1, :]
                 z = _np.array(row.astype(mx.float32)).astype(_np.float64)
-                z -= z.max()
-                pr = _np.exp(z) / _np.exp(z).sum()
-                top = int(_np.argmax(pr))
-                nz = pr[pr > 0]
-                layers.append({
+                logp = z - z.max() - _np.log(_np.exp(z - z.max()).sum())
+                items.append({
+                    "id": rec["id"],
+                    "coords": dict(rec.get("coords", {})),
                     "layer": i,
-                    "top1": tok.decode([top]),
-                    "p": round(float(pr[top]), 4),
-                    "entropy_bits": round(
-                        float(-(nz * _np.log2(nz)).sum()), 3),
+                    **S.distribution(logp, tok, top_k=top_k, tracked=tracked),
                 })
-            final = layers[-1]
-            items.append({
-                "id": rec["id"],
-                "kind": "logits/funnel",
-                "text": f"Lens trajectory, {rec['id']}: final-layer "
-                        f"top1={final['top1']!r} (p={final['p']}, "
-                        f"H={final['entropy_bits']} bits).",
-                "metadata": {"coords": dict(rec.get("coords", {})),
-                              "layers": layers},
-            })
             if on_item:
                 on_item()
         return lexicon.collection(
             "logits/funnel", items,
             name=params.get("name", "lens-trajectories"),
             description=params.get("description", ""),
-            fidelity="text")
+            layers=list(range(n_layers)),
+            top_k=top_k)
 
     def _block_score(self, inputs, params, input_paths=None,
                      on_item=None, on_start=None) -> Any:
@@ -2159,6 +2149,8 @@ class ProtocolExecutor:
             on_start(len(conditions))
         rollout = params.get("rollout")
         outcomes = params.get("outcomes")
+        top_k = int(params.get("top_k", 10))
+        from mechbench_compute import shapes as S
         # The consumed field names are params, not convention (Benji's
         # composer-legibility review): a Template producing `question`
         # wires user_field: "question" instead of renaming its output.
@@ -2182,37 +2174,29 @@ class ProtocolExecutor:
                                    cond[f_user], cond.get(f_prefill, ""))
             ids = encode(tok, rendered)
             prefill = prefill_decision(model, ids)
-            lp = np.array(prefill[1] - mx.logsumexp(prefill[1]))
-            probs = np.exp(lp.astype(np.float64))
-            order_ = np.argsort(-probs)
-            nz = probs[probs > 0]
+            lp = np.array(prefill[1] - mx.logsumexp(prefill[1])).astype(np.float64)
+            # Per-record outcome sets override the block-level param —
+            # heterogeneous batteries (d6 vs coin vs open-ended) carry
+            # their outcomes as data. Each outcome is tracked by its own
+            # name, at its first token as a suffix of the rendered prompt;
+            # `tracked` names any other token to follow.
+            tracked: dict[str, int] = {}
+            for o in (cond.get("outcomes", outcomes) or []):
+                tracked[str(o)] = int(suffix_tokens(tok, rendered, ids, o)[0])
+            for name, text in dict(cond.get("tracked") or params.get("tracked") or {}).items():
+                tracked.setdefault(str(name), int(suffix_tokens(tok, rendered, ids, str(text))[0]))
             entry: dict[str, Any] = {
                 "id": cond["id"],
                 "coords": dict(cond.get("coords", {})),
-                "entropy_bits": round(float(-(nz * np.log2(nz)).sum()), 4),
-                "top_tokens": [
-                    {"token": tok.decode([int(t)]),
-                     "p": round(float(probs[t]), 5)}
-                    for t in order_[:10]
-                ],
+                **S.distribution(lp, tok, top_k=top_k, tracked=tracked),
             }
             if rollout:
                 entry["rollout"] = expand_top_outcomes_cached(
                     model, tok, ids, rollout, prefill=prefill)
-            # Per-record outcome sets override the block-level param —
-            # heterogeneous batteries (d6 vs coin vs open-ended) carry
-            # their outcomes as data.
-            cond_outcomes = cond.get("outcomes", outcomes)
-            if cond_outcomes:
-                masses = {}
-                for o in cond_outcomes:
-                    t0 = suffix_tokens(tok, rendered, ids, o)[0]
-                    masses[o] = round(float(probs[t0]), 5)
-                entry["outcome_mass"] = masses
             out.append(entry)
             if on_item:
                 on_item(key, entry)
-        return lexicon.collection("logits/decision", out)
+        return lexicon.collection("logits/decision", out, top_k=top_k)
 
 
 

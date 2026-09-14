@@ -11,8 +11,10 @@ different axis, and this module makes it a kind:
                       sequence — the trace (014), where in a story it
                       forms.
 
-A trajectory is rows of `{id, label, step, layer, position, vector,
-norm}`, `step` indexing the axis. Four blocks:
+A trajectory is a collection of `trajectory/point` — vector items
+(`space`, `vector`, `norm`) with `step`, `position` and the token read —
+`step` indexing the axis. A projected one is a collection of
+`activations/coordinate`. Four blocks:
 
     trajectory/capture    the model block: capture one per record.
     trajectory/project    scalar coordinate of every row along a
@@ -42,22 +44,28 @@ from typing import Any
 
 import numpy as np
 
+from mechbench_compute import shapes as S
+
 # --- shapes ------------------------------------------------------------------
 
 AXES = ("layers", "positions")
 
 
-def _label_of(record: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
-    """`label` on the record, else the coord named by `label_coord`, else
-    the top-level field named by `label_field` (what text/stats
-    `annotate` writes — a pattern hit is a field, not a coord)."""
+def _coords_of(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    """The record's coordinates, as every item carries them. A document
+    item keeps its coords under `metadata`; the retired `label` field,
+    and the `label_coord` / `label_field` params, are read as the
+    `label` coordinate so older protocols group as they did."""
+    coords = dict(record.get("coords") or (record.get("metadata") or {}).get("coords") or {})
     label = record.get("label")
     if label is None and params.get("label_coord"):
         label = (record.get("coords") or record.get("metadata") or {}).get(
             params["label_coord"])
     if label is None and params.get("label_field"):
         label = record.get(params["label_field"])
-    return label
+    if label is not None and "label" not in coords:
+        coords["label"] = label
+    return coords
 
 
 def _trace_ids(record: Mapping[str, Any]) -> tuple[list[int] | None, int | None]:
@@ -211,6 +219,8 @@ def capture(
 
     cap = Capture.residual(layers, point=point)
     tok = model.tokenizer
+    mid = S.model_id_of(model)
+    resid_point = S._point_name(point)
     rows: list[dict[str, Any]] = []
     used_trace = 0
     for record in records:
@@ -231,7 +241,10 @@ def capture(
         arr = np.array(ids).reshape(-1)
         seq_len = int(arr.shape[0])
         result = model.run(ids, interventions=[cap])
-        label = _label_of(record, params)
+        coords = _coords_of(record, params)
+
+        def sp(layer: int) -> dict[str, Any]:
+            return S.space(model=mid, layer=layer, point=resid_point, d=width)
 
         if axis == "layers":
             pos = _position_index(model, ids, record, position)
@@ -239,8 +252,9 @@ def capture(
                 t = result.cache[f"blocks.{layer}.resid_{point}"]
                 v = t[0, pos, :].astype(mx.float32)
                 mx.eval(v)
-                rows.append(_row(record, label, step, layer, pos, np.array(v),
-                                 tok, arr, model, vocab_top))
+                rows.append(_projected(
+                    _row(record, coords, sp(layer), step, pos, np.array(v), tok, arr,
+                         model, vocab_top), np.array(v), dvec, direction))
         else:
             layer = layers[0]
             t = result.cache[f"blocks.{layer}.resid_{point}"]
@@ -258,10 +272,11 @@ def capture(
                     f"record {record.get('id')!r}: no positions in the window")
             if reduce == "mean":
                 v = mat[idx].mean(axis=0)
-                row = _row(record, label, 0, layer, idx[0], v, tok, arr, model, 0)
-                row.update({"token": None, "n_pooled": len(idx),
+                row = _row(record, coords, sp(layer), 0, idx[0], v, tok, arr, model, 0)
+                row.pop("token", None)
+                row.update({"n_pooled": len(idx),
                             "steps": [int(lo or 0), int(hi) if hi else len(idx)]})
-                rows.append(_projected(row, v, dvec))
+                rows.append(_projected(row, v, dvec, direction))
             else:
                 if dvec is None:
                     running = len(rows) + len(idx)
@@ -271,17 +286,18 @@ def capture(
                             f"cap at record {record.get('id')!r}; set `max_steps`, "
                             "`reduce`, or `project`, or capture fewer records")
                 for step, p in enumerate(idx):
-                    row = _row(record, label, step, layer, p, mat[p], tok, arr,
+                    row = _row(record, coords, sp(layer), step, p, mat[p], tok, arr,
                                model, vocab_top)
-                    rows.append(_projected(row, mat[p], dvec))
+                    rows.append(_projected(row, mat[p], dvec, direction))
         if on_item:
             on_item()
 
-    prov = (direction.get("derivation") or {}) if isinstance(direction, Mapping) else {}
     from mechbench_compute.lexicon import kinds as K
 
+    # A projected trajectory is a collection of coordinates, not of
+    # points without their vectors.
     return K.collection(
-        "trajectory/point", rows,
+        "activations/coordinate" if dvec is not None else "trajectory/point", rows,
         axis=axis,
         point=point,
         layers=layers,
@@ -295,65 +311,59 @@ def capture(
         projected=dvec is not None,
         **({"max_steps": int(max_steps)} if max_steps else {}),
         **({"reduce": reduce, "steps": step_window} if reduce else {}),
-        **({"direction": {"layer": direction.get("layer"),
-                          "point": direction.get("point"),
-                          "method": prov.get("method"),
-                          **({"labels": prov["labels"]} if prov.get("labels") else {})}}
-           if dvec is not None else {}),
     )
 
 
-def _row(record, label, step, layer, pos, vec: np.ndarray, tok, arr, model,
+def _row(record, coords, sp, step, pos, vec: np.ndarray, tok, arr, model,
          vocab_top: int) -> dict[str, Any]:
-    row: dict[str, Any] = {
-        "id": record.get("id"),
-        "label": label,
-        "step": int(step),
-        "layer": int(layer),
-        "position": int(pos),
-        "token": tok.decode([int(arr[pos])]) if pos < len(arr) else None,
-        "norm": round(float(np.linalg.norm(vec)), 5),
-        "vector": [round(float(x), 5) for x in vec],
-    }
+    """One `trajectory/point`: a vector item with its step and position."""
+    row = S.vector(
+        vec, sp, id=record.get("id"), coords=coords,
+        token=S.token(tok, int(arr[pos])) if pos < len(arr) else None,
+        step=int(step), position=int(pos))
     if vocab_top:
-        row["vocab_top"] = _vocab_top(model, vec, vocab_top)
+        row["vocab"] = _vocab(model, vec, vocab_top)
     return row
 
 
 def _projected(row: dict[str, Any], vec: np.ndarray,
-               dvec: np.ndarray | None) -> dict[str, Any]:
-    """With a direction, a row is its scalar coordinate and carries no
+               dvec: np.ndarray | None,
+               direction: Mapping[str, Any] | None) -> dict[str, Any]:
+    """With a direction, a step is its scalar coordinate and carries no
     vector — the trace itself, small enough to be an object."""
     if dvec is None:
         return row
-    out = {k: v for k, v in row.items() if k != "vector"}
-    out["coord"] = round(float(np.asarray(vec, dtype=np.float32) @ dvec), 6)
-    return out
+    return S.coordinate(
+        float(np.asarray(vec, dtype=np.float32) @ dvec), row["space"], direction,
+        id=row.get("id"), coords=row.get("coords"), token=row.get("token"),
+        step=row["step"], position=row["position"],
+        n_pooled=row.get("n_pooled"), steps=row.get("steps"))
 
 
-def _vocab_top(model, vec: np.ndarray, k: int) -> list[dict[str, Any]]:
-    """The vector through the unembedding: its top-k tokens with
-    probabilities — the lens reading of this point."""
+def _vocab(model, vec: np.ndarray, k: int) -> dict[str, Any]:
+    """The vector through the unembedding: the lens reading of this
+    point, as a distribution."""
     import mlx.core as mx
 
     logits = model.project_to_logits(mx.array(vec)[None, :]).astype(mx.float32)
     lp = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
     mx.eval(lp)
-    lp = np.array(lp).reshape(-1)
-    top = np.argsort(-lp)[:k]
-    return [{"token": model.tokenizer.decode([int(t)]),
-             "p": round(float(math.exp(lp[t])), 6)} for t in top]
+    return S.distribution(np.array(lp).reshape(-1), model.tokenizer, top_k=k)
 
 
 # --- pure blocks over trajectories -------------------------------------------
 
 
-def _trajectory_of(x: Any, port: str = "trajectory") -> Mapping[str, Any]:
+def _trajectory_of(x: Any, port: str = "trajectory",
+                   coords_ok: bool = False) -> Mapping[str, Any]:
     from mechbench_compute.lexicon import kinds as K
 
-    if isinstance(x, Mapping) and K.item_kind_of(x) == "trajectory/point":
-        return x
-    raise ValueError(f"port {port!r} is not a collection of trajectory/point")
+    if isinstance(x, Mapping):
+        ik = K.item_kind_of(x)
+        if ik == "trajectory/point" or (coords_ok and ik == "activations/coordinate"):
+            return x
+    raise ValueError(f"port {port!r} is not a collection of trajectory/point"
+                     + (" or activations/coordinate" if coords_ok else ""))
 
 
 def _rows(traj: Mapping[str, Any]) -> list[Any]:
@@ -389,22 +399,19 @@ def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
     rows = []
     for r in _rows(traj):
         v = np.asarray(r["vector"], dtype=np.float32)
-        row = {k: v_ for k, v_ in r.items() if k != "vector" or keep}
-        row["coord"] = round(float(v @ dv), 6)
-        rows.append(row)
+        item = S.coordinate(
+            float(v @ dv), S.space_of(r, header=traj), d,
+            id=r.get("id"), coords=S.coords_of(r), token=r.get("token"),
+            step=r.get("step"), position=r.get("position"),
+            n_pooled=r.get("n_pooled"), steps=r.get("steps"))
+        if keep:
+            item["vector"] = r["vector"]
+        rows.append(item)
     from mechbench_compute.lexicon import kinds as K
 
-    prov = d.get("derivation") or {}
     header = _header(traj)
-    header.update({
-        "projected": True,
-        # What it was projected onto, as the direction record says it:
-        # method and labels ride in the direction's derivation.
-        "direction": {"layer": d.get("layer"), "point": d.get("point"),
-                      "method": prov.get("method"),
-                      **({"labels": prov["labels"]} if prov.get("labels") else {})},
-    })
-    return K.collection("trajectory/point", rows, **header)
+    header["projected"] = True
+    return K.collection("activations/coordinate", rows, **header)
 
 
 def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
@@ -483,7 +490,8 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                  what `direction/from-vectors` reads, so an outcome axis
                  is this block followed by that one.
     """
-    traj = _trajectory_of(inputs.get("trajectory") or params.get("trajectory"))
+    traj = _trajectory_of(inputs.get("trajectory") or params.get("trajectory"),
+                          coords_ok=True)
     by = str(params.get("by", "label"))
     mode = str(params.get("as", "per_step"))
     if mode not in ("per_step", "window", "vectors"):
@@ -498,7 +506,12 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
         raise ValueError("as: 'vectors' needs vector rows, not a projection")
 
     def group_of(r):
-        return r.get(by) if by in r else r.get("label")
+        # A coordinate first (`by: "genre"`), `id`, then a field on the
+        # item; the retired `label` field is the `label` coordinate.
+        if by == "id":
+            return r.get("id")
+        g = S.label_of(r, by)
+        return g if g is not None else r.get(by)
 
     groups: dict[Any, dict[int, list]] = {}
     for r in rows:
@@ -540,7 +553,8 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                             aggregated={"by": by, "as": mode, "steps": steps})
 
     # window / vectors: one value per group over everything in the window
-    layer = rows[0].get("layer") if rows else None
+    first_space = S.space_of(rows[0], header=traj) if rows else None
+    layer = first_space.get("layer") if first_space else None
     for g, by_s in groups.items():
         vals = [v for s in by_s for v in by_s[s]]
         if scalar:
@@ -550,17 +564,17 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                              "std": round(float(a.std()), 6)})
         else:
             m = np.mean(np.stack(vals), axis=0)
-            # Labels go out as strings: `direction/from-vectors` names its
-            # positive/negative labels as strings, and a text/stats hit
-            # arrives as the integer 1/0.
-            out_rows.append({"id": str(g), "label": str(g), "layer": layer,
-                             "n_pooled": len(vals),
-                             "vector": [round(float(x), 5) for x in m]})
+            # The group goes out as a string coordinate on the `by` axis:
+            # `direction/from-vectors` names its groups as strings, and a
+            # text/stats hit arrives as the integer 1/0.
+            out_rows.append(S.vector(m, first_space, id=str(g), coords={by: str(g)},
+                                     n_pooled=len(vals)))
     from mechbench_compute.lexicon import kinds as K
 
     if mode == "vectors":
         return K.collection(
             "activations/vector", out_rows,
+            model=first_space.get("model") if first_space else None,
             point=traj.get("point"),
             source="resid",
             position=f"trajectory-window {steps}",

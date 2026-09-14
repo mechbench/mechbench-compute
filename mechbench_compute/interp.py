@@ -33,6 +33,7 @@ from typing import Any
 import mlx.core as mx
 import numpy as np
 
+from mechbench_compute import shapes as S
 from mechbench_compute.interventions import Ablate, Capture
 
 #: Refuse vector payloads past this many floats — a mistyped layer list
@@ -106,6 +107,58 @@ def _target_token_id(model, target: str) -> int:
     raise ValueError(f"target {target!r} tokenized to specials only")
 
 
+def _tracked_ids(model, record: Mapping[str, Any], *,
+                 tracked: Mapping[str, Any] | None = None,
+                 outcomes: Sequence[Any] | None = None,
+                 tracks: Mapping[str, Any] | None = None,
+                 track: Any = None) -> dict[str, int]:
+    """The tokens a read reports on, by name: `tracked` (name → token
+    string), with the record's own field taking precedence over the
+    block's param. The older spellings — `outcomes` (each its own
+    name), `tracks`, and a single `track` — are read the same way for
+    the alias window; each block passes the ones it declares."""
+    out: dict[str, int] = {}
+
+    def put(name: Any, text: Any) -> None:
+        if str(name) not in out:
+            out[str(name)] = _target_token_id(model, str(text))
+
+    for name, text in dict(record.get("tracked") or tracked or {}).items():
+        put(name, text)
+    for o in list(record.get("outcomes") or outcomes or []):
+        put(o, o)
+    for name, text in dict(record.get("tracks") or tracks or {}).items():
+        put(name, text)
+    one = record.get("track") or track
+    if one:
+        put(one, one)
+    return out
+
+
+def _coords_of(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    """The record's coordinates. A grouping is a coordinate; the retired
+    `label` field and the `label_coord` param are read as the `label`
+    coordinate so older records group as they did."""
+    coords = dict(record.get("coords") or {})
+    label = record.get("label")
+    if label is None and params.get("label_coord"):
+        label = coords.get(params["label_coord"])
+    if label is not None and "label" not in coords:
+        coords["label"] = label
+    return coords
+
+
+def _pair(record: Mapping[str, Any]) -> tuple[str, str]:
+    """A pair's two prompts, `a` and `b` — or the retired `clean` and
+    `corrupt`."""
+    a = record.get("a", record.get("clean"))
+    b = record.get("b", record.get("corrupt"))
+    if not (isinstance(a, str) and isinstance(b, str) and a and b):
+        raise ValueError(
+            f"pair {record.get('id')!r} needs prompt fields `a` and `b`")
+    return a, b
+
+
 def ablate_layers(
     model,
     records: Sequence[Mapping[str, Any]],
@@ -131,6 +184,7 @@ def ablate_layers(
 
     intervene = _COMPONENTS[component]
     rows: list[dict[str, Any]] = []
+    conditions: list[dict[str, Any]] = []
     damage_by_layer: dict[int, list[float]] = {i: [] for i in layers}
     for record in records:
         prompt = _prompt_of(record)
@@ -144,7 +198,6 @@ def ablate_layers(
         else:
             tok = int(np.argmax(base_lp))
         baseline = float(base_lp[tok])
-        token_str = model.tokenizer.decode([tok])
         for layer in layers:
             ids = _tokenize(model, prompt, template)
             lp = _last_logp(model.run(ids, interventions=[intervene(layer)]).logits)
@@ -157,12 +210,10 @@ def ablate_layers(
             })
             if on_item:
                 on_item()
-        rows.append({
+        conditions.append({
             "id": record.get("id"),
-            "layer": None,
+            "target": S.token(model.tokenizer, tok),
             "baseline_logp": round(baseline, 4),
-            "target_token": token_str,
-            "target_id": tok,
         })
 
     return _K().collection(
@@ -171,6 +222,7 @@ def ablate_layers(
         template=template,
         layers=layers,
         n_conditions=len(records),
+        conditions=conditions,
         aggregates={
             "mean_delta": [
                 round(float(np.mean(damage_by_layer[i])), 4) for i in layers
@@ -288,7 +340,6 @@ def residual_vectors(
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     position = params.get("position", "final")
     pool = _pool_spec(params)
-    label_coord = params.get("label_coord")
     if not records:
         raise ValueError("residuals/vectors needs at least one condition")
     # A document with no text cannot be embedded. Dropping one changes
@@ -328,6 +379,8 @@ def residual_vectors(
     else:
         cap = Capture.keys(layers)
     rows: list[dict[str, Any]] = []
+    mid = S.model_id_of(model)
+    resid_point = S._point_name(point)
     for record in records:
         ids = _tokenize(model, _prompt_of(record), template)
         result = model.run(ids, interventions=[cap])
@@ -335,9 +388,9 @@ def residual_vectors(
         # at all — and a record whose `position` would not resolve
         # (no `subject`, say) is still poolable.
         pos = None if pool else _position_index(model, ids, record, position)
-        label = record.get("label")
-        if label is None and label_coord:
-            label = (record.get("coords") or {}).get(label_coord)
+        coords = _coords_of(record, params)
+        read_token = (None if pool else
+                      S.token(model.tokenizer, int(np.array(ids).reshape(-1)[pos])))
         for layer in layers:
             if source == "resid":
                 t = result.cache[f"blocks.{layer}.resid_{point}"]
@@ -349,13 +402,10 @@ def residual_vectors(
                     v = t[0, pos, :].astype(mx.float32)
                     mx.eval(v)
                     v, n_pooled = np.array(v), None
-                rows.append({
-                    "id": record.get("id"),
-                    "label": label,
-                    "layer": layer,
-                    "vector": [round(float(x), 5) for x in v],
-                    **({"n_pooled": n_pooled} if n_pooled is not None else {}),
-                })
+                rows.append(S.vector(
+                    v, S.space(model=mid, layer=layer, point=resid_point, d=width),
+                    id=record.get("id"), coords=coords, token=read_token,
+                    n_pooled=n_pooled))
             else:
                 key = ("q" if source == "queries" else "k")
                 t = result.cache[f"blocks.{layer}.attn.{key}"]
@@ -365,19 +415,16 @@ def residual_vectors(
                         v, n_pooled = _pooled(arr[head], pool)
                     else:
                         v, n_pooled = arr[head, pos, :], None
-                    rows.append({
-                        "id": record.get("id"),
-                        "label": label,
-                        "layer": layer,
-                        "head": head,
-                        "vector": [round(float(x), 5) for x in v],
-                        **({"n_pooled": n_pooled} if n_pooled is not None
-                           else {}),
-                    })
+                    rows.append(S.vector(
+                        v, S.space(model=mid, layer=layer, point=f"attn.{key}",
+                                   d=width, head=head),
+                        id=record.get("id"), coords=coords, token=read_token,
+                        n_pooled=n_pooled))
         if on_item:
             on_item()
     return _K().collection(
         "activations/vector", rows,
+        model=mid,
         point=point,
         source=source,
         # A pooled record says so where a reader looks for the
@@ -418,23 +465,17 @@ def residual_divergence(
     cap = Capture.residual(layers, point=point)
     pairs: list[dict[str, Any]] = []
     for record in records:
-        a, b = record.get("a"), record.get("b")
-        if not (isinstance(a, str) and isinstance(b, str) and a and b):
-            raise ValueError(
-                f"pair {record.get('id')!r} needs prompt fields `a` and `b`"
-            )
+        a, b = _pair(record)
         ids_a = _tokenize(model, a, template)
         ids_b = _tokenize(model, b, template)
         len_a = int(np.array(ids_a).shape[-1])
         len_b = int(np.array(ids_b).shape[-1])
         if len_a != len_b:
-            pairs.append({
-                "id": record.get("id"),
-                "error": (
-                    f"prompts tokenize to different lengths ({len_a} vs "
-                    f"{len_b}) — a matched pair must match"
-                ),
-            })
+            pairs.append(S.grid(
+                record.get("id"), ["layer", "position"], {},
+                coords=record.get("coords"),
+                error=(f"prompts tokenize to different lengths ({len_a} vs "
+                       f"{len_b}) — a matched pair must match")))
             if on_item:
                 on_item()
                 on_item()
@@ -457,11 +498,9 @@ def residual_divergence(
             nb = np.linalg.norm(vb, axis=-1)
             cos = (va * vb).sum(axis=-1) / np.maximum(na * nb, 1e-9)
             matrix.append([round(float(1.0 - c), 5) for c in cos])
-        pairs.append({
-            "id": record.get("id"),
-            "tokens": tokens,
-            "divergence": matrix,  # [layer][position], 1 - cosine
-        })
+        pairs.append(S.grid(
+            record.get("id"), ["layer", "position"], {"divergence": matrix},
+            tokens=tokens, coords=record.get("coords")))
     return _K().collection(
         "activations/divergence", pairs,
         point=point,
@@ -510,14 +549,12 @@ def lens_positions(
             model, result.cache, tok, layers=layers)
         tokens = [model.tokenizer.decode([int(t)])
                   for t in np.array(ids).reshape(-1)]
-        rows.append({
-            "id": record.get("id"),
-            "tokens": tokens,
-            "target_token": model.tokenizer.decode([tok]),
-            "target_id": tok,
-            "logprob": [[round(float(x), 4) for x in r] for r in logprobs],
-            "rank": [[int(x) for x in r] for r in ranks],
-        })
+        rows.append(S.grid(
+            record.get("id"), ["layer", "position"],
+            {"logprob": [[round(float(x), 4) for x in r] for r in logprobs],
+             "rank": [[int(x) for x in r] for r in ranks]},
+            tokens=tokens, coords=record.get("coords"),
+            target=S.token(model.tokenizer, tok)))
         if on_item:
             on_item()
     return _K().collection(
@@ -561,25 +598,17 @@ def patch_trace(
     cap = Capture.residual(layers, point=point.removeprefix("resid_"))
     pairs: list[dict[str, Any]] = []
     for record in records:
-        clean, corrupt = record.get("clean"), record.get("corrupt")
-        if not (isinstance(clean, str) and isinstance(corrupt, str)
-                and clean and corrupt):
-            raise ValueError(
-                f"pair {record.get('id')!r} needs prompt fields "
-                "`clean` and `corrupt`"
-            )
+        clean, corrupt = _pair(record)
         ids_clean = _tokenize(model, clean, template)
         ids_corrupt = _tokenize(model, corrupt, template)
         n_clean = int(np.array(ids_clean).shape[-1])
         n_corrupt = int(np.array(ids_corrupt).shape[-1])
         if n_clean != n_corrupt:
-            pairs.append({
-                "id": record.get("id"),
-                "error": (
-                    f"prompts tokenize to different lengths ({n_clean} vs "
-                    f"{n_corrupt}) — positions cannot align under patching"
-                ),
-            })
+            pairs.append(S.grid(
+                record.get("id"), ["layer", "position"], {},
+                coords=record.get("coords"),
+                error=(f"prompts tokenize to different lengths ({n_clean} vs "
+                       f"{n_corrupt}) — positions cannot align under patching")))
             if on_item:
                 for _ in layers:
                     on_item()
@@ -618,15 +647,11 @@ def patch_trace(
                 on_item()
         tokens = [model.tokenizer.decode([int(t)])
                   for t in np.array(ids_corrupt).reshape(-1)]
-        pairs.append({
-            "id": record.get("id"),
-            "tokens": tokens,
-            "target_token": model.tokenizer.decode([tok]),
-            "metric": metric,
-            "p_target_clean": round(p_clean_in_clean, 5),
-            "p_target_corrupt": round(baseline, 5),
-            "recovery": recovery,  # [layer][pos]: Δ(metric) of the target
-        })
+        pairs.append(S.grid(
+            record.get("id"), ["layer", "position"], {"recovery": recovery},
+            tokens=tokens, coords=record.get("coords"),
+            target=S.token(model.tokenizer, tok), metric=metric,
+            value_a=round(p_clean_in_clean, 5), value_b=round(baseline, 5)))
     return _K().collection(
         "intervene/trace", pairs,
         point=point,
@@ -685,17 +710,14 @@ def attention_patterns(
                 f"attention capture would exceed {MAX_ATTN_FLOATS} floats "
                 "— fewer layers, shorter prompts, or fewer conditions"
             )
-        per_layer = []
+        weight = []
         for layer in layers:
             w = result.cache[f"blocks.{layer}.attn.weights"]
             arr = np.array(w.astype(mx.float32))[0]  # [heads, L, S]
-            per_layer.append({
-                "layer": layer,
-                "heads": [[[round(float(x), 4) for x in r] for r in h]
-                          for h in arr],
-            })
-        rows.append({"id": record.get("id"), "tokens": tokens,
-                     "layers": per_layer})
+            weight.append([[[round(float(x), 4) for x in r] for r in h] for h in arr])
+        rows.append(S.grid(
+            record.get("id"), ["layer", "head", "query", "key"], {"weight": weight},
+            tokens=tokens, coords=record.get("coords")))
         if on_item:
             on_item()
     return _K().collection(
@@ -742,7 +764,7 @@ def ablate_heads(
         baseline = float(base_lp[tok])
         metas.append({
             "id": record.get("id"),
-            "target_token": model.tokenizer.decode([tok]),
+            "target": S.token(model.tokenizer, tok),
             "baseline_logp": round(baseline, 4),
         })
         for li, layer in enumerate(layers):
@@ -755,11 +777,12 @@ def ablate_heads(
     mean = sums / len(records)
     return {
         "kind": "intervene/heads",
+        **S.grid("mean", ["layer", "head"],
+                 {"mean_delta": [[round(float(x), 4) for x in row] for row in mean]}),
         "layers": layers,
         "n_heads": n_heads,
         "n_conditions": len(records),
         "conditions": metas,
-        "mean_delta": [[round(float(x), 4) for x in row] for row in mean],
         "template": template,
         "description": (
             "Mean Δ log p of the target with each single head zeroed — "
@@ -869,19 +892,18 @@ def logit_attribution(
                 "layer": hl,
                 "contributions": [round(float(x), 4) for x in hc],
             })
-        rows.append({
-            "id": record.get("id"),
-            "target_token": model.tokenizer.decode([tok]),
-            "contrast_token": (model.tokenizer.decode([ctok])
-                               if ctok is not None else None),
-            "contributions": [round(float(x), 4) for x in contrib],
-            **({"per_head": per_head} if per_head else {}),
-            "additivity": {
+        rows.append(S.grid(
+            record.get("id"), ["component"],
+            {"contribution": [round(float(x), 4) for x in contrib]},
+            coords=record.get("coords"),
+            target=S.token(model.tokenizer, tok),
+            contrast=S.token(model.tokenizer, ctok) if ctok is not None else None,
+            per_head=per_head or None,
+            additivity={
                 "summed": round(summed, 3),
                 "true_logit": round(true_logit, 3),
                 "residual": round(summed - true_logit, 3),
-            },
-        })
+            }))
         if on_item:
             on_item()
     return _K().collection(
@@ -930,12 +952,14 @@ def steer_inject(
     alphas = [float(a) for a in params.get("alphas", [-8.0, -4.0, 0.0, 4.0, 8.0])]
     top_k = int(params.get("top_k", 5))
     direction = params.get("direction") or {}
+    axis = str(direction.get("axis") or "label")
     pos_label = direction.get("positive")
     neg_label = direction.get("negative")
     if not pos_label or not neg_label:
         raise ValueError(
-            "steer/inject needs direction: {positive: <label>, "
-            "negative: <label>} naming labels in the vectors record")
+            "intervene/steer needs direction: {axis?: <coordinate>, "
+            "positive: <value>, negative: <value>} naming groups in the "
+            "vectors collection")
 
     vectors = (inputs or {}).get("vectors") or params.get("vectors")
     if not isinstance(vectors, Mapping) or _K().item_kind_of(vectors) != "activations/vector":
@@ -943,16 +967,16 @@ def steer_inject(
             "intervene/steer needs a collection of activations/vector on "
             "its `vectors` port — the same block that measures geometry "
             "arms the intervention")
-    rows_at = [r for r in _K().items_of(vectors) if r.get("layer") == layer]
-    pos = np.array([r["vector"] for r in rows_at if r.get("label") == pos_label],
+    rows_at = [r for r in _K().items_of(vectors) if S.layer_of(r) == layer]
+    pos = np.array([r["vector"] for r in rows_at if str(S.label_of(r, axis)) == str(pos_label)],
                    dtype=np.float32)
-    neg = np.array([r["vector"] for r in rows_at if r.get("label") == neg_label],
+    neg = np.array([r["vector"] for r in rows_at if str(S.label_of(r, axis)) == str(neg_label)],
                    dtype=np.float32)
     if len(pos) == 0 or len(neg) == 0:
         raise ValueError(
-            f"the vectors record has no rows at layer {layer} for "
-            f"labels {pos_label!r}/{neg_label!r} — capture that layer "
-            "in residuals/vectors first")
+            f"the vectors collection has no items at layer {layer} with "
+            f"{axis}={pos_label!r}/{neg_label!r} — capture that layer "
+            "in activations/vectors first")
     dvec = pos.mean(axis=0) - neg.mean(axis=0)
     dnorm = float(np.linalg.norm(dvec))
 
@@ -969,39 +993,29 @@ def steer_inject(
         seq = int(np.array(ids).shape[-1])
         position = record.get("position", params.get("position", "final"))
         pos_idx = seq - 1 if position in (None, "final") else int(position)
-        track = record.get("track") or params.get("track")
-        track_id = _target_token_id(model, str(track)) if track else None
-        tracks = record.get("tracks") or params.get("tracks") or {}
-        track_ids = {str(name): _target_token_id(model, str(tokstr))
-                     for name, tokstr in tracks.items()}
+        tracked = _tracked_ids(model, record, tracked=params.get("tracked"),
+                               tracks=params.get("tracks"), track=params.get("track"))
         for alpha in alphas:
             interventions = (
                 [] if alpha == 0.0
                 else [Patch.add(layer, pos_idx, value, alpha=alpha)]
             )
             lp = _last_logp(model.run(ids, interventions=interventions).logits)
-            order = np.argsort(-lp)[:top_k]
             out_rows.append({
                 "id": record.get("id"),
-                "alpha": alpha,
-                "top": [
-                    {"token": model.tokenizer.decode([int(t)]),
-                     "logp": round(float(lp[int(t)]), 3)}
-                    for t in order
-                ],
-                **({"track_logp": round(float(lp[track_id]), 3)}
-                   if track_id is not None else {}),
-                **({"tracks": {name: round(float(lp[tid]), 3)
-                               for name, tid in track_ids.items()}}
-                   if track_ids else {}),
+                "coords": dict(record.get("coords") or {}),
+                "factor": alpha,
+                **S.distribution(lp, model.tokenizer, top_k=top_k, tracked=tracked),
             })
             if on_item:
                 on_item()
     return _K().collection(
         "intervene/readout", out_rows,
         layer=layer,
-        alphas=alphas,
+        sweep=alphas,
+        readout="decision",
         direction={
+            "axis": axis,
             "positive": pos_label,
             "negative": neg_label,
             "norm": round(dnorm, 3),
@@ -1032,22 +1046,26 @@ def vector_similarity(inputs: Mapping[str, Any],
             "on its `vectors` port"
         )
     rows = _K().items_of(src)
-    groups = sorted({(r.get("layer"), r.get("head")) for r in rows},
+    # The coordinate the items are grouped on for the separation
+    # metrics; the retired `label` field is read as the `label` axis.
+    axis = str(params.get("axis") or "label")
+    groups = sorted({(S.layer_of(r), S.head_of(r)) for r in rows},
                     key=lambda t: (t[0] if t[0] is not None else -1,
                                    t[1] if t[1] is not None else -1))
     out_layers: list[dict[str, Any]] = []
     for layer, head in groups:
         layer_rows = [r for r in rows
-                      if r.get("layer") == layer and r.get("head") == head]
+                      if S.layer_of(r) == layer and S.head_of(r) == head]
         if not layer_rows:
             continue
         ids = [r.get("id") for r in layer_rows]
-        labels = [r.get("label") for r in layer_rows]
+        labels = [S.label_of(r, axis) for r in layer_rows]
         vectors = np.array([r["vector"] for r in layer_rows], dtype=np.float32)
         matrix = geometry.cosine_matrix(vectors)
         entry: dict[str, Any] = {
             "layer": layer,
             **({"head": head} if head is not None else {}),
+            "space": S.space_of(layer_rows[0], header=src),
             "ids": ids,
             "labels": labels,
             "matrix": [[round(float(x), 4) for x in row] for row in matrix],
@@ -1075,6 +1093,7 @@ def vector_similarity(inputs: Mapping[str, Any],
         position=src.get("position"),
         point=src.get("point"),
         metric="cosine",
+        axis=axis,
         description=(
             "Pairwise cosine similarity of residual vectors per layer, "
             "with label-separation metrics where labels exist."

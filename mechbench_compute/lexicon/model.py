@@ -111,7 +111,7 @@ against. The output has one row per record per sweep factor.
 | `strength` | float | `1.0` | The item's magnitude: the coefficient for `add`, the factor for `scale`, the value for `clamp`, the angle in radians for `rotate`. Multiplied by each sweep factor. |
 | `direction` | direction | — | The direction for `add`, `project_out`, `clamp`, `rotate` and (optionally) `patch`. May instead arrive by edge on the node's `direction` port, which fills every item that names none. |
 | `direction2` | direction | — | The second axis of the plane for `rotate`. |
-| `source` | record | — | A `residual_vectors` record supplying replacement activations for `mean`, `resample` and `patch`; rows are matched to the item's layer. May instead arrive by edge on the `source` (or `vectors`) port. |
+| `source` | collection | — | A collection of `activations/vector` — or a capture readout from another `intervene/apply` — supplying replacement activations for `mean`, `resample` and `patch`; items are matched to the item's layer (and point). May instead arrive by edge on the `source` (or `vectors`) port. |
 | `row` | object | — | For `patch`: which row of `source` to write in, e.g. `{"index": 0}`. |
 | `condition` | object | — | Apply the item only at positions whose activation projects onto a direction above (or below) a threshold: `{"direction": …, "threshold": 0.0, "above": true}`. |
 | `seed` | int | the block's `seed` | The seed `resample` draws with. |
@@ -139,11 +139,11 @@ its `user`, `prompt` or `text` field. A record may also carry its own `track`
 and `outcomes`, which take precedence over the params of the same name.
 
 `direction` (optional, by edge) — a direction record that fills any spec
-item without one. `source` or `vectors` (optional, by edge) — a
-`residual_vectors` record that fills any `mean`/`resample`/`patch` item
-without one.
+item without one. `source` or `vectors` (optional, by edge) — a collection
+of `activations/vector`, or a capture readout from another intervention,
+that fills any `mean`/`resample`/`patch` item without one.
 """,
-    emits=Emits('intervene/readout', collection=True, doc='One item per record per factor: `id`, `coords`, `factor`, and the readout — for a decision, `entropy_bits`, `top` (the most likely next tokens with their log-probs), `track_logp` and `outcome_mass` when asked for; for a capture, `position` and `captures` (point → vector, at most 4096 values each). The header carries `spec` (the list as run, with directions and sources replaced by their provenance) and `sweep` (the factors, including `0.0` when a control was added).'),
+    emits=Emits('intervene/readout', collection=True, doc='One item per record per factor: `id`, `coords`, `factor`, and the readout — for a decision, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp}` for the tokens asked about); for a capture, `position` and `captures`, a collection of `activations/vector` with one item per hook point, each in its own `space` (at most 4096 values). The header carries `spec` (the list as run, with directions and sources replaced by their provenance) and `sweep` (the factors, including `0.0` when a control was added).'),
     params=(
         P("spec", "list[object]",
           "The intervention items, applied together in one forward pass per "
@@ -165,26 +165,30 @@ without one.
           "the last position. `{\"kind\": \"capture\", \"points\": "
           "[\"blocks.14.resid_post\"], \"position\": \"final\"}` records the "
           "activation vectors at the named hook points instead — `position` "
-          "is `\"final\"` or a token index. (A capture readout is for "
-          "reading; it is not yet accepted as another item's `source`, which "
-          "must be a `residual_vectors` record.) `readout.top_k` overrides "
-          "the `top_k` param.",
+          "is `\"final\"` or a token index. A capture readout is itself "
+          "accepted as another intervention's `source`. `readout.top_k` "
+          "overrides the `top_k` param.",
           {"type": "decision"}),
         P("top_k", "int",
           "How many of the most likely next tokens to record per row in a "
           "decision readout.",
           5),
-        P("track", "string",
-          "A token whose log-probability is recorded in every decision row "
-          "as `track_logp` — the answer you expect the intervention to "
-          "promote or suppress. Tokenized as a continuation, so include the "
-          "leading space where the model would. A record's own `track` "
+        P("tracked", "object",
+          "Tokens to follow by name: `{\"yes\": \" Yes\", \"no\": \" No\"}` "
+          "records each one's probability and log-probability under "
+          "`tracked.<name>`. Tokenized as a continuation, so include the "
+          "leading space where the model would. A record's own `tracked` "
           "field takes precedence.",
           None),
+        P("track", "string",
+          "The older spelling of one tracked token: recorded under "
+          "`tracked` by its own text. A record's own `track` field takes "
+          "precedence.",
+          None),
         P("outcomes", "list[string]",
-          "Tokens whose probabilities are recorded per row as "
-          "`outcome_mass` — the candidate answers of a forced choice. A "
-          "record's own `outcomes` field takes precedence.",
+          "The older spelling of tracked tokens: each outcome is recorded "
+          "under `tracked` by its own text — the candidate answers of a "
+          "forced choice. A record's own `outcomes` field takes precedence.",
           None),
         _TEMPLATE,
     ),
@@ -197,7 +201,7 @@ without one.
             "direction": {"$fetch": "$direction"},
         }],
         "sweep": {"strength": [0.5, 1.0, 2.0]},
-        "track": " Paris",
+        "tracked": {"answer": " Paris"},
         "top_k": 10,
     },
 )
@@ -219,7 +223,7 @@ The ablation replaces the component's output with zero, so the residual
 stream passes through that layer unchanged by it.
 """,
     inputs=_PROMPT_INPUT,
-    emits=Emits('intervene/ablation', collection=True, doc="Per record, one item per layer (`id`, `layer`, `delta_logp`) plus a summary item with `layer: null` carrying `baseline_logp`, `target_token` and `target_id`. The header's `aggregates.mean_delta` and `aggregates.median_delta` are per-layer across all records, in `layers` order."),
+    emits=Emits('intervene/ablation', collection=True, doc="Per record, one item per layer: `id`, `layer`, `delta_logp`. The header's `conditions` carry each record's untouched read (`{id, target, baseline_logp}`), and `aggregates.mean_delta` / `aggregates.median_delta` are per-layer across all records, in `layers` order."),
     params=(
         P("component", "string",
           "What to remove at each layer: `\"block\"` (the whole layer — "
@@ -258,7 +262,7 @@ Cost is one forward pass per record per (layer, head): on a 30-layer,
 about rather than all of them when the prompt set is large.
 """,
     inputs=_PROMPT_INPUT,
-    emits=Emits('intervene/heads', collection=False, doc="`mean_delta` is a matrix indexed `[layer][head]` of the mean Δ log‑p across records; `conditions` lists each record's `target_token` and `baseline_logp`; `layers` and `n_heads` give the axes."),
+    emits=Emits('intervene/heads', collection=False, doc="One grid over axes `[layer, head]`: `measures.mean_delta` is the mean Δ log‑p across records; `conditions` lists each record's `{id, target, baseline_logp}`; `layers` and `n_heads` give the axes."),
     params=(
         _LAYERS_ALL,
         _target("the answer whose dependence on each head is measured"),
@@ -290,7 +294,7 @@ picture nobody asked for. The block refuses a capture that would exceed two
 million values.
 """,
     inputs=_PROMPT_INPUT.replace(" A record may carry its own `target`.", ""),
-    emits=Emits('activations/attention', collection=True, doc="One item per record: `tokens` (the prompt's tokens, in order) and `layers` — for each layer, `heads`: a list of `[position][position]` matrices, one per head."),
+    emits=Emits('activations/attention', collection=True, doc="One grid per record over axes `[layer, head, query, key]`: `measures.weight` is indexed in that order (row = the attending position, column = the attended-to position); `tokens` are the prompt's tokens."),
     params=(
         P("layers", "list[int]",
           "The layers whose attention to record. Must be named — `\"all\"` is "
@@ -333,7 +337,7 @@ Because additivity only holds over the whole stream, `layers` must be
         "`records` — the prompts, one per record (`user`, `prompt` or `text`). "
         "A record may carry `target` and `contrast` tokens."
     ),
-    emits=Emits('logits/attribution', collection=True, doc="One item per record: `contributions` in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …), `target_token`, `contrast_token`, the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
+    emits=Emits('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …): `measures.contribution`, the `target` and `contrast` tokens, the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
     params=(
         P("apply_ln", "bool",
           "Fold the final norm's scale into the unembedding so contributions "
@@ -368,8 +372,9 @@ PATCH_TRACE = Op(
         "and map where the clean answer's probability comes back."
     ),
     description="""\
-Each record is a pair: a `clean` prompt where the model gets the answer, and
-a `corrupt` prompt (same length in tokens) where it does not. The block runs
+Each record is a pair: prompt `a` (clean) where the model gets the answer,
+and prompt `b` (corrupted, the same length in tokens) where it does not — the
+older field names `clean` and `corrupt` are still read. The block runs
 the clean prompt once, capturing the residual stream at every layer, and the
 corrupt prompt once for a baseline. Then for every (layer, position) it runs
 the corrupt prompt again with that one activation replaced by the clean
@@ -382,10 +387,10 @@ Pairs whose prompts tokenize to different lengths cannot be aligned and are
 reported as errors rather than silently shifted.
 """,
     inputs=(
-        "`records` — pairs, each with `clean` and `corrupt` prompt strings, "
-        "and optionally a `target`."
+        "`records` — pairs (`records/pair`), each with prompt strings `a` and "
+        "`b`, and optionally a `target`."
     ),
-    emits=Emits('intervene/trace', collection=True, doc="One item per record: `tokens` (of the corrupt prompt), `target_token`, `p_target_clean`, `p_target_corrupt`, and `recovery`, a `[layer][position]` matrix of the change in the target's `metric` relative to the corrupt baseline. A pair that could not be aligned has `error` instead."),
+    emits=Emits('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` residual is patched in; `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures."),
     params=(
         _LAYERS_ALL,
         P("metric", "string",
@@ -426,8 +431,8 @@ the change has propagated.
 
 Unequal-length pairs are reported as errors, not aligned by guesswork.
 """,
-    inputs="`records` — pairs, each with prompt strings `a` and `b`.",
-    emits=Emits('activations/divergence', collection=True, doc='One item per record: `tokens` (from prompt `a`) and `divergence`, a `[layer][position]` matrix of 1 − cosine; an unaligned pair has `error` instead.'),
+    inputs="`records` — pairs (`records/pair`), each with prompt strings `a` and `b`.",
+    emits=Emits('activations/divergence', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.divergence` is 1 − cosine; `tokens` are prompt `a`'s. An unaligned pair has `error` and empty measures."),
     params=(
         _LAYERS_ALL,
         P("point", "string",
@@ -465,9 +470,9 @@ vector. Where in the sequence the vector is read is the important choice:
   story at its final token embeds its *ending*, and a corpus with varied
   endings and identical middles would look varied.
 
-A label rides along on each row (the record's `label`, or the coordinate
-named by `label_coord`) so that `geometry/similarity` and `direction/*` can
-group rows without parsing ids.
+Every item carries its `space` (`{model, layer, point, head?, d}`) and the
+record's `coords`, which is what `geometry/similarity`, `geometry/mst` and
+`direction/*` group on (their `axis` names the coordinate).
 
 With `source: "queries"` or `"keys"` the block captures attention Q or K
 vectors instead of the residual, one row per (layer, head).
@@ -477,10 +482,9 @@ layers or records.
 """,
     inputs=(
         "`records` — the prompts (`user`, `prompt` or `text`), each optionally "
-        "with a `label`, `coords`, and a `subject` when `position` is "
-        "`\"subject\"`."
+        "with `coords`, and a `subject` when `position` is `\"subject\"`."
     ),
-    emits=Emits('activations/vector', collection=True, doc='One item per record per layer: `{id, label, layer, vector}`, plus `head` for Q/K sources and `n_pooled` when pooled. The header carries `point`, `source`, `position` (`"pooled"` when pooled), `layers`, `d_model`, and `skipped_empty` listing any records dropped under `skip_empty`.'),
+    emits=Emits('activations/vector', collection=True, doc='One item per record per layer (per head, for Q/K sources): `{id, coords, space, vector, norm}`, plus `token` (the token read, when not pooled) and `n_pooled` when pooled. The header carries `model`, `point`, `source`, `position` (`"pooled"` when pooled), `layers`, `d_model`, and `skipped_empty` listing any records dropped under `skip_empty`.'),
     params=(
         _LAYERS_ALL,
         P("point", "string",
@@ -510,9 +514,10 @@ layers or records.
           "envelope or prompt prefix, so the vector is of its body.",
           0),
         P("label_coord", "string",
-          "Which key of a record's `coords` to use as its `label` when the "
-          "record has no `label` field — the grouping the geometry "
-          "measurements downstream will use.",
+          "Retired: a grouping is a coordinate, and every item carries the "
+          "record's `coords`. When given, the named coordinate is also "
+          "written as the `label` coordinate, as the older grouping ops "
+          "read it.",
           None),
         P("skip_empty", "bool",
           "Drop records with no text instead of refusing. The dropped ids "
@@ -525,7 +530,6 @@ layers or records.
         "records": {"$fetch": "$stories"},
         "layers": [8, 12, 16],
         "pool": "first_k", "pool_skip": 5, "pool_k": 25,
-        "label_coord": "genre",
     },
 )
 
@@ -547,7 +551,7 @@ The map answers: where in the sequence, and at what depth, does the answer
 become visible?
 """,
     inputs=_PROMPT_INPUT,
-    emits=Emits('logits/lens', collection=True, doc='One item per record: `tokens`, `target_token`, `target_id`, and two `[layer][position]` matrices: `logprob` and `rank`.'),
+    emits=Emits('logits/lens', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.logprob` and `measures.rank` (0 is the top readout), `tokens`, and the `target` token."),
     params=(
         _LAYERS_ALL,
         _target("the answer being watched for"),
@@ -574,18 +578,26 @@ the final position is projected through the unembedding. Per layer the block
 records the most likely token, its probability, and the distribution's
 entropy in bits.
 
-Read the layers in order and you see the commitment funnel: entropy falling,
-one token taking over, at whichever depth this model decides. The output is
-a document collection so that a set of trajectories renders as overlaid
-curves.
+Read a record's items in layer order and you see the commitment funnel:
+entropy falling, one token taking over, at whichever depth this model
+decides. A set of records renders as overlaid curves.
 """,
     inputs=(
         "`records` — chat-shaped records with the fields named by "
         "`system_field`, `user_field` and `prefill_field`, and optionally "
         "`coords`."
     ),
-    emits=Emits('logits/funnel', collection=True, doc="One item per input record, with `metadata.layers` — a list of `{layer, top1, p, entropy_bits}` — and the record's `coords`."),
-    params=(*_FIELD_PARAMS, _PREFILL_FIELD),
+    emits=Emits('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked`. The header carries `layers` and `top_k`."),
+    params=(*_FIELD_PARAMS, _PREFILL_FIELD,
+            P("top_k", "int", "How many of the most likely tokens to record per layer.", 5),
+        P("tracked", "object",
+          "Tokens to follow by name: `{\"yes\": \" Yes\", \"no\": \" No\"}` "
+          "records each one's probability and log-probability under "
+          "`tracked.<name>`. Tokenized as a continuation, so include the "
+          "leading space where the model would. A record's own `tracked` "
+          "field takes precedence.",
+          None),
+    ),
     example={
         "model": "$model",
         "records": {"$fetch": "$conditions"},
@@ -602,32 +614,34 @@ STEER_INJECT = Op(
         "next-token distribution."
     ),
     description="""\
-The direction comes from *data* flowing through the graph: a
-`residual_vectors` record whose rows carry labels. At the injection layer,
-the block takes the mean vector of the rows labelled `direction.positive`,
-subtracts the mean of those labelled `direction.negative`, and adds the
-result — scaled by each `alpha` in turn — to the residual stream of every
-prompt at the chosen position. Alpha 0 is the built-in control.
+The direction comes from *data* flowing through the graph: a collection of
+`activations/vector` whose items are grouped on a coordinate. At the
+injection layer, the block takes the mean vector of the items whose
+`direction.axis` coordinate is `direction.positive`, subtracts the mean of
+those at `direction.negative`, and adds the result — scaled by each `alpha`
+in turn — to the residual stream of every prompt at the chosen position.
+Alpha 0 is the built-in control.
 
 For anything beyond one direction at one layer and position, use
 `intervene/apply`, of which this is a special case.
 """,
     inputs="""\
 `records` — the prompts to steer (`user`, `prompt` or `text`); a record may
-carry its own `position`, `track` and `tracks`.
+carry its own `position` and `tracked`.
 
-`vectors` (by edge, or the `vectors` param) — a `residual_vectors` record
-with labelled rows at the injection `layer`.
+`vectors` (by edge, or the `vectors` param) — a collection of
+`activations/vector` with items at the injection `layer`.
 """,
-    emits=Emits('intervene/readout', collection=True, doc="One item per record per alpha: `top` (the most likely next tokens and their log-probs), `track_logp` and `tracks` when asked for. The header's `direction` reports the two labels, the direction's norm and how many vectors went into each centroid; `alphas` lists the sweep."),
+    emits=Emits('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked`. The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas."),
     params=(
         P("layer", "int",
-          "The layer whose residual stream the direction is added to. Rows "
-          "at this layer must exist in the vectors record."),
+          "The layer whose residual stream the direction is added to. Items "
+          "at this layer must exist in the vectors collection."),
         P("direction", "object",
-          "Which labels define the direction: `{\"positive\": \"formal\", "
-          "\"negative\": \"casual\"}` — the centroid of `positive` rows minus "
-          "the centroid of `negative` rows."),
+          "Which groups define the direction: `{\"axis\": \"register\", "
+          "\"positive\": \"formal\", \"negative\": \"casual\"}` — the "
+          "centroid of the items whose `axis` coordinate is `positive` minus "
+          "the centroid of those at `negative`. `axis` defaults to `label`."),
         P("alphas", "list[float]",
           "The strengths to sweep. Each prompt is run once per alpha; "
           "alpha `0` is the untouched control.",
@@ -639,14 +653,20 @@ with labelled rows at the injection `layer`.
         P("top_k", "int",
           "How many of the most likely next tokens to record per row.",
           5),
+        P("tracked", "object",
+          "Tokens to follow by name: `{\"yes\": \" Yes\", \"no\": \" No\"}` "
+          "records each one's probability and log-probability under "
+          "`tracked.<name>`. Tokenized as a continuation, so include the "
+          "leading space where the model would. A record's own `tracked` "
+          "field takes precedence.",
+          None),
         P("track", "string",
-          "A token whose log-probability is recorded per row as "
-          "`track_logp`. A record's own `track` takes precedence.",
+          "The older spelling of one tracked token: recorded under "
+          "`tracked` by its own text. A record's own `track` takes precedence.",
           None),
         P("tracks", "object",
-          "Several tokens to follow at once, by name: `{\"yes\": \" Yes\", "
-          "\"no\": \" No\"}` records each one's log-probability per row under "
-          "`tracks`. A record's own `tracks` takes precedence.",
+          "The older spelling of `tracked`, read the same way. A record's own "
+          "`tracks` takes precedence.",
           None),
         _TEMPLATE,
     ),
@@ -654,9 +674,9 @@ with labelled rows at the injection `layer`.
         "model": "$model",
         "records": {"$fetch": "$prompts"},
         "layer": 12,
-        "direction": {"positive": "formal", "negative": "casual"},
+        "direction": {"axis": "register", "positive": "formal", "negative": "casual"},
         "alphas": [-4.0, 0.0, 4.0, 8.0],
-        "track": " certainly",
+        "tracked": {"hedge": " certainly"},
     },
 )
 
@@ -733,9 +753,10 @@ One prefill pass per record gives the full distribution; nothing is sampled.
 
 `outcomes` turns the read into a forced choice: each outcome string is
 tokenized as a continuation and the probability of its first token is
-recorded. A `rollout` goes further, expanding the most probable *complete*
-outcomes token by token (best-first, reusing the prompt cache) so that
-multi-token answers are compared as wholes.
+recorded under `tracked` by the outcome's own text. A `rollout` goes
+further, expanding the most probable *complete* outcomes token by token
+(best-first, reusing the prompt cache) so that multi-token answers are
+compared as wholes.
 
 Records keep their `coords`, so a grid of conditions comes out as a grid of
 readings.
@@ -745,7 +766,7 @@ readings.
         "records with the fields named by `system_field`, `user_field` and "
         "`prefill_field`; a record may carry its own `outcomes`."
     ),
-    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top_tokens` (the ten most probable, with `p`), `outcome_mass` (outcome → probability) when outcomes were given, and `rollout` when one was requested.'),
+    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each outcome and tracked token by name, `{token, p, logp}`), and `rollout` when one was requested. The header carries `top_k`.'),
     params=(
         P("conditions", "list[record] | ref",
           "The records to read, when they do not arrive by edge on the "
@@ -753,9 +774,15 @@ readings.
           None),
         P("outcomes", "list[string]",
           "The candidate answers: each is tokenized as a continuation of "
-          "the prompt and the probability of its first token is recorded. A "
-          "record's own `outcomes` field takes precedence.",
+          "the prompt and the probability of its first token is recorded "
+          "under `tracked` by the outcome's own text. A record's own "
+          "`outcomes` field takes precedence.",
           None),
+        P("tracked", "object",
+          "Other tokens to follow by name, `{\"yes\": \" Yes\"}`, recorded "
+          "under `tracked`. A record's own `tracked` takes precedence.",
+          None),
+        P("top_k", "int", "How many of the most likely tokens to record.", 10),
         P("rollout", "object",
           "Expand complete multi-token outcomes best-first from the "
           "decision point: `{\"top_k\": 10, \"max_tokens\": 8, "

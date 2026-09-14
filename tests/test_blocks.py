@@ -1,6 +1,8 @@
 """Pure-block contracts (task 000275): the stdlib pieces every
 protocol leans on — deterministic, growth-safe, expectation-judging."""
 
+import pytest
+
 from mechbench_compute.blocks import eval_expectation, factor_cross, template
 
 WORDS = ["alpha", "bravo", "charlie", "delta", "echo"]
@@ -94,15 +96,39 @@ def test_eval_expectation_judges_and_aggregates():
                                      "over": ["1", "2", "3", "4", "5", "6"],
                                      "max_kl_bits": 0.05}},
     ]
-    table = eval_expectation(
+    # The reads are in the older spelling (`outcome_mass`, `top_tokens`);
+    # the judge reads them as distributions.
+    out = eval_expectation(
         {"results": results, "expectations": expectations}, {})
-    assert table["kind"] == "records/table"
-    by_id = {r["id"]: r for r in table["rows"]}
-    assert by_id["die"]["pass"] == "True"
-    assert by_id["capital"]["pass"] == "True"
-    assert by_id["loaded"]["pass"] == "False"
-    assert by_id["ALL"]["n_judged"] == 3
-    assert abs(by_id["ALL"]["pass_rate"] - 2 / 3) < 1e-3
+    assert out["item_kind"] == "eval/verdict"
+    by_id = {r["id"]: r for r in out["items"]}
+    assert by_id["die"]["pass"] is True
+    assert by_id["capital"]["pass"] is True
+    assert by_id["loaded"]["pass"] is False
+    assert out["summary"]["n_judged"] == 3
+    assert abs(out["summary"]["pass_rate"] - 2 / 3) < 1e-3
+    assert "ALL" not in by_id
+
+
+def test_eval_expectation_reads_a_current_decision_collection():
+    from mechbench_compute.lexicon import kinds as K
+
+    def tok(t, p):
+        import math
+        return {"token": {"id": sum(map(ord, t)), "text": t}, "p": p, "logp": math.log(p)}
+    reads = K.collection("logits/decision", [
+        {"id": "die", "entropy_bits": 2.58,
+         "top": [tok(str(i), 1 / 6) for i in range(1, 7)],
+         "tracked": {str(i): tok(str(i), 1 / 6) for i in range(1, 7)}},
+        {"id": "capital", "entropy_bits": 0.01, "top": [tok("Paris", 0.999)]},
+    ])
+    out = eval_expectation({"results": reads, "expectations": [
+        {"id": "die", "expect": {"type": "uniform", "over": ["1", "2", "3", "4", "5", "6"]}},
+        {"id": "capital", "expect": {"type": "answer", "value": "Paris"}},
+    ]}, {})
+    by_id = {r["id"]: r for r in out["items"]}
+    assert by_id["die"]["pass"] is True and by_id["die"]["mass"] == pytest.approx(1.0, abs=1e-3)
+    assert by_id["capital"]["pass"] is True and by_id["capital"]["p_expected"] == 0.999
 
 
 def test_eval_expectation_accepts_params_fallback():
@@ -111,8 +137,8 @@ def test_eval_expectation_accepts_params_fallback():
         "expectations": [{"id": "a", "expect": {"kind": "min_entropy",
                                                   "bits": 2.0}}],
     })
-    row_a = next(r for r in table["rows"] if r["id"] == "a")
-    assert row_a["pass"] == "True"
+    row_a = next(r for r in table["items"] if r["id"] == "a")
+    assert row_a["pass"] is True
 
 
 def test_suite_metric_records_shapes_lm_eval_results():
@@ -185,10 +211,10 @@ def test_uniform_masses_derive_from_top_tokens():
         "kind": "uniform", "over": ["1", "2", "3", "4"], "max_kl_bits": 0.1}}]
     table = eval_expectation(
         {"results": results, "expectations": expectations}, {})
-    row = table["rows"][0]
-    assert row["pass"] == "True"  # pass serializes as string, per the column dtype
+    row = table["items"][0]
+    assert row["pass"] is True
     assert row["kl_bits"] < 0.02
-    assert row["outcome_mass"] > 0.99
+    assert row["mass"] > 0.99
 
 
 def test_uniform_without_any_distribution_is_unjudgeable_not_false():
@@ -197,11 +223,10 @@ def test_uniform_without_any_distribution_is_unjudgeable_not_false():
         "kind": "uniform", "over": ["1", "2"], "max_kl_bits": 0.1}}]
     table = eval_expectation(
         {"results": results, "expectations": expectations}, {})
-    row = table["rows"][0]
-    assert "unjudgeable" in str(row["pass"])
-    # ...and the aggregate does not count it as a judged failure.
-    agg = table["rows"][-1]
-    assert agg["n_judged"] == 0
+    row = table["items"][0]
+    assert row["pass"] is None and "unjudgeable" in row["note"]
+    # ...and the summary does not count it as a judged failure.
+    assert table["summary"]["n_judged"] == 0 and table["summary"]["n_unjudgeable"] == 1
 
 
 

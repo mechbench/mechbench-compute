@@ -35,6 +35,8 @@ from typing import Any
 
 import numpy as np
 
+from mechbench_compute import shapes as S
+
 #: How far above the mean an edge must sit to count as a bridge between
 #: clusters rather than a step within one.
 DEFAULT_BRIDGE_SIGMA = 2.0
@@ -146,6 +148,9 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     # Off by default so stored results keep their numbers; every new
     # protocol should turn it on. See `center_rows`.
     center = bool(params.get("center", False))
+    # The coordinate items are grouped on; the retired `label` field is
+    # read as the `label` coordinate.
+    axis = str(params.get("axis") or "label")
     from mechbench_compute.lexicon import kinds as K
 
     src = (inputs.get("matrix") or inputs.get("similarity")
@@ -172,19 +177,19 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
             })
     elif _is(vectors, "activations/vector"):
         rows = K.items_of(vectors)
-        keys = sorted({(r.get("layer"), r.get("head")) for r in rows},
+        keys = sorted({(S.layer_of(r), S.head_of(r)) for r in rows},
                       key=lambda t: (t[0] if t[0] is not None else -1,
                                      t[1] if t[1] is not None else -1))
         for layer, head in keys:
             sub = [r for r in rows
-                   if r.get("layer") == layer and r.get("head") == head]
+                   if S.layer_of(r) == layer and S.head_of(r) == head]
             if len(sub) < 2:
                 continue
             groups.append({
                 "layer": layer,
                 **({"head": head} if head is not None else {}),
                 "ids": [r.get("id") for r in sub],
-                "labels": [r.get("label") for r in sub],
+                "labels": [S.label_of(r, axis) for r in sub],
                 "distance": _vectors_to_distance(sub, center=center),
             })
     else:
@@ -215,6 +220,7 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
         metric="centered_cosine_distance" if center else "cosine_distance",
         centered=center,
         bridge_sigma=bridge_sigma,
+        axis=axis,
         description=(
             "Minimum spanning tree over pairwise cosine distance. `mean` is "
             "the scale of the spread and `variance` its clumpiness; they are "

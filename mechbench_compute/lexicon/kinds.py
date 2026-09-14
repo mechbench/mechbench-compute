@@ -7,9 +7,9 @@ item) and its `header` (what a collection of it carries). `emit` sorts a
 collection's items by their key before hashing, so the same items in any
 order are the same bytes.
 
-Value types — `space`, `token`, `sweep` — are fields, not kinds, and are
-described where they appear. The lattice (§6) is declared with
-`extends`.
+Value types — `space`, `token`, a distribution's `top` and `tracked` —
+are fields, not kinds; `shapes.py` constructs them and every op builds
+its items through it. The lattice (§6) is declared with `extends`.
 
 Names retired on 2026-09-14 (task 000496) resolve through `KIND_ALIASES`
 until the release named in `lexicon.ALIASES_REMOVED_IN`.
@@ -36,10 +36,20 @@ def F(type_: str, doc: str, **extra: Any) -> dict[str, Any]:
 ID = F("string", "The record's identity within its collection.")
 COORDS = F("object", "The experimental coordinates the record belongs to: axis name → level key.",
            additionalProperties={"type": ["string", "integer", "number"]})
-SPACE_DOC = ("The activation space the vector lives in: `{model, layer | null, point, head?, d}`. "
+SPACE_DOC = ("The activation space the vector lives in: `{model, layer | null, point, head | null, d}`. "
              "Two vectors are comparable only when their spaces agree.")
 TOKEN = F("object", "A token as `{id, text}`.", properties={"id": {"type": "integer"}, "text": {"type": "string"}})
 VEC = F("array", "A dense float vector; position is the only key.", items={"type": "number"})
+SPACE = F("object", SPACE_DOC,
+          properties={"model": {"type": ["string", "null"]}, "layer": {"type": ["integer", "null"]},
+                      "point": {"type": "string"}, "head": {"type": ["integer", "null"]}, "d": {"type": "integer"}},
+          required=["model", "layer", "point", "head", "d"])
+TOP = F("array", "The most likely tokens, ranked by probability, each `{token, p, logp}`.",
+        items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}}})
+TRACKED = F("object", "Name → `{token, p, logp}` for the tokens the caller asked about, by the names it gave.",
+            additionalProperties={"type": "object"})
+DIST = F("object", "A `logits/distribution`: `{entropy_bits, top, tracked?}`.",
+         properties={"entropy_bits": {"type": "number"}, "top": TOP, "tracked": TRACKED})
 
 _TABLE_RENDERER = {"primitive": "table", "field_map": {"rows": "items"}}
 
@@ -79,6 +89,7 @@ PAIR = Kind(
             "b": F("string", "The second prompt (the corrupted one, for tracing).")},
     required=("id", "a", "b"),
     key=("id",),
+    doc="Written before the typology as `clean`/`corrupt`; those names are still read.",
 )
 
 TABLE = Kind(
@@ -222,68 +233,63 @@ AGENT = Kind(
 DISTRIBUTION = Kind(
     "logits/distribution",
     "A summary of a next-token distribution: its entropy, the most likely tokens, and the tokens the caller asked about.",
-    fields={
-        "entropy_bits": F("number", "The distribution's entropy in bits."),
-        "top": F("array", "The most likely tokens, ranked, each `{token, p, logp}`.", items={"type": "object"}),
-        "tracked": F("object", "Name → `{token, p, logp}` for the tokens the caller named."),
-    },
-    required=("entropy_bits",),
+    fields={"entropy_bits": F("number", "The distribution's entropy in bits."),
+            "top": TOP, "tracked": TRACKED},
+    required=("entropy_bits", "top"),
+    doc="Every op that reads a next-token distribution emits this shape or a kind that extends it: "
+        "the same `top` and `tracked`, spelled once.",
 )
 
 DECISION = Kind(
     "logits/decision",
     "The next-token distribution at a record's decision point, with the mass on each candidate outcome and an optional best-first expansion of complete outcomes.",
     extends="logits/distribution",
-    fields={
-        "id": ID, "coords": COORDS,
-        "top_tokens": F("array", "The ten most probable tokens, `{token, p}`.", items={"type": "object"}),
-        "outcome_mass": F("object", "Outcome → the probability of its first token."),
-        "rollout": F("object", "The expanded complete outcomes, when a rollout was asked for."),
-    },
-    required=("id", "entropy_bits"),
+    fields={"id": ID, "coords": COORDS,
+            "rollout": F("object", "The expanded complete outcomes, when a rollout was asked for.")},
+    required=("id", "entropy_bits", "top"),
     key=("id",),
-    header={"model": "The model read."},
+    header={"model": "The model read.", "top_k": "How many tokens `top` holds."},
     renderer=_TABLE_RENDERER,
+    doc="`tracked` holds each named outcome's first token; a record's `outcomes` name themselves.",
 )
 
 FUNNEL = Kind(
     "logits/funnel",
-    "One record's commitment funnel: at every layer, the top token, its probability and the entropy when that layer's residual is read through the unembedding.",
+    "One layer of a record's commitment funnel: the next-token distribution when that layer's residual is read through the unembedding.",
     extends="logits/distribution",
-    fields={"id": ID, "coords": COORDS,
-            "layers": F("array", "`{layer, top1, p, entropy_bits}` per layer, in order.", items={"type": "object"}),
-            "text": F("string", "A one-line summary for the browser.", **{"x-mechbench-text": True})},
-    required=("id", "layers"),
-    key=("id",),
-    header={"name": "A label for the collection.", "description": "Free text beside the name.", "fidelity": "Always `text`."},
-    renderer={"primitive": "series", "field_map": {"rows": "layers", "x": "layer", "y": "entropy_bits", "label": "top1"}},
-    collection_renderer={"primitive": "series", "field_map": {"rows": "layers", "x": "layer", "y": "entropy_bits", "label": "top1"}},
+    fields={"id": ID, "coords": COORDS, "layer": F("integer", "The layer read.")},
+    required=("id", "layer", "entropy_bits", "top"),
+    key=("id", "layer"),
+    header={"name": "A label for the collection.", "description": "Free text beside the name.",
+            "layers": "The layers read, in order.", "top_k": "How many tokens `top` holds."},
+    renderer={"primitive": "table", "field_map": {"rows": "top"}},
+    collection_renderer={"primitive": "series", "field_map": {"rows": "items", "x": "layer", "y": "entropy_bits", "label": "id"}},
+    doc="Read a record's items in layer order and you see the funnel: entropy falling, one token taking over.",
 )
 
 LENS = Kind(
     "logits/lens",
     "A record's logit lens over the whole prompt: the target token's log-probability and rank at every (layer, position).",
-    fields={"id": ID, "tokens": F("array", "The prompt's tokens, in order.", items={"type": "string"}),
-            "target_token": F("string", "The token followed."), "target_id": F("integer", "Its id."),
-            "logprob": F("array", "`[layer][position]` log-probability of the target.", items={"type": "array"}),
-            "rank": F("array", "`[layer][position]` rank of the target; 0 is top.", items={"type": "array"})},
-    required=("id", "tokens", "logprob", "rank"),
+    extends="activations/grid",
+    fields={"target": TOKEN},
+    required=("id", "axes", "measures", "tokens", "target"),
     key=("id",),
     header={"layers": "The layers read, in row order.", "template": "How prompts were tokenized."},
+    doc="Axes `[layer, position]`; measures `logprob` and `rank` (0 is the top readout).",
 )
 
 ATTRIBUTION = Kind(
     "logits/attribution",
     "A record's direct logit attribution: each component's contribution to the target logit, with the additivity check that says the pieces sum to the truth.",
-    fields={"id": ID, "target_token": F("string", "The token whose logit is decomposed."),
-            "contrast_token": F("string", "The token subtracted, when the record carried a contrast."),
-            "contributions": F("array", "One value per component, in `components` order.", items={"type": "number"}),
+    extends="activations/grid",
+    fields={"target": TOKEN, "contrast": TOKEN,
             "per_head": F("array", "`{layer, contributions[head]}` for the layers split by head.", items={"type": "object"}),
             "additivity": F("object", "`{summed, true_logit, residual}` — the honesty number.")},
-    required=("id", "target_token", "contributions", "additivity"),
+    required=("id", "axes", "measures", "target", "additivity"),
     key=("id",),
     header={"components": "The component names: `embed`, then `L0`, `L1`, …", "apply_ln": "Whether the final norm was folded in.",
             "layers": "The layers decomposed (all of them).", "template": "How prompts were tokenized."},
+    doc="Axis `[component]`, in the header's `components` order; measure `contribution`.",
 )
 
 # --- activations -----------------------------------------------------------------------
@@ -291,85 +297,93 @@ ATTRIBUTION = Kind(
 VECTOR = Kind(
     "activations/vector",
     "One vector from a model's activation space, tagged with the space it lives in and what it was read from.",
-    fields={"id": ID, "label": F("string", "A grouping label, when the record carried one."),
-            "layer": F("integer", "The layer read; null for a whole-model point."), "head": F("integer", "The head, for a per-head source."),
-            "vector": VEC, "norm": F("number", "The vector's magnitude."),
-            "n_pooled": F("integer", "How many positions went into it, when pooled."),
-            "token": TOKEN},
-    required=("vector",),
-    key=("id", "layer", "head"),
+    fields={"id": ID, "coords": COORDS, "space": SPACE, "vector": VEC,
+            "norm": F("number", "The vector's magnitude."),
+            "token": TOKEN,
+            "n_pooled": F("integer", "How many positions went into it, when pooled.")},
+    required=("space", "vector"),
+    key=("id", "space"),
     header={"point": "The hook point read.", "source": "`resid`, `queries` or `keys`.",
             "position": "Which position, or `pooled`.", "pool": "The pooling, when pooled.",
             "layers": "The layers captured.", "d_model": "The vector width.",
             "template": "How prompts were tokenized.", "model": "The model's wire form.",
-            "skipped_empty": "Records dropped for having no text, when any."},
+            "skipped_empty": "Records dropped for having no text, when any.",
+            "segments": "When made by `records/union`: the ports and how many each contributed."},
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
+    doc="A grouping is a coordinate (`coords.genre`), never a `label` field; the ops that group take an `axis`.",
 )
 
 COORDINATE = Kind(
     "activations/coordinate",
-    "A vector's scalar coordinate along a direction.",
-    fields={"id": ID, "label": F("string", "A grouping label, when the record carried one."),
-            "layer": F("integer", "The layer the vector came from."),
-            "projection": F("number", "The dot product with the unit direction.")},
-    required=("id", "projection"),
-    key=("id", "layer"),
-    header={"layer": "The direction's layer.", "point": "The direction's point."},
+    "A vector's scalar coordinate along a direction, with the space and the direction's identity.",
+    fields={"id": ID, "coords": COORDS, "space": SPACE,
+            "direction": F("object", "`{space, method, …}` — the direction projected onto, without its vector."),
+            "coord": F("number", "The dot product with the unit direction."),
+            "step": F("integer", "The step, when read along a trajectory."),
+            "position": F("integer", "The position, when read along a trajectory."),
+            "token": TOKEN},
+    required=("space", "direction", "coord"),
+    key=("id", "step", "space"),
+    header={"axis": "For a projected trajectory: `layers` or `positions`.",
+            "projected": "Always true: a coordinate collection is a projected one."},
+    renderer=_TABLE_RENDERER,
 )
 
 GRID = Kind(
     "activations/grid",
-    "A scalar field over model axes for one record: declared axes, named measures, the values, and the tokens when an axis is position.",
-    fields={"id": ID, "axes": F("array", "The axes, in value-index order.", items={"type": "string"}),
-            "measures": F("object", "Measure name → values indexed in axis order."),
-            "tokens": F("array", "The prompt's tokens, when an axis is `position`.", items={"type": "string"})},
-    required=("id",),
+    "A scalar field over model axes for one record: declared axes, named measures indexed in axis order, and the tokens when an axis is position.",
+    fields={"id": ID, "coords": COORDS,
+            "axes": F("array", "The axes, in value-index order: `layer`, `position`, `head`, `query`, `key`, `component`.", items={"type": "string"}),
+            "measures": F("object", "Measure name → values, a nested list indexed in `axes` order."),
+            "tokens": F("array", "The prompt's tokens, when an axis is `position`.", items={"type": "string"}),
+            "error": F("string", "Why the record could not be measured, when it could not; then `measures` is empty.")},
+    required=("id", "axes", "measures"),
     key=("id",),
+    renderer={"primitive": "table", "field_map": {"rows": "items"}},
 )
 
 DIVERGENCE = Kind(
     "activations/divergence",
     "For a matched pair, 1 − cosine between the two residual streams at every (layer, position).",
     extends="activations/grid",
-    fields={"id": ID, "tokens": F("array", "Prompt `a`'s tokens.", items={"type": "string"}),
-            "divergence": F("array", "`[layer][position]`.", items={"type": "array"}),
-            "error": F("string", "Why the pair could not be aligned, when it could not.")},
-    required=("id",),
+    required=("id", "axes", "measures"),
     key=("id",),
     header={"point": "The residual compared.", "layers": "The layers, in row order.", "template": "How prompts were tokenized."},
+    doc="Axes `[layer, position]`; measure `divergence`; `tokens` are prompt `a`'s.",
 )
 
 ATTENTION = Kind(
     "activations/attention",
     "A record's attention weights at chosen layers: per head, a matrix over the prompt's positions.",
     extends="activations/grid",
-    fields={"id": ID, "tokens": F("array", "The prompt's tokens.", items={"type": "string"}),
-            "layers": F("array", "`{layer, heads: [[position][position]]}` per layer.", items={"type": "object"})},
-    required=("id", "layers"),
+    required=("id", "axes", "measures", "tokens"),
     key=("id",),
-    header={"n_heads": "Heads per layer.", "layers": "The layers captured.", "template": "How prompts were tokenized."},
+    header={"n_heads": "Heads per layer.", "layers": "The layers captured, in axis order.", "template": "How prompts were tokenized."},
+    doc="Axes `[layer, head, query, key]`; measure `weight` — row = the attending position, column = the attended-to position.",
 )
 
 # --- geometry --------------------------------------------------------------------------
 
 SIMILARITY = Kind(
     "geometry/similarity",
-    "A symmetric similarity matrix over the items of a collection, with the metric that produced it and, when the items are labelled, how well the labels separate.",
+    "A symmetric similarity matrix over the items of a collection, with the metric that produced it and, when the items are grouped on an axis, how well the groups separate.",
     fields={"layer": F("integer", "The layer the vectors came from, for a per-layer group."),
             "head": F("integer", "The head, for a per-head group."),
+            "space": SPACE,
             "ids": F("array", "The item ids, in matrix order.", items={}),
-            "labels": F("array", "The items' labels, in matrix order.", items={}),
+            "labels": F("array", "The items' values on the grouping `axis`, in matrix order.", items={}),
             "names": F("array", "For directions: their names, in matrix order.", items={"type": "string"}),
             "matrix": F("array", "The similarity, `[i][j]`.", items={"type": "array"}),
             "cosines": F("array", "The same, for a direction matrix.", items={"type": "array"}),
             "cosine": F("number", "For exactly two directions: their cosine."),
             "norms": F("object", "For directions: name → norm before normalisation."),
             "pairs": F("array", "Every pair with its cosine, most similar first.", items={"type": "object"}),
-            "separation": F("object", "`{intra_cosine, inter_cosine, gap}` when labelled."),
-            "nn_purity": F("number", "Share of items whose nearest neighbour shares their label."),
+            "separation": F("object", "`{intra_cosine, inter_cosine, gap}` when grouped."),
+            "nn_purity": F("number", "Share of items whose nearest neighbour shares their group."),
             "silhouette": F("number", "The silhouette score, when computable.")},
     key=("layer", "head"),
-    header={"position": "Which position the vectors were read at.", "point": "The hook point.", "metric": "The metric and its options."},
+    header={"position": "Which position the vectors were read at.", "point": "The hook point.",
+            "metric": "The metric and its options.", "axis": "The coordinate the items were grouped on."},
 )
 
 MST = Kind(
@@ -397,64 +411,58 @@ READOUT = Kind(
     "What one record's forward pass read out under one strength of an intervention: a next-token distribution, or captured activations.",
     extends="logits/distribution",
     fields={"id": ID, "coords": COORDS,
-            "factor": F("number", "The sweep factor; 0 is the control."),
-            "alpha": F("number", "The steering strength, for a `intervene/steer` sweep."),
-            "top": F("array", "The most likely next tokens, `{token, logp}`.", items={"type": "object"}),
-            "track_logp": F("number", "The tracked token's log-probability."),
-            "tracks": F("object", "Name → log-probability, for several tracked tokens."),
-            "outcome_mass": F("object", "Outcome → probability."),
+            "factor": F("number", "The sweep factor; 0 is the control. For a steer sweep, the alpha."),
             "position": F("integer", "For a capture: the position read."),
-            "captures": F("object", "For a capture: hook point → vector.")},
-    required=("id",),
+            "captures": F("object", "For a capture: a collection of `activations/vector`, one per hook point, each in its own space.")},
+    required=("id", "factor"),
     key=("id", "factor"),
     header={"spec": "The intervention items as run, with objects replaced by their provenance.",
             "sweep": "The factors run, including 0 when a control was added.",
             "readout": "`decision` or `capture`.", "template": "How prompts were tokenized.",
-            "layer": "For a steer sweep: the injection layer.", "alphas": "For a steer sweep: the strengths.",
-            "direction": "For a steer sweep: the labels, norm and counts of the direction built."},
+            "layer": "For a steer sweep: the injection layer.",
+            "direction": "For a steer sweep: the axis and values, norm and counts of the direction built."},
     renderer=_TABLE_RENDERER,
+    doc="A decision readout carries `entropy_bits`, `top` and `tracked`; a capture readout carries `position` and `captures`, "
+        "and a capture readout wires into another intervention's `source`.",
 )
 
 ABLATION = Kind(
     "intervene/ablation",
     "The change in a target token's log-probability when one layer's component is removed, for one record and one layer.",
-    fields={"id": ID, "layer": F("integer", "The layer ablated; null on a record's baseline row."),
-            "delta_logp": F("number", "Ablated minus baseline log-probability."),
-            "baseline_logp": F("number", "On the baseline row: the untouched log-probability."),
-            "target_token": F("string", "On the baseline row: the token followed."),
-            "target_id": F("integer", "On the baseline row: its id.")},
-    required=("id",),
+    fields={"id": ID, "layer": F("integer", "The layer ablated."),
+            "delta_logp": F("number", "Ablated minus baseline log-probability.")},
+    required=("id", "layer", "delta_logp"),
     key=("id", "layer"),
     header={"component": "What was removed at each layer.", "layers": "The layers swept.",
             "n_conditions": "How many records.", "template": "How prompts were tokenized.",
+            "conditions": "Per record: `{id, target, baseline_logp}` — the untouched read each delta is against.",
             "aggregates": "`{mean_delta, median_delta}` per layer across records."},
     renderer=_TABLE_RENDERER,
 )
 
 HEADS = Kind(
     "intervene/heads",
-    "The mean change in a target token's log-probability with each single head zeroed: a layer × head matrix over the records.",
+    "The mean change in a target token's log-probability with each single head zeroed: a layer × head grid over the records.",
     extends="activations/grid",
-    fields={"mean_delta": F("array", "`[layer][head]`.", items={"type": "array"}),
-            "layers": F("array", "The layers, in row order.", items={"type": "integer"}),
+    fields={"layers": F("array", "The layers, in row order.", items={"type": "integer"}),
             "n_heads": F("integer", "Heads per layer."), "n_conditions": F("integer", "How many records."),
-            "conditions": F("array", "Per record: `{id, target_token, baseline_logp}`.", items={"type": "object"}),
+            "conditions": F("array", "Per record: `{id, target, baseline_logp}`.", items={"type": "object"}),
             "template": F("string", "How prompts were tokenized.")},
-    required=("mean_delta", "layers", "n_heads"),
+    required=("id", "axes", "measures", "layers", "n_heads"),
+    doc="Axes `[layer, head]`; measure `mean_delta`. One grid for the whole record set, id `mean`.",
 )
 
 TRACE = Kind(
     "intervene/trace",
     "A pair's causal trace: how much of the clean answer's probability comes back when the clean residual is patched into the corrupted run at each (layer, position).",
     extends="activations/grid",
-    fields={"id": ID, "tokens": F("array", "The corrupted prompt's tokens.", items={"type": "string"}),
-            "target_token": F("string", "The answer traced."), "metric": F("string", "`logprob` or `prob`."),
-            "p_target_clean": F("number", "The metric on the clean prompt."), "p_target_corrupt": F("number", "The metric on the corrupted prompt."),
-            "recovery": F("array", "`[layer][position]` change in the metric from the corrupted baseline.", items={"type": "array"}),
-            "error": F("string", "Why the pair could not be aligned, when it could not.")},
-    required=("id",),
+    fields={"target": TOKEN, "metric": F("string", "`logprob` or `prob`."),
+            "value_a": F("number", "The metric on prompt `a` (clean)."),
+            "value_b": F("number", "The metric on prompt `b` (corrupted), the baseline.")},
+    required=("id", "axes", "measures"),
     key=("id",),
     header={"point": "The residual patched.", "metric": "`logprob` or `prob`.", "layers": "The layers, in row order.", "template": "How prompts were tokenized."},
+    doc="Axes `[layer, position]`; measure `recovery` — the change in the metric from the `b` baseline; `tokens` are prompt `b`'s.",
 )
 
 # --- direction -------------------------------------------------------------------------
@@ -463,45 +471,41 @@ DIRECTION = Kind(
     "direction/vector",
     "A unit vector in a model's activation space, with its derivation: how it was made, from what, on which model.",
     extends="activations/vector",
-    fields={"layer": F("integer", "The layer; null for a whole-model point."), "point": F("string", "The hook point."),
-            "d": F("integer", "The width."), "vector": VEC, "norm": F("number", "The magnitude before normalisation."),
-            "unit": F("boolean", "Whether the vector is unit length."),
-            "derivation": F("object", "`{method, sources, model, labels?, …}` — how it was made.")},
-    required=("point", "d", "vector", "derivation"),
-    key=("name",),
+    fields={"unit": F("boolean", "Whether the vector is unit length."),
+            "derivation": F("object", "`{method, sources, model, axis?, positive?, negative?, …}` — how it was made.")},
+    required=("space", "vector", "derivation"),
+    key=("id", "space"),
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
+    doc="`norm` is the magnitude before normalisation, which some readings use.",
 )
 
 VOCAB = Kind(
     "direction/vocab",
-    "What a direction says in token space: the top tokens of the unembedding applied to it and to its negative.",
-    fields={"layer": F("integer", "The direction's layer."), "point": F("string", "Its point."), "top_k": F("integer", "How many tokens per sign."),
-            "positive": F("array", "`{token, p}` for +direction.", items={"type": "object"}),
-            "negative": F("array", "`{token, p}` for −direction.", items={"type": "object"})},
-    required=("positive", "negative"),
+    "What a direction says in token space: the distribution the unembedding gives it and its negative.",
+    fields={"space": SPACE, "top_k": F("integer", "How many tokens per sign."),
+            "positive": DIST, "negative": DIST},
+    required=("space", "positive", "negative"),
 )
 
 # --- trajectory ------------------------------------------------------------------------
 
 POINT = Kind(
     "trajectory/point",
-    "One step of a trajectory: the residual vector (or its coordinate along a direction) at one layer and position of one record.",
+    "One step of a trajectory: the residual vector at one layer and position of one record.",
     extends="activations/vector",
-    fields={"id": ID, "label": F("string", "A grouping label."), "step": F("integer", "The step along the axis."),
-            "layer": F("integer", "The layer read."), "position": F("integer", "The position read."),
-            "token": F("string", "The token at that position."), "norm": F("number", "The vector's magnitude."),
-            "vector": VEC, "coord": F("number", "The coordinate along the direction, when projected."),
-            "vocab_top": F("array", "The step's top tokens through the unembedding, when asked for.", items={"type": "object"}),
-            "n_pooled": F("integer", "Positions pooled, when reduced."), "steps": F("array", "The window pooled, when reduced.", items={"type": "integer"})},
-    required=("id", "step", "layer"),
+    fields={"step": F("integer", "The step along the axis."),
+            "position": F("integer", "The position read."),
+            "vocab": DIST,
+            "steps": F("array", "The window pooled, when reduced.", items={"type": "integer"})},
+    required=("id", "step", "space", "vector"),
     key=("id", "step"),
     header={"axis": "`layers` or `positions`.", "point": "The residual read.", "layers": "The layers.",
             "position": "For a layers axis: which position.", "positions": "For a positions axis: which positions.",
             "d_model": "The vector width.", "template": "How prompts were tokenized.",
             "replay": "`trace`, `text` or `mixed`.", "n_items": "How many records.",
-            "max_steps": "The per-record step cap, when set.", "reduce": "The reduction, when reduced.", "steps": "The window, when reduced.",
-            "direction": "The direction projected onto, when projected."},
+            "max_steps": "The per-record step cap, when set.", "reduce": "The reduction, when reduced.", "steps": "The window, when reduced."},
     renderer=_TABLE_RENDERER,
+    doc="A projected trajectory is a collection of `activations/coordinate` with `step` and `position`, not a point without its vector.",
 )
 
 COMPARISON = Kind(
@@ -569,7 +573,7 @@ PUSH = Kind(
 
 VERDICT = Kind(
     "eval/verdict",
-    "A judge's verdict on one record: a score, a label or a preference, with every vote, the spread between them, and a rationale.",
+    "A verdict on one record: a judge's score, label or preference with every vote; or an expectation's pass with the number it was judged on.",
     fields={"id": ID, "coords": COORDS,
             "score": F("number", "Mean score, for a numeric scale."), "spread": F("number", "Standard deviation of the scores."),
             "min": F("number", "Lowest score."), "max": F("number", "Highest score."),
@@ -579,10 +583,17 @@ VERDICT = Kind(
             "n_votes": F("integer", "Votes cast."), "n_parsed": F("integer", "Votes that could be read."),
             "votes": F("array", "Every vote as `{vote, parsed, order, …}`.", items={"type": "object"}),
             "unparsed": F("boolean", "True when no vote could be read."),
-            "pass": F("boolean", "For an expectation: whether it was met.")},
-    required=("id", "n_votes"),
+            "expect": F("string", "For an expectation: its type."),
+            "entropy_bits": F("number", "For an expectation: the read's entropy."),
+            "kl_bits": F("number", "For an expectation: KL from the expected distribution."),
+            "mass": F("number", "For an expectation: the probability mass on the named outcomes."),
+            "p_expected": F("number", "For an `answer` expectation: the expected token's probability."),
+            "pass": F("boolean", "Whether the expectation was met; null when it could not be judged."),
+            "note": F("string", "Why it could not be judged, when it could not.")},
+    required=("id",),
     key=("id",),
-    header={"judge": "Who graded, on what scale, with what rubric.", "summary": "Mean/median/stdev or counts, `n_unparsed`, and the position-bias diagnostic.",
+    header={"judge": "Who graded, on what scale, with what rubric.",
+            "summary": "For a judge: mean/median/stdev or counts, `n_unparsed`, the position-bias diagnostic. For an expectation: `pass_rate`, `n_pass`, `n_judged`, `n_unjudgeable`.",
             "spend": "What the judging cost.", "name": "A label for the collection.", "description": "Free text beside the name."},
     renderer=_TABLE_RENDERER,
 )
@@ -811,6 +822,9 @@ def collection(item_kind: str, items: list[Any], **header: Any) -> dict[str, Any
     return out
 
 
+_SPACE_ORDER = ("model", "layer", "point", "head", "d")
+
+
 def _sort_value(v: Any) -> tuple[int, Any]:
     """A total order over JSON values for a key field: None first, then
     numbers, then strings, then everything else by its JSON text."""
@@ -823,7 +837,11 @@ def _sort_value(v: Any) -> tuple[int, Any]:
     if isinstance(v, str):
         return (2, v)
     if isinstance(v, Mapping):
-        return (3, tuple((k, _sort_value(v[k])) for k in sorted(v)))
+        # A space sorts by model, layer, point, head, width — the order a
+        # reader thinks in — not by its field names alphabetically (which
+        # is how a stored map comes back).
+        keys = (_SPACE_ORDER if set(v) == set(_SPACE_ORDER) else tuple(sorted(v)))
+        return (3, tuple((k, _sort_value(v[k])) for k in keys))
     if isinstance(v, (list, tuple)):
         return (4, tuple(_sort_value(x) for x in v))
     return (5, json.dumps(v, sort_keys=True, default=str))
