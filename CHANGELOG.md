@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## 0.75.1 — 2026-09-14
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **`logits/funnel` given its prompts by the `records` param now runs
+  over them.** It was the one model block that read `records` only from
+  an edge, so a protocol that fetched its prompts by param (`"records":
+  {"$fetch": …}`, as the common-parameter page says any block accepts)
+  produced an empty collection with no error. Found re-authoring
+  experiment 020. A protocol that hit this had no items; it now has
+  them.
+
+### Other
+
+- _None._
+
+---
+
 ## 0.75.0 — 2026-09-14
 
 ### Changes that raise

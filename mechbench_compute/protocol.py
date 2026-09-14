@@ -1999,7 +1999,10 @@ class ProtocolExecutor:
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
-        records = inputs.get("records") or []
+        # By edge, or the common `records` param (a literal or a $fetch),
+        # like every other model block. This one read only the edge, so a
+        # protocol that fetched its prompts by param ran over nothing.
+        records = inputs.get("records") or params.get("records") or []
         if isinstance(records, dict):
             records = records.get("conditions") or records.get("records") or []
         f_system = params.get("system_field", "system")
