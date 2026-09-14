@@ -173,9 +173,10 @@ per factor with `id`, `coords`, `factor`, and the readout — for a decision,
           "the last position. `{\"kind\": \"capture\", \"points\": "
           "[\"blocks.14.resid_post\"], \"position\": \"final\"}` records the "
           "activation vectors at the named hook points instead — `position` "
-          "is `\"final\"` or a token index — and is how one intervention's "
-          "activations become another node's `source`. `readout.top_k` "
-          "overrides the `top_k` param.",
+          "is `\"final\"` or a token index. (A capture readout is for "
+          "reading; it is not yet accepted as another item's `source`, which "
+          "must be a `residual_vectors` record.) `readout.top_k` overrides "
+          "the `top_k` param.",
           {"kind": "decision"}),
         P("top_k", "int",
           "How many of the most likely next tokens to record per row in a "
