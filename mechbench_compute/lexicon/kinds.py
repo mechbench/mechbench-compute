@@ -18,6 +18,7 @@ until the release named in `lexicon.ALIASES_REMOVED_IN`.
 from __future__ import annotations
 
 import json
+import warnings
 from collections.abc import Mapping
 from typing import Any
 
@@ -590,7 +591,8 @@ VERDICT = Kind(
 
 PLATFORM: tuple[Kind, ...] = (
     Kind("sandbox/image", "A sandbox image: base, tools, limits, and the tree it starts from.", platform=True),
-    Kind("sandbox/snapshot", "A directory as a value: entries sorted by path, mounts by identity.", platform=True),
+    Kind("sandbox/snapshot", "A directory as a value: entries sorted by path, mounts by identity.", platform=True,
+         renderer={"primitive": "table", "field_map": {"rows": "entries"}}),
     Kind("sandbox/call", "One tool call inside a sandbox session, with what it read and wrote.", platform=True),
     Kind("provider/cassette", "Recorded provider responses keyed by request hash, for replay.", platform=True),
     Kind("provider/call", "The provenance of one provider call: model version, usage, cost, latency.", platform=True),
@@ -729,20 +731,37 @@ def canonical_kind_path(name: str) -> str:
     return f"{KIND_ROOT}{name}"
 
 
-def resolve_kind(kind: str) -> tuple[str, bool]:
+class RetiredKindName(DeprecationWarning):
+    """A kind string that the typology renamed. The bench keeps every
+    object as it was stored, so the alias table is not scheduled for
+    removal; the warning is for a protocol that still writes the old
+    spelling in a param or a fixture."""
+
+
+_warned: set[str] = set()
+
+
+def resolve_kind(kind: str, *, warn: bool = True) -> tuple[str, bool]:
     """(bare kind name, was-a-collection) for any spelling a stored
     object may carry: bare, registered, or a retired string. Raises
-    `KeyError` for a string that is none of these."""
+    `KeyError` for a string that is none of these. A retired string
+    resolves and warns once per process."""
     s = kind.strip()
     if s.startswith(KIND_ROOT):
         s = s[len(KIND_ROOT):]
     if s in BY_KIND:
         return s, s == COLLECTION
-    if kind in KIND_ALIASES:
-        return KIND_ALIASES[kind]
-    if s in KIND_ALIASES:
-        return KIND_ALIASES[s]
-    raise KeyError(kind)
+    hit = KIND_ALIASES.get(kind) or KIND_ALIASES.get(s)
+    if hit is None:
+        raise KeyError(kind)
+    if warn and kind not in _warned:
+        _warned.add(kind)
+        warnings.warn(
+            f"kind {kind!r} is a retired spelling of {hit[0]!r}"
+            + (" (a collection of it)" if hit[1] else "")
+            + "; new objects carry the current name.",
+            RetiredKindName, stacklevel=2)
+    return hit
 
 
 def item_kind_of(obj: Mapping[str, Any]) -> str | None:

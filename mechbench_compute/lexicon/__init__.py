@@ -45,6 +45,7 @@ from mechbench_compute.lexicon._base import (
 )
 from mechbench_compute.lexicon.common import COMMON
 from mechbench_compute.lexicon.kinds import (
+    RetiredKindName,
     BY_KIND,
     KIND_ALIASES,
     KINDS,
@@ -173,6 +174,6 @@ def resolve(block: str, *, warn: bool = True) -> str:
 
 __all__ = [
     "ALIASES", "ALIASES_REMOVED_IN", "BY_NAME", "COMMON", "OPS", "REQUIRED",
-    "ROOT", "Op", "P", "Param", "RetiredOpName", "canonical_path",
+    "ROOT", "Op", "P", "Param", "RetiredKindName", "RetiredOpName", "canonical_path",
     "is_canonical", "resolve",
 ]

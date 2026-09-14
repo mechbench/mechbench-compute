@@ -167,3 +167,57 @@ class TestTheContainer:
             K.items_of({"kind": "records/table", "columns": []})
         with pytest.raises(ValueError):
             K.items_of(3)
+
+
+class TestTheRegistryFollowsTheLexicon:
+    """`platform_kinds.manifests()` is generated from the declarations:
+    one manifest per renderable kind at its canonical path, naming the
+    registered paths it supersedes."""
+
+    def test_every_renderable_kind_has_a_manifest_at_its_path(self):
+        from mechbench_compute import platform_kinds
+
+        by_path = {m.path: m for m in platform_kinds.manifests()}
+        for kind in K.KINDS:
+            if kind.renderer is None or kind.name == COLLECTION:
+                continue
+            assert kind.path in by_path, f"{kind.name} declares a renderer but registers nothing"
+            m = by_path[kind.path]
+            assert m.renderer.primitive == kind.renderer["primitive"]
+            assert m.item_schema["type"] == "object"
+            assert m.version == "1"
+            if kind.name == "sandbox/snapshot":
+                continue  # the snapshot codec's own schema, not the declaration's
+            assert set(m.item_schema.get("required", [])) == set(kind.required)
+            for f in K.all_fields(kind):
+                assert f in m.item_schema["properties"], f"{kind.name}.{f} missing from the manifest"
+
+    def test_a_manifest_names_the_paths_it_supersedes(self):
+        from mechbench_compute import platform_kinds
+
+        by_path = {m.path: m for m in platform_kinds.manifests()}
+        doc = by_path[f"{KIND_ROOT}text/document"]
+        assert f"{KIND_ROOT}text" in doc.supersedes
+        funnel = by_path[f"{KIND_ROOT}logits/funnel"]
+        assert {f"{KIND_ROOT}lens-trajectory", f"{KIND_ROOT}lens-trajectory/2"} <= set(funnel.supersedes)
+        for m in by_path.values():
+            for old in m.supersedes:
+                assert old.startswith(KIND_ROOT) and old != m.path
+
+    def test_no_manifest_registers_a_retired_path(self):
+        from mechbench_compute import platform_kinds
+
+        retired = {old for old in K.KIND_ALIASES if old.startswith(KIND_ROOT)}
+        assert not retired & {m.path for m in platform_kinds.manifests()}
+
+
+class TestRetiredSpellingsWarn:
+    def test_a_retired_string_warns_once(self):
+        K._warned.discard("metric_table")
+        with pytest.warns(K.RetiredKindName, match="retired spelling of 'records/table'"):
+            assert K.resolve_kind("metric_table") == ("records/table", False)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert K.resolve_kind("metric_table") == ("records/table", False)
+            assert K.resolve_kind("records/table", warn=True) == ("records/table", False)

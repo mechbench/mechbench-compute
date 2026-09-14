@@ -1,14 +1,47 @@
-"""Platform-registered document kinds shipped by mechbench-compute (task
-000246): the open-source half of the Layer-2 extension seam. Each entry
-is a KindManifest that core's release tooling registers at
-~canonical/kinds/... via the bench client (platform-admin credential
-required, per the 000166 promotion flow).
+"""The platform's registered kinds, generated from the lexicon.
 
-Run: MECHBENCH_API_URL=... MECHBENCH_API_KEY=... \
-     python -m mechbench_compute.platform_kinds
+Every kind that declares a renderer (`mechbench_compute/lexicon/kinds.py`)
+registers one `KindManifest` at its canonical path,
+`~canonical/kinds/<family>/<kind>`: the item schema is the declaration's
+fields (its ancestors' included), the renderer binding is the
+declaration's, and `supersedes` names the paths the kind was registered
+under before the typology named it by family. Those older manifests stay
+registered and immutable, as the registry promises; a superseded kind is
+marked on its successor, never rewritten.
+
+The filesystem snapshot is the one platform kind with a hand-written
+item schema (`sandbox_kinds.FS_SNAPSHOT_SCHEMA`): its shape is the
+snapshot codec's, not an op's.
+
+Registration needs a platform-admin credential:
+
+    MECHBENCH_API_URL=... MECHBENCH_API_KEY=... \\
+        python -m mechbench_compute.platform_kinds
 """
 
 from __future__ import annotations
+
+from typing import Any
+
+from mechbench_compute.lexicon import kinds as K
+from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind
+
+
+def item_schema(kind: Kind) -> dict[str, Any]:
+    """A JSON Schema for one item of `kind`: the declared fields with
+    those inherited through `extends`, and the required set."""
+    return {
+        "type": "object",
+        "required": list(kind.required),
+        "properties": {name: dict(spec) for name, spec in K.all_fields(kind).items()},
+    }
+
+
+def superseded_paths(kind: Kind) -> list[str]:
+    """The registered paths this kind replaces: every retired spelling
+    under the canonical root that the alias table resolves to it."""
+    return sorted(old for old, (name, _plural) in K.KIND_ALIASES.items()
+                  if old.startswith(KIND_ROOT) and name == kind.name)
 
 
 def manifests():
@@ -16,164 +49,23 @@ def manifests():
 
     from mechbench_compute import sandbox_kinds as sk
 
-    series_map = {"rows": "layers", "x": "layer", "y": "entropy_bits",
-                  "label": "top1"}
-    return [
-        # Trajectory (task 000368): the residual stream read along one
-        # axis — a position across layers, or a layer across positions.
-        # Rows carry the vector; the table view shows step, layer,
-        # position, token and norm, which is what a reader scans.
-        ms.KindManifest(
-            path="~canonical/kinds/trajectory",
-            title="Residual trajectory",
+    out = []
+    for kind in K.KINDS:
+        if kind.renderer is None or kind.name == COLLECTION:
+            continue
+        schema = (sk.FS_SNAPSHOT_SCHEMA if kind.name == "sandbox/snapshot"
+                  else item_schema(kind))
+        out.append(ms.KindManifest(
+            path=kind.path,
+            title=kind.summary.rstrip(".") if len(kind.summary) <= 80 else kind.name,
             version="1",
-            item_schema={
-                "type": "object",
-                "required": ["step", "layer", "position", "vector"],
-                "properties": {
-                    "id": {"type": "string"},
-                    "label": {},
-                    "step": {"type": "integer"},
-                    "layer": {"type": "integer"},
-                    "position": {"type": "integer"},
-                    "token": {"type": ["string", "null"]},
-                    "norm": {"type": "number"},
-                    "vector": {"type": "array", "items": {"type": "number"}},
-                },
-            },
-            renderer=ms.RendererBinding(
-                primitive="table", field_map={"rows": "rows"}),
-        ),
-        # Tokenizer diagnostics (task 000377): the depth inventory as
-        # rows (depth, count, share) plus scalar summaries and the gate.
-        ms.KindManifest(
-            path="~canonical/kinds/tokenizer-stats",
-            title="Tokenizer diagnostics",
-            version="1",
-            item_schema={
-                "type": "object",
-                "required": ["depth", "count", "share"],
-                "properties": {
-                    "depth": {"type": "integer"},
-                    "count": {"type": "integer"},
-                    "share": {"type": "number"},
-                },
-            },
-            renderer=ms.RendererBinding(
-                primitive="table", field_map={"rows": "rows"}),
-        ),
-        # ConditionSet (epic 000258): PromptFactory's output. Every
-        # condition carries its axis COORDINATES as structured data —
-        # downstream blocks (GroupBy, PairedDelta) operate on coords,
-        # never by parsing the display id.
-        ms.KindManifest(
-            path="~canonical/kinds/condition-set",
-            title="Condition set",
-            version="1",
-            item_schema={
-                "type": "object",
-                "required": ["id", "coords", "user"],
-                "properties": {
-                    "id": {"type": "string",
-                           "description": "Display name; never parsed."},
-                    "coords": {
-                        "type": "object",
-                        "description": "Axis coordinates (axis name -> "
-                                       "value key), incl. batch for "
-                                       "range-generated items.",
-                        "additionalProperties": {"type": ["string", "integer"]},
-                    },
-                    "system": {"type": "string"},
-                    "user": {"type": "string", "x-mechbench-text": True},
-                    "prefill": {"type": "string"},
-                },
-            },
-            renderer=ms.RendererBinding(
-                primitive="table",
-                field_map={"rows": "conditions"}),
-        ),
-        # v2: series-bound, with a collection-level compare view (task
-        # 000250 — the funnel renders as overlaid curves). v1 remains
-        # registered and immutable; collections opt into v2 by path.
-        ms.KindManifest(
-            path="~canonical/kinds/lens-trajectory/2",
-            title="Logit-lens trajectory",
-            version="2",
-            item_schema={
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "x-mechbench-text": True},
-                    "metadata": {
-                        "type": "object",
-                        "properties": {
-                            "layers": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "layer": {"type": "integer"},
-                                        "top1": {"type": "string"},
-                                        "p": {"type": "number"},
-                                        "entropy_bits": {"type": "number"},
-                                    },
-                                },
-                            }
-                        },
-                    },
-                },
-            },
-            renderer=ms.RendererBinding(primitive="series",
-                                        field_map=dict(series_map)),
-            collection_renderer=ms.RendererBinding(
-                primitive="series", field_map=dict(series_map)),
-        ),
-        ms.KindManifest(
-            path="~canonical/kinds/lens-trajectory",
-            title="Logit-lens trajectory",
-            version="1",
-            item_schema={
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "x-mechbench-text": True},
-                    "metadata": {
-                        "type": "object",
-                        "properties": {
-                            "layers": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "layer": {"type": "integer"},
-                                        "top1": {"type": "string"},
-                                        "p": {"type": "number"},
-                                        "entropy_bits": {"type": "number"},
-                                    },
-                                },
-                            }
-                        },
-                    },
-                },
-            },
-            renderer=ms.RendererBinding(
-                primitive="table", field_map={"rows": "layers"}),
-        ),
-        # The sandbox's browsable object (task 000361): a
-        # content-addressed tree, rendered as a file table. The UI's
-        # snapshot browser (000362) reads this shape; a real tree
-        # renderer is 000418's job (extend the renderer vocabulary),
-        # and `table` is the honest default until then. The image and
-        # the tool-call are contracts in `sandbox_kinds`, not renderable
-        # kinds: an image is composer config, a tool-call is a record
-        # inside a transcript.
-        ms.KindManifest(
-            path=sk.FS_SNAPSHOT_KIND,
-            title="Filesystem snapshot",
-            version="1",
-            item_schema=sk.FS_SNAPSHOT_SCHEMA,
-            renderer=ms.RendererBinding(
-                primitive="table", field_map={"rows": "entries"}),
-        ),
-    ]
+            item_schema=schema,
+            renderer=ms.RendererBinding(**kind.renderer),
+            collection_renderer=(ms.RendererBinding(**kind.collection_renderer)
+                                 if kind.collection_renderer else None),
+            supersedes=superseded_paths(kind),
+        ))
+    return out
 
 
 def register_all() -> None:

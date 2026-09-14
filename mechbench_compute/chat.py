@@ -231,34 +231,35 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     if on_start:
         on_start(len(recs) * n)
 
-    plan: list[tuple[int, str, dict, int, pm.ChatRequest]] = []
-    items: list[Any] = [None] * (len(recs) * n)
+    plan: list[tuple[str, dict, int, pm.ChatRequest]] = []
+    # Items land in completion order; the executor stores a collection
+    # in key order, so the order here is nobody's contract.
+    items: list[Any] = []
     replayed = 0
     calls: list[dict[str, Any]] = []
     model_wire = ref.to_wire()
 
     for i, rec in enumerate(recs):
-        for j, k in enumerate(range(start, start + n)):
-            pos = i * n + j
+        for k in range(start, start + n):
             key = f"{rec.get('id')}:{k}"
             if resume_items and key in resume_items:
                 # Exchangeable (epic 000320): this item was paid for
                 # once, by this same process identity. Reuse it rather
                 # than buy it again.
-                items[pos] = resume_items[key]
+                items.append(resume_items[key])
                 if on_item:
                     on_item(key, resume_items[key], True)
                 continue
             item_sd = (item_seed(seed, rec.get("id"), k)
                        if seed is not None and transport.capabilities.seed
                        else None)
-            plan.append((pos, key, dict(rec), k,
+            plan.append((key, dict(rec), k,
                          build_request(rec, params, model=ref.base,
                                        provider_options=options,
                                        seed=item_sd, tools=specs)))
 
     def one(entry):
-        pos, key, rec, k, req = entry
+        key, rec, k, req = entry
         box, session = _new_box(image, tool_specs, block_runner=block_runner)
         extra_calls: list[Any] = []
         # The tool loop: answer, run what it asked for, hand back the
@@ -284,12 +285,12 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                      tool_runs=[r.to_wire() for r in box.runs],
                      sandbox_calls=(session.calls if session else ()),
                      sandbox_snapshot=(session.final_wire() if session else None))
-        return pos, key, item, out.call, extra_calls
+        return key, item, out.call, extra_calls
 
     if plan:
         def land(result) -> None:
-            pos, key, item, call, extra = result
-            items[pos] = item
+            key, item, call, extra = result
+            items.append(item)
             for c in (call, *extra):
                 calls.append(c.to_wire())
             nonlocal replayed
@@ -303,8 +304,6 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         else:
             with ThreadPoolExecutor(max_workers=concurrency) as pool:
                 futures = [pool.submit(one, e) for e in plan]
-                # Completion order for the spool (an item is safe as
-                # soon as it lands), canonical order in the output.
                 from concurrent.futures import as_completed
 
                 for fut in as_completed(futures):
@@ -313,7 +312,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     from mechbench_compute.lexicon import kinds as K
 
     return K.collection(
-        ITEM_KIND, [it for it in items if it is not None],
+        ITEM_KIND, items,
         name=params.get("name", "chat"),
         description=params.get("description", ""),
         fidelity="text",
