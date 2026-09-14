@@ -1,4 +1,4 @@
-"""~canonical/ops/text/stats/1 — the corpus measurement op (experiment
+"""text/stats — the corpus measurement op (experiment
 023 platform work): pattern counts (meta-leak, openings), lexical
 spread, and corpus-frequency of vocabulary, in annotate and corpus
 modes, over records and document_collections."""
@@ -30,7 +30,7 @@ OPENING = {
 
 
 def test_registered():
-    assert "~canonical/ops/text/stats/1" in PURE_BLOCKS
+    assert "text/stats" in PURE_BLOCKS
 
 
 def test_pattern_prefix_and_annotate_mode():

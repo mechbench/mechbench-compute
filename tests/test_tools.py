@@ -28,7 +28,7 @@ class TestTheToolbox:
         assert out.is_error is False
         run = box.runs[0]
         assert run.tool == "calc"
-        assert run.handler["block"] == "~canonical/ops/tools/calc/1"
+        assert run.handler["block"] == "tools/calc"
 
     def test_calc_evaluates_arithmetic_and_refuses_code(self):
         box = T.toolbox_from(["calc"])
@@ -54,7 +54,7 @@ class TestTheToolbox:
         box = T.Toolbox([{
             "name": "bench.lookup",
             "schema": {"type": "object", "properties": {"path": {"type": "string"}}},
-            "handler": {"block": "~canonical/ops/tools/bench-lookup/1",
+            "handler": {"block": "tools/lookup",
                         "params": {"fetch": lambda path: {
                             "payload": {"path": path, "kind": "metric_table",
                                         "rows": [{"n": 3}]}}}},
@@ -65,7 +65,7 @@ class TestTheToolbox:
 
     def test_a_non_pure_handler_says_it_needs_the_executor(self):
         box = T.Toolbox([{"name": "read", "handler": {
-            "block": "~canonical/ops/decision-read/1"}}])
+            "block": "logits/decision"}}])
         out = box.call(call("read"))
         assert out.is_error and "executor's runner" in out.content
 
@@ -77,11 +77,11 @@ class TestTheToolbox:
             return {"conditions": [{"id": "a"}]}
 
         box = T.Toolbox([{"name": "read", "handler": {
-            "block": "~canonical/ops/decision-read/1", "params": {"model": "$model"}}}],
+            "block": "logits/decision", "params": {"model": "$model"}}}],
             block_runner=runner)
         out = box.call(call("read", prompt="hi"))
         assert not out.is_error
-        assert seen["ref"] == "~canonical/ops/decision-read/1"
+        assert seen["ref"] == "logits/decision"
         # The arguments arrive on their own port AND as one record, so
         # an ordinary record block works as a tool unmodified.
         assert seen["inputs"]["arguments"] == {"prompt": "hi"}
@@ -124,7 +124,7 @@ class TestTheRemoteToolLoop:
         lookup = {
             "name": "bench.lookup",
             "schema": {"type": "object", "properties": {"path": {"type": "string"}}},
-            "handler": {"block": "~canonical/ops/tools/bench-lookup/1",
+            "handler": {"block": "tools/lookup",
                         "params": {"fetch": lambda path: {"payload": {"rows": 3}}}},
         }
         params = self._params(max_tool_rounds=1, tools=[lookup],
@@ -208,7 +208,7 @@ class TestThroughTheExecutor:
 
         monkeypatch.setattr(ex, "_run_model_block", fake_model_block)
         runner = ex._tool_block_runner()
-        out = runner("~canonical/ops/decision-read/1",
+        out = runner("logits/decision",
                      {"arguments": {"prompt": "left or right?"},
                       "records": [{"prompt": "left or right?"}]},
                      {"model": "google/gemma-3-4b-it"})
@@ -220,13 +220,13 @@ class TestThroughTheExecutor:
 
         runner = ProtocolExecutor()._tool_block_runner()
         with pytest.raises(ValueError, match="not available as a tool handler"):
-            runner("~canonical/ops/finetune/lora/1", {}, {})
+            runner("adapter/train", {}, {})
 
     def test_a_chat_node_with_tools_runs_end_to_end(self):
         from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 
         graph = {"nodes": [{
-            "id": "ask", "block": "~canonical/ops/chat/1",
+            "id": "ask", "block": "text/chat",
             "params": {
                 "model": {"provider": "mock", "model": "mock-large"},
                 "budget_usd": 1.0,

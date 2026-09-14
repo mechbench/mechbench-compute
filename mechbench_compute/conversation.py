@@ -1,4 +1,4 @@
-"""`~canonical/ops/conversation/1` — topologies as data (task 000339,
+"""`text/conversation` — topologies as data (task 000339,
 epic 000334).
 
 Two models talking to each other is not a special mode of the chat

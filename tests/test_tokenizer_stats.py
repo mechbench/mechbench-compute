@@ -110,6 +110,6 @@ class TestBlock:
 
     def test_params_are_guarded(self):
         with pytest.raises(ValueError, match="does not accept"):
-            check_params("~canonical/ops/tokenize/stats/1", {"depth": 3})
-        check_params("~canonical/ops/tokenize/stats/1",
+            check_params("text/tokenize", {"depth": 3})
+        check_params("text/tokenize",
                      {"items": ["a"], "prefix": "x", "expect_depth": 1})

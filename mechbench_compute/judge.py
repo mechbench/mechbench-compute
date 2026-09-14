@@ -1,4 +1,4 @@
-"""`~canonical/ops/judge/1` — model-graded scoring (task 000356, epic
+"""`eval/judge` — model-graded scoring (task 000356, epic
 000334).
 
 The first real consumer of hosted models on the bench: a judge reads

@@ -15,7 +15,7 @@ from mechbench_compute import resume
 
 
 BASE = {
-    "block": "~canonical/ops/residuals/vectors/1",
+    "block": "activations/vectors",
     "params": {"layers": [14, 23], "position": "final"},
     "input_hashes": ["sha256:aaa"],
     "core_version": "0.37.0",
@@ -32,7 +32,7 @@ class TestWhatMovesTheFingerprint:
         assert fp() == fp()
 
     @pytest.mark.parametrize("field,value", [
-        ("block", "~canonical/ops/vectors/mst/1"),
+        ("block", "geometry/mst"),
         ("params", {"layers": [14, 23], "position": 0}),
         ("input_hashes", ["sha256:bbb"]),
         ("core_version", "0.36.0"),
@@ -168,9 +168,9 @@ class TestResumeLevels:
     def test_an_unlisted_block_restarts(self):
         # Safe by omission: residuals/vectors and vectors/mst are not
         # in BLOCK_RESUME, so no partial of theirs is ever reused.
-        assert resume.resume_level("~canonical/ops/vectors/mst/1") == "restart"
+        assert resume.resume_level("geometry/mst") == "restart"
         assert resume.resume_level(
-            "~canonical/ops/residuals/vectors/1") == "restart"
+            "activations/vectors") == "restart"
 
     def test_restart_satisfies_anything_because_it_recomputes(self):
         # `satisfies` reads backwards until you see that the level is a

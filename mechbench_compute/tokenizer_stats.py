@@ -8,7 +8,7 @@ and experiment 015's first question about trie depth — how deep were
 the sequences an adapter was actually trained on? — is a property of
 the (vocabulary, tokenizer, envelope) triple, not of any activation.
 
-`~canonical/ops/tokenize/stats/1` measures a set of items AS
+`text/tokenize` measures a set of items AS
 CONTINUATIONS OF A PREFIX (the envelope: `'{ "name": "'`), because the
 boundary matters — BPE merges across it — and that is how training
 and readout see them:

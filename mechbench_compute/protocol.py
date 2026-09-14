@@ -35,7 +35,7 @@ from mechbench_schema import (
     LayerAggregates,
 )
 
-from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, Model
+from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, Model, lexicon
 
 
 @dataclass
@@ -101,7 +101,7 @@ class ProtocolExecutor:
             raise ValueError(
                 f"{model_id.describe()} is a remote endpoint: this operation "
                 "runs local weights and cannot use one. Use "
-                "~canonical/ops/chat/1, which serves both.")
+                "text/chat, which serves both.")
         if hasattr(model_id, "base"):
             # The ref's base names WHERE the weights come from, and a
             # bench base must be translated to its materialized local
@@ -519,7 +519,14 @@ class ProtocolExecutor:
 
         for pos, nid in enumerate(order):
             node = nodes[nid]
-            block = node["block"]
+            # Any spelling a protocol may carry — bare, stored, with the
+            # retired `/1`, or a pre-rename name — becomes the one bare
+            # name here, once, before anything hashes it. A retired
+            # spelling warns; an unknown one refuses by name.
+            try:
+                block = lexicon.resolve(node["block"])
+            except KeyError:
+                raise ValueError(f"unknown block: {node['block']!r}") from None
             node_view.update(index=pos + 1, id=nid, done=0, total=0)
             expanded = False
             report()
@@ -571,8 +578,10 @@ class ProtocolExecutor:
             # param is a wrong answer with no error.)
             from mechbench_compute.block_params import check_params
             check_params(block, _wire_params(params))
+            # The stored identity, not the spelling: one fingerprint per
+            # op however the protocol wrote it (docs/LEXICON.md §1).
             fingerprint = resume_mod.node_fingerprint(
-                block=block, params=_wire_params(params),
+                block=lexicon.canonical_path(block), params=_wire_params(params),
                 input_hashes=[node_hashes.get(e["from"]["node"], "")
                               for e in in_edges],
                 core_version=core_version,
@@ -611,7 +620,7 @@ class ProtocolExecutor:
                 (lambda st, _n=nid: self._on_checkpoint(_n, st))
                 if self._on_checkpoint is not None else None
             )
-            if block == "~canonical/ops/viz/spec/1":
+            if block == "records/chart":
                 # A viz references its upstream by LABEL when the
                 # executor knows it (lineage-true, renders live).
                 from mechbench_compute.blocks import viz_spec
@@ -624,103 +633,103 @@ class ProtocolExecutor:
                     inputs.get("records"), params, source_label=src_label)
             elif block in PURE_BLOCKS:
                 results[nid] = PURE_BLOCKS[block](inputs, params)
-            elif block == "~canonical/ops/decision-read/1":
+            elif block == "logits/decision":
                 results[nid] = self._run_model_block(
                     self._block_decision_read, inputs, params,
                     on_item=on_item, on_start=expand, **resume_kwargs)
-            elif block == "~canonical/ops/generate/1":
+            elif block == "text/generate":
                 results[nid] = self._run_model_block(
                     self._block_generate, inputs, params,
                     on_item=on_item, on_start=expand, **resume_kwargs)
-            elif block == "~canonical/ops/judge/1":
+            elif block == "eval/judge":
                 results[nid] = self._block_judge(
                     inputs, params, secrets=secrets, on_item=on_item,
                     on_start=expand, **resume_kwargs)
-            elif block == "~canonical/ops/conversation/1":
+            elif block == "text/conversation":
                 results[nid] = self._block_conversation(
                     inputs, params, secrets=secrets, on_item=on_item,
                     on_start=expand, **resume_kwargs)
-            elif block == "~canonical/ops/chat/1":
+            elif block == "text/chat":
                 results[nid] = self._block_chat(
                     inputs, params, secrets=secrets, on_item=on_item,
                     on_start=expand, **resume_kwargs)
-            elif block == "~canonical/ops/lens-trajectory/1":
+            elif block == "logits/funnel":
                 results[nid] = self._run_model_block(
                     self._block_lens, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/finetune/lora/1":
+            elif block == "adapter/train":
                 results[nid] = self._block_finetune_lora(
                     inputs, params, on_item=on_item, on_start=expand,
                     on_checkpoint=on_checkpoint,
                     resume_state=resume_kwargs.get("resume_state"))
-            elif block == "~canonical/ops/eval/suite/1":
+            elif block == "eval/suite":
                 results[nid] = self._run_model_block(
                     self._block_eval_suite, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/ablate/layers/1":
+            elif block == "intervene/layers":
                 results[nid] = self._run_model_block(
                     self._block_ablate_layers, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/steer/inject/1":
+            elif block == "intervene/steer":
                 results[nid] = self._run_model_block(
                     self._block_steer_inject, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/intervene/1":
+            elif block == "intervene/apply":
                 results[nid] = self._run_model_block(
                     self._block_intervene, inputs, params,
                     on_item=on_item, on_start=expand, **resume_kwargs)
-            elif block == "~canonical/ops/direction/vocab/1":
+            elif block == "direction/vocab":
                 results[nid] = self._run_model_block(
                     self._block_direction_vocab, inputs, params)
-            elif block == "~canonical/ops/attribution/logits/1":
+            elif block == "logits/attribution":
                 results[nid] = self._run_model_block(
                     self._block_logit_attribution, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/patch/trace/1":
+            elif block == "intervene/trace":
                 results[nid] = self._run_model_block(
                     self._block_patch_trace, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/attention/patterns/1":
+            elif block == "activations/attention":
                 results[nid] = self._run_model_block(
                     self._block_attention_patterns, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/ablate/heads/1":
+            elif block == "intervene/heads":
                 results[nid] = self._run_model_block(
                     self._block_ablate_heads, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/lens/positions/1":
+            elif block == "logits/lens":
                 results[nid] = self._run_model_block(
                     self._block_lens_positions, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/trajectory/capture/1":
+            elif block == "trajectory/capture":
                 results[nid] = self._run_model_block(
                     self._block_trajectory_capture, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/tokenize/stats/1":
+            elif block == "text/tokenize":
                 results[nid] = self._run_model_block(
                     self._block_tokenize_stats, inputs, params)
-            elif block == "~canonical/ops/residuals/vectors/1":
+            elif block == "activations/vectors":
                 results[nid] = self._run_model_block(
                     self._block_residual_vectors, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/residuals/divergence/1":
+            elif block == "activations/divergence":
                 results[nid] = self._run_model_block(
                     self._block_residual_divergence, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/eval/hf-metric/1":
+            elif block == "eval/metric":
                 results[nid] = self._block_eval_hf_metric(inputs, params)
-            elif block == "~canonical/ops/merge/1":
+            elif block == "adapter/merge":
                 results[nid] = self._block_merge(
                     inputs, params, secrets=secrets,
                     result_base=extra.get("resultPath"),
                     on_item=on_item, on_start=expand)
-            elif block == "~canonical/ops/hf/push-adapter/1":
+            elif block == "adapter/publish":
                 # HF as destination (task 000262). The write token is
                 # passed explicitly from the claim-delivered secrets —
                 # never env, never the spec, never the output.
                 results[nid] = self._block_hf_push_adapter(
                     inputs, params, secrets=secrets)
-            elif block == "~canonical/ops/score/1":
+            elif block == "text/score":
                 input_paths = {
                     e["to"]["port"]: node_paths.get(e["from"]["node"], "")
                     for e in in_edges
@@ -743,7 +752,8 @@ class ProtocolExecutor:
                     results[nid],
                     inputs=[node_paths[e["from"]["node"]]
                             for e in in_edges],
-                    operation=block,
+                    # Provenance records the stored identity.
+                    operation=lexicon.canonical_path(block),
                     params=_wire_params(params),
                 )
                 node_paths[nid] = out["path"]
@@ -916,7 +926,7 @@ class ProtocolExecutor:
 
     def _block_judge(self, inputs, params, secrets=None, on_item=None,
                      on_start=None, resume_items=None):
-        """~canonical/ops/judge/1 (task 000356): model-graded scoring.
+        """eval/judge (task 000356): model-graded scoring.
         A local judge is the cheap first test, so it loads here through
         the same path as any other model block; an endpoint judge needs
         only its credentials and its cap."""
@@ -939,12 +949,12 @@ class ProtocolExecutor:
         `decision-read` available AS A TOOL — a model that can consult
         another model, or the bench, mid-turn."""
         def run_block(ref, inputs, params):
-            if ref == "~canonical/ops/decision-read/1":
+            if ref == "logits/decision":
                 return self._run_model_block(self._block_decision_read,
                                              inputs, params)
-            if ref == "~canonical/ops/generate/1":
+            if ref == "text/generate":
                 return self._run_model_block(self._block_generate, inputs, params)
-            if ref == "~canonical/ops/tools/bench-lookup/1":
+            if ref == "tools/lookup":
                 # The recording fetch, so a tool call's object shows up
                 # in the run's resolved lineage like any other input.
                 from mechbench_compute import bench
@@ -958,7 +968,7 @@ class ProtocolExecutor:
 
     def _block_chat(self, inputs, params, secrets=None, on_item=None,
                     on_start=None, resume_items=None):
-        """~canonical/ops/chat/1 (task 000337): one block for local
+        """text/chat (task 000337): one block for local
         weights and remote endpoints. The ModelRef decides which — an
         endpoint ref goes to the provider transport, anything else to
         MLX through the usual model-block path, so a chat node with a
@@ -1070,7 +1080,7 @@ class ProtocolExecutor:
 
     def _block_conversation(self, inputs, params, secrets=None, on_item=None,
                             on_start=None, resume_items=None):
-        """~canonical/ops/conversation/1 (task 000339): participants,
+        """text/conversation (task 000339): participants,
         a perspective map and a turn policy, as data. Remote
         participants go through the transport; local ones sample here,
         through the same chat template the chat block uses — so a
@@ -1144,7 +1154,7 @@ class ProtocolExecutor:
 
     def _block_intervene(self, inputs, params, on_item=None, on_start=None,
                          resume_items=None):
-        """~canonical/ops/intervene/1 (task 000366): the declarative
+        """intervene/apply (task 000366): the declarative
         points × operations grammar with a decision or capture readout.
         Items are (record, sweep factor); spooled items are reused in
         canonical order under a matching fingerprint."""
@@ -1169,7 +1179,7 @@ class ProtocolExecutor:
         return out
 
     def _block_direction_vocab(self, inputs, params):
-        """~canonical/ops/direction/vocab/1 (task 000367): a direction
+        """direction/vocab (task 000367): a direction
         through the unembedding — its top tokens in both signs."""
         from mechbench_compute import directions as dirs
 
@@ -1179,7 +1189,7 @@ class ProtocolExecutor:
 
     def _block_steer_inject(self, inputs, params, on_item=None,
                             on_start=None):
-        """~canonical/ops/steer/inject/1 — epic 000131 arc B: a
+        """intervene/steer — epic 000131 arc B: a
         data-armed residual injection with an alpha sweep."""
         from mechbench_compute import interp
         from mechbench_compute.blocks import _records
@@ -1230,7 +1240,7 @@ class ProtocolExecutor:
 
     def _block_attention_patterns(self, inputs, params, on_item=None,
                                   on_start=None):
-        """~canonical/ops/attention/patterns/1 — steps 05/06."""
+        """activations/attention — steps 05/06."""
         from mechbench_compute import interp
         from mechbench_compute.blocks import _records
 
@@ -1277,7 +1287,7 @@ class ProtocolExecutor:
 
     def _block_residual_vectors(self, inputs, params, on_item=None,
                                 on_start=None):
-        """~canonical/ops/residuals/vectors/1 — residual vectors at
+        """activations/vectors — residual vectors at
         (layers × position) per condition, as data downstream blocks
         (vectors/similarity, future probes) consume."""
         from mechbench_compute import interp
@@ -1308,7 +1318,7 @@ class ProtocolExecutor:
 
     def _block_trajectory_capture(self, inputs, params, on_item=None,
                                   on_start=None):
-        """~canonical/ops/trajectory/capture/1 (task 000368) — one
+        """trajectory/capture (task 000368) — one
         position's vector at every layer, or one layer's vector at every
         position along a sequence, replayed from the trace when the
         records carry one."""
@@ -1325,7 +1335,7 @@ class ProtocolExecutor:
             model, records, params, on_item=on_item, on_start=on_start)
 
     def _block_tokenize_stats(self, inputs, params):
-        """~canonical/ops/tokenize/stats/1 (task 000377) — the bound
+        """text/tokenize (task 000377) — the bound
         model's tokenizer over items, a vocabulary or records: depth
         inventory, fragmentation, scripts, the naturalism gate."""
         from mechbench_compute import tokenizer_stats
@@ -1398,7 +1408,7 @@ class ProtocolExecutor:
 
     def _block_eval_suite(self, inputs, params, on_item=None,
                           on_start=None):
-        """~canonical/ops/eval/suite/1 — the lm-eval-harness bridge
+        """eval/suite — the lm-eval-harness bridge
         (task 000256): run standard benchmark tasks against the bound
         model THROUGH OUR OWN Model (lm_bridge.MechbenchLM), so
         revision pinning, VLM-shaped checkpoints, and adapter fusion
@@ -1565,7 +1575,7 @@ class ProtocolExecutor:
                     f"{prefix}/{checkpoint.MANIFEST_NAME}",
                     manifest,
                     inputs=list(mref.adapter_labels),
-                    operation="~canonical/ops/merge/1",
+                    operation=lexicon.canonical_path("adapter/merge"),
                     params=_wire_params(params),
                 )
                 return {
@@ -1651,7 +1661,7 @@ class ProtocolExecutor:
         return target
 
     def _block_hf_push_adapter(self, inputs, params, secrets=None):
-        """~canonical/ops/hf/push-adapter/1 — HF as DESTINATION (task
+        """adapter/publish — HF as DESTINATION (task
         000262): publish one of our adapter objects to the hub as a
         PEFT LoRA repo (adapter_config.json + adapter_model.safetensors
         + a model card carrying its bench provenance). The returned
@@ -1742,7 +1752,7 @@ class ProtocolExecutor:
                     "hf_adapter_ref": {"repo": repo, "revision": commit}}
 
     def _block_eval_hf_metric(self, inputs, params):
-        """~canonical/ops/eval/hf-metric/1 — the HuggingFace
+        """eval/metric — the HuggingFace
         `evaluate` metric layer (task 000256): score prediction/
         reference fields on a record stream with any hub metric
         (accuracy, exact_match, f1, bleu, ...) instead of

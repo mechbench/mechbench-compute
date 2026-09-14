@@ -28,11 +28,11 @@ The output is one record per combination: `id` joins the level keys
 (`noir-seed-2`), `coords` maps each factor name to its level key (plus any
 `coords` the level or generator attached — generators stamp
 `<name>_kind`), and `values` maps each factor name to its level's text,
-ready for `template`.
+ready for `records/template`.
 """
 
 FACTOR_CROSS = Op(
-    ref="~canonical/ops/factor-cross/1",
+    name="records/cross",
     summary=(
         "Make one record per combination of experimental factors — the "
         "fully-crossed design, with each record carrying its coordinates."
@@ -61,29 +61,8 @@ FACTOR_CROSS = Op(
     },
 )
 
-GRID = Op(
-    ref="~canonical/ops/grid/1",
-    summary=(
-        "The former name of `factor-cross`, kept so protocols written "
-        "against it still run; new protocols should say `factor-cross`."
-    ),
-    description=(
-        "Identical to [`factor-cross`](/ops/factor-cross/) in every respect "
-        "except the name.\n\n" + _FACTORS_DESC
-    ),
-    inputs="None — this op makes records from its params.",
-    emits="A list of records: `{id, coords, values}` per combination.",
-    params=(
-        P("factors", "list[object]", "As for `factor-cross`.", None),
-        P("axes", "list[object]", "The older name for `factors`.", None),
-    ),
-    example={
-        "factors": [{"name": "genre", "levels": [{"key": "noir"}, {"key": "fable"}]}],
-    },
-)
-
 TEMPLATE = Op(
-    ref="~canonical/ops/template/1",
+    name="records/template",
     summary=(
         "Fill named string templates from each record's factor values — "
         "turn a design into prompts."
@@ -96,10 +75,10 @@ embeds `{gender}`); substitution repeats until nothing changes, up to four
 passes. Everything outside braces is verbatim.
 
 The output records keep their `id` and `coords`, so a downstream
-`decision-read` or `generate` can be told `user_field: "question"` and read
+`logits/decision` or `text/generate` can be told `user_field: "question"` and read
 the field this op wrote.
 """,
-    inputs="`records` (by edge, or the `records` param) — records with `values`, usually from `factor-cross`.",
+    inputs="`records` (by edge, or the `records` param) — records with `values`, usually from `records/cross`.",
     emits="A list of records: `{id, coords}` plus one field per template.",
     params=(
         P("templates", "object",
@@ -116,7 +95,7 @@ the field this op wrote.
 )
 
 SELECT = Op(
-    ref="~canonical/ops/select/1",
+    name="records/select",
     summary=(
         "Keep the records that match a set of field values, and optionally "
         "keep only some of their fields."
@@ -146,7 +125,7 @@ matches.
 )
 
 UNION = Op(
-    ref="~canonical/ops/union/1",
+    name="records/union",
     summary=(
         "Concatenate several record streams into one, stamping each record "
         "with the port it came from — collections grow by union, never by "
@@ -178,7 +157,7 @@ union followed by the direction algebra.
 )
 
 PAIRED_DELTA = Op(
-    ref="~canonical/ops/paired-delta/1",
+    name="records/delta",
     summary=(
         "Subtract a matched baseline from every record — the treatment "
         "effect per condition, ready to summarise."
@@ -189,7 +168,7 @@ record finds the baseline that agrees with it on the `match_on` coordinates
 and reports its `value` field, the baseline's, and the difference. A record
 with no matching baseline is an error, not a silent omission.
 
-The output keeps `coords`, so it feeds `group-stats` directly.
+The output keeps `coords`, so it feeds `records/stats` directly.
 """,
     inputs=_RECORDS_IN,
     emits="A list of records: `{id, coords, value, baseline, delta}` per non-baseline record.",
@@ -207,7 +186,7 @@ The output keeps `coords`, so it feeds `group-stats` directly.
 )
 
 GROUP_STATS = Op(
-    ref="~canonical/ops/group-stats/1",
+    name="records/stats",
     summary=(
         "Group records by coordinates and summarise a numeric field — count, "
         "median, mean, min, max and the share below zero — as a table."
@@ -243,7 +222,7 @@ skipped records is reported on the table as `n_missing`.
 )
 
 TABLE_FROM_RECORDS = Op(
-    ref="~canonical/ops/table/from-records/1",
+    name="records/table",
     summary=(
         "Present a record list as a table — coordinates become the leading "
         "columns, scalar fields follow."
@@ -265,7 +244,7 @@ type is inferred from its values. Nested fields are left out.
 )
 
 TEXT_STATS = Op(
-    ref="~canonical/ops/text/stats/1",
+    name="text/stats",
     summary=(
         "Measure each text in a corpus — pattern hits, word and distinct-word "
         "counts, vocabulary rarity against a frequency table — and either "
@@ -281,7 +260,7 @@ Each entry of `measures` is applied to every record's `field`:
 | `corpus_frequency` | `<name>`: the statistic over the reference frequency of the text's words; `<name>_coverage`: the fraction of words found in the table | `frequencies` (word → count, or wire a `frequencies` input), `stat`: `"mean_log10"` (rarer vocabulary ⇒ lower), `"mean"` or `"coverage"`, `lowercase`, `min_length` |
 
 In `annotate` mode the output is the records with those fields added —
-ready for `select`, `group-stats` or `trajectory/capture` (which can label
+ready for `records/select`, `records/stats` or `trajectory/capture` (which can label
 by them). In `corpus` mode it is one summary record: per pattern a count and
 rate, corpus-wide word and distinct-word counts and duplication, and the
 mean of each frequency statistic.
@@ -325,7 +304,7 @@ mean of each frequency statistic.
 )
 
 REDUCE_SUM = Op(
-    ref="~canonical/ops/reduce/sum/1",
+    name="records/sum",
     summary="The exact sum of a numeric field over all records, with the count.",
     description="""\
 An exact reduce: values are kept as a multiset and summed with a correctly
@@ -339,7 +318,7 @@ records arrived in. Safe to run over partial results and merge.
 )
 
 REDUCE_TOP_K = Op(
-    ref="~canonical/ops/reduce/top-k/1",
+    name="records/top-k",
     summary="The k records with the largest value of a field.",
     description="""\
 Sorted by the field descending, ties broken by `id`, so the result is
@@ -356,7 +335,7 @@ top-ks, so partial results merge without loss.
 )
 
 REDUCE_HISTOGRAM = Op(
-    ref="~canonical/ops/reduce/histogram/1",
+    name="records/histogram",
     summary="Count a numeric field into fixed, equal-width bins.",
     description="""\
 `bins` equal-width bins span `[lo, hi)`; values below `lo` and at or above
@@ -375,14 +354,14 @@ the number of records. An exact reduce: counts add.
 )
 
 EVAL_EXPECTATION = Op(
-    ref="~canonical/ops/eval/expectation/1",
+    name="eval/expectation",
     summary=(
         "Judge each decision read against an expectation carried as data — "
         "uniform over the outcomes, a required answer, a minimum entropy, or "
         "a target distribution — and report pass/fail with the rate."
     ),
     description="""\
-Results (from `decision-read`) and expectations are joined on `id`. Each
+Results (from `logits/decision`) and expectations are joined on `id`. Each
 expectation record has an `expect` object:
 
 | `kind` | Passes when | Fields |
@@ -427,7 +406,7 @@ The final row, id `ALL`, carries the pass rate: the number a write-up cites.
 )
 
 VIZ_SPEC = Op(
-    ref="~canonical/ops/viz/spec/1",
+    name="records/chart",
     summary=(
         "Describe a chart of an upstream table as a stored object — what to "
         "plot on which axes — so it renders beside the data and re-renders "
@@ -460,7 +439,7 @@ be encoded directly.
 )
 
 VECTORS_SIMILARITY = Op(
-    ref="~canonical/ops/vectors/similarity/1",
+    name="geometry/similarity",
     summary=(
         "The pairwise cosine similarity of residual vectors at each layer, "
         "with how well the labels separate — intra- vs inter-label "
@@ -474,7 +453,7 @@ their gap, the fraction of rows whose nearest neighbour shares their label,
 and the silhouette score.
 
 Raw cosine between transformer activations is dominated by a shared
-direction they all lean toward; for a variety measure prefer `vectors/mst`
+direction they all lean toward; for a variety measure prefer `geometry/mst`
 with `center: true`, which subtracts it.
 """,
     inputs="`vectors` (by edge, or the `vectors` param) — a `residual_vectors` record.",
@@ -487,7 +466,7 @@ with `center: true`, which subtracts it.
 )
 
 VECTORS_MST = Op(
-    ref="~canonical/ops/vectors/mst/1",
+    name="geometry/mst",
     summary=(
         "Measure how varied a set of vectors is with a minimum spanning tree "
         "over their distances — the spread, its clumpiness, and how many "
@@ -519,14 +498,14 @@ a run that reproduces its numbers reproduces its tree.
     inputs=(
         "`vectors` (by edge or param) — a `residual_vectors` record; or "
         "`matrix` / `similarity` (by edge, or the `matrix` param) — a "
-        "`similarity_matrix` from `vectors/similarity`."
+        "`similarity_matrix` from `geometry/similarity`."
     ),
     emits="""\
 An `mst_summary`: `metric`, `centered`, `layers` (per layer: `n`, `n_edges`,
 `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`,
 `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels`, and
 `edges` as `[i, j, weight]` when kept), and `rows` — the same statistics
-flat, for `table/from-records`.
+flat, for `records/table`.
 """,
     params=(
         P("center", "bool",
@@ -546,7 +525,7 @@ flat, for `table/from-records`.
 )
 
 OPS: tuple[Op, ...] = (
-    FACTOR_CROSS, GRID, TEMPLATE, SELECT, UNION, PAIRED_DELTA, GROUP_STATS,
+    FACTOR_CROSS, TEMPLATE, SELECT, UNION, PAIRED_DELTA, GROUP_STATS,
     TABLE_FROM_RECORDS, TEXT_STATS, REDUCE_SUM, REDUCE_TOP_K, REDUCE_HISTOGRAM,
     EVAL_EXPECTATION, VIZ_SPEC, VECTORS_SIMILARITY, VECTORS_MST,
 )

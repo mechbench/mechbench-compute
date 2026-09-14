@@ -3,7 +3,7 @@
 A direction is a unit vector in a model's activation space at one
 (layer, point), carrying its own derivation: how it was made, from what,
 on which model. One object flows everywhere a direction is used — into
-`intervene` (add, project out, clamp, rotate), `direction/project`,
+`intervene/apply` (add, project out, clamp, rotate), `direction/project`,
 `direction/vocab` — so a direction found one way can be tried every
 other way without conversion.
 
@@ -44,7 +44,7 @@ def _source() -> P:
 
 
 FROM_VECTORS = Op(
-    ref="~canonical/ops/direction/from-vectors/1",
+    name="direction/from-vectors",
     summary=(
         "Make a direction from labelled residual vectors as the difference of "
         "two label centroids — the axis along which one group differs from "
@@ -81,7 +81,7 @@ to find a concept direction, and the one most steering results are built on.
 )
 
 FROM_PCA = Op(
-    ref="~canonical/ops/direction/from-pca/1",
+    name="direction/from-pca",
     summary=(
         "Make a direction from the principal component of a set of residual "
         "vectors — the axis along which they vary most."
@@ -121,7 +121,7 @@ At least two rows are needed.
 )
 
 ADD = Op(
-    ref="~canonical/ops/direction/add/1",
+    name="direction/add",
     summary=(
         "Combine several directions in the same space into one by weighted "
         "sum, re-normalised — steer along two concepts at once."
@@ -153,7 +153,7 @@ normalised to unit length.
 )
 
 AVERAGE = Op(
-    ref="~canonical/ops/direction/average/1",
+    name="direction/average",
     summary=(
         "The mean of several unit directions in the same space — the "
         "component they share."
@@ -176,7 +176,7 @@ with equal weights, except that the derivation says `average`.
 )
 
 ORTHOGONALIZE = Op(
-    ref="~canonical/ops/direction/orthogonalize/1",
+    name="direction/orthogonalize",
     summary=(
         "Remove from a direction its components along one or more other "
         "directions — what is left of a concept once a confound is taken "
@@ -212,7 +212,7 @@ has nothing left and the block refuses it. All inputs must share a space.
 )
 
 NORMALIZE = Op(
-    ref="~canonical/ops/direction/normalize/1",
+    name="direction/normalize",
     summary=(
         "Rescale a direction to unit length, keeping its space and model — "
         "an explicit, recorded step for a vector that arrived some other way."
@@ -233,7 +233,7 @@ visible step in the graph rather than an assumption.
 )
 
 PROJECT = Op(
-    ref="~canonical/ops/direction/project/1",
+    name="direction/project",
     summary=(
         "Project every row of a residual-vectors record onto a direction — "
         "each prompt's scalar coordinate along that axis."
@@ -263,7 +263,7 @@ labels it was built from — or ones it was not.
 )
 
 SIMILARITY = Op(
-    ref="~canonical/ops/direction/similarity/1",
+    name="direction/similarity",
     summary=(
         "The cosine between two directions, or the full pairwise cosine "
         "matrix over many — are these axes the same axis?"
@@ -296,7 +296,7 @@ and `pairs` (every pair with its cosine, most similar first).
 )
 
 VOCAB = Op(
-    ref="~canonical/ops/direction/vocab/1",
+    name="direction/vocab",
     summary=(
         "Read a direction through the model's unembedding: the tokens it "
         "promotes and the tokens its negative promotes — what the axis "

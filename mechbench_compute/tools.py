@@ -6,7 +6,7 @@ already do, a model can be given as a capability, and the tool call is
 recorded with the same provenance as everything else.
 
     {"name": "calc", "description": "…", "schema": {…},
-     "handler": {"block": "~canonical/ops/tools/calc/1"}}
+     "handler": {"block": "tools/calc"}}
 
 Two halves make it work everywhere:
 
@@ -255,7 +255,7 @@ _ALLOWED_NODES = (
 
 
 def calc(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`~canonical/ops/tools/calc/1` — arithmetic, and ONLY arithmetic.
+    """`tools/calc` — arithmetic, and ONLY arithmetic.
 
     Parsed, walked, and refused if it contains anything but numbers and
     operators: a tool a model can steer must not be an eval.
@@ -275,7 +275,7 @@ def calc(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]
 
 
 def bench_lookup(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
-    """`~canonical/ops/tools/bench-lookup/1` — fetch a bench object by
+    """`tools/lookup` — fetch a bench object by
     path, so a model can consult what the platform already knows.
 
     `fetch` is injectable (the executor passes the recording fetch, and
@@ -300,8 +300,8 @@ def bench_lookup(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
 
 
 PURE_TOOL_BLOCKS = {
-    "~canonical/ops/tools/calc/1": calc,
-    "~canonical/ops/tools/bench-lookup/1": bench_lookup,
+    "tools/calc": calc,
+    "tools/lookup": bench_lookup,
 }
 
 #: Ready-made definitions for the first tools, so a protocol can offer
@@ -313,7 +313,7 @@ BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
         "schema": {"type": "object",
                    "properties": {"expression": {"type": "string"}},
                    "required": ["expression"]},
-        "handler": {"block": "~canonical/ops/tools/calc/1"},
+        "handler": {"block": "tools/calc"},
     },
     "bench.lookup": {
         "name": "bench.lookup",
@@ -322,7 +322,7 @@ BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
                    "properties": {"path": {"type": "string"},
                                   "field": {"type": "string"}},
                    "required": ["path"]},
-        "handler": {"block": "~canonical/ops/tools/bench-lookup/1"},
+        "handler": {"block": "tools/lookup"},
     },
 }
 

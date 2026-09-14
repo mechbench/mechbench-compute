@@ -67,13 +67,13 @@ def _fake_generate_substrate(monkeypatch, calls: _Calls):
 def _gen_spec(n=3):
     graph = {
         "nodes": [
-            {"id": "gen", "block": "~canonical/ops/generate/1",
+            {"id": "gen", "block": "text/generate",
              "params": {"model": "fake/m@rev", "n": n, "seed": 7,
                         "records": [
                             {"id": "flash", "user": "Write a story."},
                             {"id": "neutral", "user": "Write another."},
                         ]}},
-            {"id": "stats", "block": "~canonical/ops/text/stats/1",
+            {"id": "stats", "block": "text/stats",
              "params": {"measures": [{"kind": "lexical", "name": "lex"}],
                         "mode": "annotate"}},
         ],
@@ -188,7 +188,7 @@ class TestGenerateItemResume:
         _fake_generate_substrate(monkeypatch, calls)
         # Pretend generate were merely exchangeable and the consumer
         # requires reproducible: the partial must not be reused.
-        monkeypatch.setitem(rm.BLOCK_RESUME, "~canonical/ops/generate/1",
+        monkeypatch.setitem(rm.BLOCK_RESUME, "text/generate",
                             {"level": "exchangeable", "items": True})
         spec = _gen_spec()
         spec.extra["graph"]["nodes"][1]["params"]["require_resume"] = {
@@ -270,7 +270,7 @@ class TestNonResumableBlocksIgnoreTheMap:
     def test_a_restart_level_block_recomputes(self, monkeypatch):
         calls = _Calls()
         _fake_generate_substrate(monkeypatch, calls)
-        monkeypatch.setitem(rm.BLOCK_RESUME, "~canonical/ops/generate/1",
+        monkeypatch.setitem(rm.BLOCK_RESUME, "text/generate",
                             {"level": "restart", "items": False})
         full = _Spool()
         reference = full.executor().run(_gen_spec())
@@ -397,11 +397,11 @@ class TestTrainingCheckpointResume:
 
 class TestLevels:
     def test_declared_levels(self):
-        assert rm.resume_level("~canonical/ops/generate/1") == "reproducible"
-        assert rm.resume_level("~canonical/ops/finetune/lora/1") == "state-restorable"
-        assert rm.resume_level("~canonical/ops/nothing/1") == "restart"
-        assert rm.item_resumable("~canonical/ops/generate/1")
-        assert not rm.item_resumable("~canonical/ops/text/stats/1")
+        assert rm.resume_level("text/generate") == "reproducible"
+        assert rm.resume_level("adapter/train") == "state-restorable"
+        assert rm.resume_level("nothing/here") == "restart"
+        assert rm.item_resumable("text/generate")
+        assert not rm.item_resumable("text/stats")
 
     def test_satisfies(self):
         assert rm.satisfies("reproducible", "reproducible")

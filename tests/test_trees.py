@@ -63,7 +63,7 @@ class TestTheMeasure:
     """The three shapes, and why variance is never reported alone."""
 
     def stats(self, kind, **params):
-        out = PURE_BLOCKS["~canonical/ops/vectors/mst/1"](
+        out = PURE_BLOCKS["geometry/mst"](
             {"matrix": similarity_of(corpus(kind))}, params)
         return out["layers"][0]
 
@@ -89,12 +89,12 @@ class TestTheMeasure:
         # multiplied — corpora embedded at different layers stay
         # comparable.
         base = similarity_of(corpus("clustered"))
-        cv1 = PURE_BLOCKS["~canonical/ops/vectors/mst/1"](
+        cv1 = PURE_BLOCKS["geometry/mst"](
             {"matrix": base}, {})["layers"][0]["cv"]
         scaled = {**base, "layers": [{**base["layers"][0], "matrix": [
             [1 - (1 - v) * 0.5 for v in row]
             for row in base["layers"][0]["matrix"]]}]}
-        cv2 = PURE_BLOCKS["~canonical/ops/vectors/mst/1"](
+        cv2 = PURE_BLOCKS["geometry/mst"](
             {"matrix": scaled}, {})["layers"][0]["cv"]
         assert cv1 == pytest.approx(cv2, abs=0.02)
 
@@ -103,13 +103,13 @@ class TestTheBlock:
     def test_it_takes_vectors_directly_too(self):
         rows = [{"id": f"r{i}", "layer": 3, "head": None, "label": None,
                  "vector": v.tolist()} for i, v in enumerate(corpus("clustered"))]
-        out = PURE_BLOCKS["~canonical/ops/vectors/mst/1"](
+        out = PURE_BLOCKS["geometry/mst"](
             {"vectors": {"kind": "residual_vectors", "rows": rows}}, {})
         assert out["layers"][0]["layer"] == 3
         assert out["layers"][0]["n"] == len(rows)
 
     def test_the_rows_view_renders_without_a_custom_renderer(self):
-        out = PURE_BLOCKS["~canonical/ops/vectors/mst/1"](
+        out = PURE_BLOCKS["geometry/mst"](
             {"matrix": similarity_of(corpus("even"))}, {})
         row = out["rows"][0]
         assert {"layer", "n", "mean", "variance", "cv", "bridges"} <= set(row)
@@ -117,7 +117,7 @@ class TestTheBlock:
 
     def test_a_wrong_input_says_what_it_wanted(self):
         with pytest.raises(ValueError, match="similarity_matrix"):
-            PURE_BLOCKS["~canonical/ops/vectors/mst/1"]({"matrix": [1, 2]}, {})
+            PURE_BLOCKS["geometry/mst"]({"matrix": [1, 2]}, {})
 
 
 class TestCentering:
@@ -175,17 +175,17 @@ class TestParamChecking:
     def test_an_unknown_param_is_refused_by_name(self):
         from mechbench_compute.block_params import check_params
         with pytest.raises(ValueError, match="does not accept 'centre'"):
-            check_params("~canonical/ops/vectors/mst/1",
+            check_params("geometry/mst",
                          {"bridge_sigma": 2.0, "centre": True})
 
     def test_the_message_points_at_the_runner(self):
         from mechbench_compute.block_params import check_params
         with pytest.raises(ValueError, match="predates the parameter"):
-            check_params("~canonical/ops/vectors/mst/1", {"center_rows": True})
+            check_params("geometry/mst", {"center_rows": True})
 
     def test_accepted_params_pass(self):
         from mechbench_compute.block_params import check_params
-        check_params("~canonical/ops/vectors/mst/1",
+        check_params("geometry/mst",
                      {"center": True, "bridge_sigma": 2.0, "name": "v",
                       "vectors": {}, "keep_edges": False})
 
@@ -199,6 +199,6 @@ class TestParamChecking:
 
     def test_pooling_params_are_accepted_on_residual_vectors(self):
         from mechbench_compute.block_params import check_params
-        check_params("~canonical/ops/residuals/vectors/1",
+        check_params("activations/vectors",
                      {"layers": [23], "pool": "mean", "pool_skip": 1,
                       "skip_empty": True})

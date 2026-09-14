@@ -35,10 +35,10 @@ class TestTheFingerprintIsOverWireForms:
     def test_a_resolved_ref_fingerprints_as_its_wire_form(self):
         ref = _resolved()
         live = resume_mod.node_fingerprint(
-            block="~canonical/ops/generate/1", params={"model": ref, "n": 3},
+            block="text/generate", params={"model": ref, "n": 3},
             input_hashes=[], core_version="0.70.0")
         wire = resume_mod.node_fingerprint(
-            block="~canonical/ops/generate/1",
+            block="text/generate",
             params={"model": ref.to_wire(), "n": 3},
             input_hashes=[], core_version="0.70.0")
         assert live == wire
@@ -95,7 +95,7 @@ class TestTheExecutorHashesBeforeItEmits:
         monkeypatch.setattr(protocol, "bench", bench, raising=False)
 
         graph = {"nodes": [{
-            "id": "gen", "block": "~canonical/ops/generate/1",
+            "id": "gen", "block": "text/generate",
             "params": {"model": BASE, "n": 1, "seed": 7,
                        "records": [{"id": "r", "user": "Write."}]}}],
             "edges": []}
@@ -115,7 +115,7 @@ class TestTheExecutorHashesBeforeItEmits:
         monkeypatch.setattr(bench, "emit",
                             lambda target, *a, **k: emitted.append(target) or {"path": target})
         graph = {"nodes": [{
-            "id": "gen", "block": "~canonical/ops/generate/1",
+            "id": "gen", "block": "text/generate",
             "params": {"model": BASE, "n": 1, "seed": 7,
                        "records": [{"id": "r", "user": "Write."}]}}],
             "edges": []}

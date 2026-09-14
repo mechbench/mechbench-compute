@@ -116,7 +116,7 @@ def capture(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """~canonical/ops/trajectory/capture/1."""
+    """trajectory/capture."""
     import mlx.core as mx
 
     from mechbench_compute import Capture
@@ -354,7 +354,7 @@ def _trajectory_of(x: Any, port: str = "trajectory") -> Mapping[str, Any]:
 
 
 def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """~canonical/ops/trajectory/project/1 — every row's scalar coordinate
+    """trajectory/project — every row's scalar coordinate
     along a direction. The direction's layer is recorded, not enforced:
     projecting a layers-axis trajectory onto a single-layer direction is
     the funnel read against one axis, which is a legitimate question."""
@@ -391,7 +391,7 @@ def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
 
 
 def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """~canonical/ops/trajectory/compare/1 — trajectories `a` and `b`,
+    """trajectory/compare — trajectories `a` and `b`,
     paired by (id, step) (or by step alone with `pair_by: "step"`, for
     two single-item trajectories under different prompts or models):
     per-step cosine, angle in degrees, norm ratio; and the DIVERGENCE
@@ -450,7 +450,7 @@ def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
 
 
 def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """~canonical/ops/trajectory/aggregate/1 — group rows and reduce.
+    """trajectory/aggregate — group rows and reduce.
 
     by:      "label" (default) | "id" | a coord/field name on the rows
     steps:   "all" | {"range": [a, b]} — which steps enter the reduce
@@ -558,7 +558,7 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
 
 #: Pure blocks this module contributes (registered by blocks.PURE_BLOCKS).
 PURE: dict[str, Callable[..., Any]] = {
-    "~canonical/ops/trajectory/project/1": project,
-    "~canonical/ops/trajectory/compare/1": compare,
-    "~canonical/ops/trajectory/aggregate/1": aggregate,
+    "trajectory/project": project,
+    "trajectory/compare": compare,
+    "trajectory/aggregate": aggregate,
 }

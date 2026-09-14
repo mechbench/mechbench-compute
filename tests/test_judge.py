@@ -1,4 +1,4 @@
-"""`~canonical/ops/judge/1` (task 000356): scales and parsing, votes
+"""`eval/judge` (task 000356): scales and parsing, votes
 and spread, position randomization, and the block end to end on the
 mock provider.
 
@@ -157,7 +157,7 @@ class TestTheBlock:
         from mechbench_compute.blocks import PURE_BLOCKS
 
         out = judged('{"score": 3}')
-        stats = PURE_BLOCKS["~canonical/ops/group-stats/1"](
+        stats = PURE_BLOCKS["records/stats"](
             {"records": out}, {"by": ["arm"], "value": "score"})
         assert stats["kind"] == "metric_table"
         assert {r["arm"] for r in stats["rows"]} == {"base", "tuned"}
@@ -185,7 +185,7 @@ class TestTheBlock:
 class TestThroughTheExecutor:
     def test_a_judge_node_runs_end_to_end(self):
         graph = {"nodes": [{
-            "id": "grade", "block": "~canonical/ops/judge/1",
+            "id": "grade", "block": "eval/judge",
             "params": {
                 "judge": {"model": {"provider": "mock", "model": "judge-1"},
                           "system": "Grade the story for cliché.",
@@ -220,7 +220,7 @@ class TestThroughTheExecutor:
         monkeypatch.setattr(ex, "_model_loaded", lambda *_a, **_k: FakeModel())
         out = ex.run(ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
             "graph": {"nodes": [{
-                "id": "grade", "block": "~canonical/ops/judge/1",
+                "id": "grade", "block": "eval/judge",
                 "params": {
                     "judge": {"model": "google/gemma-3-4b-it",
                               "system": "Grade the story for cliché."},
@@ -235,9 +235,9 @@ class TestThroughTheExecutor:
     def test_the_resume_level_follows_the_judges_model(self):
         from mechbench_compute import resume as resume_mod
 
-        assert resume_mod.resume_level("~canonical/ops/judge/1", {
+        assert resume_mod.resume_level("eval/judge", {
             "judge": {"model": {"provider": "anthropic", "model": "x"}}}) == "exchangeable"
-        assert resume_mod.resume_level("~canonical/ops/judge/1", {
+        assert resume_mod.resume_level("eval/judge", {
             "judge": {"model": "google/gemma-3-4b-it"}}) == "reproducible"
 
 

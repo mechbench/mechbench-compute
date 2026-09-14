@@ -298,15 +298,15 @@ class TestAggregate:
 
 class TestWiring:
     def test_pure_blocks_are_registered(self):
-        for ref in ("~canonical/ops/trajectory/project/1",
-                    "~canonical/ops/trajectory/compare/1",
-                    "~canonical/ops/trajectory/aggregate/1"):
+        for ref in ("trajectory/project",
+                    "trajectory/compare",
+                    "trajectory/aggregate"):
             assert ref in blocks.PURE_BLOCKS
 
     def test_params_are_guarded(self):
         with pytest.raises(ValueError, match="does not accept"):
-            check_params("~canonical/ops/trajectory/capture/1", {"nope": 1})
-        check_params("~canonical/ops/trajectory/capture/1",
+            check_params("trajectory/capture", {"nope": 1})
+        check_params("trajectory/capture",
                      {"axis": "positions", "layer": 12, "replay": "auto"})
 
     def test_select_reads_an_annotated_field(self):

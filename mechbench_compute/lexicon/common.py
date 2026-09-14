@@ -28,7 +28,7 @@ COMMON: tuple[Param, ...] = (
       None),
     P("matrix", "record | ref",
       "A similarity matrix record, for the blocks that build on one (such "
-      "as `vectors/mst`). Usually arrives by edge on the `similarity` port.",
+      "as `geometry/mst`). Usually arrives by edge on the `similarity` port.",
       None),
     P("collection", "record | ref",
       "A collection object — a named bundle of items — for the blocks that "
@@ -46,7 +46,7 @@ COMMON: tuple[Param, ...] = (
       None),
     P("adapter", "adapter | ref",
       "A LoRA adapter to fuse on top of the model for this node only — "
-      "the output of a `finetune/lora` node by edge, an "
+      "the output of a `adapter/train` node by edge, an "
       "`{\"$hf_adapter\": {\"repo\": …}}` reference, or a stored adapter. "
       "Fuses last, on top of any adapters the model reference itself "
       "carries.",

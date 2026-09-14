@@ -1,4 +1,4 @@
-"""`~canonical/ops/conversation/1` (task 000339): the perspective map,
+"""`text/conversation` (task 000339): the perspective map,
 turn policies, windows, and the two acceptance topologies — a
 cross-wired pair and a three-model group chat.
 
@@ -109,7 +109,7 @@ class TestTheCrossWiredPair:
         from mechbench_compute.blocks import PURE_BLOCKS
 
         out = run()
-        stats = PURE_BLOCKS["~canonical/ops/text/stats/1"](
+        stats = PURE_BLOCKS["text/stats"](
             {"records": out},
             {"field": "text", "measures": [{"kind": "lexical", "name": "lex"}]})
         # text/stats works unchanged on transcripts (task 000339).
@@ -266,15 +266,15 @@ class TestBudgetAndResume:
         local = {"participants": [{"name": "a", "model": "google/gemma-3-4b-it"},
                                   {"name": "b", "model": "google/gemma-3-4b-it"}]}
         assert resume_mod.resume_level(
-            "~canonical/ops/conversation/1", remote) == "exchangeable"
+            "text/conversation", remote) == "exchangeable"
         assert resume_mod.resume_level(
-            "~canonical/ops/conversation/1", local) == "state-restorable"
+            "text/conversation", local) == "state-restorable"
 
 
 class TestThroughTheExecutor:
     def test_a_conversation_node_runs_end_to_end(self):
         graph = {"nodes": [{
-            "id": "talk", "block": "~canonical/ops/conversation/1",
+            "id": "talk", "block": "text/conversation",
             "params": {
                 "participants": [agent("claude"), agent("gpt")],
                 "opening": ["Hello."],
@@ -309,7 +309,7 @@ class TestThroughTheExecutor:
         ex = ProtocolExecutor()
         monkeypatch.setattr(ex, "_model_loaded", lambda *_a, **_k: FakeModel())
         graph = {"nodes": [{
-            "id": "talk", "block": "~canonical/ops/conversation/1",
+            "id": "talk", "block": "text/conversation",
             "params": {
                 "participants": [{"name": "gemma", "model": "google/gemma-3-4b-it",
                                   "system": "You are {name}."},

@@ -43,79 +43,79 @@ P = "protocol.py"
 #: unioned — a wrapper plus what it delegates to.
 SITES: dict[str, list[tuple[str, str | None]]] = {
     # --- model blocks implemented inline in the executor ---
-    "~canonical/ops/decision-read/1": [(P, "_block_decision_read")],
-    "~canonical/ops/generate/1": [(P, "_block_generate")],
-    "~canonical/ops/finetune/lora/1": [(P, "_block_finetune_lora")],
-    "~canonical/ops/eval/suite/1": [(P, "_block_eval_suite")],
-    "~canonical/ops/eval/hf-metric/1": [(P, "_block_eval_hf_metric")],
-    "~canonical/ops/lens-trajectory/1": [(P, "_block_lens")],
-    "~canonical/ops/score/1": [(P, "_block_score")],
-    "~canonical/ops/merge/1": [(P, "_block_merge")],
-    "~canonical/ops/hf/push-adapter/1": [(P, "_block_hf_push_adapter")],
-    "~canonical/ops/viz/spec/1": [("blocks.py", "viz_spec")],
+    "logits/decision": [(P, "_block_decision_read")],
+    "text/generate": [(P, "_block_generate")],
+    "adapter/train": [(P, "_block_finetune_lora")],
+    "eval/suite": [(P, "_block_eval_suite")],
+    "eval/metric": [(P, "_block_eval_hf_metric")],
+    "logits/funnel": [(P, "_block_lens")],
+    "text/score": [(P, "_block_score")],
+    "adapter/merge": [(P, "_block_merge")],
+    "adapter/publish": [(P, "_block_hf_push_adapter")],
+    "records/chart": [("blocks.py", "viz_spec")],
     # --- model blocks that delegate to a module ---
-    "~canonical/ops/chat/1": [(P, "_block_chat"), (P, "_block_chat_local"),
+    "text/chat": [(P, "_block_chat"), (P, "_block_chat_local"),
                               ("chat.py", "run_remote"), ("chat.py", "run_local")],
-    "~canonical/ops/judge/1": [(P, "_block_judge"), ("judge.py", "run")],
-    "~canonical/ops/conversation/1": [(P, "_block_conversation"),
+    "eval/judge": [(P, "_block_judge"), ("judge.py", "run")],
+    "text/conversation": [(P, "_block_conversation"),
                                       ("conversation.py", "run")],
-    "~canonical/ops/intervene/1": [(P, "_block_intervene"), ("intervene.py", "run")],
-    "~canonical/ops/direction/vocab/1": [(P, "_block_direction_vocab"),
+    "intervene/apply": [(P, "_block_intervene"), ("intervene.py", "run")],
+    "direction/vocab": [(P, "_block_direction_vocab"),
                                          ("directions.py", "vocab_projection")],
-    "~canonical/ops/trajectory/capture/1": [(P, "_block_trajectory_capture"),
+    "trajectory/capture": [(P, "_block_trajectory_capture"),
                                             ("trajectory.py", "capture")],
-    "~canonical/ops/tokenize/stats/1": [(P, "_block_tokenize_stats"),
+    "text/tokenize": [(P, "_block_tokenize_stats"),
                                         ("tokenizer_stats.py", "block")],
-    "~canonical/ops/ablate/layers/1": [(P, "_block_ablate_layers"),
+    "intervene/layers": [(P, "_block_ablate_layers"),
                                        ("interp.py", "ablate_layers")],
-    "~canonical/ops/ablate/heads/1": [(P, "_block_ablate_heads"),
+    "intervene/heads": [(P, "_block_ablate_heads"),
                                       ("interp.py", "ablate_heads")],
-    "~canonical/ops/steer/inject/1": [(P, "_block_steer_inject"),
+    "intervene/steer": [(P, "_block_steer_inject"),
                                       ("interp.py", "steer_inject")],
-    "~canonical/ops/attribution/logits/1": [(P, "_block_logit_attribution"),
+    "logits/attribution": [(P, "_block_logit_attribution"),
                                             ("interp.py", "logit_attribution")],
-    "~canonical/ops/patch/trace/1": [(P, "_block_patch_trace"),
+    "intervene/trace": [(P, "_block_patch_trace"),
                                      ("interp.py", "patch_trace")],
-    "~canonical/ops/attention/patterns/1": [(P, "_block_attention_patterns"),
+    "activations/attention": [(P, "_block_attention_patterns"),
                                             ("interp.py", "attention_patterns")],
-    "~canonical/ops/lens/positions/1": [(P, "_block_lens_positions"),
+    "logits/lens": [(P, "_block_lens_positions"),
                                         ("interp.py", "lens_positions")],
-    "~canonical/ops/residuals/vectors/1": [(P, "_block_residual_vectors"),
+    "activations/vectors": [(P, "_block_residual_vectors"),
                                            ("interp.py", "residual_vectors")],
-    "~canonical/ops/residuals/divergence/1": [(P, "_block_residual_divergence"),
+    "activations/divergence": [(P, "_block_residual_divergence"),
                                               ("interp.py", "residual_divergence")],
     # --- pure blocks ---
-    "~canonical/ops/factor-cross/1": [("blocks.py", "factor_cross")],
+    "records/cross": [("blocks.py", "factor_cross")],
     # An alias for factor-cross: protocols pinned before the rename.
-    "~canonical/ops/grid/1": [("blocks.py", "factor_cross")],
-    "~canonical/ops/template/1": [("blocks.py", "template")],
-    "~canonical/ops/select/1": [("blocks.py", "select")],
-    "~canonical/ops/paired-delta/1": [("blocks.py", "paired_delta")],
-    "~canonical/ops/group-stats/1": [("blocks.py", "group_stats")],
-    "~canonical/ops/table/from-records/1": [("blocks.py", "table_from_records")],
-    "~canonical/ops/union/1": [("blocks.py", "union")],
-    "~canonical/ops/text/stats/1": [("blocks.py", "text_stats")],
-    "~canonical/ops/eval/expectation/1": [("blocks.py", "eval_expectation")],
-    "~canonical/ops/vectors/similarity/1": [("blocks.py", "_vector_similarity")],
-    "~canonical/ops/vectors/mst/1": [("trees.py", "mst")],
-    "~canonical/ops/direction/add/1": [("directions.py", "block_add")],
-    "~canonical/ops/direction/average/1": [("directions.py", "block_average")],
-    "~canonical/ops/direction/from-pca/1": [("directions.py", "block_from_pca")],
-    "~canonical/ops/direction/from-vectors/1": [("directions.py", "block_from_vectors")],
-    "~canonical/ops/direction/normalize/1": [("directions.py", "block_normalize")],
-    "~canonical/ops/direction/orthogonalize/1": [("directions.py", "block_orthogonalize")],
-    "~canonical/ops/direction/project/1": [("directions.py", "block_project")],
-    "~canonical/ops/direction/similarity/1": [("directions.py", "block_similarity")],
-    "~canonical/ops/trajectory/project/1": [("trajectory.py", "project")],
-    "~canonical/ops/trajectory/compare/1": [("trajectory.py", "compare")],
-    "~canonical/ops/trajectory/aggregate/1": [("trajectory.py", "aggregate")],
+    "records/cross": [("blocks.py", "factor_cross")],
+    "records/template": [("blocks.py", "template")],
+    "records/select": [("blocks.py", "select")],
+    "records/delta": [("blocks.py", "paired_delta")],
+    "records/stats": [("blocks.py", "group_stats")],
+    "records/table": [("blocks.py", "table_from_records")],
+    "records/union": [("blocks.py", "union")],
+    "text/stats": [("blocks.py", "text_stats")],
+    "eval/expectation": [("blocks.py", "eval_expectation")],
+    "geometry/similarity": [("blocks.py", "_vector_similarity")],
+    "geometry/mst": [("trees.py", "mst")],
+    "direction/add": [("directions.py", "block_add")],
+    "direction/average": [("directions.py", "block_average")],
+    "direction/from-pca": [("directions.py", "block_from_pca")],
+    "direction/from-vectors": [("directions.py", "block_from_vectors")],
+    "direction/normalize": [("directions.py", "block_normalize")],
+    "direction/orthogonalize": [("directions.py", "block_orthogonalize")],
+    "direction/project": [("directions.py", "block_project")],
+    "direction/similarity": [("directions.py", "block_similarity")],
+    "trajectory/project": [("trajectory.py", "project")],
+    "trajectory/compare": [("trajectory.py", "compare")],
+    "trajectory/aggregate": [("trajectory.py", "aggregate")],
     # The reduce ops share one closure; the MONOID is what differs, and
     # each one's params are its own.
-    "~canonical/ops/reduce/sum/1": [("reduce.py", "FloatSum")],
-    "~canonical/ops/reduce/top-k/1": [("reduce.py", "TopK")],
-    "~canonical/ops/reduce/histogram/1": [("reduce.py", "Histogram")],
-    "~canonical/ops/tools/calc/1": [("tools.py", "calc")],
-    "~canonical/ops/tools/bench-lookup/1": [("tools.py", "bench_lookup")],
+    "records/sum": [("reduce.py", "FloatSum")],
+    "records/top-k": [("reduce.py", "TopK")],
+    "records/histogram": [("reduce.py", "Histogram")],
+    "tools/calc": [("tools.py", "calc")],
+    "tools/lookup": [("tools.py", "bench_lookup")],
 }
 
 #: Params a block genuinely reads somewhere the scanner cannot follow —
@@ -227,7 +227,8 @@ def registered_ops() -> set[str]:
     the dispatcher names."""
     from mechbench_compute.blocks import PURE_BLOCKS
 
-    dispatched = set(re.findall(r'block == "(~canonical/ops/[^"]+)"',
+    # The dispatcher compares the resolved bare name (docs/LEXICON.md §1).
+    dispatched = set(re.findall(r'block == "([a-z0-9-]+/[a-z0-9-]+)"',
                                 (ROOT / P).read_text()))
     return set(PURE_BLOCKS) | dispatched
 
@@ -293,14 +294,14 @@ def test_exemptions_carry_a_reason():
 def test_an_executor_injection_is_not_refused():
     # `_block_runner` and friends are added by the executor, never
     # declared by a protocol.
-    check_params("~canonical/ops/vectors/mst/1", {"_block_runner": object()})
+    check_params("geometry/mst", {"_block_runner": object()})
 
 
 def test_an_unknown_param_is_refused_by_name():
     with pytest.raises(ValueError) as caught:
-        check_params("~canonical/ops/vectors/mst/1", {"centre": True})
+        check_params("geometry/mst", {"centre": True})
     msg = str(caught.value)
-    assert "centre" in msg and "vectors/mst" in msg
+    assert "centre" in msg and "geometry/mst" in msg
     assert "compute version" in msg
 
 

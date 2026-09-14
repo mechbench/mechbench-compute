@@ -17,6 +17,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+#: The reserved root a canonical op is stored under. A protocol never
+#: writes it; `lexicon.canonical_path` adds it, `lexicon.resolve`
+#: accepts it.
+ROOT = "~canonical/ops/"
+
 
 class _Required:
     """Sentinel: the parameter has no default and must be given."""
@@ -72,7 +77,8 @@ class Op:
     from outside the protocol.
     """
 
-    ref: str
+    #: The bare name, `family/op` — what a protocol writes.
+    name: str
     summary: str
     description: str
     params: tuple[Param, ...]
@@ -81,9 +87,13 @@ class Op:
     example: dict[str, Any] | None = None
 
     @property
-    def name(self) -> str:
-        """`~canonical/ops/trajectory/capture/1` -> `trajectory/capture`."""
-        return self.ref.removeprefix("~canonical/ops/").rsplit("/", 1)[0]
+    def path(self) -> str:
+        """The stored identity: `~canonical/ops/<name>`."""
+        return f"{ROOT}{self.name}"
+
+    @property
+    def family(self) -> str:
+        return self.name.split("/", 1)[0]
 
     @property
     def param_names(self) -> frozenset[str]:
@@ -91,9 +101,9 @@ class Op:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "ref": self.ref,
             "name": self.name,
-            "version": self.ref.rsplit("/", 1)[-1],
+            "path": self.path,
+            "family": self.family,
             "summary": self.summary,
             "description": self.description,
             "inputs": self.inputs,

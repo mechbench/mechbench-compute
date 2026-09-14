@@ -34,7 +34,7 @@ _CHAT_FIELDS = (
 )
 
 CHAT = Op(
-    ref="~canonical/ops/chat/1",
+    name="text/chat",
     summary=(
         "Send each record's prompt to a model as a chat — local weights or a "
         "hosted endpoint, the same node either way — and collect the "
@@ -186,7 +186,7 @@ and any `keep_fields` copied from the record. Remote runs also carry
 )
 
 CONVERSATION = Op(
-    ref="~canonical/ops/conversation/1",
+    name="text/conversation",
     summary=(
         "Run a multi-party conversation between model participants — each "
         "seeing the shared transcript from its own side — under a declared "
@@ -282,7 +282,7 @@ calls and spend.
 )
 
 JUDGE = Op(
-    ref="~canonical/ops/judge/1",
+    name="eval/judge",
     summary=(
         "Have a model grade each record against a rubric — a score, a label "
         "or an A/B preference — with repeated votes, the spread between "
@@ -361,7 +361,7 @@ and how); `summary` (mean/median/stdev or counts, `n_unparsed`,
 )
 
 EVAL_HF_METRIC = Op(
-    ref="~canonical/ops/eval/hf-metric/1",
+    name="eval/metric",
     summary=(
         "Score prediction and reference fields on a record stream with any "
         "metric from the Hugging Face `evaluate` hub — accuracy, exact "
@@ -371,7 +371,7 @@ EVAL_HF_METRIC = Op(
 The named metric is loaded from the hub and computed over every record's
 `prediction_field` against its `reference_field`. Each numeric value the
 metric returns becomes one row, stamped with `variant` so that a base run
-and an adapter run union into one table for `paired-delta`. The metric
+and an adapter run union into one table for `records/delta`. The metric
 library's version is recorded on the table, because metric definitions
 change across releases.
 """,
@@ -396,7 +396,7 @@ change across releases.
 )
 
 EVAL_SUITE = Op(
-    ref="~canonical/ops/eval/suite/1",
+    name="eval/suite",
     summary=(
         "Run standard benchmark tasks from the lm-evaluation-harness against "
         "the model — through mechbench's own model, so pinned revisions and "
@@ -407,7 +407,7 @@ Each named task is evaluated by the harness with the bound model wrapped as
 its backend, so anything the platform knows how to load — a pinned
 revision, a stacked adapter, a merged checkpoint — is what gets measured.
 Every (task, metric) the harness reports becomes one row, stamped with
-`variant`, ready for `union` and `paired-delta` against another run.
+`variant`, ready for `records/union` and `records/delta` against another run.
 
 The harness version is recorded on the table: prompt templates change
 between its releases, so the version is part of the measurement.
@@ -437,7 +437,7 @@ between its releases, so the version is part of the measurement.
 )
 
 FINETUNE_LORA = Op(
-    ref="~canonical/ops/finetune/lora/1",
+    name="adapter/train",
     summary=(
         "Train a LoRA adapter that shapes what the model says at a decision "
         "point toward a target distribution over outcomes — and emit the "
@@ -481,7 +481,7 @@ One `adapter` object: `data` (safetensors bytes), `format`, `base_model`,
 `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale,
 target modules, parameter count) and `train` (steps, lr, seed, batch,
 final loss, the target spec, depth, positions, counts). Wire it into a
-later node's `adapter` port, or `hf/push-adapter`.
+later node's `adapter` port, or `adapter/publish`.
 """,
     params=(
         P("target", "object",
@@ -542,7 +542,7 @@ later node's `adapter` port, or `hf/push-adapter`.
 )
 
 HF_PUSH_ADAPTER = Op(
-    ref="~canonical/ops/hf/push-adapter/1",
+    name="adapter/publish",
     summary=(
         "Publish an adapter object to the Hugging Face hub as a PEFT LoRA "
         "repository, with a model card carrying its bench provenance."
@@ -558,7 +558,7 @@ Needs a Hugging Face write token in the job owner's vault. `dry_run` stages
 the repository locally and reports the files and sizes without touching the
 hub or needing a token.
 """,
-    inputs="`adapter` (by edge, or the common `adapter` param) — the adapter object, usually from `finetune/lora`.",
+    inputs="`adapter` (by edge, or the common `adapter` param) — the adapter object, usually from `adapter/train`.",
     emits=(
         "An `hf_push` record: `repo`, `private`, `files` (name and size), "
         "`lora`, `base_model`, `commit`, `url`, and `hf_adapter_ref` to "
@@ -573,7 +573,7 @@ hub or needing a token.
 )
 
 MERGE = Op(
-    ref="~canonical/ops/merge/1",
+    name="adapter/merge",
     summary=(
         "Collapse a model's adapter stack into one standalone checkpoint and "
         "publish it — to the bench or to the Hugging Face hub — so \"base "
@@ -605,7 +605,7 @@ skipped.
 )
 
 TOOLS_CALC = Op(
-    ref="~canonical/ops/tools/calc/1",
+    name="tools/calc",
     summary=(
         "Evaluate an arithmetic expression — numbers and operators only — as "
         "a tool a model may call."
@@ -629,7 +629,7 @@ naming `"calc"` in its `tools`; the model's call supplies `arguments:
 )
 
 TOOLS_BENCH_LOOKUP = Op(
-    ref="~canonical/ops/tools/bench-lookup/1",
+    name="tools/lookup",
     summary=(
         "Fetch a stored bench object by path — a tool that lets a model "
         "consult what the platform already knows."

@@ -25,10 +25,10 @@ def _leaves(n=60, seed=0):
 
 class TestMonoidLaws:
     @pytest.mark.parametrize("block,params", [
-        ("~canonical/ops/group-stats/1", {"by": ["g"], "value": "delta"}),
-        ("~canonical/ops/reduce/sum/1", {"value": "delta"}),
-        ("~canonical/ops/reduce/top-k/1", {"value": "score", "k": 5}),
-        ("~canonical/ops/reduce/histogram/1", {"value": "delta", "lo": -5, "hi": 5, "bins": 10}),
+        ("records/stats", {"by": ["g"], "value": "delta"}),
+        ("records/sum", {"value": "delta"}),
+        ("records/top-k", {"value": "score", "k": 5}),
+        ("records/histogram", {"value": "delta", "lo": -5, "hi": 5, "bins": 10}),
     ])
     def test_identity_and_associativity(self, block, params):
         m = rd.monoid_for(block, params)
@@ -41,9 +41,9 @@ class TestMonoidLaws:
     def test_group_stats_monoid_equals_the_flat_block_exactly(self):
         leaves = _leaves(200, seed=3)
         params = {"by": ["g"], "value": "delta"}
-        flat = PURE_BLOCKS["~canonical/ops/group-stats/1"]({"records": leaves}, params)
+        flat = PURE_BLOCKS["records/stats"]({"records": leaves}, params)
         chunks = [leaves[i:i + 37] for i in range(0, len(leaves), 37)]
-        chunked = rd.reduce_chunks("~canonical/ops/group-stats/1", chunks, params)
+        chunked = rd.reduce_chunks("records/stats", chunks, params)
         # rows compare as sets (the flat block's group order is insertion order)
         def key(r):
             return r["g"]
@@ -67,20 +67,20 @@ class TestMonoidLaws:
 
 class TestHarness:
     @pytest.mark.parametrize("block,params", [
-        ("~canonical/ops/group-stats/1", {"by": ["g"], "value": "delta"}),
-        ("~canonical/ops/reduce/sum/1", {"value": "delta"}),
-        ("~canonical/ops/reduce/top-k/1", {"value": "score", "k": 7}),
-        ("~canonical/ops/reduce/histogram/1", {"value": "delta", "lo": -5, "hi": 5, "bins": 8}),
-        ("~canonical/ops/select/1", {"where": {"g": "a"}}),
-        ("~canonical/ops/table/from-records/1", {"columns": ["id", "delta"]}),
+        ("records/stats", {"by": ["g"], "value": "delta"}),
+        ("records/sum", {"value": "delta"}),
+        ("records/top-k", {"value": "score", "k": 7}),
+        ("records/histogram", {"value": "delta", "lo": -5, "hi": 5, "bins": 8}),
+        ("records/select", {"where": {"g": "a"}}),
+        ("records/table", {"columns": ["id", "delta"]}),
     ])
     def test_random_nested_partitions_reduce_to_the_flat_result(self, block, params):
         report = iso.check(block, _leaves(120, seed=5), params, trials=25, seed=11)
         assert report["exact"] is True
 
     def test_an_ordered_block_is_refused_from_chunking(self, monkeypatch):
-        monkeypatch.setitem(rd.REDUCE_ALGEBRA, "~canonical/ops/select/1", "ordered")
-        report = iso.check("~canonical/ops/select/1", _leaves(10), {"where": {}}, trials=1)
+        monkeypatch.setitem(rd.REDUCE_ALGEBRA, "records/select", "ordered")
+        report = iso.check("records/select", _leaves(10), {"where": {}}, trials=1)
         assert report["refused"] is True
 
     def test_a_broken_monoid_is_caught(self, monkeypatch):
@@ -88,13 +88,13 @@ class TestHarness:
             def merge(self, a, b):  # drops a value: not a monoid
                 return tuple(sorted((a + b)[:-1])) if len(a + b) > 3 else tuple(sorted(a + b))
 
-        monkeypatch.setitem(rd.MONOIDS, "~canonical/ops/reduce/sum/1", Bad)
+        monkeypatch.setitem(rd.MONOIDS, "records/sum", Bad)
         with pytest.raises(AssertionError):
-            iso.check("~canonical/ops/reduce/sum/1", _leaves(40), {"value": "delta"}, trials=10)
+            iso.check("records/sum", _leaves(40), {"value": "delta"}, trials=10)
 
     def test_fsum_makes_float_sums_partition_independent(self):
         leaves = [{"id": str(i), "v": (0.1 * i) ** 3 * (-1) ** i} for i in range(500)]
-        report = iso.check("~canonical/ops/reduce/sum/1", leaves, {"value": "v"}, trials=30)
+        report = iso.check("records/sum", leaves, {"value": "v"}, trials=30)
         assert report["exact"] is True
 
 
@@ -139,35 +139,35 @@ def _template_leaves(n=25, seed=8):
 #: `test_every_pure_block_is_classified` fails: the catalog stays
 #: covered by construction (task 000407, "CI over the whole catalog").
 CATALOG: dict[str, dict] = {
-    "~canonical/ops/group-stats/1": {
+    "records/stats": {
         "leaves": _leaves(120, seed=5), "params": {"by": ["g"], "value": "delta"}},
-    "~canonical/ops/reduce/sum/1": {
+    "records/sum": {
         "leaves": _leaves(120, seed=5), "params": {"value": "delta"}},
-    "~canonical/ops/reduce/top-k/1": {
+    "records/top-k": {
         "leaves": _leaves(120, seed=5), "params": {"value": "score", "k": 7}},
-    "~canonical/ops/reduce/histogram/1": {
+    "records/histogram": {
         "leaves": _leaves(120, seed=5),
         "params": {"value": "delta", "lo": -5, "hi": 5, "bins": 8}},
-    "~canonical/ops/select/1": {
+    "records/select": {
         "leaves": _leaves(120, seed=5), "params": {"where": {"g": ["a", "b"]}}},
-    "~canonical/ops/table/from-records/1": {
+    "records/table": {
         "leaves": _leaves(120, seed=5), "params": {"name": "leaves"}},
-    "~canonical/ops/template/1": {
+    "records/template": {
         "leaves": _template_leaves(),
         "params": {"templates": {"prompt": "a {g} of {n}"}}},
-    "~canonical/ops/paired-delta/1": {
+    "records/delta": {
         "leaves": _paired_leaves(),
         "params": {"match_on": ["item"], "baseline_where": {"arm": "base"},
                    "value": "delta"}},
-    "~canonical/ops/text/stats/1": {
+    "text/stats": {
         "leaves": _text_leaves(),
         "params": {"field": "text", "mode": "corpus", "measures": [
             {"kind": "lexical", "name": "lex"},
             {"kind": "pattern", "name": "salt", "patterns": ["salt"]}]}},
-    "~canonical/ops/union/1": {
+    "records/union": {
         "leaves": _leaves(60, seed=9), "port": "a",
         "inputs": {"b": _leaves(20, seed=10)}, "params": {}},
-    "~canonical/ops/eval/expectation/1": {
+    "eval/expectation": {
         "leaves": _decision_leaves(), "port": "results",
         "inputs": {"expectations": [
             {"id": f"d{i}", "expect": {"kind": "answer", "value": "left",
@@ -179,24 +179,24 @@ CATALOG: dict[str, dict] = {
 #: Pure blocks whose input is NOT a stream of leaf records — the law
 #: does not apply to them as written, and why.
 NOT_LEAF_STREAM: dict[str, str] = {
-    "~canonical/ops/factor-cross/1": "generator: builds leaves from params, consumes none",
-    "~canonical/ops/grid/1": "generator (factor-cross alias)",
-    "~canonical/ops/vectors/similarity/1":
+    "records/cross": "generator: builds leaves from params, consumes none",
+    "records/cross": "generator (factor-cross alias)",
+    "geometry/similarity":
         "one residual_vectors record; its rows are not bench leaves",
-    "~canonical/ops/vectors/mst/1":
+    "geometry/mst":
         "one similarity matrix or vector set, not a leaf stream",
-    "~canonical/ops/tools/calc/1":
+    "tools/calc":
         "a tool handler: its input is one call's arguments, not a leaf stream",
-    "~canonical/ops/tools/bench-lookup/1":
+    "tools/lookup":
         "a tool handler: its input is one call's arguments, not a leaf stream",
-    **{f"~canonical/ops/direction/{n}/1":
+    **{f"direction/{n}":
        "residual_vectors / direction records, not a leaf stream"
        for n in ("from-vectors", "from-pca", "add", "average", "orthogonalize",
                  "normalize", "similarity", "project")},
     # Trajectory readouts (task 000368) read ONE trajectory record —
     # rows are (item, step) points along an axis, not bench leaves —
     # the same footing as the direction algebra above.
-    **{f"~canonical/ops/trajectory/{n}/1":
+    **{f"trajectory/{n}":
        "one trajectory record; its rows are (item, step) points, not leaves"
        for n in ("project", "compare", "aggregate")},
 }

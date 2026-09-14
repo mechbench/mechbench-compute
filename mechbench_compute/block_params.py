@@ -34,26 +34,32 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from mechbench_compute.lexicon import BY_REF
+from mechbench_compute import lexicon
+from mechbench_compute.lexicon import BY_NAME
 from mechbench_compute.lexicon import COMMON as _COMMON_PARAMS
 
 #: Accepted by every block: the wiring, not the operation. Documented
 #: in `lexicon.common`.
 COMMON: frozenset[str] = frozenset(p.name for p in _COMMON_PARAMS)
 
-#: block ref -> the params it reads, beyond COMMON.
+#: op name -> the params it reads, beyond COMMON.
 ACCEPTED: dict[str, frozenset[str]] = {
-    ref: op.param_names for ref, op in BY_REF.items()
+    name: op.param_names for name, op in BY_NAME.items()
 }
 
 
 def check_params(block: str, params: Mapping[str, object]) -> None:
     """Raise if `block` was handed a param it does not read.
 
-    The message names the parameter AND the block, because the useful
-    question when this fires is 'does this runner's copy of that block
-    know about it?' — usually the answer is that the runner is old.
+    `block` may be spelled any way `lexicon.resolve` accepts. The message
+    names the parameter AND the block, because the useful question when
+    this fires is 'does this runner's copy of that block know about
+    it?' — usually the answer is that the runner is old.
     """
+    try:
+        block = lexicon.resolve(block, warn=False)
+    except KeyError:
+        return  # not canonical: an extension's op checks its own params
     accepted = ACCEPTED.get(block)
     if accepted is None:
         return

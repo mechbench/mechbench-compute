@@ -4,8 +4,8 @@ activations, and generating from it.
 Shared conventions, stated once here and referred to from the entries:
 
 * A record's **prompt** is its `user`, `prompt` or `text` field (the
-  first present). The chat-shaped blocks (`generate`, `decision-read`,
-  `lens-trajectory`) instead read the fields named by `system_field`,
+  first present). The chat-shaped blocks (`text/generate`, `logits/decision`,
+  `logits/funnel`) instead read the fields named by `system_field`,
   `user_field` and `prefill_field`.
 * `template` is how a prompt is tokenized: `"raw"` as plain text,
   `"chat"` wrapped in the model's chat template as one user turn.
@@ -67,7 +67,7 @@ _PREFILL_FIELD = P("prefill_field", "string",
 # --- editing the forward pass ------------------------------------------------------
 
 INTERVENE = Op(
-    ref="~canonical/ops/intervene/1",
+    name="intervene/apply",
     summary=(
         "Edit a model's activations at chosen points during the forward "
         "pass — zero them, patch them from another run, add or remove a "
@@ -130,7 +130,7 @@ The ops:
 | `project_out` | Remove its component along `direction`. | `direction` |
 | `rotate` | Rotate it by `strength` radians in the plane of `direction` and `direction2`. | `direction`, `direction2` |
 
-The older `ablate/*` and `steer/inject` operations are special cases of this
+The older `intervene/layers` and `intervene/heads` and `intervene/steer` operations are special cases of this
 grammar.
 """,
     inputs="""\
@@ -211,7 +211,7 @@ per factor with `id`, `coords`, `factor`, and the readout — for a decision,
 )
 
 ABLATE_LAYERS = Op(
-    ref="~canonical/ops/ablate/layers/1",
+    name="intervene/layers",
     summary=(
         "Remove one layer's contribution at a time and measure how much the "
         "target token's log-probability drops — which layers the answer "
@@ -255,14 +255,14 @@ order.
 )
 
 ABLATE_HEADS = Op(
-    ref="~canonical/ops/ablate/heads/1",
+    name="intervene/heads",
     summary=(
         "Zero one attention head at a time across the chosen layers and "
         "measure the drop in the target token's log-probability — a "
         "layer × head map of which heads the answer runs through."
     ),
     description="""\
-The head-level version of `ablate/layers`. For each record the baseline
+The head-level version of `intervene/layers`. For each record the baseline
 log-probability of the target is taken once; then every (layer, head) pair in
 turn has that head's output zeroed and the target re-read. The differences
 are averaged over records into one matrix.
@@ -292,7 +292,7 @@ axes.
 )
 
 ATTENTION_PATTERNS = Op(
-    ref="~canonical/ops/attention/patterns/1",
+    name="activations/attention",
     summary=(
         "Record the attention weights of every head at the named layers — "
         "which earlier tokens each position attends to."
@@ -328,7 +328,7 @@ One `attention_patterns` record. `rows` has one entry per record with
 )
 
 ATTRIBUTION_LOGITS = Op(
-    ref="~canonical/ops/attribution/logits/1",
+    name="logits/attribution",
     summary=(
         "Split the target token's final logit into the additive contribution "
         "of the embedding and of every layer — direct logit attribution, with "
@@ -390,7 +390,7 @@ each listed layer's contribution split by attention head.
 )
 
 PATCH_TRACE = Op(
-    ref="~canonical/ops/patch/trace/1",
+    name="intervene/trace",
     summary=(
         "Causal tracing: run a clean and a corrupted prompt, patch the clean "
         "activations into the corrupted run one (layer, position) at a time, "
@@ -446,7 +446,7 @@ has `error` instead.
 )
 
 RESIDUALS_DIVERGENCE = Op(
-    ref="~canonical/ops/residuals/divergence/1",
+    name="activations/divergence",
     summary=(
         "Run two prompts that differ in one place and measure, at every "
         "(layer, position), how far their residual streams have drifted "
@@ -483,7 +483,7 @@ One `divergence_map` record. `pairs` has one entry per record with `tokens`
 )
 
 RESIDUALS_VECTORS = Op(
-    ref="~canonical/ops/residuals/vectors/1",
+    name="activations/vectors",
     summary=(
         "Capture the residual-stream vector of each prompt at chosen layers "
         "and a chosen position (or pooled over the sequence) — the raw "
@@ -505,7 +505,7 @@ vector. Where in the sequence the vector is read is the important choice:
   endings and identical middles would look varied.
 
 A label rides along on each row (the record's `label`, or the coordinate
-named by `label_coord`) so that `vectors/similarity` and `direction/*` can
+named by `label_coord`) so that `geometry/similarity` and `direction/*` can
 group rows without parsing ids.
 
 With `source: "queries"` or `"keys"` the block captures attention Q or K
@@ -574,7 +574,7 @@ One `residual_vectors` record: `rows` of `{id, label, layer, vector}` (plus
 )
 
 LENS_POSITIONS = Op(
-    ref="~canonical/ops/lens/positions/1",
+    name="logits/lens",
     summary=(
         "Logit lens over the whole prompt: at every (layer, position), how "
         "probable and how highly ranked the target token is when that "
@@ -608,7 +608,7 @@ One `lens_map` record. `rows` has, per record, `tokens`, `target_token`,
 )
 
 LENS_TRAJECTORY = Op(
-    ref="~canonical/ops/lens-trajectory/1",
+    name="logits/funnel",
     summary=(
         "Logit lens at the decision point: for each chat-shaped record, the "
         "top-1 token, its probability and the entropy at every layer — the "
@@ -632,7 +632,7 @@ curves.
         "`coords`."
     ),
     emits="""\
-A `document_collection` whose items are `lens-trajectory` records: one per
+A `document_collection` whose items are `logits/funnel` records: one per
 input record, with `metadata.layers` — a list of `{layer, top1, p,
 entropy_bits}` — and the record's `coords`.
 """,
@@ -645,7 +645,7 @@ entropy_bits}` — and the record's `coords`.
 )
 
 STEER_INJECT = Op(
-    ref="~canonical/ops/steer/inject/1",
+    name="intervene/steer",
     summary=(
         "Build a steering direction from labelled residual vectors (one "
         "label's centroid minus another's), add it to the residual stream "
@@ -661,7 +661,7 @@ result — scaled by each `alpha` in turn — to the residual stream of every
 prompt at the chosen position. Alpha 0 is the built-in control.
 
 For anything beyond one direction at one layer and position, use
-`intervene`, of which this is a special case.
+`intervene/apply`, of which this is a special case.
 """,
     inputs="""\
 `records` — the prompts to steer (`user`, `prompt` or `text`); a record may
@@ -719,7 +719,7 @@ log-probs), `track_logp` and `tracks` when asked for.
 # --- reading and generating --------------------------------------------------------
 
 GENERATE = Op(
-    ref="~canonical/ops/generate/1",
+    name="text/generate",
     summary=(
         "Sample completions from the model for each chat-shaped record — n "
         "per record, reproducibly seeded — into a document collection."
@@ -781,7 +781,7 @@ trace fidelity it also has `trace` (`token_ids`, `text`, `offsets`,
 )
 
 DECISION_READ = Op(
-    ref="~canonical/ops/decision-read/1",
+    name="logits/decision",
     summary=(
         "Read the model's exact next-token distribution at a decision point "
         "— entropy, the top tokens, and the probability mass on each named "
@@ -844,7 +844,7 @@ One `decision_read` record: `conditions`, one entry per input record with
 )
 
 SCORE = Op(
-    ref="~canonical/ops/score/1",
+    name="text/score",
     summary=(
         "Annotate every token of a trace-fidelity collection with its "
         "surprisal in bits under the model — how unexpected each token was."
@@ -877,7 +877,7 @@ surprisal in bits, and `required_fidelity: "trace"`.
 )
 
 TOKENIZE_STATS = Op(
-    ref="~canonical/ops/tokenize/stats/1",
+    name="text/tokenize",
     summary=(
         "Measure how a tokenizer splits a set of items — as continuations of "
         "a prefix — with a depth histogram, fragmentation, script "

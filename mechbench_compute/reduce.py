@@ -34,18 +34,24 @@ ALGEBRAS = ("collect", "monoid", "ordered")
 #: whole record lists today). Generators (factor-cross, grid, template)
 #: are not reduces and are listed for completeness.
 REDUCE_ALGEBRA: dict[str, str] = {
-    "~canonical/ops/group-stats/1": "monoid",
-    "~canonical/ops/union/1": "collect",
-    "~canonical/ops/select/1": "collect",
-    "~canonical/ops/paired-delta/1": "collect",
-    "~canonical/ops/table/from-records/1": "collect",
-    "~canonical/ops/text/stats/1": "collect",
-    "~canonical/ops/eval/expectation/1": "collect",
-    "~canonical/ops/vectors/similarity/1": "collect",
+    "records/stats": "monoid",
+    "records/union": "collect",
+    "records/select": "collect",
+    "records/delta": "collect",
+    "records/table": "collect",
+    "text/stats": "collect",
+    "eval/expectation": "collect",
+    "geometry/similarity": "collect",
 }
 
 
 def algebra(block: str) -> str:
+    from mechbench_compute import lexicon
+
+    try:
+        block = lexicon.resolve(block, warn=False)
+    except KeyError:
+        pass
     return REDUCE_ALGEBRA.get(block, "collect")
 
 
@@ -211,10 +217,10 @@ class GroupStats(Monoid):
 
 
 MONOIDS: dict[str, Callable[[], Monoid]] = {
-    "~canonical/ops/group-stats/1": GroupStats,
-    "~canonical/ops/reduce/sum/1": FloatSum,
-    "~canonical/ops/reduce/top-k/1": TopK,
-    "~canonical/ops/reduce/histogram/1": Histogram,
+    "records/stats": GroupStats,
+    "records/sum": FloatSum,
+    "records/top-k": TopK,
+    "records/histogram": Histogram,
 }
 
 
@@ -267,9 +273,9 @@ def _block_of(name: str):
 
 
 PURE_REDUCE_BLOCKS = {
-    "~canonical/ops/reduce/sum/1": _block_of("~canonical/ops/reduce/sum/1"),
-    "~canonical/ops/reduce/top-k/1": _block_of("~canonical/ops/reduce/top-k/1"),
-    "~canonical/ops/reduce/histogram/1": _block_of("~canonical/ops/reduce/histogram/1"),
+    "records/sum": _block_of("records/sum"),
+    "records/top-k": _block_of("records/top-k"),
+    "records/histogram": _block_of("records/histogram"),
 }
 for _b in PURE_REDUCE_BLOCKS:
     REDUCE_ALGEBRA[_b] = "monoid"

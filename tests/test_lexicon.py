@@ -16,7 +16,7 @@ import pytest
 
 from mechbench_compute import lexicon
 from mechbench_compute.block_params import ACCEPTED, COMMON, check_params
-from mechbench_compute.lexicon import BY_REF, OPS, Op
+from mechbench_compute.lexicon import BY_NAME, OPS, Op
 
 # What must never appear in published text. A bare six-digit id, "task
 # 000123", "epic 000364", "step 07", "experiment 014", "000258 am. 4":
@@ -77,7 +77,7 @@ def test_example_would_be_accepted(op: Op) -> None:
         pytest.skip("no example written")
     # The example must not name a param the block refuses — the exact
     # mistake the documentation exists to prevent.
-    check_params(op.ref, op.example)
+    check_params(op.name, op.example)
 
 
 def test_common_params_are_documented() -> None:
@@ -90,20 +90,32 @@ def test_common_params_are_documented() -> None:
 
 def test_block_params_is_derived_from_the_lexicon() -> None:
     """One source. `block_params` must not carry its own table."""
-    assert set(ACCEPTED) == set(BY_REF)
-    for ref, op in BY_REF.items():
-        assert ACCEPTED[ref] == op.param_names
+    assert set(ACCEPTED) == set(BY_NAME)
+    for name, op in BY_NAME.items():
+        assert ACCEPTED[name] == op.param_names
     # A param cannot be both common and op-specific: the table would
     # accept it twice and the docs would describe it twice.
     for op in OPS:
         assert not (op.param_names & COMMON), f"{op.name} redeclares a common param"
 
 
-def test_refs_are_well_formed_and_unique() -> None:
-    refs = [op.ref for op in OPS]
-    assert len(refs) == len(set(refs))
-    for ref in refs:
-        assert re.fullmatch(r"~canonical/ops/[a-z0-9-]+(?:/[a-z0-9-]+)*/\d+", ref), ref
+def test_names_are_two_level_bare_and_unique() -> None:
+    """docs/LEXICON.md §1: `family/op`, exactly two levels, no root, no
+    version segment; §2: every family has at least two members."""
+    names = [op.name for op in OPS]
+    assert len(names) == len(set(names)), "two ops share a name"
+    for name in names:
+        assert re.fullmatch(r"[a-z0-9-]+/[a-z0-9-]+", name), name
+        assert not name.endswith(tuple(f"/{d}" for d in "0123456789")), name
+    families: dict[str, int] = {}
+    for op in OPS:
+        families[op.family] = families.get(op.family, 0) + 1
+    lonely = sorted(f for f, n in families.items() if n < 2)
+    assert not lonely, f"families of one: {lonely}"
+    assert set(families) == {
+        "records", "text", "eval", "logits", "activations", "geometry",
+        "intervene", "direction", "trajectory", "adapter", "tools",
+    }
 
 
 def test_to_dict_is_json_shaped() -> None:

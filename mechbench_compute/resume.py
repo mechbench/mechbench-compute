@@ -36,21 +36,21 @@ LEVELS: tuple[str, ...] = (
 #: resume is declared separately from the level: a pure block can be
 #: reproducible and still not worth spooling item by item.
 BLOCK_RESUME: dict[str, dict[str, Any]] = {
-    "~canonical/ops/generate/1": {"level": "reproducible", "items": True},
-    "~canonical/ops/decision-read/1": {"level": "reproducible", "items": True},
-    "~canonical/ops/text/stats/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/eval/expectation/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/finetune/lora/1": {"level": "state-restorable", "items": False},
-    "~canonical/ops/intervene/1": {"level": "reproducible", "items": True},
-    "~canonical/ops/direction/vocab/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/direction/from-vectors/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/direction/from-pca/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/direction/add/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/direction/average/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/direction/orthogonalize/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/direction/normalize/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/direction/similarity/1": {"level": "reproducible", "items": False},
-    "~canonical/ops/direction/project/1": {"level": "reproducible", "items": False},
+    "text/generate": {"level": "reproducible", "items": True},
+    "logits/decision": {"level": "reproducible", "items": True},
+    "text/stats": {"level": "reproducible", "items": False},
+    "eval/expectation": {"level": "reproducible", "items": False},
+    "adapter/train": {"level": "state-restorable", "items": False},
+    "intervene/apply": {"level": "reproducible", "items": True},
+    "direction/vocab": {"level": "reproducible", "items": False},
+    "direction/from-vectors": {"level": "reproducible", "items": False},
+    "direction/from-pca": {"level": "reproducible", "items": False},
+    "direction/add": {"level": "reproducible", "items": False},
+    "direction/average": {"level": "reproducible", "items": False},
+    "direction/orthogonalize": {"level": "reproducible", "items": False},
+    "direction/normalize": {"level": "reproducible", "items": False},
+    "direction/similarity": {"level": "reproducible", "items": False},
+    "direction/project": {"level": "reproducible", "items": False},
 }
 
 _RANK = {"restart": 0, "exchangeable": 1, "state-restorable": 2, "reproducible": 2}
@@ -88,18 +88,30 @@ def _judge_level(params: Mapping[str, Any]) -> str:
     return _chat_level({"model": (params or {}).get("judge", {}).get("model")})
 
 
-DYNAMIC_LEVEL = {"~canonical/ops/chat/1": _chat_level,
-                 "~canonical/ops/conversation/1": _conversation_level,
-                 "~canonical/ops/judge/1": _judge_level}
+DYNAMIC_LEVEL = {"text/chat": _chat_level,
+                 "text/conversation": _conversation_level,
+                 "eval/judge": _judge_level}
 
-BLOCK_RESUME["~canonical/ops/chat/1"] = {"level": "exchangeable", "items": True}
-BLOCK_RESUME["~canonical/ops/conversation/1"] = {
+BLOCK_RESUME["text/chat"] = {"level": "exchangeable", "items": True}
+BLOCK_RESUME["text/conversation"] = {
     "level": "exchangeable", "items": True}
 # A judge is a chat node wearing a rubric: same promise, same items.
-BLOCK_RESUME["~canonical/ops/judge/1"] = {"level": "exchangeable", "items": True}
+BLOCK_RESUME["eval/judge"] = {"level": "exchangeable", "items": True}
+
+
+def _name(block: str) -> str:
+    """The bare op name for any spelling; an unknown block stays as
+    written and falls through to `restart`."""
+    from mechbench_compute import lexicon
+
+    try:
+        return lexicon.resolve(block, warn=False)
+    except KeyError:
+        return block
 
 
 def resume_level(block: str, params: Mapping[str, Any] | None = None) -> str:
+    block = _name(block)
     fn = DYNAMIC_LEVEL.get(block)
     if fn is not None and params is not None:
         return fn(params)
@@ -107,7 +119,7 @@ def resume_level(block: str, params: Mapping[str, Any] | None = None) -> str:
 
 
 def item_resumable(block: str) -> bool:
-    return bool(BLOCK_RESUME.get(block, {}).get("items", False))
+    return bool(BLOCK_RESUME.get(_name(block), {}).get("items", False))
 
 
 def satisfies(offered: str, required: str) -> bool:

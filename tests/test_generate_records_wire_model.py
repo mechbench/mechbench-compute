@@ -44,7 +44,7 @@ def _resolved_ref() -> model_ref_mod.ModelRef:
 
 def _spec(fidelity: str):
     graph = {"nodes": [{
-        "id": "gen", "block": "~canonical/ops/generate/1",
+        "id": "gen", "block": "text/generate",
         "params": {"model": "$model", "n": 2, "seed": 7, "fidelity": fidelity,
                    "records": [{"id": "flash", "user": "Write a story."}]},
     }], "edges": []}
@@ -105,7 +105,7 @@ class TestTheRecordedModel:
         calls = _Calls()
         _fake_generate_substrate(monkeypatch, calls)
         graph = {"nodes": [{
-            "id": "gen", "block": "~canonical/ops/generate/1",
+            "id": "gen", "block": "text/generate",
             "params": {"model": BASE, "n": 1, "seed": 7, "fidelity": "trace",
                        "records": [{"id": "flash", "user": "Write."}]}}],
             "edges": []}

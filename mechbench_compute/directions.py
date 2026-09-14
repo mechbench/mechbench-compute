@@ -355,12 +355,12 @@ def block_project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[
 
 
 PURE_DIRECTION_BLOCKS = {
-    "~canonical/ops/direction/from-vectors/1": block_from_vectors,
-    "~canonical/ops/direction/from-pca/1": block_from_pca,
-    "~canonical/ops/direction/add/1": block_add,
-    "~canonical/ops/direction/average/1": block_average,
-    "~canonical/ops/direction/orthogonalize/1": block_orthogonalize,
-    "~canonical/ops/direction/normalize/1": block_normalize,
-    "~canonical/ops/direction/similarity/1": block_similarity,
-    "~canonical/ops/direction/project/1": block_project,
+    "direction/from-vectors": block_from_vectors,
+    "direction/from-pca": block_from_pca,
+    "direction/add": block_add,
+    "direction/average": block_average,
+    "direction/orthogonalize": block_orthogonalize,
+    "direction/normalize": block_normalize,
+    "direction/similarity": block_similarity,
+    "direction/project": block_project,
 }

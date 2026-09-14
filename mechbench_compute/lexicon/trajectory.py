@@ -27,7 +27,7 @@ _TRAJ_IN = (
 )
 
 CAPTURE = Op(
-    ref="~canonical/ops/trajectory/capture/1",
+    name="trajectory/capture",
     summary=(
         "Follow the residual stream along an axis — one position through "
         "every layer, or one layer along every position of a text — and "
@@ -146,7 +146,7 @@ and `n_pooled` plus `steps` when reduced.
 )
 
 PROJECT = Op(
-    ref="~canonical/ops/trajectory/project/1",
+    name="trajectory/project",
     summary=(
         "Project every step of a trajectory onto a direction — the trace of "
         "a text, or the funnel of a prompt, as one number per step."
@@ -185,7 +185,7 @@ axis, which is a legitimate question.
 )
 
 COMPARE = Op(
-    ref="~canonical/ops/trajectory/compare/1",
+    name="trajectory/compare",
     summary=(
         "Compare two trajectories step by step — cosine, angle and norm "
         "ratio at each step, and the step at which they diverge."
@@ -222,7 +222,7 @@ One `trajectory_comparison` record: `divergence_step`, `min_cosine_step`,
 )
 
 AGGREGATE = Op(
-    ref="~canonical/ops/trajectory/aggregate/1",
+    name="trajectory/aggregate",
     summary=(
         "Group a trajectory's rows and reduce them — a mean trajectory with "
         "spread per step, one value per group over a window, or per-group "

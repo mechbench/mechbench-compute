@@ -17,9 +17,9 @@ def _spec():
     # showed the overrun in production.
     graph = {
         "nodes": [
-            {"id": "read1", "block": "~canonical/ops/decision-read/1",
+            {"id": "read1", "block": "logits/decision",
              "params": {}},
-            {"id": "read2", "block": "~canonical/ops/decision-read/1",
+            {"id": "read2", "block": "logits/decision",
              "params": {}},
         ],
         "edges": [

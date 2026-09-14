@@ -1,4 +1,4 @@
-"""`~canonical/ops/chat/1` — one block for local weights and remote
+"""`text/chat` — one block for local weights and remote
 endpoints (task 000337, epic 000334).
 
 The same node, the same params, the same output kind, whichever side of

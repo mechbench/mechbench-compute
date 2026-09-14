@@ -1,4 +1,4 @@
-"""`~canonical/ops/chat/1` end to end (task 000337): the endpoint
+"""`text/chat` end to end (task 000337): the endpoint
 ModelRef, the remote path through the executor, ordering under
 concurrency, resume, the budget, cassettes, and the local path.
 
@@ -24,7 +24,7 @@ def _records(n=3):
 
 
 def _spec(params, records=None):
-    graph = {"nodes": [{"id": "chat", "block": "~canonical/ops/chat/1",
+    graph = {"nodes": [{"id": "chat", "block": "text/chat",
                         "params": {"model": ENDPOINT, "budget_usd": 5.0,
                                    "records": records if records is not None
                                    else _records(), **params}}],
@@ -60,15 +60,15 @@ class TestEndpointModelRef:
 
     def test_a_local_block_refuses_an_endpoint_by_name(self):
         ref = mr.parse(ENDPOINT)
-        with pytest.raises(ValueError, match=r"ops/chat/1"):
+        with pytest.raises(ValueError, match=r"text/chat"):
             ProtocolExecutor()._model_loaded(ref)
 
     def test_the_resume_level_depends_on_who_answers(self):
-        assert resume_mod.resume_level("~canonical/ops/chat/1",
+        assert resume_mod.resume_level("text/chat",
                                        {"model": ENDPOINT}) == "exchangeable"
-        assert resume_mod.resume_level("~canonical/ops/chat/1",
+        assert resume_mod.resume_level("text/chat",
                                        {"model": "google/gemma-3-4b-it"}) == "reproducible"
-        assert resume_mod.item_resumable("~canonical/ops/chat/1")
+        assert resume_mod.item_resumable("text/chat")
 
 
 class TestRemoteNodeThroughTheExecutor:

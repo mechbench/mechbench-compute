@@ -134,7 +134,7 @@ def _vectors_to_distance(rows: Sequence[Mapping[str, Any]], *,
 
 
 def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`~canonical/ops/vectors/mst/1`.
+    """`geometry/mst`.
 
     Takes either a `similarity_matrix` (the output of
     `vectors/similarity`) on the `matrix` port, or a
@@ -227,4 +227,4 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-PURE_TREE_BLOCKS = {"~canonical/ops/vectors/mst/1": mst}
+PURE_TREE_BLOCKS = {"geometry/mst": mst}

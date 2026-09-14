@@ -119,17 +119,17 @@ class TestBlocks:
         from mechbench_compute.blocks import PURE_BLOCKS
 
         v = _vectors()
-        fn = PURE_BLOCKS["~canonical/ops/direction/from-vectors/1"]
+        fn = PURE_BLOCKS["direction/from-vectors"]
         x = fn({"vectors": v}, {"layer": 3, "positive": "pos", "negative": "neg"})
         assert x["kind"] == "direction"
-        sim = PURE_BLOCKS["~canonical/ops/direction/similarity/1"]({"a": x, "b": x}, {})
+        sim = PURE_BLOCKS["direction/similarity"]({"a": x, "b": x}, {})
         assert abs(sim["cosine"] - 1.0) < 1e-6
-        avg = PURE_BLOCKS["~canonical/ops/direction/average/1"]({"d1": x, "d2": x}, {})
+        avg = PURE_BLOCKS["direction/average"]({"d1": x, "d2": x}, {})
         assert avg["derivation"]["method"] == "average"
 
     def test_levels_declared(self):
         from mechbench_compute import resume as rm
 
-        assert rm.resume_level("~canonical/ops/direction/add/1") == "reproducible"
-        assert rm.resume_level("~canonical/ops/intervene/1") == "reproducible"
-        assert rm.item_resumable("~canonical/ops/intervene/1")
+        assert rm.resume_level("direction/add") == "reproducible"
+        assert rm.resume_level("intervene/apply") == "reproducible"
+        assert rm.item_resumable("intervene/apply")

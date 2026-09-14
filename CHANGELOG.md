@@ -13,25 +13,54 @@ nothing said so.
 
 ---
 
-## Unreleased
+## 0.75.0 — 2026-09-14
 
 ### Changes that raise
 
-- _None._
+- **A protocol node whose `block` names nothing refuses by name**, as
+  before; what changed is what "names something" means. An op is now
+  spelled bare — `records/select` — and every pre-rename spelling
+  (`~canonical/ops/decision-read/1`, `grid`, `finetune/lora`) resolves
+  through `lexicon.ALIASES` with a `RetiredOpName` warning that names
+  the replacement. The aliases are removed in 0.77.0, after which those
+  spellings raise. `docs/LEXICON.md` in the meta repo is the rule.
 
 ### Changes that alter results without raising
 
-- _None._ (Fingerprints on a source checkout change with the label
-  below, as they do on any bump; a released wheel is unaffected.)
+- **Every node fingerprint changes.** The fingerprint hashes the op's
+  stored identity, `~canonical/ops/<family>/<op>`, and every op has a
+  new family path (the appendix of `docs/LEXICON.md` is the full
+  mapping; `direction/*`, `trajectory/*`, `eval/expectation`,
+  `eval/suite`, `text/stats` and `tools/calc` are unchanged). Cached
+  and resumed work for every existing protocol starts over on the next
+  run. Numbers do not change; bytes and provenance `operation` fields
+  do.
 
 ### Other
 
+- **Fifty-three ops in eleven families** (fifty-four less `grid`), each
+  family with at least two members and named for what its ops read or produce: `records/`,
+  `text/`, `eval/`, `logits/`, `activations/`, `geometry/`,
+  `intervene/`, `direction/`, `trajectory/`, `adapter/`, `tools/`. The
+  bare names and the eleven single-child namespaces are gone; `grid`
+  is an alias of `records/cross` rather than a registered op;
+  `intervene` is `intervene/apply` with its special cases beside it.
+  `direction/similarity` keeps its name until 000504 folds it into
+  `geometry/similarity`.
+- **No version segment.** The trailing `/1` was a path segment that
+  happened to be a digit; it is accepted with the same warning as an
+  alias and dropped. `@n` is the reserved form for when a contract must
+  break.
+- **One resolver.** `lexicon.resolve` is called once per node, before
+  `check_params` and the fingerprint; `resume_level`, `item_resumable`,
+  `algebra` and `check_params` accept any spelling. Every table the
+  executor consults is keyed by the bare name, and
+  `tests/test_op_names.py` proves it.
 - **A source checkout labels itself with its own pyproject version.**
-  `__version__` under an editable install was `<dist metadata>+src.<digest>`,
+  Under an editable install `__version__` was `<dist metadata>+src.<digest>`,
   and the metadata is whatever number the tree had when `pip install -e`
-  last ran — the docs site went out stamped "generated from 0.60.0+src…"
-  from a tree at 0.74.0. The digest already named the exact code; the
-  number beside it now comes from the checkout's `pyproject.toml`.
+  last ran — the docs site went out stamped "0.60.0+src…" from a tree at
+  0.74.0. The number beside the digest now comes from `pyproject.toml`.
 
 ---
 

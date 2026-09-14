@@ -466,7 +466,7 @@ def _words_of(text: str, lowercase: bool, min_length: int) -> list[str]:
 
 def text_stats(inputs: Mapping[str, Any],
                params: Mapping[str, Any]) -> Any:
-    """~canonical/ops/text/stats/1 — configurable per-text measurements
+    """text/stats — configurable per-text measurements
     over a corpus of records or a document_collection (the generate
     block's output). The measurement layer the story-corpus readouts
     need (meta-leak counts, opening-phrase counts, lexical spread,
@@ -619,33 +619,32 @@ def text_stats(inputs: Mapping[str, Any],
 
 
 PURE_BLOCKS: dict[str, Callable[..., Any]] = {
-    "~canonical/ops/factor-cross/1":
+    # `grid`, the pre-rename alias of factor-cross, resolves through
+    # `lexicon.ALIASES` like every other retired name.
+    "records/cross":
         lambda inputs, params: factor_cross(params),
-    # Alias: protocol versions pinned before the rename still execute.
-    "~canonical/ops/grid/1":
-        lambda inputs, params: factor_cross(params),
-    "~canonical/ops/template/1":
+    "records/template":
         lambda inputs, params: template(
             _records(inputs.get("records") or params.get("records")),
             params),
-    "~canonical/ops/select/1":
+    "records/select":
         lambda inputs, params: select(inputs["records"], params),
-    "~canonical/ops/paired-delta/1":
+    "records/delta":
         lambda inputs, params: paired_delta(inputs["records"], params),
-    "~canonical/ops/group-stats/1":
+    "records/stats":
         lambda inputs, params: group_stats(inputs["records"], params),
-    "~canonical/ops/table/from-records/1":
+    "records/table":
         lambda inputs, params: table_from_records(
             inputs.get("records") or params.get("records"), params),
-    "~canonical/ops/union/1":
+    "records/union":
         lambda inputs, params: union(inputs, params),
-    "~canonical/ops/text/stats/1":
+    "text/stats":
         lambda inputs, params: text_stats(inputs, params),
-    "~canonical/ops/eval/expectation/1":
+    "eval/expectation":
         lambda inputs, params: eval_expectation(inputs, params),
     # Interp readouts (the mechbench-experiments port): pure numpy over
     # residual_vectors records — no model, no weights.
-    "~canonical/ops/vectors/similarity/1":
+    "geometry/similarity":
         lambda inputs, params: _vector_similarity(inputs, params),
 }
 
