@@ -35,7 +35,7 @@ class TestDepthInventory:
         out = ts.tokenizer_stats(FakeTokenizer(), "fake/tok", {},
                                  {"items": ["cat", "horse", "elephant"],
                                   "prefix": '{ "animal": "'})
-        assert out["kind"] == "tokenizer_stats" and out["n_items"] == 3
+        assert out["kind"] == "text/tokenization" and out["n_items"] == 3
         # 3 chars/token: cat=1, horse=2, elephant=3
         assert {r["depth"]: r["count"] for r in out["rows"]} == {1: 1, 2: 1, 3: 1}
         assert out["mean_depth"] == 2.0 and out["max_depth"] == 3

@@ -19,7 +19,7 @@ store.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Op, P
+from mechbench_compute.lexicon._base import Emits, Op, P
 
 _TRAJ_IN = (
     "`trajectory` (by edge, or the `trajectory` param) — a `trajectory` or "
@@ -64,14 +64,7 @@ when `position` is `"subject"`.
 `project` (optional, by edge) — a direction record, the same as the
 `project` param.
 """,
-    emits="""\
-One `trajectory` record (or `trajectory_projection` when `project` was
-given): `axis`, `point`, `layers`, `position`/`positions`, `d_model`,
-`replay` (`"trace"`, `"text"` or `"mixed"`), and `rows` — per record per
-step, `{id, label, step, layer, position, token, norm, vector}`, with
-`coord` in place of `vector` when projected, `vocab_top` when asked for,
-and `n_pooled` plus `steps` when reduced.
-""",
+    emits=Emits('trajectory/point', collection=True, doc='One item per record per step: `{id, label, step, layer, position, token, norm, vector}`, with `coord` in place of `vector` when `project` was given, `vocab_top` when asked for, and `n_pooled` plus `steps` when reduced. The header carries `axis`, `point`, `layers`, `position`/`positions`, `d_model`, `replay` (`"trace"`, `"text"` or `"mixed"`) and, when projected, `projected: true` with `direction`.'),
     params=(
         P("axis", "string",
           "`\"layers\"`: one position through every layer. `\"positions\"`: "
@@ -163,9 +156,7 @@ axis, which is a legitimate question.
         "direction record of the trajectory's width."
     ),
     emits=(
-        "A `trajectory_projection` record: the input's fields, `direction` "
-        "(layer, point, method and labels of the direction used), and `rows` "
-        "with `coord`."
+        Emits('trajectory/point', collection=True, doc="The input's items with `coord` in place of `vector` (kept as well under `keep_vectors`); the header repeats the input's, with `projected: true` and `direction` (layer, point, method and labels of the direction used).")
     ),
     params=(
         P("trajectory", "record",
@@ -202,11 +193,7 @@ Both trajectories must have the same axis and carry vectors (not
 projections).
 """,
     inputs="`a` and `b` (by edge, or the params of the same names) — two `trajectory` records.",
-    emits="""\
-One `trajectory_comparison` record: `divergence_step`, `min_cosine_step`,
-`per_step` (`{step, mean_cosine, n}`), `n_pairs`, and `rows` per pair with
-`cosine`, `angle_deg`, `norm_a`, `norm_b`, `norm_ratio`.
-""",
+    emits=Emits('trajectory/comparison', collection=True, doc='One item per pair: `cosine`, `angle_deg`, `norm_a`, `norm_b`, `norm_ratio`. The header carries `divergence_step`, `min_cosine_step`, `per_step` (`{step, mean_cosine, n}`) and `n_pairs`.'),
     params=(
         P("a", "record", "The first trajectory, when it does not arrive by edge.", None),
         P("b", "record", "The second trajectory, when it does not arrive by edge.", None),
@@ -245,12 +232,7 @@ the rows), optionally restricted to a `steps` window, and reduced `as`:
   is this block followed by that one.
 """,
     inputs=_TRAJ_IN,
-    emits="""\
-For `per_step` and `window`: a `trajectory` (vectors) or
-`trajectory_summary` (coordinates) record with `aggregated: {by, as, steps}`
-and `rows` per group (and per step). For `vectors`: a `residual_vectors`
-record with one labelled row per group.
-""",
+    emits=Emits('trajectory/summary', collection=True, doc="For `per_step` and `window`: one item per group (and per step), with `vector` or `coord` as the input had; the header repeats the input's and adds `aggregated: {by, as, steps}`. For `vectors`: a collection of `activations/vector` instead, one labelled item per group."),
     params=(
         P("trajectory", "record",
           "The trajectory, when it does not arrive by edge.",

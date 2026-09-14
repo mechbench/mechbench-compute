@@ -110,7 +110,7 @@ class FloatSum(Monoid):
         return tuple(sorted(a + b))
 
     def finalize(self, p, params):
-        return {"n": len(p), "sum": math.fsum(p)}
+        return {"kind": "records/sum", "n": len(p), "sum": math.fsum(p)}
 
 
 class TopK(Monoid):
@@ -129,7 +129,9 @@ class TopK(Monoid):
         return tuple(sorted(a + b, key=lambda r: (-float(r[self._f]), str(r.get("id"))))[: self._k])
 
     def finalize(self, p, params):
-        return {"kind": "record_set", "records": list(p)}
+        from mechbench_compute.lexicon import kinds as K
+
+        return K.collection("records/record", list(p))
 
     def bind(self, params):
         self._f = params["value"]
@@ -161,7 +163,7 @@ class Histogram(Monoid):
 
     def finalize(self, p, params):
         n = int(params["bins"])
-        return {"kind": "histogram", "bins": [p.get(i, 0) for i in range(n)],
+        return {"kind": "records/histogram", "bins": [p.get(i, 0) for i in range(n)],
                 "below": p.get(-1, 0), "above": p.get(n, 0)}
 
 
@@ -210,7 +212,7 @@ class GroupStats(Monoid):
             {"name": n, "dtype": "number"}
             for n in ("n", "median", "mean", "min", "max", "share_negative")
         ]
-        return {"kind": "metric_table",
+        return {"kind": "records/table",
                 "name": params.get("name", f"{value_field}-stats"),
                 "description": params.get("description", ""),
                 "row_axis": "condition", "columns": columns, "rows": rows}

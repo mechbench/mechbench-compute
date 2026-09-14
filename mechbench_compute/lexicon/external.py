@@ -10,7 +10,7 @@ cost is recorded in the result so the bill is part of the measurement.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Op, P
+from mechbench_compute.lexicon._base import Emits, Op, P
 
 _BUDGET = P("budget_usd", "float",
             "The most this node may spend on provider calls, in US dollars. "
@@ -75,14 +75,7 @@ without contacting the provider at all.
         "`coords`. `cassette` (optional, by edge) — recorded responses to "
         "replay."
     ),
-    emits="""\
-A `document_collection` of `text` items, `n` per record, ids
-`<record id>-s<k>`: `text`, `metadata.coords` (the record's plus
-`sample`), `metadata.sampling`, `metadata.call` (provider, model version,
-usage, cost, latency — remote only), tool runs and sandbox calls when any,
-and any `keep_fields` copied from the record. Remote runs also carry
-`summary` (calls, cost, cache hits) and `spend`.
-""",
+    emits=Emits('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `metadata.coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. The header carries `fidelity`, `spend` (calls, cost, cache hits) and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
     params=(
         _BUDGET,
         *_CHAT_FIELDS,
@@ -225,12 +218,7 @@ One conversation runs per input record, or one in all when there are none;
         "record; its fields fill `{field}` placeholders in the opening. "
         "`participants` (by edge, or the param) — the agent objects."
     ),
-    emits="""\
-A `document_collection` of `transcript` items, one per conversation:
-`messages` (each `{index, participant, role_as_seen, text, call?,
-tool_calls?, channel?}`), `stopped` (why it ended), `participants`, and the
-calls and spend.
-""",
+    emits=Emits('text/transcript', collection=True, doc='One item per conversation: `text` (the visible turns as prose), `turns` (`{role, text}`), and `metadata.transcript` — the full transcript with `messages` (each `{index, participant, role_as_seen, text, call?, tool_calls?, channel?}`), `participants`, `stopped_because` and `spend_usd`. The header carries `fidelity` and `spend`.'),
     params=(
         _BUDGET,
         P("participants", "list[object]",
@@ -312,14 +300,7 @@ resumability and per-call provenance; a local model is the cheap first test.
         "`records` (by edge, or the `records` param) — the subjects to "
         "grade: a record list or a document collection."
     ),
-    emits="""\
-A `record_set`: `records`, one per subject, with `id`, `coords`, the
-verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or
-`winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every
-`vote`, and `unparsed: true` when no vote could be read; `judge` (who graded
-and how); `summary` (mean/median/stdev or counts, `n_unparsed`,
-`first_shown_win_rate` for pairwise); and `spend`.
-""",
+    emits=Emits('eval/verdict', collection=True, doc='One item per subject: `id`, `coords`, the verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or `winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every `vote`, and `unparsed: true` when no vote could be read. The header carries `judge` (who graded and how), `summary` (mean/median/stdev or counts, `n_unparsed`, `first_shown_win_rate` for pairwise) and `spend`.'),
     params=(
         P("judge", "object",
           "Who grades: `{\"model\": …, \"system\": rubric, \"max_tokens\": "
@@ -336,7 +317,7 @@ and how); `summary` (mean/median/stdev or counts, `n_unparsed`,
           "\"max\": 5}` (or `\"range\": [1, 5]`); `{\"kind\": "
           "\"categorical\", \"labels\": [...]}`; or `{\"kind\": "
           "\"pairwise\"}`.",
-          {"kind": "numeric", "min": 1, "max": 5}),
+          {"type": "numeric", "min": 1, "max": 5}),
         P("fields", "list[string]",
           "The record fields shown to the judge, and nothing else.",
           ["text"]),
@@ -354,7 +335,7 @@ and how); `summary` (mean/median/stdev or counts, `n_unparsed`,
         "judge": {"model": {"provider": "anthropic", "model": "claude-sonnet-5"},
                   "system": "You grade short stories for originality."},
         "rubric": "1 = a stock plot told plainly; 5 = a premise you have not seen before.",
-        "scale": {"kind": "numeric", "min": 1, "max": 5},
+        "scale": {"type": "numeric", "min": 1, "max": 5},
         "n_votes": 3,
         "budget_usd": 3.0,
     },
@@ -376,7 +357,7 @@ library's version is recorded on the table, because metric definitions
 change across releases.
 """,
     inputs="`records` (by edge, or the `records` param) — records carrying a prediction and a reference.",
-    emits="A `metric_table` with one row per value the metric returned: `metric`, `variant`, `value`, `n`.",
+    emits=Emits('records/table', collection=False, doc='One row per value the metric returned: `metric`, `variant`, `value`, `n`.'),
     params=(
         P("metric", "string",
           "The hub metric's name: `\"accuracy\"`, `\"exact_match\"`, "
@@ -414,8 +395,7 @@ between its releases, so the version is part of the measurement.
 """,
     inputs="None beyond the model — the harness supplies the data.",
     emits=(
-        "A `metric_table` with one row per (task, metric): `task`, `metric`, "
-        "`variant`, `value`, `stderr`, `n`."
+        Emits('records/table', collection=False, doc='One row per (task, metric): `task`, `metric`, `variant`, `value`, `stderr`, `n`.')
     ),
     params=(
         P("tasks", "list[string]",
@@ -476,13 +456,7 @@ the fields named by `system_field`, `user_field`, `prefill_field`.
 `anchors` (optional, by edge or param) — prompt records with the field
 named by `answer_field`.
 """,
-    emits="""\
-One `adapter` object: `data` (safetensors bytes), `format`, `base_model`,
-`trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale,
-target modules, parameter count) and `train` (steps, lr, seed, batch,
-final loss, the target spec, depth, positions, counts). Wire it into a
-later node's `adapter` port, or `adapter/publish`.
-""",
+    emits=Emits('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`."),
     params=(
         P("target", "object",
           "The target distribution — `{\"uniform\": [...]}` or "
@@ -560,9 +534,7 @@ hub or needing a token.
 """,
     inputs="`adapter` (by edge, or the common `adapter` param) — the adapter object, usually from `adapter/train`.",
     emits=(
-        "An `hf_push` record: `repo`, `private`, `files` (name and size), "
-        "`lora`, `base_model`, `commit`, `url`, and `hf_adapter_ref` to "
-        "fetch it back."
+        Emits('adapter/push', collection=False, doc='`repo`, `private`, `files` (name and size), `lora`, `base_model`, `commit`, `url`, and `hf_adapter_ref` to fetch it back.')
     ),
     params=(
         P("repo", "string", "The destination, `\"<namespace>/<name>\"`."),
@@ -594,7 +566,7 @@ upload to the bench resumes: files already there with matching hashes are
 skipped.
 """,
     inputs="None beyond the `model` reference, which must carry adapters.",
-    emits="A checkpoint record naming where it landed, the files with their hashes, and the stack that was merged.",
+    emits=Emits('adapter/checkpoint', collection=False, doc='Where the checkpoint landed, its files with their hashes, and the stack that was merged.'),
     params=(
         P("to", "object",
           "Where to publish: `{\"bench\": {\"name\": …}}` (lowercase, "
@@ -618,7 +590,7 @@ naming `"calc"` in its `tools`; the model's call supplies `arguments:
 {expression}`.
 """,
     inputs="`arguments` (by the tool call) — `{\"expression\": \"…\"}`.",
-    emits="`{expression, result}`.",
+    emits=None,
     params=(
         P("expression", "string",
           "The expression, when the block is run directly rather than as a "
@@ -641,7 +613,7 @@ the model's call supplies `arguments: {path, field?}`. Every fetch is
 recorded on the item that made it.
 """,
     inputs="`arguments` (by the tool call) — `{\"path\": \"…\", \"field\": \"…\"}`.",
-    emits="The object's payload, or `{field: value}`.",
+    emits=None,
     params=(
         P("path", "string",
           "The object path, when the block is run directly rather than as "

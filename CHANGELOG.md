@@ -13,6 +13,59 @@ nothing said so.
 
 ---
 
+## 0.76.0 — 2026-09-14
+
+### Changes that raise
+
+- **Every plural result is now the one `collection` container.** A
+  result that used to be its own plural kind (`residual_vectors`,
+  `decision_read`, `record_set`, `document_collection`, `similarity_matrix`,
+  `mst_summary`, `trajectory`, `patch_trace`, and the rest) is now
+  `{"kind": "collection", "item_kind": "<family>/<kind>", "key": […],
+  "items": […], …header}`. The list field is always `items`; `rows`,
+  `records`, `conditions`, `pairs`, `layers` and `values` as list fields
+  are gone from emitted objects. A reader indexing one of those names
+  raises `KeyError`. Every block reads the old spellings through
+  `lexicon.items_of` and `lexicon.item_kind_of`, so stored objects from
+  earlier releases still feed a protocol.
+- **Kind names are two-level and bare.** `metric_table` is
+  `records/table`, `direction` is `direction/vector`, `adapter` is
+  `adapter/lora`, `checkpoint_manifest` is `adapter/checkpoint`,
+  `model_pointer` is `model/pointer`, `hf_push` is `adapter/push`,
+  `tokenizer_stats` is `text/tokenization`, `pipeline_result` is
+  `run/result`, `fs_snapshot` is `sandbox/snapshot`, `completion` is
+  `provider/completion`, `provider_cassette` is `provider/cassette`, and
+  every item kind path (`~canonical/kinds/text`, `…/transcript`,
+  `…/lens-trajectory/2`) is the bare `text/document`, `text/transcript`,
+  `logits/funnel`. A reader comparing against a retired string sees no
+  match; `lexicon.resolve_kind` maps every retired string to its kind.
+  The full table is `lexicon.KIND_ALIASES` and the appendix of
+  `docs/LEXICON.md`.
+- **Enum parameters are spelled `type`, not `kind`.** A measure, an
+  expectation, a sampled factor, a judge scale and an intervene readout
+  say `{"type": "lexical"}`, `{"type": "uniform"}`, `{"type": "noise"}`,
+  `{"type": "numeric"}`, `{"type": "decision"}`. `kind` is still read
+  for this release; it names a kind of object, and the ops' docs no
+  longer use it for anything else.
+- `geometry/mst` no longer carries a flat `rows` duplicate of its
+  per-group statistics: the items are the rows, and `records/table`
+  reads them directly.
+
+### Changes that alter results without raising
+
+- **A stored collection's items are in key order.** The executor sorts
+  every collection by its kind's key (`id`, or `id, layer, head`, …)
+  before hashing and emitting, so the same items in any order are the
+  same bytes. An item's position is no longer the order the block
+  produced it in; read by key, never by index. Item seeds were already
+  derived from keys, so values are unchanged.
+- `records/union` of vector collections carries `layers` (the union)
+  and `segments` in the header once, instead of once per input.
+- `trajectory/capture` and `trajectory/project` mark a projected
+  trajectory with `projected: true` in the header rather than a
+  different kind; `trajectory/aggregate` emits `trajectory/summary`
+  for both vector and coordinate aggregates.
+
 ## 0.75.1 — 2026-09-14
 
 ### Changes that raise

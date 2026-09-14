@@ -182,9 +182,9 @@ class TestRunReadout:
                                 "strength": 10.0, "direction": d}],
                       "sweep": {"strength": [1.0]}, "top_k": 2},
                      on_item=lambda k, row: items.append(k))
-        assert out["kind"] == "intervene_readout" and out["sweep"] == [0.0, 1.0]
+        assert out["item_kind"] == "intervene/readout" and out["sweep"] == [0.0, 1.0]
         assert items == ["r1:0.0", "r1:1.0"]
-        ctrl, steered = out["rows"]
+        ctrl, steered = out["items"]
         assert ctrl["factor"] == 0.0 and steered["factor"] == 1.0
         # the control residual is [0, 1, 2, 3], so its top token is id 3
         # (" light" in the fake tokenizer); adding +10 along coordinate 0
@@ -200,7 +200,7 @@ class TestRunReadout:
         out = iv.run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "project_out", "direction": d}],
                       "readout": {"kind": "capture", "points": ["blocks.2.resid_post"]}})
-        ctrl, done = out["rows"]
+        ctrl, done = out["items"]
         assert ctrl["captures"]["blocks.2.resid_post"][1] == 1.0
         assert abs(done["captures"]["blocks.2.resid_post"][1]) < 1e-6
 
@@ -210,7 +210,7 @@ class TestRunReadout:
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "add", "strength": 5.0}],
                       "control": False},
                      inputs={"direction": _dir([1, 0, 0, 0])})
-        assert out["rows"][0]["top"][0]["token"] == "t0"
+        assert out["items"][0]["top"][0]["token"] == "t0"
 
     def test_empty_spec_refused(self):
         with pytest.raises(iv.SpecError):
@@ -238,7 +238,7 @@ def test_real_project_out_zeroes_the_projection_at_the_point():
     out = iv.run(model, [{"id": "lh", "user": "The old lighthouse keeper"}],
                  {"spec": [{"point": "resid_post", "layers": [layer], "op": "project_out", "direction": d}],
                   "readout": {"kind": "capture", "points": [f"blocks.{layer}.resid_post"]}})
-    ctrl, done = out["rows"]
+    ctrl, done = out["items"]
     u = np.array(d["vector"], np.float32)
     proj_ctrl = float(np.array(ctrl["captures"][f"blocks.{layer}.resid_post"]) @ u)
     proj_done = float(np.array(done["captures"][f"blocks.{layer}.resid_post"]) @ u)

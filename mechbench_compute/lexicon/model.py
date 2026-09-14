@@ -18,7 +18,7 @@ Shared conventions, stated once here and referred to from the entries:
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Op, P
+from mechbench_compute.lexicon._base import Emits, Op, P
 
 _TEMPLATE = P("template", "string",
               "How each prompt is tokenized: `\"raw\"` as plain text, `\"chat\"` "
@@ -143,15 +143,7 @@ item without one. `source` or `vectors` (optional, by edge) — a
 `residual_vectors` record that fills any `mean`/`resample`/`patch` item
 without one.
 """,
-    emits="""\
-One `intervene_readout` record. `spec` is the list as run, with directions
-and sources replaced by their provenance; `sweep` is the list of factors
-(including `0.0` when a control was added); `rows` has one entry per record
-per factor with `id`, `coords`, `factor`, and the readout — for a decision,
-`entropy_bits`, `top` (the most likely next tokens with their log-probs),
-`track_logp` and `outcome_mass` when asked for; for a capture, `position` and
-`captures` (point → vector, at most 4096 values each).
-""",
+    emits=Emits('intervene/readout', collection=True, doc='One item per record per factor: `id`, `coords`, `factor`, and the readout — for a decision, `entropy_bits`, `top` (the most likely next tokens with their log-probs), `track_logp` and `outcome_mass` when asked for; for a capture, `position` and `captures` (point → vector, at most 4096 values each). The header carries `spec` (the list as run, with directions and sources replaced by their provenance) and `sweep` (the factors, including `0.0` when a control was added).'),
     params=(
         P("spec", "list[object]",
           "The intervention items, applied together in one forward pass per "
@@ -177,7 +169,7 @@ per factor with `id`, `coords`, `factor`, and the readout — for a decision,
           "reading; it is not yet accepted as another item's `source`, which "
           "must be a `residual_vectors` record.) `readout.top_k` overrides "
           "the `top_k` param.",
-          {"kind": "decision"}),
+          {"type": "decision"}),
         P("top_k", "int",
           "How many of the most likely next tokens to record per row in a "
           "decision readout.",
@@ -227,13 +219,7 @@ The ablation replaces the component's output with zero, so the residual
 stream passes through that layer unchanged by it.
 """,
     inputs=_PROMPT_INPUT,
-    emits="""\
-One `ablation_sweep` record. `rows` has, per record, one row per layer
-(`id`, `layer`, `delta_logp`) plus a summary row with `layer: null` carrying
-`baseline_logp`, `target_token` and `target_id`. `aggregates.mean_delta` and
-`aggregates.median_delta` are per-layer across all records, in `layers`
-order.
-""",
+    emits=Emits('intervene/ablation', collection=True, doc="Per record, one item per layer (`id`, `layer`, `delta_logp`) plus a summary item with `layer: null` carrying `baseline_logp`, `target_token` and `target_id`. The header's `aggregates.mean_delta` and `aggregates.median_delta` are per-layer across all records, in `layers` order."),
     params=(
         P("component", "string",
           "What to remove at each layer: `\"block\"` (the whole layer — "
@@ -272,12 +258,7 @@ Cost is one forward pass per record per (layer, head): on a 30-layer,
 about rather than all of them when the prompt set is large.
 """,
     inputs=_PROMPT_INPUT,
-    emits="""\
-One `head_ablation` record. `mean_delta` is a matrix indexed
-`[layer][head]` of the mean Δ log‑p across records; `conditions` lists each
-record's `target_token` and `baseline_logp`; `layers` and `n_heads` give the
-axes.
-""",
+    emits=Emits('intervene/heads', collection=False, doc="`mean_delta` is a matrix indexed `[layer][head]` of the mean Δ log‑p across records; `conditions` lists each record's `target_token` and `baseline_logp`; `layers` and `n_heads` give the axes."),
     params=(
         _LAYERS_ALL,
         _target("the answer whose dependence on each head is measured"),
@@ -309,11 +290,7 @@ picture nobody asked for. The block refuses a capture that would exceed two
 million values.
 """,
     inputs=_PROMPT_INPUT.replace(" A record may carry its own `target`.", ""),
-    emits="""\
-One `attention_patterns` record. `rows` has one entry per record with
-`tokens` (the prompt's tokens, in order) and `layers` — for each layer,
-`heads`: a list of `[position][position]` matrices, one per head.
-""",
+    emits=Emits('activations/attention', collection=True, doc="One item per record: `tokens` (the prompt's tokens, in order) and `layers` — for each layer, `heads`: a list of `[position][position]` matrices, one per head."),
     params=(
         P("layers", "list[int]",
           "The layers whose attention to record. Must be named — `\"all\"` is "
@@ -356,13 +333,7 @@ Because additivity only holds over the whole stream, `layers` must be
         "`records` — the prompts, one per record (`user`, `prompt` or `text`). "
         "A record may carry `target` and `contrast` tokens."
     ),
-    emits="""\
-One `logit_attribution` record. `components` names the pieces (`embed`,
-`L0`, `L1`, …); `rows` has, per record, `contributions` in that order,
-`target_token`, `contrast_token`, the `additivity` check (`summed`,
-`true_logit`, `residual`), and `per_head` when `per_head_layers` was set —
-each listed layer's contribution split by attention head.
-""",
+    emits=Emits('logits/attribution', collection=True, doc="One item per record: `contributions` in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …), `target_token`, `contrast_token`, the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
     params=(
         P("apply_ln", "bool",
           "Fold the final norm's scale into the unembedding so contributions "
@@ -414,13 +385,7 @@ reported as errors rather than silently shifted.
         "`records` — pairs, each with `clean` and `corrupt` prompt strings, "
         "and optionally a `target`."
     ),
-    emits="""\
-One `patch_trace` record. `pairs` has one entry per record: `tokens` (of the
-corrupt prompt), `target_token`, `p_target_clean`, `p_target_corrupt`, and
-`recovery`, a `[layer][position]` matrix of the change in the target's
-`metric` relative to the corrupt baseline. A pair that could not be aligned
-has `error` instead.
-""",
+    emits=Emits('intervene/trace', collection=True, doc="One item per record: `tokens` (of the corrupt prompt), `target_token`, `p_target_clean`, `p_target_corrupt`, and `recovery`, a `[layer][position]` matrix of the change in the target's `metric` relative to the corrupt baseline. A pair that could not be aligned has `error` instead."),
     params=(
         _LAYERS_ALL,
         P("metric", "string",
@@ -462,11 +427,7 @@ the change has propagated.
 Unequal-length pairs are reported as errors, not aligned by guesswork.
 """,
     inputs="`records` — pairs, each with prompt strings `a` and `b`.",
-    emits="""\
-One `divergence_map` record. `pairs` has one entry per record with `tokens`
-(from prompt `a`) and `divergence`, a `[layer][position]` matrix of
-1 − cosine; an unaligned pair has `error` instead.
-""",
+    emits=Emits('activations/divergence', collection=True, doc='One item per record: `tokens` (from prompt `a`) and `divergence`, a `[layer][position]` matrix of 1 − cosine; an unaligned pair has `error` instead.'),
     params=(
         _LAYERS_ALL,
         P("point", "string",
@@ -519,12 +480,7 @@ layers or records.
         "with a `label`, `coords`, and a `subject` when `position` is "
         "`\"subject\"`."
     ),
-    emits="""\
-One `residual_vectors` record: `rows` of `{id, label, layer, vector}` (plus
-`head` for Q/K sources and `n_pooled` when pooled), with `point`, `source`,
-`position` (`"pooled"` when pooled), `layers`, `d_model`, and
-`skipped_empty` listing any records dropped under `skip_empty`.
-""",
+    emits=Emits('activations/vector', collection=True, doc='One item per record per layer: `{id, label, layer, vector}`, plus `head` for Q/K sources and `n_pooled` when pooled. The header carries `point`, `source`, `position` (`"pooled"` when pooled), `layers`, `d_model`, and `skipped_empty` listing any records dropped under `skip_empty`.'),
     params=(
         _LAYERS_ALL,
         P("point", "string",
@@ -591,10 +547,7 @@ The map answers: where in the sequence, and at what depth, does the answer
 become visible?
 """,
     inputs=_PROMPT_INPUT,
-    emits="""\
-One `lens_map` record. `rows` has, per record, `tokens`, `target_token`,
-`target_id`, and two `[layer][position]` matrices: `logprob` and `rank`.
-""",
+    emits=Emits('logits/lens', collection=True, doc='One item per record: `tokens`, `target_token`, `target_id`, and two `[layer][position]` matrices: `logprob` and `rank`.'),
     params=(
         _LAYERS_ALL,
         _target("the answer being watched for"),
@@ -631,11 +584,7 @@ curves.
         "`system_field`, `user_field` and `prefill_field`, and optionally "
         "`coords`."
     ),
-    emits="""\
-A `document_collection` whose items are `logits/funnel` records: one per
-input record, with `metadata.layers` — a list of `{layer, top1, p,
-entropy_bits}` — and the record's `coords`.
-""",
+    emits=Emits('logits/funnel', collection=True, doc="One item per input record, with `metadata.layers` — a list of `{layer, top1, p, entropy_bits}` — and the record's `coords`."),
     params=(*_FIELD_PARAMS, _PREFILL_FIELD),
     example={
         "model": "$model",
@@ -670,12 +619,7 @@ carry its own `position`, `track` and `tracks`.
 `vectors` (by edge, or the `vectors` param) — a `residual_vectors` record
 with labelled rows at the injection `layer`.
 """,
-    emits="""\
-One `steer_sweep` record. `direction` reports the two labels, the direction's
-norm and how many rows went into each centroid; `rows` has one entry per
-record per alpha with `top` (the most likely next tokens and their
-log-probs), `track_logp` and `tracks` when asked for.
-""",
+    emits=Emits('intervene/readout', collection=True, doc="One item per record per alpha: `top` (the most likely next tokens and their log-probs), `track_logp` and `tracks` when asked for. The header's `direction` reports the two labels, the direction's norm and how many vectors went into each centroid; `alphas` lists the sweep."),
     params=(
         P("layer", "int",
           "The layer whose residual stream the direction is added to. Rows "
@@ -740,13 +684,7 @@ annotate it token by token.
         "`records` — chat-shaped records with the fields named by "
         "`system_field` and `user_field`, an `id`, and optionally `coords`."
     ),
-    emits="""\
-A `document_collection` of `text` items, `n` per record, ids
-`<record id>-s<k>`. Each item has `text`, `metadata.coords` (the record's,
-plus `sample: k`), `metadata.sampling`, and the wire form of the model. At
-trace fidelity it also has `trace` (`token_ids`, `text`, `offsets`,
-`generation_spans`) and `segmentations`.
-""",
+    emits=Emits('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `metadata.coords` (the record's, plus `sample: k`), `metadata.sampling`, and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`."),
     params=(
         *_FIELD_PARAMS,
         P("n", "int", "How many completions to sample per record.", 1),
@@ -807,12 +745,7 @@ readings.
         "records with the fields named by `system_field`, `user_field` and "
         "`prefill_field`; a record may carry its own `outcomes`."
     ),
-    emits="""\
-One `decision_read` record: `conditions`, one entry per input record with
-`id`, `coords`, `entropy_bits`, `top_tokens` (the ten most probable, with
-`p`), `outcome_mass` (outcome → probability) when outcomes were given, and
-`rollout` when one was requested.
-""",
+    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top_tokens` (the ten most probable, with `p`), `outcome_mass` (outcome → probability) when outcomes were given, and `rollout` when one was requested.'),
     params=(
         P("conditions", "list[record] | ref",
           "The records to read, when they do not arrive by edge on the "
@@ -863,11 +796,7 @@ item has no token ids to replay and the block refuses it.
         "usually from `generate`. Or name a stored one with "
         "`collection_path`."
     ),
-    emits="""\
-An `annotation_layer` record over the collection: `values`, one per token,
-each `{anchor: {item_id, token_start, token_end}, value}` with the
-surprisal in bits, and `required_fidelity: "trace"`.
-""",
+    emits=Emits('text/annotation', collection=True, doc='One item per token: `{anchor: {item_id, token_start, token_end}, value}` with the surprisal in bits. The header names the `collection` scored and carries `value_type: "numeric"` and `required_fidelity: "trace"`.'),
     params=(
         P("collection_path", "ref",
           "A stored collection to score, when none arrives by edge.",
@@ -904,14 +833,7 @@ The items to measure come from the first of: the `items` param (strings); a
 target map whose weight keys are the items); or `records` (by edge or param),
 reading each record's `field`.
 """,
-    emits="""\
-One `tokenizer_stats` record: `n_items`, `mean_depth`, `min_depth`,
-`max_depth`, `single_token_fraction`, `mean_tokens_per_word`,
-`fragmented_fraction`, `rows` (the histogram: `{depth, count, share}`),
-`script_composition`, `boundary_failures` (items that changed the prefix's
-own tokenization), `gate` (`{expected_depth, pass, n_violations,
-violations}` or null), `most_fragmented`, and `items` when kept.
-""",
+    emits=Emits('text/tokenization', collection=False, doc="`n_items`, `mean_depth`, `min_depth`, `max_depth`, `single_token_fraction`, `mean_tokens_per_word`, `fragmented_fraction`, `rows` (the histogram: `{depth, count, share}`), `script_composition`, `boundary_failures` (items that changed the prefix's own tokenization), `gate` (`{expected_depth, pass, n_violations, violations}` or null), `most_fragmented`, and `items` when kept."),
     params=(
         P("prefix", "string",
           "The envelope each item is tokenized after — `'{ \"name\": \"'` "

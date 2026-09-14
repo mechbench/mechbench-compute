@@ -7,7 +7,7 @@ on which model. One object flows everywhere a direction is used — into
 `direction/vocab` — so a direction found one way can be tried every
 other way without conversion.
 
-The record: `{"kind": "direction", "layer": 14, "point": "resid_post",
+The record: `{"kind": "direction/vector", "layer": 14, "point": "resid_post",
 "d": 2048, "vector": [...], "norm": 37.2, "unit": true, "derivation":
 {"method": "diff_of_means", "sources": [...], "model": "...", ...}}`.
 `norm` is the magnitude before normalisation, which some readings use.
@@ -15,7 +15,7 @@ The record: `{"kind": "direction", "layer": 14, "point": "resid_post",
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Op, P
+from mechbench_compute.lexicon._base import Emits, Op, P
 
 _DIRECTION_IN = (
     "`direction` (by edge, or the `direction` param) — a direction record."
@@ -64,7 +64,7 @@ to find a concept direction, and the one most steering results are built on.
         "`vectors` (by edge, or the `vectors` param) — a `residual_vectors` "
         "record whose rows carry `label`, with rows at the chosen `layer`."
     ),
-    emits="One `direction` record with `derivation.method: \"diff_of_means\"`.",
+    emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"diff_of_means"`.'),
     params=(
         P("layer", "int", "The layer whose rows the centroids are taken from."),
         P("positive", "string", "The label of the rows the direction points toward."),
@@ -100,9 +100,7 @@ At least two rows are needed.
         "record with rows at the chosen `layer`."
     ),
     emits=(
-        "One `direction` record with `derivation.method: \"pca\"`, "
-        "`derivation.component`, `derivation.explained` and "
-        "`derivation.n_rows`."
+        Emits('direction/vector', collection=False, doc='`derivation.method` is `"pca"`, with `derivation.component`, `derivation.explained` and `derivation.n_rows`.')
     ),
     params=(
         P("layer", "int", "The layer whose rows are decomposed."),
@@ -135,8 +133,7 @@ normalised to unit length.
 """,
     inputs=_DIRECTIONS_IN,
     emits=(
-        "One `direction` record with `derivation.method: \"add\"` and "
-        "`derivation.weights`."
+        Emits('direction/vector', collection=False, doc='`derivation.method` is `"add"`, with `derivation.weights`.')
     ),
     params=(
         P("directions", "list[direction]",
@@ -166,7 +163,7 @@ dominated by whichever axis happened to be longest. Same as `direction/add`
 with equal weights, except that the derivation says `average`.
 """,
     inputs=_DIRECTIONS_IN,
-    emits="One `direction` record with `derivation.method: \"average\"`.",
+    emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"average"`.'),
     params=(
         P("directions", "list[direction]",
           "The directions to average, when they do not arrive by edge.",
@@ -193,9 +190,7 @@ has nothing left and the block refuses it. All inputs must share a space.
         "(by edge or param) — one direction record or a list of them."
     ),
     emits=(
-        "One `direction` record with `derivation.method: \"orthogonalize\"` "
-        "and `derivation.against` (how many independent directions were "
-        "removed)."
+        Emits('direction/vector', collection=False, doc='`derivation.method` is `"orthogonalize"`, with `derivation.against` (how many independent directions were removed).')
     ),
     params=(
         P("direction", "direction",
@@ -223,7 +218,7 @@ for one that was hand-built or imported, and for making normalisation a
 visible step in the graph rather than an assumption.
 """,
     inputs=_DIRECTION_IN,
-    emits="One `direction` record with `derivation.method: \"normalize\"`.",
+    emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"normalize"`.'),
     params=(
         P("direction", "direction",
           "The direction to normalise, when it does not arrive by edge.",
@@ -251,8 +246,7 @@ labels it was built from — or ones it was not.
         "param) — the direction."
     ),
     emits=(
-        "One `projections` record: `rows`, each the input row without its "
-        "`vector` plus `projection`."
+        Emits('activations/coordinate', collection=True, doc='One item per input vector: the item without its `vector`, plus `projection`. The header carries `layer` and `point`.')
     ),
     params=(
         P("direction", "direction",
@@ -279,11 +273,7 @@ list), and each one's original `norm` rides along. All must share a space.
         "Either `a` and `b` (by edge or param), or any set of direction "
         "ports and/or the `directions` param."
     ),
-    emits="""\
-For two: a `direction_similarity` record with `cosine`. For many: a
-`direction_similarity_matrix` with `names`, `cosines` (the matrix), `norms`
-and `pairs` (every pair with its cosine, most similar first).
-""",
+    emits=Emits('geometry/similarity', collection=False, doc='For two directions: `cosine`. For many: `names`, `cosines` (the matrix), `norms` and `pairs` (every pair with its cosine, most similar first). `metric` is `cosine` either way.'),
     params=(
         P("a", "direction", "The first of exactly two directions.", None),
         P("b", "direction", "The second of exactly two directions.", None),
@@ -314,8 +304,7 @@ reads.
 """,
     inputs=_DIRECTION_IN,
     emits=(
-        "One `direction_vocab` record: `positive` and `negative`, each a list "
-        "of `{token, p}` for the top tokens of that sign."
+        Emits('direction/vocab', collection=False, doc='`positive` and `negative`, each a list of `{token, p}` for the top tokens of that sign.')
     ),
     params=(
         P("direction", "direction",

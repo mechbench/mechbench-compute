@@ -143,8 +143,8 @@ class TestPairwisePosition:
 class TestTheBlock:
     def test_it_grades_a_corpus_and_records_what_it_cost(self):
         out = judged('{"score": 4, "rationale": "unhurried"}', n_votes=3)
-        assert [r["id"] for r in out["records"]] == ["s1", "s2"]
-        row = out["records"][0]
+        assert [r["id"] for r in out["items"]] == ["s1", "s2"]
+        row = out["items"][0]
         assert row["score"] == 4.0 and row["n_votes"] == 3
         assert row["coords"]["arm"] == "base"      # coords survive judging
         assert row["rationale"] == "unhurried"
@@ -159,12 +159,12 @@ class TestTheBlock:
         out = judged('{"score": 3}')
         stats = PURE_BLOCKS["records/stats"](
             {"records": out}, {"by": ["arm"], "value": "score"})
-        assert stats["kind"] == "metric_table"
+        assert stats["kind"] == "records/table"
         assert {r["arm"] for r in stats["rows"]} == {"base", "tuned"}
 
     def test_an_unreadable_judge_does_not_become_a_score(self):
         out = judged("I would rather not say.")
-        assert all(r.get("unparsed") for r in out["records"])
+        assert all(r.get("unparsed") for r in out["items"])
         assert out["summary"]["n_unparsed"] == 2
         assert "mean" not in out["summary"]
 
@@ -270,7 +270,7 @@ class TestSubjectsFromACorpus:
             "budget_usd": 1.0,
             "records": CORPUS_FIXTURE,
         })
-        assert [r["coords"]["prompt"] for r in out["records"]] == ["neutral", "flash"]
+        assert [r["coords"]["prompt"] for r in out["items"]] == ["neutral", "flash"]
 
     def test_the_judge_sees_the_story_and_not_its_condition(self):
         prompts = J.build_prompts(

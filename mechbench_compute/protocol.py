@@ -247,9 +247,9 @@ class ProtocolExecutor:
             schema_version=ms.__version__,
         )
         return ms.Emitted(
-            payload={"kind": "decision_distribution",
-                     "model": spec.model_id,
-                     "conditions": result["conditions"]},
+            payload=lexicon.canonical_collection(lexicon.collection(
+                "logits/decision", lexicon.items_of(result),
+                model=spec.model_id)),
             provenance=prov)
 
     def _run_pipeline(self, spec: ProtocolSpec, on_progress=None,
@@ -359,7 +359,7 @@ class ProtocolExecutor:
                 "revision": revision,
                 "fingerprint": getattr(ds, "_fingerprint", None),
                 "rows_total": len(ds), "rows_used": n}
-            return {"kind": "record_set", "records": records}
+            return lexicon.collection("records/record", records)
 
         def resolve_hf_adapter(spec):
             """{"$hf_adapter": {repo, revision?}} -> an adapter object
@@ -745,6 +745,9 @@ class ProtocolExecutor:
             # emit path, rejected or dropped by the network, and read as
             # a transport fault. That ordering hid a 6 GB result for a
             # night; this one makes the same mistake a failing test.
+            # A collection is stored with its items in key order: the same
+            # items in any order are the same bytes.
+            results[nid] = lexicon.canonical_collection(results[nid])
             node_hashes[nid] = resume_mod.content_hash(results[nid])
             if result_base:
                 out = bench.emit(
@@ -783,7 +786,7 @@ class ProtocolExecutor:
             return v
 
         payload = {
-            "kind": "pipeline_result",
+            "kind": "run/result",
             "outputs": {nid: sanitize(results[nid], node_paths.get(nid, ""))
                          for nid in terminals},
             "nodes_executed": order,
@@ -873,7 +876,7 @@ class ProtocolExecutor:
                     prefill=prefill, return_ids=True)
                 item = {
                     "id": f"{rec['id']}-s{k}",
-                    "kind": "~canonical/kinds/text",
+                    "kind": "text/document",
                     "text": text,
                     "metadata": {
                         "coords": {**rec.get("coords", {}), "sample": k},
@@ -915,14 +918,11 @@ class ProtocolExecutor:
                 items.append(item)
                 if on_item:
                     on_item(key, item)
-        return {
-            "kind": "document_collection",
-            "name": params.get("name", "generated"),
-            "description": params.get("description", ""),
-            "fidelity": fidelity,
-            "item_kind": "~canonical/kinds/text",
-            "items": items,
-        }
+        return lexicon.collection(
+            "text/document", items,
+            name=params.get("name", "generated"),
+            description=params.get("description", ""),
+            fidelity=fidelity)
 
     def _block_judge(self, inputs, params, secrets=None, on_item=None,
                      on_start=None, resume_items=None):
@@ -1175,7 +1175,7 @@ class ProtocolExecutor:
                                 on_item=_on_item, on_start=on_start)
         if reuse:
             # Reproducible: a spooled row IS the row this loop produced.
-            out["rows"] = [reuse.get(f"{r['id']}:{r['factor']}", r) for r in out["rows"]]
+            out["items"] = [reuse.get(f"{r['id']}:{r['factor']}", r) for r in out["items"]]
         return out
 
     def _block_direction_vocab(self, inputs, params):
@@ -1473,7 +1473,7 @@ class ProtocolExecutor:
                 for r in recs]
         import mlx_lm
 
-        return {"kind": "metric_table",
+        return {"kind": "records/table",
                 "name": params.get("name", f"suite-{variant}"),
                 "description": (
                     f"lm-eval {lm_eval.__version__} via MechbenchLM "
@@ -1579,7 +1579,7 @@ class ProtocolExecutor:
                     params=_wire_params(params),
                 )
                 return {
-                    "kind": "model_pointer",
+                    "kind": "model/pointer",
                     "base": {"bench": prefix},
                     "manifest": f"{prefix}/{checkpoint.MANIFEST_NAME}",
                     "files": len(files),
@@ -1606,7 +1606,7 @@ class ProtocolExecutor:
                 commit_message=f"mechbench merge: {mref.describe()}")
             sha_out = getattr(info, "oid", None) or ""
             return {
-                "kind": "model_pointer",
+                "kind": "model/pointer",
                 "base": {"hf": f"{repo}@{sha_out}" if sha_out else repo},
                 "files": len(files),
             }
@@ -1637,7 +1637,8 @@ class ProtocolExecutor:
             if isinstance(manifest, dict)
             else manifest
         )
-        if not isinstance(payload, dict) or payload.get("kind") != "checkpoint_manifest":
+        if (not isinstance(payload, dict)
+                or payload.get("kind") not in ("adapter/checkpoint", "checkpoint_manifest")):
             raise ValueError(
                 f"{label!r} has no checkpoint manifest — is it a checkpoint "
                 "prefix published by merge?")
@@ -1722,7 +1723,7 @@ class ProtocolExecutor:
                  for name in os.listdir(out)),
                 key=lambda f: f["name"],
             )
-            record = {"kind": "hf_push", "repo": repo, "private": private,
+            record = {"kind": "adapter/push", "repo": repo, "private": private,
                       "dry_run": dry_run, "files": files,
                       "lora": {k: lora.get(k) for k in ("rank", "alpha",
                                                         "target_modules")},
@@ -1782,7 +1783,7 @@ class ProtocolExecutor:
                              "value": float(v), "n": len(recs),
                              "coords": {"metric": k,
                                         "variant": variant}})
-        return {"kind": "metric_table",
+        return {"kind": "records/table",
                 "name": params.get("name", f"hf-{metric_name}"),
                 "description": (
                     f"huggingface evaluate {evaluate.__version__}: "
@@ -1960,7 +1961,7 @@ class ProtocolExecutor:
             else {"base": base_ref, "adapters": []}
         )
         return {
-            "kind": "adapter",
+            "kind": "adapter/lora",
             "format": "safetensors",
             # The full stack this round was trained on — a dataclass
             # would not serialize, and a bare string would lose the
@@ -2042,7 +2043,7 @@ class ProtocolExecutor:
             final = layers[-1]
             items.append({
                 "id": rec["id"],
-                "kind": "~canonical/kinds/lens-trajectory/2",
+                "kind": "logits/funnel",
                 "text": f"Lens trajectory, {rec['id']}: final-layer "
                         f"top1={final['top1']!r} (p={final['p']}, "
                         f"H={final['entropy_bits']} bits).",
@@ -2051,14 +2052,11 @@ class ProtocolExecutor:
             })
             if on_item:
                 on_item()
-        return {
-            "kind": "document_collection",
-            "name": params.get("name", "lens-trajectories"),
-            "description": params.get("description", ""),
-            "fidelity": "text",
-            "item_kind": "~canonical/kinds/lens-trajectory/2",
-            "items": items,
-        }
+        return lexicon.collection(
+            "logits/funnel", items,
+            name=params.get("name", "lens-trajectories"),
+            description=params.get("description", ""),
+            fidelity="text")
 
     def _block_score(self, inputs, params, input_paths=None,
                      on_item=None, on_start=None) -> Any:
@@ -2084,7 +2082,7 @@ class ProtocolExecutor:
             fetched = bench.fetch(str(ref))
             coll = fetched.get("payload", fetched)
             coll_path = str(ref)
-        items = coll.get("items") or []
+        items = lexicon.items_of(coll)
         if on_start:
             on_start(len(items))
         values = []
@@ -2111,18 +2109,16 @@ class ProtocolExecutor:
                 })
             if on_item:
                 on_item()
-        return {
-            "kind": "annotation_layer",
-            "name": params.get("name", "surprisal"),
-            "description": params.get(
+        return lexicon.collection(
+            "text/annotation", values,
+            name=params.get("name", "surprisal"),
+            description=params.get(
                 "description",
                 "Per-token surprisal (bits); values cover every position "
                 "including prompt and envelope tokens."),
-            "collection": coll_path,
-            "value_type": "numeric",
-            "required_fidelity": "trace",
-            "values": values,
-        }
+            collection=coll_path,
+            value_type="numeric",
+            required_fidelity="trace")
 
     def _block_decision_read(self, inputs, params, on_item=None,
                              on_start=None, resume_items=None) -> Any:
@@ -2144,8 +2140,7 @@ class ProtocolExecutor:
         tok = model.tokenizer
         conditions = inputs.get("conditions") or params.get("conditions") or []
         if isinstance(conditions, dict):
-            conditions = (conditions.get("conditions")
-                          or conditions.get("records") or [])
+            conditions = lexicon.items_of(conditions)
         if on_start:
             on_start(len(conditions))
         rollout = params.get("rollout")
@@ -2203,7 +2198,7 @@ class ProtocolExecutor:
             out.append(entry)
             if on_item:
                 on_item(key, entry)
-        return {"kind": "decision_read", "conditions": out}
+        return lexicon.collection("logits/decision", out)
 
 
 

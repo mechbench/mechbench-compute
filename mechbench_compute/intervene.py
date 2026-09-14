@@ -77,9 +77,11 @@ def _as_list(x: Any) -> list[int]:
 
 
 def _rows_matrix(source: Mapping[str, Any], layer: int | None) -> np.ndarray:
-    if not isinstance(source, Mapping) or source.get("kind") != "residual_vectors":
-        raise SpecError("`source` must be a residual_vectors record")
-    rows = [r for r in source.get("rows", [])
+    from mechbench_compute.lexicon import kinds as K
+
+    if not isinstance(source, Mapping) or K.item_kind_of(source) != "activations/vector":
+        raise SpecError("`source` must be a collection of activations/vector")
+    rows = [r for r in K.items_of(source)
             if layer is None or r.get("layer") == layer]
     if not rows:
         raise SpecError(f"`source` has no rows at layer {layer}")
@@ -287,7 +289,7 @@ def _wire_spec(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
         w = dict(it)
         for k in ("direction", "direction2"):
             if isinstance(w.get(k), Mapping):
-                w[k] = {"kind": "direction", "layer": w[k].get("layer"),
+                w[k] = {"kind": "direction/vector", "layer": w[k].get("layer"),
                         "point": w[k].get("point"),
                         "derivation": w[k].get("derivation")}
         if isinstance(w.get("source"), Mapping):
@@ -332,8 +334,8 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
     factors = [float(f) for f in (params.get("sweep") or {}).get("strength", [1.0])]
     if bool(params.get("control", True)) and 0.0 not in factors:
         factors = [0.0, *factors]
-    readout = dict(params.get("readout") or {"kind": "decision"})
-    rk = str(readout.get("kind", "decision"))
+    readout = dict(params.get("readout") or {"type": "decision"})
+    rk = str(readout.get("type") or readout.get("kind") or "decision")
     if rk not in ("decision", "capture"):
         raise SpecError(f"unknown readout kind {rk!r}")
     top_k = int(readout.get("top_k", params.get("top_k", 5)))
@@ -403,14 +405,15 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
             rows.append(row)
             if on_item:
                 on_item(key, row)
-    return {
-        "kind": "intervene_readout",
-        "spec": _wire_spec(filled),
-        "sweep": factors,
-        "readout": rk,
-        "template": template,
-        "rows": rows,
-        "description": (
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection(
+        "intervene/readout", rows,
+        spec=_wire_spec(filled),
+        sweep=factors,
+        readout=rk,
+        template=template,
+        description=(
             f"{len(specs)} intervention(s) applied together per forward; factor 0 "
             f"is the control; strengths scale with the sweep factor."),
-    }
+    )

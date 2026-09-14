@@ -160,7 +160,7 @@ def message(value: Any, *, default_role: str = "user") -> Message:
 
 def messages(value: Any) -> tuple[Message, ...]:
     """Coerce a conversation: a string (one user turn), a list of
-    messages, or a transcript record (`{"kind": "transcript", "messages":
+    messages, or a transcript record (`{"kind": "text/transcript", "messages":
     [...]}`) as 000341's conversation block emits."""
     if value is None:
         return ()

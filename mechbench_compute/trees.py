@@ -146,18 +146,23 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     # Off by default so stored results keep their numbers; every new
     # protocol should turn it on. See `center_rows`.
     center = bool(params.get("center", False))
+    from mechbench_compute.lexicon import kinds as K
+
     src = (inputs.get("matrix") or inputs.get("similarity")
            or params.get("matrix"))
     vectors = inputs.get("vectors") or params.get("vectors")
 
+    def _is(obj: Any, item_kind: str) -> bool:
+        return isinstance(obj, Mapping) and K.item_kind_of(obj) == item_kind
+
     groups: list[dict[str, Any]] = []
-    if center and isinstance(src, Mapping) and src.get("kind") == "similarity_matrix":
+    if center and _is(src, "geometry/similarity"):
         raise ValueError(
-            "vectors/mst cannot center a similarity_matrix — the vectors "
+            "geometry/mst cannot center a similarity matrix — the vectors "
             "are already gone. Feed it `vectors` instead, or center "
-            "upstream in vectors/similarity.")
-    if isinstance(src, Mapping) and src.get("kind") == "similarity_matrix":
-        for entry in src.get("layers", []):
+            "upstream in geometry/similarity.")
+    if _is(src, "geometry/similarity"):
+        for entry in K.items_of(src):
             groups.append({
                 "layer": entry.get("layer"),
                 **({"head": entry["head"]} if entry.get("head") is not None else {}),
@@ -165,8 +170,8 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
                 "labels": entry.get("labels", []),
                 "distance": _distance_from_similarity(entry["matrix"]),
             })
-    elif isinstance(vectors, Mapping) and vectors.get("kind") == "residual_vectors":
-        rows = vectors.get("rows") or []
+    elif _is(vectors, "activations/vector"):
+        rows = K.items_of(vectors)
         keys = sorted({(r.get("layer"), r.get("head")) for r in rows},
                       key=lambda t: (t[0] if t[0] is not None else -1,
                                      t[1] if t[1] is not None else -1))
@@ -184,11 +189,11 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
             })
     else:
         raise ValueError(
-            "vectors/mst needs a `similarity_matrix` on its `matrix` port "
-            "or a `residual_vectors` record on `vectors` — got "
+            "geometry/mst needs a collection of geometry/similarity on its "
+            "`matrix` port or of activations/vector on `vectors` — got "
             f"{type(src or vectors).__name__}")
 
-    out_layers, rows = [], []
+    out_layers = []
     for g in groups:
         edges = minimum_spanning_tree(g["distance"])
         stats = tree_stats(edges, bridge_sigma=bridge_sigma)
@@ -201,30 +206,22 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
         if keep_edges:
             entry["edges"] = [[i, j, round(w, 6)] for i, j, w in edges]
         out_layers.append(entry)
-        rows.append({k: v for k, v in entry.items()
-                     if k not in ("ids", "labels", "edges")})
 
-    return {
-        "kind": "mst_summary",
-        "name": params.get("name", "mst"),
-        "metric": "centered_cosine_distance" if center else "cosine_distance",
-        "centered": center,
-        "bridge_sigma": bridge_sigma,
-        "layers": out_layers,
-        # The per-layer statistics again as a flat record list, for
-        # `table/from-records` and anything else that wants rows rather
-        # than the nested `layers`. This is NOT a `metric_table` (that
-        # kind needs `columns` and `row_axis`) and it is not what the
-        # UI renders: `mst_summary` has its own view, which draws the
-        # edge-weight histogram the statistics summarize.
-        "rows": rows,
-        "description": (
+    # One item per group; `records/table` reads the items directly, so
+    # the flat duplicate the old shape carried is gone.
+    return K.collection(
+        "geometry/mst", out_layers,
+        name=params.get("name", "mst"),
+        metric="centered_cosine_distance" if center else "cosine_distance",
+        centered=center,
+        bridge_sigma=bridge_sigma,
+        description=(
             "Minimum spanning tree over pairwise cosine distance. `mean` is "
             "the scale of the spread and `variance` its clumpiness; they are "
             "read together, because a collapsed corpus and an evenly varied "
             "one both have low variance for opposite reasons."
         ),
-    }
+    )
 
 
 PURE_TREE_BLOCKS = {"geometry/mst": mst}

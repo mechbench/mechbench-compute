@@ -83,14 +83,14 @@ class TestBenchDestination:
             {}, {"model": _ref(_adapter_payload()),
                  "to": {"bench": {"name": "fair-v1"}}},
             result_base="benji/training/results/j_x")
-        assert out["kind"] == "model_pointer"
+        assert out["kind"] == "model/pointer"
         assert out["base"] == {"bench": "benji/training/checkpoints/fair-v1"}
         assert {p.rsplit("/", 1)[-1] for p in puts} == {
             "config.json", "model-00001-of-00001.safetensors",
             "model.safetensors.index.json"}
         (label, payload, kwargs) = emits[0]
         assert label.endswith("/manifest")
-        assert payload["kind"] == "checkpoint_manifest"
+        assert payload["kind"] == "adapter/checkpoint"
         assert kwargs["inputs"] == ["me/p/a1"]  # adapter lineage
 
     def test_a_bare_base_refuses(self, executor):

@@ -10,15 +10,15 @@ records from an edge onto their `records` port.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Op, P
+from mechbench_compute.lexicon._base import Emits, Op, P
 
 _RECORDS_IN = "`records` (by edge) — the records to work on."
 
 _FACTORS_DESC = """\
 Each factor has a `name` and its **levels**: either enumerated —
 `{"levels": [{"key": "noir", "value": "a noir story"}, …]}` — or **sampled**
-by a generator — `{"sampled": {"kind": "noise", "size": 12, "count": 5}}`
-(random strings) or `{"kind": "words", "size": 3, "count": 5, "word_list":
+by a generator — `{"sampled": {"type": "noise", "size": 12, "count": 5}}`
+(random strings) or `{"type": "words", "size": 3, "count": 5, "word_list":
 […]}` (random word sequences) — or both. A generator's values depend only on
 (`seed`, index), so `start`/`count` can grow the set later without changing
 what exists; a `wrap` template such as `"Seed: {x}"` frames each value, and a
@@ -39,7 +39,7 @@ FACTOR_CROSS = Op(
     ),
     description=_FACTORS_DESC,
     inputs="None — this op makes records from its params.",
-    emits="A list of records: `{id, coords, values}` per combination.",
+    emits=Emits('records/record', collection=True, doc='One record per combination: `{id, coords, values}`.'),
     params=(
         P("factors", "list[object]",
           "The factors to cross, each `{name, levels?, sampled?}` as "
@@ -56,7 +56,7 @@ FACTOR_CROSS = Op(
                 {"key": "noir", "value": "a noir detective story"},
                 {"key": "fable", "value": "a fable with a moral"},
             ]},
-            {"name": "seed", "sampled": {"kind": "noise", "size": 8, "count": 4}},
+            {"name": "seed", "sampled": {"type": "noise", "size": 8, "count": 4}},
         ],
     },
 )
@@ -79,7 +79,7 @@ The output records keep their `id` and `coords`, so a downstream
 the field this op wrote.
 """,
     inputs="`records` (by edge, or the `records` param) — records with `values`, usually from `records/cross`.",
-    emits="A list of records: `{id, coords}` plus one field per template.",
+    emits=Emits('records/record', collection=True, doc='One record per input record: `{id, coords}` plus one field per template.'),
     params=(
         P("templates", "object",
           "Field name → template string. `{name}` is replaced by the "
@@ -110,7 +110,7 @@ matches.
 `fields` projects the survivors down to `id`, `coords` and the named fields.
 """,
     inputs=_RECORDS_IN,
-    emits="The matching records, as a list.",
+    emits=Emits('records/record', collection=True, doc='The matching records.'),
     params=(
         P("where", "object",
           "Field → value or list of values. `{\"genre\": \"noir\", "
@@ -144,8 +144,7 @@ union followed by the direction algebra.
 """,
     inputs="Any number of edges, each carrying a record list, a collection, or a `residual_vectors` record. Port names are the batch labels.",
     emits=(
-        "A `record_set` (`segments`, `records`) — or a `residual_vectors` "
-        "record when every input was one."
+        Emits('records/record', collection=True, doc="Every input's records, each with the batch coordinate; the header's `segments` says how many came from each port. When every input was a collection of `activations/vector`, so is the output, with `layers` the union.")
     ),
     params=(
         P("batch_axis", "string",
@@ -171,7 +170,7 @@ with no matching baseline is an error, not a silent omission.
 The output keeps `coords`, so it feeds `records/stats` directly.
 """,
     inputs=_RECORDS_IN,
-    emits="A list of records: `{id, coords, value, baseline, delta}` per non-baseline record.",
+    emits=Emits('records/record', collection=True, doc='One record per non-baseline record: `{id, coords, value, baseline, delta}`.'),
     params=(
         P("value", "string", "The numeric field to difference."),
         P("baseline_where", "object",
@@ -204,9 +203,7 @@ skipped records is reported on the table as `n_missing`.
 """,
     inputs=_RECORDS_IN,
     emits=(
-        "A `metric_table`: one row per group with the `by` coordinates and "
-        "`n`, `median`, `mean`, `min`, `max`, `share_negative`; `n_missing` "
-        "when any were skipped."
+        Emits('records/table', collection=False, doc='One row per group with the `by` coordinates and `n`, `median`, `mean`, `min`, `max`, `share_negative`; `n_missing` when any were skipped.')
     ),
     params=(
         P("value", "string", "The numeric field to summarise."),
@@ -233,7 +230,7 @@ becomes a column, then every scalar (number or string) field; each column's
 type is inferred from its values. Nested fields are left out.
 """,
     inputs="`records` (by edge, or the `records` param).",
-    emits="A `metric_table` with `columns` (`{name, dtype}`) and `rows`.",
+    emits=Emits('records/table', collection=False, doc='`columns` (`{name, dtype}`) and `rows`.'),
     params=(
         P("row_axis", "string",
           "What one row stands for, recorded on the table for its renderer "
@@ -253,7 +250,7 @@ TEXT_STATS = Op(
     description="""\
 Each entry of `measures` is applied to every record's `field`:
 
-| `kind` | Fields written per record | Options |
+| `type` | Fields written per record | Options |
 |---|---|---|
 | `pattern` | `<name>`: 1 if any regex matches, else 0 | `patterns` (list of regexes), `where`: `"anywhere"` or `"prefix"` (must match at the start), `ignore_case` |
 | `lexical` | `<name>_words`, `<name>_distinct`, `<name>_dup` (1 − distinct/words) | `lowercase` (default true), `min_length` |
@@ -271,9 +268,7 @@ mean of each frequency statistic.
         "edge) — a word-frequency table for `corpus_frequency` measures."
     ),
     emits=(
-        "In `annotate` mode, the records (`id`, `coords`, the measure "
-        "fields, and the whole item when `keep` is set). In `corpus` mode, "
-        "a single-record list with the corpus summary."
+        Emits('records/record', collection=True, doc='In `annotate` mode, one record per item (`id`, `coords`, the measure fields, and the whole item when `keep` is set). In `corpus` mode, a single record with the corpus summary.')
     ),
     params=(
         P("measures", "list[object]",
@@ -295,9 +290,9 @@ mean of each frequency statistic.
     example={
         "field": "text",
         "measures": [
-            {"kind": "pattern", "name": "lighthouse",
+            {"type": "pattern", "name": "lighthouse",
              "patterns": ["\\blighthouse\\b"], "ignore_case": True},
-            {"kind": "lexical", "name": "lex"},
+            {"type": "lexical", "name": "lex"},
         ],
         "keep": True,
     },
@@ -312,7 +307,7 @@ rounded algorithm, so the result is the same whatever order or chunking the
 records arrived in. Safe to run over partial results and merge.
 """,
     inputs=_RECORDS_IN,
-    emits="`{n, sum}`.",
+    emits=Emits('records/sum', collection=False, doc='`{n, sum}`.'),
     params=(P("value", "string", "The numeric field to sum."),),
     example={"value": "cost_usd"},
 )
@@ -326,7 +321,7 @@ deterministic. An exact reduce: the top-k of a union is the top-k of the
 top-ks, so partial results merge without loss.
 """,
     inputs=_RECORDS_IN,
-    emits="A `record_set` with `records`, the top k in order.",
+    emits=Emits('records/record', collection=True, doc='The top k, in order.'),
     params=(
         P("value", "string", "The numeric field to rank by."),
         P("k", "int", "How many to keep.", 10),
@@ -343,7 +338,7 @@ REDUCE_HISTOGRAM = Op(
 the number of records. An exact reduce: counts add.
 """,
     inputs=_RECORDS_IN,
-    emits="A `histogram`: `bins` (the counts, in order), `below`, `above`.",
+    emits=Emits('records/histogram', collection=False, doc='`bins` (the counts, in order), `below`, `above`.'),
     params=(
         P("value", "string", "The numeric field to bin."),
         P("lo", "float", "The lower edge of the first bin."),
@@ -364,7 +359,7 @@ EVAL_EXPECTATION = Op(
 Results (from `logits/decision`) and expectations are joined on `id`. Each
 expectation record has an `expect` object:
 
-| `kind` | Passes when | Fields |
+| `type` | Passes when | Fields |
 |---|---|---|
 | `uniform` | the KL divergence from uniform over the named outcomes is at most `max_kl_bits` | `over` (the outcomes), `max_kl_bits` (default 0.1) |
 | `weights` | the KL divergence from the normalised `weights` is at most `max_kl_bits` | `weights` (outcome → weight), `max_kl_bits` |
@@ -384,9 +379,7 @@ The final row, id `ALL`, carries the pass rate: the number a write-up cites.
         "`{id, expect}`."
     ),
     emits=(
-        "A `metric_table` with one row per judged result (`expect`, "
-        "`entropy_bits`, `kl_bits`, `outcome_mass`, `p_expected`, `pass`) "
-        "and the `ALL` row (`pass_rate`, `n_pass`, `n_judged`)."
+        Emits('records/table', collection=False, doc='One row per judged result (`expect`, `entropy_bits`, `kl_bits`, `outcome_mass`, `p_expected`, `pass`) and the `ALL` row (`pass_rate`, `n_pass`, `n_judged`).')
     ),
     params=(
         P("results", "record | list[record]",
@@ -398,7 +391,7 @@ The final row, id `ALL`, carries the pass rate: the number a write-up cites.
     ),
     example={
         "expectations": [
-            {"id": "d6", "expect": {"kind": "uniform",
+            {"id": "d6", "expect": {"type": "uniform",
                                     "over": ["1", "2", "3", "4", "5", "6"],
                                     "max_kl_bits": 0.1}},
         ],
@@ -420,7 +413,7 @@ spec is self-contained. Coordinates are flattened into each row so they can
 be encoded directly.
 """,
     inputs="`records` (by edge) — a table or record list to chart.",
-    emits="A `viz_spec`: `title`, `mark`, `encoding` (`x`, `y`, `series`), and `source` or `data`.",
+    emits=Emits('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`), and `source` or `data`.'),
     params=(
         P("encoding", "object",
           "`{\"x\": field, \"y\": field, \"series\": field}` — which fields "
@@ -458,8 +451,7 @@ with `center: true`, which subtracts it.
 """,
     inputs="`vectors` (by edge, or the `vectors` param) — a `residual_vectors` record.",
     emits=(
-        "A `similarity_matrix`: `layers`, each `{layer, head?, ids, labels, "
-        "matrix, separation?, nn_purity?, silhouette?}`."
+        Emits('geometry/similarity', collection=True, doc='One item per group: `{layer, head?, ids, labels, matrix, separation?, nn_purity?, silhouette?}`. The header carries `position`, `point` and `metric`.')
     ),
     params=(),
     example={},
@@ -500,13 +492,7 @@ a run that reproduces its numbers reproduces its tree.
         "`matrix` / `similarity` (by edge, or the `matrix` param) — a "
         "`similarity_matrix` from `geometry/similarity`."
     ),
-    emits="""\
-An `mst_summary`: `metric`, `centered`, `layers` (per layer: `n`, `n_edges`,
-`mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`,
-`bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels`, and
-`edges` as `[i, j, weight]` when kept), and `rows` — the same statistics
-flat, for `records/table`.
-""",
+    emits=Emits('geometry/mst', collection=True, doc='One item per group (a layer, or a layer and head): `n`, `n_edges`, `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`, `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels`, and `edges` as `[i, j, weight]` when kept. The header carries `metric`, `centered` and `bridge_sigma`. `records/table` reads the items as its rows.'),
     params=(
         P("center", "bool",
           "Subtract the mean vector before measuring distance. Recommended "

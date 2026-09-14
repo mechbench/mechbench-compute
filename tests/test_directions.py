@@ -32,7 +32,7 @@ class TestSimilarityMatrix:
         out = d.block_similarity(
             {"die": self._dir([1, 0, 0], 2.0), "n1000": self._dir([1, 0, 0], 3.0),
              "joint": self._dir([0, 1, 0])}, {})
-        assert out["kind"] == "direction_similarity_matrix"
+        assert out["kind"] == "geometry/similarity"
         assert out["names"] == ["die", "joint", "n1000"]  # sorted ports
         i, j = out["names"].index("die"), out["names"].index("n1000")
         assert out["cosines"][i][j] == 1.0
@@ -43,7 +43,7 @@ class TestSimilarityMatrix:
     def test_two_named_ports_still_give_one_cosine(self):
         out = d.block_similarity({"a": self._dir([1, 0, 0]),
                                   "b": self._dir([0, 1, 0])}, {})
-        assert out["kind"] == "direction_similarity" and out["cosine"] == 0.0
+        assert out["kind"] == "geometry/similarity" and out["cosine"] == 0.0
 
     def test_one_direction_is_refused(self):
         with pytest.raises(ValueError, match="at least two"):
@@ -53,7 +53,7 @@ class TestSimilarityMatrix:
 class TestMake:
     def test_unit_and_provenance(self):
         x = d.make([3.0, 4.0], layer=2, point="resid_post", method="test", sources=["a"])
-        assert x["kind"] == "direction" and x["d"] == 2
+        assert x["kind"] == "direction/vector" and x["d"] == 2
         assert abs(np.linalg.norm(x["vector"]) - 1.0) < 1e-6 and x["norm"] == 5.0
         assert x["derivation"]["method"] == "test" and x["derivation"]["sources"] == ["a"]
 
@@ -109,8 +109,8 @@ class TestArithmetic:
         v = _vectors()
         m = d.from_vectors(v, layer=3, positive="pos", negative="neg")
         pr = d.project_rows(v, m)
-        pos = [r["projection"] for r in pr["rows"] if r["label"] == "pos"]
-        neg = [r["projection"] for r in pr["rows"] if r["label"] == "neg"]
+        pos = [r["projection"] for r in pr["items"] if r["label"] == "pos"]
+        neg = [r["projection"] for r in pr["items"] if r["label"] == "neg"]
         assert min(pos) > max(neg)
 
 
@@ -121,7 +121,7 @@ class TestBlocks:
         v = _vectors()
         fn = PURE_BLOCKS["direction/from-vectors"]
         x = fn({"vectors": v}, {"layer": 3, "positive": "pos", "negative": "neg"})
-        assert x["kind"] == "direction"
+        assert x["kind"] == "direction/vector"
         sim = PURE_BLOCKS["direction/similarity"]({"a": x, "b": x}, {})
         assert abs(sim["cosine"] - 1.0) < 1e-6
         avg = PURE_BLOCKS["direction/average"]({"d1": x, "d2": x}, {})

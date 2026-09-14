@@ -32,8 +32,29 @@ from mechbench_compute.lexicon import (
     records,
     trajectory,
 )
-from mechbench_compute.lexicon._base import ROOT, REQUIRED, Op, P, Param
+from mechbench_compute.lexicon._base import (
+    COLLECTION,
+    KIND_ROOT,
+    REQUIRED,
+    ROOT,
+    Emits,
+    Kind,
+    Op,
+    P,
+    Param,
+)
 from mechbench_compute.lexicon.common import COMMON
+from mechbench_compute.lexicon.kinds import (
+    BY_KIND,
+    KIND_ALIASES,
+    KINDS,
+    canonical_collection,
+    canonical_kind_path,
+    collection,
+    item_kind_of,
+    items_of,
+    resolve_kind,
+)
 
 OPS: tuple[Op, ...] = tuple(
     sorted(

@@ -113,7 +113,7 @@ def peft_import(repo_dir: str) -> dict:
     r = int(config.get("r", 8))
     alpha = float(config.get("lora_alpha", 16))
     return {
-        "kind": "adapter",
+        "kind": "adapter/lora",
         "format": "safetensors",
         "base_model": config.get("base_model_name_or_path"),
         "lora": {"rank": r, "alpha": alpha, "scale": alpha / r,

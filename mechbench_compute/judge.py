@@ -51,7 +51,8 @@ class Scale:
 
     def __init__(self, spec: Mapping[str, Any] | None) -> None:
         spec = dict(spec or {})
-        self.kind = str(spec.get("kind", "numeric"))
+        # `type` names the scale; `kind` is the retired spelling.
+        self.kind = str(spec.get("type") or spec.get("kind") or "numeric")
         if self.kind not in SCALES:
             raise ValueError(f"unknown scale {self.kind!r} — one of {SCALES}")
         rng = spec.get("range")
@@ -328,7 +329,9 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
     by_subject: dict[str, list[dict[str, Any]]] = {}
     order_by_id = {p["id"]: p.get("order", "AB") for p in prompts}
     all_votes: list[dict[str, Any]] = []
-    for item in graded["items"]:
+    from mechbench_compute.lexicon import kinds as K
+
+    for item in K.items_of(graded):
         coords = (item.get("metadata") or {}).get("coords") or {}
         subject_id = str(coords.get("subject", ""))
         read = scale.read(str(item.get("text", "")))
@@ -346,16 +349,13 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
 
     rows = [aggregate(s, by_subject.get(str(s.get("id", "")), []), scale=scale)
             for s in subjects]
-    out: dict[str, Any] = {
-        "kind": "record_set",
-        "name": params.get("name", "judgements"),
-        "description": params.get("description", ""),
-        "records": rows,
-        "judge": {"model": ref.to_wire() if ref.is_endpoint else judge["model"],
-                  "scale": scale.kind, "n_votes": n_votes,
-                  "rubric": rubric[:2000]},
-        "summary": summarize(rows, scale=scale, votes=all_votes),
-    }
-    if graded.get("spend"):
-        out["spend"] = graded["spend"]
-    return out
+    return K.collection(
+        "eval/verdict", rows,
+        name=params.get("name", "judgements"),
+        description=params.get("description", ""),
+        judge={"model": ref.to_wire() if ref.is_endpoint else judge["model"],
+               "scale": scale.kind, "n_votes": n_votes,
+               "rubric": rubric[:2000]},
+        summary=summarize(rows, scale=scale, votes=all_votes),
+        spend=graded.get("spend") or None,
+    )

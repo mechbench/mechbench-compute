@@ -169,7 +169,7 @@ def build_manifest(
             {"name": name, "size": p.stat().st_size, "sha256": h.hexdigest()}
         )
     return {
-        "kind": "checkpoint_manifest",
+        "kind": "adapter/checkpoint",
         "files": entries,
         "merged_from": dict(model_ref_wire),
         "base_snapshot": base_snapshot,

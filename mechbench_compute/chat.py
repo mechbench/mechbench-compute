@@ -38,7 +38,7 @@ from mechbench_compute.providers import messages as pm
 from mechbench_compute.tools import toolbox_from
 
 #: What a chat node emits per item, for both paths.
-ITEM_KIND = "~canonical/kinds/text"
+ITEM_KIND = "text/document"
 
 
 def _records(value: Any) -> list[dict[str, Any]]:
@@ -310,16 +310,16 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                 for fut in as_completed(futures):
                     land(fut.result())
 
-    return {
-        "kind": "document_collection",
-        "name": params.get("name", "chat"),
-        "description": params.get("description", ""),
-        "fidelity": "text",
-        "item_kind": ITEM_KIND,
-        "items": [it for it in items if it is not None],
-        "spend": _summary(calls, budget, provider=provider, dry_run=dry_run,
-                          replayed=replayed),
-    }
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection(
+        ITEM_KIND, [it for it in items if it is not None],
+        name=params.get("name", "chat"),
+        description=params.get("description", ""),
+        fidelity="text",
+        spend=_summary(calls, budget, provider=provider, dry_run=dry_run,
+                       replayed=replayed),
+    )
 
 
 def run_local(model, ref, records, params, *, on_item=None, on_start=None,
@@ -452,13 +452,13 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
             items.append(item)
             if on_item:
                 on_item(key, item)
-    return {
-        "kind": "document_collection",
-        "name": params.get("name", "chat"),
-        "description": params.get("description", ""),
-        "fidelity": "text",
-        "item_kind": ITEM_KIND,
-        "items": items,
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection(
+        ITEM_KIND, items,
+        name=params.get("name", "chat"),
+        description=params.get("description", ""),
+        fidelity="text",
         # Reported even when zero: "no tool calls" and "no tool calls
         # and nobody tried" are different facts about a run.
         # Everything a reader needs to know about tool use, without
@@ -473,7 +473,7 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
             "errors": tool_errors,
             "errors_by_cause": _by_cause(tool_errors),
         }} if tool_specs else {}),
-    }
+    )
 
 
 def _by_cause(errors: Sequence[Mapping[str, Any]]) -> dict[str, int]:

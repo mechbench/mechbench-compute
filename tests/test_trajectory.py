@@ -75,19 +75,19 @@ class TestCaptureLayersAxis:
         m = StubModel()
         out = trajectory.capture(m, [{"id": "a", "user": "hi there"}],
                                  {"axis": "layers", "position": "final"})
-        assert out["kind"] == "trajectory" and out["axis"] == "layers"
-        assert [r["step"] for r in out["rows"]] == [0, 1, 2, 3]
-        assert [r["layer"] for r in out["rows"]] == [0, 1, 2, 3]
+        assert out["item_kind"] == "trajectory/point" and out["axis"] == "layers"
+        assert [r["step"] for r in out["items"]] == [0, 1, 2, 3]
+        assert [r["layer"] for r in out["items"]] == [0, 1, 2, 3]
         # final token of "hi there" is 1 + 5 % 7 = 6; layer L scales by L+1
-        assert out["rows"][2]["vector"] == onehot(6, 3.0)
-        assert out["rows"][2]["position"] == 2
-        assert out["rows"][2]["norm"] == 3.0
+        assert out["items"][2]["vector"] == onehot(6, 3.0)
+        assert out["items"][2]["position"] == 2
+        assert out["items"][2]["norm"] == 3.0
 
     def test_vocab_top_reads_the_unembedding(self):
         m = StubModel()
         out = trajectory.capture(m, [{"id": "a", "user": "hi"}],
                                  {"axis": "layers", "layers": [1], "vocab_top": 2})
-        top = out["rows"][0]["vocab_top"]
+        top = out["items"][0]["vocab_top"]
         assert top[0]["token"] == "t3"  # "hi" -> 1 + 2 % 7 = 3, one-hot at 3
         assert 0 < top[0]["p"] <= 1
 
@@ -100,9 +100,9 @@ class TestCapturePositionsAxis:
                                   "positions": "all"})
         assert out["axis"] == "positions" and out["layers"] == [2]
         assert out["replay"] == "text"
-        assert [r["position"] for r in out["rows"]] == [0, 1, 2, 3]
-        assert [r["token"] for r in out["rows"]] == ["t0", "t2", "t3", "t4"]
-        assert out["rows"][1]["vector"] == onehot(2, 3.0)
+        assert [r["position"] for r in out["items"]] == [0, 1, 2, 3]
+        assert [r["token"] for r in out["items"]] == ["t0", "t2", "t3", "t4"]
+        assert out["items"][1]["vector"] == onehot(2, 3.0)
 
     def test_replays_the_stored_trace_not_the_text(self):
         m = StubModel()
@@ -114,9 +114,9 @@ class TestCapturePositionsAxis:
         assert out["replay"] == "trace"
         assert m.seen_ids == [[0, 9, 9, 5, 6, 7]]  # the trace, verbatim
         # only the generated span: positions 3, 4, 5 -> steps 0, 1, 2
-        assert [r["position"] for r in out["rows"]] == [3, 4, 5]
-        assert [r["step"] for r in out["rows"]] == [0, 1, 2]
-        assert out["rows"][0]["vector"] == onehot(5, 1.0)
+        assert [r["position"] for r in out["items"]] == [3, 4, 5]
+        assert [r["step"] for r in out["items"]] == [0, 1, 2]
+        assert out["items"][0]["vector"] == onehot(5, 1.0)
 
     def test_replay_trace_refuses_a_record_without_one(self):
         with pytest.raises(ValueError, match="no trace"):
@@ -130,14 +130,14 @@ class TestCapturePositionsAxis:
                                  {"axis": "positions", "layer": 0,
                                   "positions": {"range": [1, 10]},
                                   "max_steps": 3})
-        assert [r["position"] for r in out["rows"]] == [1, 2, 3]
+        assert [r["position"] for r in out["items"]] == [1, 2, 3]
 
     def test_label_from_an_annotated_field(self):
         m = StubModel()
         out = trajectory.capture(m, [{"id": "a", "text": "x", "hit": 1}],
                                  {"axis": "positions", "layer": 0,
                                   "positions": "all", "label_field": "hit"})
-        assert out["rows"][0]["label"] == 1
+        assert out["items"][0]["label"] == 1
 
     def test_needs_a_layer(self):
         with pytest.raises(ValueError, match="needs `layer`"):
@@ -150,8 +150,8 @@ class TestCapturePositionsAxis:
         out = trajectory.capture(m, [{"id": "a", "text": "a bb ccc dddd"}],
                                  {"axis": "positions", "layer": 0, "positions": "all",
                                   "steps": {"range": [1, 4]}, "reduce": "mean"})
-        assert out["reduce"] == "mean" and len(out["rows"]) == 1
-        row = out["rows"][0]
+        assert out["reduce"] == "mean" and len(out["items"]) == 1
+        row = out["items"][0]
         assert row["n_pooled"] == 3 and row["steps"] == [1, 4]
         v = row["vector"]  # rounded to 5 places on the wire
         third = pytest.approx(1 / 3, abs=1e-4)
@@ -165,11 +165,11 @@ class TestCapturePositionsAxis:
         out = trajectory.capture(m, [{"id": "a", "text": "a bb ccc"}],
                                  {"axis": "positions", "layer": 1, "positions": "all",
                                   "project": d})
-        assert out["kind"] == "trajectory_projection"
+        assert out["item_kind"] == "trajectory/point" and out["projected"]
         assert out["direction"]["method"] == "test"
         # layer 1 scales by 2; token 3 sits at position 2 ("bb" -> 1 + 2 % 7 = 3)
-        assert [r["coord"] for r in out["rows"]] == [0.0, 0.0, 2.0, 0.0]
-        assert all("vector" not in r for r in out["rows"])
+        assert [r["coord"] for r in out["items"]] == [0.0, 0.0, 2.0, 0.0]
+        assert all("vector" not in r for r in out["items"])
 
     def test_the_cap_counts_what_is_emitted_not_what_is_read(self):
         # 014's shape: many records × many steps. As vectors this is over
@@ -187,10 +187,10 @@ class TestCapturePositionsAxis:
             d = {"kind": "direction", "vector": onehot(3, 1.0), "layer": 0,
                  "point": "post"}
             out = trajectory.capture(StubModel(), records, {**big, "project": d})
-            assert out["kind"] == "trajectory_projection" and len(out["rows"]) == 240
+            assert out["projected"] and len(out["items"]) == 240
             out2 = trajectory.capture(StubModel(), records,
                                       {**big, "reduce": "mean"})
-            assert len(out2["rows"]) == 60  # one pooled vector each
+            assert len(out2["items"]) == 60  # one pooled vector each
         finally:
             interp.MAX_VECTOR_FLOATS = monkey
 
@@ -219,9 +219,9 @@ class TestProject:
         d = {"kind": "direction", "vector": onehot(1, 1.0), "layer": 0,
              "point": "post", "method": "test"}
         out = trajectory.project({"trajectory": t, "direction": d}, {})
-        assert out["kind"] == "trajectory_projection"
-        assert [r["coord"] for r in out["rows"]] == [2.0, 0.0]
-        assert "vector" not in out["rows"][0]
+        assert out["item_kind"] == "trajectory/point" and out["projected"]
+        assert [r["coord"] for r in out["items"]] == [2.0, 0.0]
+        assert "vector" not in out["items"][0]
 
     def test_dimension_mismatch_is_refused(self):
         t = _traj([_row("a", 0, onehot(1, 1.0))])
@@ -237,9 +237,9 @@ class TestCompare:
         b = _traj([_row("x", 0, onehot(1, 2.0)), _row("x", 1, onehot(1, 1.0)),
                    _row("x", 2, onehot(3, 1.0))])
         out = trajectory.compare({"a": a, "b": b}, {"threshold": 0.9})
-        assert [r["cosine"] for r in out["rows"]] == [1.0, 1.0, 0.0]
-        assert out["rows"][0]["norm_ratio"] == 2.0
-        assert out["rows"][2]["angle_deg"] == 90.0
+        assert [r["cosine"] for r in out["items"]] == [1.0, 1.0, 0.0]
+        assert out["items"][0]["norm_ratio"] == 2.0
+        assert out["items"][2]["angle_deg"] == 90.0
         assert out["divergence_step"] == 2 and out["min_cosine_step"] == 2
 
     def test_axes_must_match(self):
@@ -260,7 +260,7 @@ class TestAggregate:
     def test_per_step_mean_vectors_by_label(self):
         out = trajectory.aggregate({"trajectory": self._labelled()},
                                    {"by": "label"})
-        rows = {(r["group"], r["step"]): r for r in out["rows"]}
+        rows = {(r["group"], r["step"]): r for r in out["items"]}
         assert rows[("lh", 0)]["vector"] == onehot(1, 2.0)
         assert rows[("lh", 1)]["vector"] == onehot(1, 4.0)
         assert rows[("lh", 0)]["n"] == 2 and rows[("lh", 0)]["spread"] == 1.0
@@ -270,8 +270,8 @@ class TestAggregate:
         out = trajectory.aggregate({"trajectory": self._labelled()},
                                    {"by": "label", "as": "vectors",
                                     "steps": {"range": [0, 2]}})
-        assert out["kind"] == "residual_vectors" and out["layers"] == [0]
-        by = {r["label"]: r for r in out["rows"]}
+        assert out["item_kind"] == "activations/vector" and out["layers"] == [0]
+        by = {r["label"]: r for r in out["items"]}
         assert by["lh"]["vector"] == onehot(1, 3.0)  # mean of 1,3,3,5
         assert by["lh"]["n_pooled"] == 4
         # the direction algebra reads it unchanged
@@ -286,7 +286,7 @@ class TestAggregate:
                    {"id": "s2", "step": 0, "layer": 0, "position": 0, "coord": 5.0}])
         t["kind"] = "trajectory_projection"
         out = trajectory.aggregate({"trajectory": t}, {"by": "id", "as": "window"})
-        by = {r["group"]: r for r in out["rows"]}
+        by = {r["group"]: r for r in out["items"]}
         assert by["s1"]["mean"] == 2.0 and by["s1"]["n"] == 2
         assert by["s2"]["mean"] == 5.0
 
@@ -325,8 +325,8 @@ class TestWiring:
         base = vec([{"id": "flash", "layer": 12, "vector": onehot(1, 1.0)}])
         adapted = vec([{"id": "flash", "layer": 12, "vector": onehot(2, 1.0)}])
         out = blocks.union({"base": base, "adapted": adapted}, {})
-        assert out["kind"] == "residual_vectors" and out["layers"] == [12]
-        assert [r["label"] for r in out["rows"]] == ["adapted", "base"]  # port order
+        assert out["item_kind"] == "activations/vector" and out["layers"] == [12]
+        assert [r["label"] for r in out["items"]] == ["adapted", "base"]  # port order
         from mechbench_compute import directions as dirs
         d = dirs.from_vectors(out, layer=12, positive="base", negative="adapted")
         v = np.asarray(d["vector"])
@@ -334,8 +334,8 @@ class TestWiring:
 
     def test_union_of_plain_records_is_unchanged(self):
         out = blocks.union({"a": [{"id": "1"}], "b": [{"id": "2"}]}, {})
-        assert out["kind"] == "record_set"
-        assert [r["coords"]["batch"] for r in out["records"]] == ["a", "b"]
+        assert out["item_kind"] == "records/record"
+        assert [r["coords"]["batch"] for r in out["items"]] == ["a", "b"]
 
     def test_text_stats_keep_retains_the_item(self):
         items = {"items": [{"id": "s1", "text": "The old lighthouse keeper sat.",

@@ -19,7 +19,19 @@ from typing import Any
 
 import numpy as np
 
-KIND = "direction"
+KIND = "direction/vector"
+
+
+def _is_direction(d: Any) -> bool:
+    """A direction record, by its current name or the retired one."""
+    from mechbench_compute.lexicon import kinds as K
+
+    if not isinstance(d, Mapping) or not isinstance(d.get("kind"), str):
+        return False
+    try:
+        return K.resolve_kind(d["kind"])[0] == KIND
+    except KeyError:
+        return False
 
 
 # --- construction ----------------------------------------------------------
@@ -59,8 +71,8 @@ def make(vector: Any, *, layer: int | None, point: str, method: str,
 
 
 def as_array(d: Mapping[str, Any]) -> np.ndarray:
-    if not isinstance(d, Mapping) or d.get("kind") != KIND:
-        raise ValueError("expected a direction object (kind 'direction')")
+    if not _is_direction(d):
+        raise ValueError("expected a direction object (kind 'direction/vector')")
     return np.asarray(d["vector"], dtype=np.float32).reshape(-1)
 
 
@@ -79,9 +91,11 @@ def _point_of(vectors: Mapping[str, Any], override: str | None) -> str:
 
 
 def _rows_at(vectors: Mapping[str, Any], layer: int) -> list[Mapping[str, Any]]:
-    if not isinstance(vectors, Mapping) or vectors.get("kind") != "residual_vectors":
-        raise ValueError("expected a residual_vectors record")
-    rows = [r for r in vectors.get("rows", []) if r.get("layer") == layer]
+    from mechbench_compute.lexicon import kinds as K
+
+    if not isinstance(vectors, Mapping) or K.item_kind_of(vectors) != "activations/vector":
+        raise ValueError("expected a collection of activations/vector")
+    rows = [r for r in K.items_of(vectors) if r.get("layer") == layer]
     if not rows:
         raise ValueError(f"the vectors record has no rows at layer {layer}")
     return rows
@@ -217,7 +231,7 @@ def similarity(a: Mapping[str, Any], b: Mapping[str, Any]) -> dict[str, Any]:
     same_space(a, b)
     va, vb = as_array(a), as_array(b)
     cos = float(va @ vb / max(float(np.linalg.norm(va) * np.linalg.norm(vb)), 1e-12))
-    return {"kind": "direction_similarity", "cosine": round(cos, 6),
+    return {"kind": "geometry/similarity", "metric": "cosine", "cosine": round(cos, 6),
             "layer": a["layer"], "point": a["point"]}
 
 
@@ -232,7 +246,9 @@ def project_rows(vectors: Mapping[str, Any], d: Mapping[str, Any]) -> dict[str, 
         if v.size != u.size:
             raise ValueError("vector width does not match the direction")
         out.append({k: r[k] for k in r if k != "vector"} | {"projection": round(float(v @ u), 5)})
-    return {"kind": "projections", "layer": d["layer"], "point": d["point"], "rows": out}
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection("activations/coordinate", out, layer=d["layer"], point=d["point"])
 
 
 # --- the unembedding as a lens -------------------------------------------------------
@@ -243,7 +259,7 @@ def vocab_projection(model, d: Mapping[str, Any], *, top_k: int = 10) -> dict[st
     unembedding applied to +d and to −d (the final norm is scale-
     invariant, so a unit direction is as good as any multiple)."""
     u = as_array(d)
-    out: dict[str, Any] = {"kind": "direction_vocab", "layer": d["layer"],
+    out: dict[str, Any] = {"kind": "direction/vocab", "layer": d["layer"],
                            "point": d["point"], "top_k": int(top_k)}
     for name, sign in (("positive", 1.0), ("negative", -1.0)):
         probs = model.decoded_distribution(sign * u)
@@ -263,7 +279,7 @@ def _directions_from(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> li
         got.extend(listed)
     for k in sorted(inputs):
         v = inputs[k]
-        if isinstance(v, Mapping) and v.get("kind") == KIND and k != "directions":
+        if _is_direction(v) and k != "directions":
             got.append(v)
     if not got:
         raise ValueError("no direction objects on the inputs (ports) or params.directions")
@@ -321,7 +337,8 @@ def similarity_matrix(named: Sequence[tuple[str, Mapping[str, Any]]]) -> dict[st
     pairs = [{"a": names[i], "b": names[j], "cosine": round(float(C[i, j]), 6)}
              for i in range(len(names)) for j in range(i + 1, len(names))]
     return {
-        "kind": "direction_similarity_matrix",
+        "kind": "geometry/similarity",
+        "metric": "cosine",
         "names": names,
         "layer": named[0][1].get("layer"),
         "point": named[0][1].get("point"),
@@ -344,7 +361,7 @@ def block_similarity(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> di
         named.extend((f"d{i}", d) for i, d in enumerate(listed))
     for k in sorted(inputs):
         v = inputs[k]
-        if isinstance(v, Mapping) and v.get("kind") == KIND and k != "directions":
+        if _is_direction(v) and k != "directions":
             named.append((k, v))
     return similarity_matrix(named)
 

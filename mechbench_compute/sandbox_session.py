@@ -361,7 +361,7 @@ def _as_tree(value: Any) -> fs.Snapshot:
     map (the inline convenience)."""
     if isinstance(value, fs.Snapshot):
         return value
-    if isinstance(value, Mapping) and value.get("kind") == fs.KIND:
+    if isinstance(value, Mapping) and value.get("kind") in (fs.KIND, fs.LEGACY_KIND):
         return fs.Snapshot.from_wire(value)
     if isinstance(value, Mapping):
         return fs.seeded({str(k): v for k, v in value.items()})

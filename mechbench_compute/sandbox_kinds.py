@@ -32,13 +32,12 @@ from typing import Any
 from mechbench_compute import sandbox
 from mechbench_compute.sandbox_session import _TOOL_DEFS, TOOL_NAMES
 
-#: Catalog paths. `fs_snapshot` (underscore) is the OBJECT wire tag in
-#: `snapshots.py`; this dashed path is its CATALOG identity — the two
-#: are deliberately distinct, one names bytes on the wire, the other a
-#: registered kind.
-FS_SNAPSHOT_KIND = "~canonical/kinds/fs-snapshot"
-SANDBOX_IMAGE_KIND = "~canonical/kinds/sandbox-image"
-SANDBOX_TOOL_CALL_KIND = "~canonical/kinds/sandbox-tool-call"
+#: Catalog paths: the registered identity of each kind. An object on
+#: the wire carries the bare name (`sandbox/snapshot`, in
+#: `snapshots.KIND`); the catalog stores it under this path.
+FS_SNAPSHOT_KIND = "~canonical/kinds/sandbox/snapshot"
+SANDBOX_IMAGE_KIND = "~canonical/kinds/sandbox/image"
+SANDBOX_TOOL_CALL_KIND = "~canonical/kinds/sandbox/call"
 
 #: The tree object (`snapshots.Snapshot.to_wire`). Blobs are references
 #: by default, so `data` is not part of the stored shape.
@@ -46,7 +45,7 @@ FS_SNAPSHOT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["kind", "digest", "entries"],
     "properties": {
-        "kind": {"const": "fs_snapshot"},
+        "kind": {"enum": ["sandbox/snapshot", "fs_snapshot"]},
         "version": {"type": "integer"},
         "digest": {"type": "string", "description": "sha256:… over paths + "
                    "blob hashes + exec bits; the tree's identity."},

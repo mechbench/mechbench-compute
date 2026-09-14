@@ -50,6 +50,11 @@ _COMPONENTS: dict[str, Callable[[int], Any]] = {
 }
 
 
+def _K():
+    from mechbench_compute.lexicon import kinds as K
+    return K
+
+
 def _tokenize(model, prompt: str, template: str) -> mx.array:
     return model.tokenize(prompt, chat_template=(template == "chat"))
 
@@ -160,14 +165,13 @@ def ablate_layers(
             "target_id": tok,
         })
 
-    return {
-        "kind": "ablation_sweep",
-        "component": component,
-        "template": template,
-        "layers": layers,
-        "n_conditions": len(records),
-        "rows": rows,
-        "aggregates": {
+    return _K().collection(
+        "intervene/ablation", rows,
+        component=component,
+        template=template,
+        layers=layers,
+        n_conditions=len(records),
+        aggregates={
             "mean_delta": [
                 round(float(np.mean(damage_by_layer[i])), 4) for i in layers
             ],
@@ -175,11 +179,11 @@ def ablate_layers(
                 round(float(np.median(damage_by_layer[i])), 4) for i in layers
             ],
         },
-        "description": (
+        description=(
             f"Δ log p of the target token when each layer's {component} "
             "contribution is removed; more negative = more load-bearing."
         ),
-    }
+    )
 
 
 def _position_index(model, ids: mx.array, record: Mapping[str, Any],
@@ -372,22 +376,21 @@ def residual_vectors(
                     })
         if on_item:
             on_item()
-    return {
-        "kind": "residual_vectors",
-        "point": point,
-        "source": source,
+    return _K().collection(
+        "activations/vector", rows,
+        point=point,
+        source=source,
         # A pooled record says so where a reader looks for the
         # position, rather than reporting a position it never read.
-        "position": "pooled" if pool else str(position),
+        position="pooled" if pool else str(position),
         **({"pool": pool["pool"], "pool_skip": pool["skip"],
             **({"pool_k": pool["k"]} if pool["k"] is not None else {})}
            if pool else {}),
-        "layers": layers,
-        "d_model": width,
-        "template": template,
-        "rows": rows,
+        layers=layers,
+        d_model=width,
+        template=template,
         **({"skipped_empty": skipped} if skipped else {}),
-    }
+    )
 
 
 def residual_divergence(
@@ -459,18 +462,17 @@ def residual_divergence(
             "tokens": tokens,
             "divergence": matrix,  # [layer][position], 1 - cosine
         })
-    return {
-        "kind": "divergence_map",
-        "point": point,
-        "layers": layers,
-        "template": template,
-        "pairs": pairs,
-        "description": (
+    return _K().collection(
+        "activations/divergence", pairs,
+        point=point,
+        layers=layers,
+        template=template,
+        description=(
             "1 − cosine similarity of the two residual streams per "
             "(layer, position). 0 = identical; the map shows where a "
             "one-token change ripples."
         ),
-    }
+    )
 
 
 def lens_positions(
@@ -518,17 +520,16 @@ def lens_positions(
         })
         if on_item:
             on_item()
-    return {
-        "kind": "lens_map",
-        "layers": layers,
-        "template": template,
-        "rows": rows,
-        "description": (
+    return _K().collection(
+        "logits/lens", rows,
+        layers=layers,
+        template=template,
+        description=(
             "Logit-lens readout of the target token at every (layer, "
             "position): log p and rank of the target when each layer's "
             "residual is projected straight through the unembedding."
         ),
-    }
+    )
 
 
 def patch_trace(
@@ -626,19 +627,18 @@ def patch_trace(
             "p_target_corrupt": round(baseline, 5),
             "recovery": recovery,  # [layer][pos]: Δ(metric) of the target
         })
-    return {
-        "kind": "patch_trace",
-        "point": point,
-        "metric": metric,
-        "layers": layers,
-        "template": template,
-        "pairs": pairs,
-        "description": (
+    return _K().collection(
+        "intervene/trace", pairs,
+        point=point,
+        metric=metric,
+        layers=layers,
+        template=template,
+        description=(
             "Activation patching: p(clean answer) recovered when the "
             "clean residual is patched into the corrupt run at each "
             "(layer, position). Bright cells are where the fact lives."
         ),
-    }
+    )
 
 
 #: Attention matrices are quadratic in sequence length; refuse a
@@ -698,17 +698,16 @@ def attention_patterns(
                      "layers": per_layer})
         if on_item:
             on_item()
-    return {
-        "kind": "attention_patterns",
-        "n_heads": model.arch.n_heads,
-        "layers": layers,
-        "template": template,
-        "rows": rows,
-        "description": (
+    return _K().collection(
+        "activations/attention", rows,
+        n_heads=model.arch.n_heads,
+        layers=layers,
+        template=template,
+        description=(
             "Post-softmax attention weights per head: row = the "
             "attending position, column = the attended-to position."
         ),
-    }
+    )
 
 
 def ablate_heads(
@@ -755,7 +754,7 @@ def ablate_heads(
                 on_item()
     mean = sums / len(records)
     return {
-        "kind": "head_ablation",
+        "kind": "intervene/heads",
         "layers": layers,
         "n_heads": n_heads,
         "n_conditions": len(records),
@@ -885,20 +884,19 @@ def logit_attribution(
         })
         if on_item:
             on_item()
-    return {
-        "kind": "logit_attribution",
-        "apply_ln": apply_ln,
-        "layers": layers,
-        "template": template,
-        "components": ["embed", *[f"L{i}" for i in layers]],
-        "rows": rows,
-        "description": (
+    return _K().collection(
+        "logits/attribution", rows,
+        apply_ln=apply_ln,
+        layers=layers,
+        template=template,
+        components=["embed", *[f"L{i}" for i in layers]],
+        description=(
             "Direct logit attribution: each component's contribution to "
             "the target logit (embedding first, then every layer's "
             "delta), norm-folded so the bars sum to the model's true "
             "final logit — each row carries its own additivity residual."
         ),
-    }
+    )
 
 
 def steer_inject(
@@ -940,12 +938,12 @@ def steer_inject(
             "negative: <label>} naming labels in the vectors record")
 
     vectors = (inputs or {}).get("vectors") or params.get("vectors")
-    if not isinstance(vectors, Mapping) or vectors.get("kind") != "residual_vectors":
+    if not isinstance(vectors, Mapping) or _K().item_kind_of(vectors) != "activations/vector":
         raise ValueError(
-            "steer/inject needs a residual_vectors record on its "
-            "`vectors` port — the same block that measures geometry "
+            "intervene/steer needs a collection of activations/vector on "
+            "its `vectors` port — the same block that measures geometry "
             "arms the intervention")
-    rows_at = [r for r in vectors.get("rows", []) if r.get("layer") == layer]
+    rows_at = [r for r in _K().items_of(vectors) if r.get("layer") == layer]
     pos = np.array([r["vector"] for r in rows_at if r.get("label") == pos_label],
                    dtype=np.float32)
     neg = np.array([r["vector"] for r in rows_at if r.get("label") == neg_label],
@@ -999,25 +997,24 @@ def steer_inject(
             })
             if on_item:
                 on_item()
-    return {
-        "kind": "steer_sweep",
-        "layer": layer,
-        "alphas": alphas,
-        "direction": {
+    return _K().collection(
+        "intervene/readout", out_rows,
+        layer=layer,
+        alphas=alphas,
+        direction={
             "positive": pos_label,
             "negative": neg_label,
             "norm": round(dnorm, 3),
             "n_positive": len(pos),
             "n_negative": len(neg),
         },
-        "template": template,
-        "rows": out_rows,
-        "description": (
+        template=template,
+        description=(
             f"Residual injection at L{layer}: centroid({pos_label}) − "
             f"centroid({neg_label}), scaled by alpha, added at the "
             "chosen position. Alpha 0 is the control row."
         ),
-    }
+    )
 
 
 def vector_similarity(inputs: Mapping[str, Any],
@@ -1029,12 +1026,12 @@ def vector_similarity(inputs: Mapping[str, Any],
     from mechbench_compute import geometry
 
     src = inputs.get("vectors") or params.get("vectors")
-    if not isinstance(src, Mapping) or src.get("kind") != "residual_vectors":
+    if not isinstance(src, Mapping) or _K().item_kind_of(src) != "activations/vector":
         raise ValueError(
-            "vectors/similarity needs a residual_vectors record on its "
-            "`vectors` port"
+            "geometry/similarity needs a collection of activations/vector "
+            "on its `vectors` port"
         )
-    rows = src.get("rows") or []
+    rows = _K().items_of(src)
     groups = sorted({(r.get("layer"), r.get("head")) for r in rows},
                     key=lambda t: (t[0] if t[0] is not None else -1,
                                    t[1] if t[1] is not None else -1))
@@ -1073,13 +1070,13 @@ def vector_similarity(inputs: Mapping[str, Any],
                 entry["silhouette"] = round(
                     float(geometry.silhouette_cosine(vectors, labels)), 4)
         out_layers.append(entry)
-    return {
-        "kind": "similarity_matrix",
-        "position": src.get("position"),
-        "point": src.get("point"),
-        "layers": out_layers,
-        "description": (
+    return _K().collection(
+        "geometry/similarity", out_layers,
+        position=src.get("position"),
+        point=src.get("point"),
+        metric="cosine",
+        description=(
             "Pairwise cosine similarity of residual vectors per layer, "
             "with label-separation metrics where labels exist."
         ),
-    }
+    )

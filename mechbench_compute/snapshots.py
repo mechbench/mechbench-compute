@@ -30,7 +30,9 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-KIND = "fs_snapshot"
+KIND = "sandbox/snapshot"
+#: The wire tag snapshots carried before the kinds were named by family.
+LEGACY_KIND = "fs_snapshot"
 
 #: Blobs at or below this size ride inside the snapshot object; larger
 #: ones are stored separately and referenced. 64 KiB keeps a snapshot
@@ -217,7 +219,7 @@ class Snapshot:
 
     @staticmethod
     def from_wire(value: Mapping[str, Any]) -> Snapshot:
-        if value.get("kind") != KIND:
+        if value.get("kind") not in (KIND, LEGACY_KIND):
             raise ValueError(
                 f"not a filesystem snapshot: kind={value.get('kind')!r}")
         return Snapshot(

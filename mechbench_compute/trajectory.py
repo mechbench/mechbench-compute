@@ -278,18 +278,21 @@ def capture(
             on_item()
 
     prov = (direction.get("derivation") or {}) if isinstance(direction, Mapping) else {}
-    return {
-        "kind": "trajectory_projection" if dvec is not None else "trajectory",
-        "axis": axis,
-        "point": point,
-        "layers": layers,
-        "position": str(position) if axis == "layers" else None,
-        "positions": (position if axis == "positions" else None),
-        "d_model": width,
-        "template": template,
-        "replay": "trace" if used_trace == len(records)
-                  else ("text" if used_trace == 0 else "mixed"),
-        "n_items": len(records),
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection(
+        "trajectory/point", rows,
+        axis=axis,
+        point=point,
+        layers=layers,
+        position=str(position) if axis == "layers" else None,
+        positions=(position if axis == "positions" else None),
+        d_model=width,
+        template=template,
+        replay="trace" if used_trace == len(records)
+               else ("text" if used_trace == 0 else "mixed"),
+        n_items=len(records),
+        projected=dvec is not None,
         **({"max_steps": int(max_steps)} if max_steps else {}),
         **({"reduce": reduce, "steps": step_window} if reduce else {}),
         **({"direction": {"layer": direction.get("layer"),
@@ -297,8 +300,7 @@ def capture(
                           "method": prov.get("method"),
                           **({"labels": prov["labels"]} if prov.get("labels") else {})}}
            if dvec is not None else {}),
-        "rows": rows,
-    }
+    )
 
 
 def _row(record, label, step, layer, pos, vec: np.ndarray, tok, arr, model,
@@ -347,10 +349,24 @@ def _vocab_top(model, vec: np.ndarray, k: int) -> list[dict[str, Any]]:
 
 
 def _trajectory_of(x: Any, port: str = "trajectory") -> Mapping[str, Any]:
-    if isinstance(x, Mapping) and x.get("kind") in ("trajectory",
-                                                    "trajectory_projection"):
+    from mechbench_compute.lexicon import kinds as K
+
+    if isinstance(x, Mapping) and K.item_kind_of(x) == "trajectory/point":
         return x
-    raise ValueError(f"port {port!r} is not a trajectory record")
+    raise ValueError(f"port {port!r} is not a collection of trajectory/point")
+
+
+def _rows(traj: Mapping[str, Any]) -> list[Any]:
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.items_of(traj)
+
+
+def _header(traj: Mapping[str, Any]) -> dict[str, Any]:
+    """A trajectory collection's header: everything but the container
+    fields and the items (or the retired `rows`)."""
+    return {k: v for k, v in traj.items()
+            if k not in ("kind", "item_kind", "key", "items", "rows")}
 
 
 def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
@@ -371,23 +387,24 @@ def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
             f"{traj.get('d_model')}")
     keep = bool(params.get("keep_vectors", False))
     rows = []
-    for r in traj.get("rows", []):
+    for r in _rows(traj):
         v = np.asarray(r["vector"], dtype=np.float32)
         row = {k: v_ for k, v_ in r.items() if k != "vector" or keep}
         row["coord"] = round(float(v @ dv), 6)
         rows.append(row)
-    out = {k: v for k, v in traj.items() if k != "rows"}
+    from mechbench_compute.lexicon import kinds as K
+
     prov = d.get("derivation") or {}
-    out.update({
-        "kind": "trajectory_projection",
+    header = _header(traj)
+    header.update({
+        "projected": True,
         # What it was projected onto, as the direction record says it:
         # method and labels ride in the direction's derivation.
         "direction": {"layer": d.get("layer"), "point": d.get("point"),
                       "method": prov.get("method"),
                       **({"labels": prov["labels"]} if prov.get("labels") else {})},
-        "rows": rows,
     })
-    return out
+    return K.collection("trajectory/point", rows, **header)
 
 
 def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
@@ -406,9 +423,9 @@ def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
     def key(r):
         return (r.get("id"), r["step"]) if pair_by == "id" else (r["step"],)
 
-    bm = {key(r): r for r in b.get("rows", [])}
+    bm = {key(r): r for r in _rows(b)}
     rows = []
-    for r in a.get("rows", []):
+    for r in _rows(a):
         s = bm.get(key(r))
         if s is None:
             continue
@@ -435,18 +452,19 @@ def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
     steps = sorted(by_step)
     mean_cos = {s: float(np.mean(by_step[s])) for s in steps}
     diverge = next((s for s in steps if mean_cos[s] < threshold), None)
-    return {
-        "kind": "trajectory_comparison",
-        "axis": a.get("axis"),
-        "pair_by": pair_by,
-        "threshold": threshold,
-        "n_pairs": len(rows),
-        "divergence_step": diverge,
-        "min_cosine_step": min(steps, key=lambda s: mean_cos[s]),
-        "per_step": [{"step": s, "mean_cosine": round(mean_cos[s], 6),
-                      "n": len(by_step[s])} for s in steps],
-        "rows": rows,
-    }
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection(
+        "trajectory/comparison", rows,
+        axis=a.get("axis"),
+        pair_by=pair_by,
+        threshold=threshold,
+        n_pairs=len(rows),
+        divergence_step=diverge,
+        min_cosine_step=min(steps, key=lambda s: mean_cos[s]),
+        per_step=[{"step": s, "mean_cosine": round(mean_cos[s], 6),
+                   "n": len(by_step[s])} for s in steps],
+    )
 
 
 def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
@@ -474,7 +492,7 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
     lo, hi = (None, None)
     if isinstance(steps, Mapping) and "range" in steps:
         lo, hi = int(steps["range"][0]), int(steps["range"][1])
-    rows = traj.get("rows", [])
+    rows = _rows(traj)
     scalar = bool(rows) and "coord" in rows[0]
     if mode == "vectors" and scalar:
         raise ValueError("as: 'vectors' needs vector rows, not a projection")
@@ -516,11 +534,10 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                         "spread": round(float(np.mean(cos)), 6) if cos else None,
                         "vector": [round(float(x), 5) for x in m],
                     })
-        kind = "trajectory_summary" if scalar else "trajectory"
-        return {**{k: v for k, v in traj.items() if k != "rows"},
-                "kind": kind, "aggregated": {"by": by, "as": mode,
-                                             "steps": steps},
-                "rows": out_rows}
+        from mechbench_compute.lexicon import kinds as K
+
+        return K.collection("trajectory/summary", out_rows, **_header(traj),
+                            aggregated={"by": by, "as": mode, "steps": steps})
 
     # window / vectors: one value per group over everything in the window
     layer = rows[0].get("layer") if rows else None
@@ -539,21 +556,20 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
             out_rows.append({"id": str(g), "label": str(g), "layer": layer,
                              "n_pooled": len(vals),
                              "vector": [round(float(x), 5) for x in m]})
+    from mechbench_compute.lexicon import kinds as K
+
     if mode == "vectors":
-        return {
-            "kind": "residual_vectors",
-            "point": traj.get("point"),
-            "source": "resid",
-            "position": f"trajectory-window {steps}",
-            "layers": [layer] if layer is not None else traj.get("layers"),
-            "d_model": traj.get("d_model"),
-            "template": traj.get("template"),
-            "rows": out_rows,
-        }
-    return {**{k: v for k, v in traj.items() if k != "rows"},
-            "kind": "trajectory_summary" if scalar else "trajectory",
-            "aggregated": {"by": by, "as": mode, "steps": steps},
-            "rows": out_rows}
+        return K.collection(
+            "activations/vector", out_rows,
+            point=traj.get("point"),
+            source="resid",
+            position=f"trajectory-window {steps}",
+            layers=[layer] if layer is not None else traj.get("layers"),
+            d_model=traj.get("d_model"),
+            template=traj.get("template"),
+        )
+    return K.collection("trajectory/summary", out_rows, **_header(traj),
+                        aggregated={"by": by, "as": mode, "steps": steps})
 
 
 #: Pure blocks this module contributes (registered by blocks.PURE_BLOCKS).

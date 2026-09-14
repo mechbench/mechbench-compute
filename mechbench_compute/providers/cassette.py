@@ -36,7 +36,7 @@ from mechbench_compute.providers.base import (
 )
 from mechbench_compute.providers.errors import CassetteMiss
 
-CASSETTE_KIND = "~canonical/kinds/provider-cassette"
+CASSETTE_KIND = "~canonical/kinds/provider/cassette"
 
 #: Headers never stored: authentication, cookies, and anything a
 #: provider echoes back that could carry account identity.
@@ -114,7 +114,7 @@ class Cassette:
         return sum(len(v) for v in self.entries.values())
 
     def to_wire(self) -> dict[str, Any]:
-        return {"kind": "provider_cassette", "cassette_kind": CASSETTE_KIND,
+        return {"kind": "provider/cassette", "cassette_kind": CASSETTE_KIND,
                 "version": 1, "provider": self.provider, "label": self.label,
                 "n_requests": len(self.entries), "n_responses": self.n_responses,
                 "entries": [{"request_hash": k, "responses": v}
@@ -122,7 +122,7 @@ class Cassette:
 
     @staticmethod
     def from_wire(value: Mapping[str, Any]) -> Cassette:
-        if value.get("kind") != "provider_cassette":
+        if value.get("kind") not in ("provider/cassette", "provider_cassette"):
             raise ValueError(
                 f"not a cassette object: kind={value.get('kind')!r}")
         entries = {str(e["request_hash"]): list(e["responses"])

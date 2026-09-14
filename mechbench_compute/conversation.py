@@ -41,7 +41,7 @@ from mechbench_compute.providers import Budget, budget_from, make_transport
 from mechbench_compute.providers import limiter as pl
 from mechbench_compute.providers import messages as pm
 
-TRANSCRIPT_KIND = "~canonical/kinds/transcript"
+TRANSCRIPT_KIND = "text/transcript"
 
 #: How a participant sees everyone else.
 PERSPECTIVES = ("others_as_user_attributed", "others_as_user_merged")
@@ -92,7 +92,7 @@ class Agent:
                 '{"name", "model", "system", …}, not '
                 f"{type(value).__name__}")
         raw = dict(value)
-        if raw.get("kind") == "agent":
+        if raw.get("kind") in ("agent", "text/agent"):
             raw.pop("kind")
         name = str(raw.get("name") or f"participant-{index + 1}")
         if "model" not in raw:
@@ -517,19 +517,19 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
                                       round(budget.spent_usd - spend_before, 8),
                                       default_perspective, overrides))
 
-    return {
-        "kind": "document_collection",
-        "name": params.get("name", "conversations"),
-        "description": params.get("description", ""),
-        "fidelity": "segments",
-        "item_kind": TRANSCRIPT_KIND,
-        "items": items,
-        "spend": chat_mod._summary(
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection(
+        TRANSCRIPT_KIND, items,
+        name=params.get("name", "conversations"),
+        description=params.get("description", ""),
+        fidelity="segments",
+        spend=chat_mod._summary(
             calls, budget,
             provider=",".join(sorted({c.get("provider", "") for c in calls})),
             dry_run=dry_run,
             replayed=sum(1 for c in calls if c.get("replayed"))),
-    }
+    )
 
 
 _STOP_RE = re.compile(r"\b(stop|done|finished|concluded|"
@@ -556,7 +556,7 @@ def _transcript_item(cid: str, rec: Mapping[str, Any], participants,
         "metadata": {
             "coords": {**(rec.get("coords") or {})},
             "transcript": {
-                "kind": "transcript",
+                "kind": TRANSCRIPT_KIND,
                 "id": cid,
                 "participants": [a.name for a in participants],
                 "messages": [

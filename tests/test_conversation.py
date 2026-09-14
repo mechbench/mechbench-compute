@@ -113,7 +113,7 @@ class TestTheCrossWiredPair:
             {"records": out},
             {"field": "text", "measures": [{"kind": "lexical", "name": "lex"}]})
         # text/stats works unchanged on transcripts (task 000339).
-        assert stats[0]["lex_words"] > 0
+        assert stats["items"][0]["lex_words"] > 0
 
     def test_one_conversation_per_input_record(self):
         recs = [{"id": "r0", "coords": {"topic": "food"}, "topic": "food"},

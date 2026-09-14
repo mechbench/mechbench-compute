@@ -96,7 +96,7 @@ def test_eval_expectation_judges_and_aggregates():
     ]
     table = eval_expectation(
         {"results": results, "expectations": expectations}, {})
-    assert table["kind"] == "metric_table"
+    assert table["kind"] == "records/table"
     by_id = {r["id"]: r for r in table["rows"]}
     assert by_id["die"]["pass"] == "True"
     assert by_id["capital"]["pass"] == "True"
@@ -139,7 +139,7 @@ def test_table_from_records_flattens_coords_and_types_columns():
         {"id": "b", "coords": {"task": "arc_easy", "metric": "acc_norm"},
          "value": 0.68, "delta": -0.02},
     ], {"name": "deltas"})
-    assert table["kind"] == "metric_table"
+    assert table["kind"] == "records/table"
     names = [c["name"] for c in table["columns"]]
     assert names == ["id", "task", "metric", "value", "delta"]
     dt = {c["name"]: c["dtype"] for c in table["columns"]}
@@ -164,7 +164,7 @@ def test_viz_spec_references_its_source_or_inlines_rows():
     table = {"kind": "metric_table", "rows": [{"id": "a", "model": "e2b", "v": 1.0}]}
     ref = viz_spec(table, {"mark": "bar", "encoding": {"x": "model", "y": "v"}},
                      source_label="benji/marcus/metrics/t")
-    assert ref["kind"] == "viz_spec" and ref["source"] == "benji/marcus/metrics/t"
+    assert ref["kind"] == "records/chart" and ref["source"] == "benji/marcus/metrics/t"
     assert "data" not in ref
     inline = viz_spec(table, {"encoding": {"x": "model", "y": "v"}})
     assert inline["data"]["rows"] == [{"id": "a", "model": "e2b", "v": 1.0}]

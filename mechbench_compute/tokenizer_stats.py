@@ -46,7 +46,12 @@ def _items_of(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> list[str]
     if items is None:
         recs = inputs.get("records") or params.get("records")
         if isinstance(recs, Mapping):
-            recs = recs.get("records") or recs.get("items") or recs.get("rows")
+            from mechbench_compute.lexicon import kinds as K
+
+            try:
+                recs = K.items_of(recs)
+            except ValueError:
+                recs = None
         if isinstance(recs, list):
             field = str(params.get("field", "text"))
             items = []
@@ -148,7 +153,7 @@ def tokenizer_stats(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
                 "n_violations": len(bad), "violations": bad[:50]}
 
     out: dict[str, Any] = {
-        "kind": "tokenizer_stats",
+        "kind": "text/tokenization",
         "tokenizer": tokenizer_id,
         "prefix": prefix,
         "n_items": n,

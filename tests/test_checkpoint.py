@@ -117,7 +117,7 @@ class TestManifest:
         man = checkpoint.build_manifest(
             out, files, {"base": {"hf": "org/m@rev"}, "adapters": []}, "org/m@rev"
         )
-        assert man["kind"] == "checkpoint_manifest"
+        assert man["kind"] == "adapter/checkpoint"
         assert {f["name"] for f in man["files"]} == set(files)
         for f in man["files"]:
             digest = hashlib.sha256((out / f["name"]).read_bytes()).hexdigest()

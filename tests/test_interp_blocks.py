@@ -125,9 +125,9 @@ class TestAblateLayers:
         model = StubModel()
         out = interp.ablate_layers(
             model, [{"id": "c1", "user": "the tower is in"}], {})
-        assert out["kind"] == "ablation_sweep"
+        assert out["item_kind"] == "intervene/ablation"
         assert out["layers"] == [0, 1, 2, 3]
-        deltas = {r["layer"]: r["delta_logp"] for r in out["rows"]
+        deltas = {r["layer"]: r["delta_logp"] for r in out["items"]
                   if r.get("layer") is not None}
         for layer in range(N_LAYERS):
             assert deltas[layer] == pytest.approx(
@@ -150,7 +150,7 @@ class TestAblateLayers:
         model = StubModel()
         out = interp.ablate_layers(
             model, [{"id": "c", "user": "a b", "target": "word"}], {"layers": [0]})
-        meta = next(r for r in out["rows"] if r.get("layer") is None)
+        meta = next(r for r in out["items"] if r.get("layer") is None)
         assert meta["target_id"] == 1 + (len("word") % 7)
 
     def test_sublayer_components_route_to_their_hooks(self):
@@ -158,7 +158,7 @@ class TestAblateLayers:
         out = interp.ablate_layers(
             model, [{"id": "c", "user": "a b"}],
             {"component": "mlp", "layers": [2]})
-        row = next(r for r in out["rows"] if r.get("layer") == 2)
+        row = next(r for r in out["items"] if r.get("layer") == 2)
         assert row["delta_logp"] == pytest.approx(_expected_delta(2), abs=1e-3)
 
     def test_unknown_component_refuses(self):
@@ -173,7 +173,7 @@ class TestResidualVectors:
         out = interp.residual_vectors(
             model, [{"id": "c", "user": "aa bbb", "label": "en"}],
             {"layers": [1], "position": "final"})
-        row = out["rows"][0]
+        row = out["items"][0]
         assert row["label"] == "en"
         v = np.array(row["vector"])
         # final token of "aa bbb" is id 1+(3%7)=4; layer 1 scale = 2
@@ -185,7 +185,7 @@ class TestResidualVectors:
         out = interp.residual_vectors(
             model, [{"id": "c", "user": "a", "coords": {"language": "fr"}}],
             {"layers": [0], "label_coord": "language"})
-        assert out["rows"][0]["label"] == "fr"
+        assert out["items"][0]["label"] == "fr"
 
     def test_the_float_cap_refuses_a_runaway_capture(self, monkeypatch):
         monkeypatch.setattr(interp, "MAX_VECTOR_FLOATS", 10)
@@ -207,21 +207,21 @@ class TestPooledPositions:
     def _vec(self, **params):
         out = interp.residual_vectors(
             StubModel(), [dict(self.RECORD)], {"layers": [1], **params})
-        return out, np.array(out["rows"][0]["vector"])
+        return out, np.array(out["items"][0]["vector"])
 
     def test_mean_pools_the_whole_sequence(self):
         out, v = self._vec(pool="mean")
         for dim in (0, 3, 4):
             assert v[dim] == pytest.approx(2.0 / 3.0, abs=1e-4)
         assert np.count_nonzero(v) == 3
-        assert out["rows"][0]["n_pooled"] == 3
+        assert out["items"][0]["n_pooled"] == 3
 
     def test_pool_skip_drops_leading_positions(self):
         out, v = self._vec(pool="mean", pool_skip=1)
         assert v[0] == pytest.approx(0.0)
         for dim in (3, 4):
             assert v[dim] == pytest.approx(1.0, abs=1e-4)
-        assert out["rows"][0]["n_pooled"] == 2
+        assert out["items"][0]["n_pooled"] == 2
 
     def test_last_k_of_one_reproduces_the_final_position(self):
         # The compatibility anchor: pooling one position must equal the
@@ -248,14 +248,14 @@ class TestPooledPositions:
         out, v = self._vec(position="final")
         assert out["position"] == "final"
         assert "pool" not in out and "pool_skip" not in out
-        assert "n_pooled" not in out["rows"][0]
+        assert "n_pooled" not in out["items"][0]
         assert v[4] == pytest.approx(2.0)
         assert np.count_nonzero(v) == 1
 
     def test_skipping_past_the_end_falls_back_to_the_last_position(self):
         # Zeros would look like a vector and mean nothing.
         out, v = self._vec(pool="mean", pool_skip=99)
-        assert out["rows"][0]["n_pooled"] == 1
+        assert out["items"][0]["n_pooled"] == 1
         assert v[4] == pytest.approx(2.0)
 
     def test_pooling_needs_no_resolvable_position(self):
@@ -264,7 +264,7 @@ class TestPooledPositions:
         out = interp.residual_vectors(
             StubModel(), [{"id": "c", "user": "aa bbb"}],
             {"layers": [1], "position": "subject", "pool": "mean"})
-        assert out["rows"][0]["n_pooled"] == 3
+        assert out["items"][0]["n_pooled"] == 3
 
     def test_a_bad_pool_refuses(self):
         with pytest.raises(ValueError, match="unknown pool"):
@@ -285,7 +285,7 @@ class TestResidualDivergence:
         out = interp.residual_divergence(
             model, [{"id": "p", "a": "over the hill", "b": "over the hill"}],
             {"layers": [0, 1]})
-        pair = out["pairs"][0]
+        pair = out["items"][0]
         flat = [x for row in pair["divergence"] for x in row]
         assert all(x == pytest.approx(0.0, abs=1e-4) for x in flat)
 
@@ -295,7 +295,7 @@ class TestResidualDivergence:
         out = interp.residual_divergence(
             model, [{"id": "p", "a": "go over it", "b": "go under it"}],
             {"layers": [0]})
-        div = out["pairs"][0]["divergence"][0]
+        div = out["items"][0]["divergence"][0]
         assert div[0] == pytest.approx(0.0, abs=1e-4)  # BOS
         assert div[1] == pytest.approx(0.0, abs=1e-4)  # 'go'
         assert div[2] == pytest.approx(1.0, abs=1e-4)  # the swapped word
@@ -306,7 +306,7 @@ class TestResidualDivergence:
         out = interp.residual_divergence(
             model, [{"id": "p", "a": "one two", "b": "one two three"}],
             {"layers": [0]})
-        assert "different lengths" in out["pairs"][0]["error"]
+        assert "different lengths" in out["items"][0]["error"]
 
 
 class TestVectorSimilarity:
@@ -318,13 +318,15 @@ class TestVectorSimilarity:
             v[0 if label == "cat" else 2] = 1.0
             v[1 if label == "cat" else 3] = 0.1 * i
             rows.append({"id": f"r{i}", "label": label, "layer": 5, "vector": v})
-        return {"kind": "residual_vectors", "layers": [5], "position": "final",
-                "point": "post", "rows": rows}
+        from mechbench_compute.lexicon import kinds as K
+
+        return K.collection("activations/vector", rows, layers=[5],
+                            position="final", point="post")
 
     def test_matrix_and_separation(self):
         out = interp.vector_similarity({"vectors": self._vectors_record()}, {})
-        assert out["kind"] == "similarity_matrix"
-        layer = out["layers"][0]
+        assert out["item_kind"] == "geometry/similarity"
+        layer = out["items"][0]
         assert layer["layer"] == 5
         m = np.array(layer["matrix"])
         assert m.shape == (4, 4)
@@ -334,13 +336,13 @@ class TestVectorSimilarity:
 
     def test_unlabeled_vectors_still_get_a_matrix(self):
         rec = self._vectors_record()
-        for r in rec["rows"]:
+        for r in rec["items"]:
             r["label"] = None
         out = interp.vector_similarity({"vectors": rec}, {})
-        assert "separation" not in out["layers"][0]
+        assert "separation" not in out["items"][0]
 
     def test_wrong_input_kind_refuses(self):
-        with pytest.raises(ValueError, match="residual_vectors"):
+        with pytest.raises(ValueError, match="activations/vector"):
             interp.vector_similarity({"vectors": {"kind": "word_list"}}, {})
 
 
@@ -351,7 +353,7 @@ class TestGateComponent:
             model, [{"id": "c", "user": "a b"}],
             {"component": "gate", "layers": [1]})
         assert out["component"] == "gate"
-        row = next(r for r in out["rows"] if r.get("layer") == 1)
+        row = next(r for r in out["items"] if r.get("layer") == 1)
         assert row["delta_logp"] < 0  # the stub penalizes any named zero-hook
 
 
@@ -370,8 +372,8 @@ class TestLensPositions:
         out = interp.lens_positions(
             model, [{"id": "c", "user": "aa bbb aa", "target": "bbb"}],
             {"layers": [0, 1]})
-        row = out["rows"][0]
-        assert out["kind"] == "lens_map"
+        row = out["items"][0]
+        assert out["item_kind"] == "logits/lens"
         # 'bbb' -> id 4; it sits at position 2 (BOS, aa, bbb, aa)
         ranks = np.array(row["rank"])
         lps = np.array(row["logprob"])
@@ -388,7 +390,7 @@ class TestPatchTrace:
             model, [{"id": "p", "clean": "over the hill",
                      "corrupt": "under the hill"}],
             {"layers": [0], "metric": "logprob"})
-        pair = out["pairs"][0]
+        pair = out["items"][0]
         assert pair["metric"] == "logprob"
         rec = np.array(pair["recovery"])
         assert rec[0, 1] > 1.0  # log-space recovery is loud
@@ -409,7 +411,7 @@ class TestPatchTrace:
         out = interp.patch_trace(
             model, [{"id": "p", "clean": clean, "corrupt": corrupt}],
             {"layers": [0, 1], "metric": "prob"})
-        pair = out["pairs"][0]
+        pair = out["items"][0]
         rec = np.array(pair["recovery"])  # [layer][pos]
         assert rec.shape[1] == 4  # BOS + 3 words
         # patching the differing position recovers the clean answer fully
@@ -423,7 +425,7 @@ class TestPatchTrace:
         out = interp.patch_trace(
             StubModel(), [{"id": "p", "clean": "a b", "corrupt": "a b c"}],
             {"layers": [0]})
-        assert "different lengths" in out["pairs"][0]["error"]
+        assert "different lengths" in out["items"][0]["error"]
 
 
 class TestAttentionPatterns:
@@ -431,7 +433,7 @@ class TestAttentionPatterns:
         model = StubModel()
         out = interp.attention_patterns(
             model, [{"id": "c", "user": "a b c"}], {"layers": [1]})
-        row = out["rows"][0]
+        row = out["items"][0]
         heads = row["layers"][0]["heads"]
         assert len(heads) == 2  # stub n_heads
         m = np.array(heads[0])
@@ -479,7 +481,7 @@ class TestSubjectPosition:
         out = interp.residual_vectors(
             model, [{"id": "c", "user": "casa xx a", "subject": "casa"}],
             {"layers": [0], "position": "subject"})
-        v = np.array(out["rows"][0]["vector"])
+        v = np.array(out["items"][0]["vector"])
         # position of 'casa' (pos 1, token id 5) — not the stray 'a' at pos 3
         assert v[5] == pytest.approx(1.0)
 
@@ -499,8 +501,8 @@ class TestLogitAttribution:
         model = StubModel()
         out = interp.logit_attribution(
             model, [{"id": "c", "user": "a b", "target": "word"}], {})
-        assert out["kind"] == "logit_attribution"
-        row = out["rows"][0]
+        assert out["item_kind"] == "logits/attribution"
+        row = out["items"][0]
         # embedding + one component per layer
         assert len(row["contributions"]) == N_LAYERS + 1
         assert out["components"][0] == "embed"
@@ -540,7 +542,7 @@ class TestSteerInject:
             {"layer": 2, "alphas": [0.0, 4.0],
              "direction": {"positive": "city", "negative": "money"}},
             inputs={"vectors": self._vectors()})
-        assert out["kind"] == "steer_sweep"
+        assert out["item_kind"] == "intervene/readout"
         assert out["direction"]["norm"] == pytest.approx(
             float(np.linalg.norm([0, 2, 0, -2] + [0] * (D_MODEL - 4))),
             abs=1e-3)
@@ -548,7 +550,7 @@ class TestSteerInject:
         add = seen[1][0]
         assert getattr(add, "alpha", None) == 4.0
         assert getattr(add, "layer_idx", None) == 2
-        rows = out["rows"]
+        rows = out["items"]
         assert [r["alpha"] for r in rows] == [0.0, 4.0]
         assert len(rows[0]["top"]) == 5
 
@@ -586,7 +588,7 @@ class TestPerHeadDla:
         out = interp.logit_attribution(
             StubModel(), [{"id": "c", "user": "a b", "target": "word"}],
             {"per_head_layers": [1]})
-        row = out["rows"][0]
+        row = out["items"][0]
         assert row["per_head"][0]["layer"] == 1
         assert len(row["per_head"][0]["contributions"]) == 2
 
@@ -604,7 +606,7 @@ class TestSubjectCase:
         out = interp.residual_vectors(
             model, [{"id": "c", "user": "Capi xx", "subject": "capital"}],
             {"layers": [0], "position": "subject"})
-        v = np.array(out["rows"][0]["vector"])
+        v = np.array(out["items"][0]["vector"])
         assert v[5] == pytest.approx(1.0)
 
 
@@ -633,9 +635,9 @@ class TestQKSources:
             model, [{"id": "c", "user": "a b", "label": "x"}],
             {"layers": [1], "source": "queries"})
         assert out["source"] == "queries"
-        heads = sorted(r["head"] for r in out["rows"])
+        heads = sorted(r["head"] for r in out["items"])
         assert heads == [0, 1]
-        v0 = np.array(out["rows"][0]["vector"])
+        v0 = np.array(out["items"][0]["vector"])
         assert v0[0] == pytest.approx(2.0)  # head 0, layer 1 scale
 
     def test_similarity_groups_by_layer_and_head(self):
@@ -648,7 +650,7 @@ class TestQKSources:
                              "layer": 7, "head": head, "vector": v})
         out = interp.vector_similarity(
             {"vectors": {"kind": "residual_vectors", "rows": rows}}, {})
-        entries = out["layers"]
+        entries = out["items"]
         assert len(entries) == 2
         assert {e["head"] for e in entries} == {0, 1}
         assert all(e["layer"] == 7 for e in entries)
@@ -675,7 +677,7 @@ class TestSteerTracks:
             {"layer": 2, "alphas": [0.0],
              "direction": {"positive": "a", "negative": "b"}},
             inputs={"vectors": {"kind": "residual_vectors", "rows": rows}})
-        row = out["rows"][0]
+        row = out["items"][0]
         assert set(row["tracks"]) == {"city", "money"}
         assert isinstance(row["tracks"]["city"], float)
 

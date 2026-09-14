@@ -301,7 +301,7 @@ class TestThroughTheChatNode:
         }
         out = chat_mod.run_remote(mr.parse(params["model"]), params["records"], params)
         snap = out["items"][0]["metadata"].get("sandbox_final")
-        assert snap and snap["kind"] == "fs_snapshot" and snap["n_files"] == 1
+        assert snap and snap["kind"] == "sandbox/snapshot" and snap["n_files"] == 1
         # small workspace -> content inline, so the browser can preview it
         assert snap["entries"][0]["data"] == b"hi\n"
 

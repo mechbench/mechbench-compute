@@ -8,7 +8,7 @@ queue:
 
     bench.emit(
         "benji/my-project/results/ladder-2026-08-17",
-        {"kind": "ladder", "rows": [...]},
+        {"kind": "run/ladder", "rows": [...]},
         inputs=["benji/my-project/adapters/joint4"],
         params={"steps": 1000, "seed": 7},
         fidelity="text",

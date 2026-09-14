@@ -75,7 +75,7 @@ class TestRemoteNodeThroughTheExecutor:
     def test_a_remote_chat_node_runs_end_to_end(self):
         out = ProtocolExecutor().run(_spec({"n": 2, "max_tokens": 64}))
         node = out.payload["outputs"]["chat"]
-        assert node["kind"] == "document_collection"
+        assert node["kind"] == "collection" and node["item_kind"] == "text/document"
         assert [i["id"] for i in node["items"]] == [
             "r0-s0", "r0-s1", "r1-s0", "r1-s1", "r2-s0", "r2-s1"]
         assert all(i["text"] for i in node["items"])

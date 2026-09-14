@@ -33,7 +33,7 @@ INTERNAL = [
 
 def _texts(op: Op) -> list[tuple[str, str]]:
     out = [("summary", op.summary), ("description", op.description),
-           ("inputs", op.inputs), ("emits", op.emits)]
+           ("inputs", op.inputs), ("emits", op.emits.doc if op.emits else "")]
     out += [(f"param {p.name}.doc", p.doc) for p in op.params]
     out += [(f"param {p.name}.type", p.type) for p in op.params]
     return out
@@ -43,7 +43,10 @@ def _texts(op: Op) -> list[tuple[str, str]]:
 def test_entry_is_complete(op: Op) -> None:
     assert op.summary.strip(), f"{op.name}: no summary"
     assert op.description.strip(), f"{op.name}: no description"
-    assert op.emits.strip(), f"{op.name}: says nothing about what it emits"
+    if op.emits is not None:
+        assert op.emits.doc.strip(), f"{op.name}: says nothing about what it emits"
+    else:
+        assert op.family == "tools", f"{op.name}: emits nothing and is not a tool"
     for p in op.params:
         assert p.type.strip(), f"{op.name}.{p.name}: no type"
         assert p.doc.strip(), f"{op.name}.{p.name}: no description"

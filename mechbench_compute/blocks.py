@@ -36,7 +36,7 @@ SEED_CHARS = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 def _sample_value(gen: Mapping[str, Any], index: int) -> str:
     """One sampled axis value, deterministic in (seed, index) alone —
     the range-splitting guarantee."""
-    kind = gen["kind"]
+    kind = gen.get("type") or gen["kind"]
     size = int(gen["size"])
     rng = random.Random(f"{gen.get('seed', 0)}:{index}")
     if kind == "noise":
@@ -79,7 +79,7 @@ def _factor_levels(factor: Mapping[str, Any]) -> list[dict[str, Any]]:
         for gen in gens:
             start = int(gen.get("start", 0))
             count = int(gen["count"])
-            prefix = gen.get("key_prefix") or f"{gen['kind']}-{gen['size']}"
+            prefix = gen.get("key_prefix") or f"{gen.get('type') or gen['kind']}-{gen['size']}"
             kind_coord = gen.get("kind_coord", f"{name}_kind")
             extra = {kind_coord: prefix, **dict(gen.get("coords", {}))}
             out += [{"key": f"{prefix}-i{i}",
@@ -146,20 +146,22 @@ def template(records: list[dict[str, Any]],
 
 
 def _records(x: Any) -> list[dict[str, Any]]:
-    """Coerce a node output to its record list: blocks pass bare lists
-    or dicts wrapping them under a conventional key."""
-    if isinstance(x, list):
-        return x
-    if isinstance(x, Mapping):
-        # `items` is a document collection's record list — what
-        # generate, chat and conversation emit. Leaving it out meant
-        # every block that wanted to read a corpus wrote its own
-        # coercion (chat.py did exactly that), and the vector path
-        # could not read a corpus at all.
-        for k in ("records", "conditions", "rows", "items"):
-            if isinstance(x.get(k), list):
-                return x[k]
-    raise ValueError("input is not a record stream")
+    """Coerce a node output to its record list: a `collection`, a bare
+    list, or a pre-2026-09 plural object (the lexicon knows their
+    fields)."""
+    from mechbench_compute.lexicon import kinds as K
+
+    try:
+        return K.items_of(x)
+    except ValueError:
+        raise ValueError("input is not a record stream") from None
+
+
+def _coll(items: list[dict[str, Any]], **header: Any) -> dict[str, Any]:
+    """A `collection` of `records/record`."""
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection("records/record", items, **header)
 
 
 def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -275,7 +277,7 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
         {"name": n, "dtype": "number"}
         for n in ("n", "median", "mean", "min", "max", "share_negative")
     ]
-    return {"kind": "metric_table",
+    return {"kind": "records/table",
             "name": params.get("name", f"{value_field}-stats"),
             "description": params.get("description", ""),
             "row_axis": "condition", "columns": columns, "rows": rows,
@@ -294,10 +296,12 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
     it has no label of its own, and the wrapper (point, layers, width)
     is carried, with `layers` the union. Cross-model comparison is a
     union followed by the direction algebra, no bespoke block."""
+    from mechbench_compute.lexicon import kinds as K
+
     batch_axis = params.get("batch_axis", "batch")
     ports = sorted(inputs.keys())
     vector_inputs = [inputs[p] for p in ports]
-    if ports and all(isinstance(v, Mapping) and v.get("kind") == "residual_vectors"
+    if ports and all(isinstance(v, Mapping) and K.item_kind_of(v) == "activations/vector"
                      for v in vector_inputs):
         first = vector_inputs[0]
         rows: list[dict[str, Any]] = []
@@ -305,16 +309,19 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
         segments = []
         for port in ports:
             rec = inputs[port]
-            segments.append({"source": port, "count": len(rec.get("rows", []))})
-            for r in rec.get("rows", []):
+            rec_rows = K.items_of(rec)
+            segments.append({"source": port, "count": len(rec_rows)})
+            for r in rec_rows:
                 layers.add(int(r.get("layer", -1)))
                 rows.append({**r, "label": r.get("label") if r.get("label")
                              is not None else port,
                              "coords": {**r.get("coords", {}), batch_axis: port}})
-        return {**{k: v for k, v in first.items() if k != "rows"},
-                "kind": "residual_vectors",
-                "layers": sorted(x for x in layers if x >= 0),
-                "segments": segments, "rows": rows}
+        header = {k: v for k, v in first.items()
+                  if k not in ("kind", "item_kind", "key", "items", "rows",
+                               "layers", "segments")}
+        return K.collection("activations/vector", rows, **header,
+                            layers=sorted(x for x in layers if x >= 0),
+                            segments=segments)
     segments = []
     records = []
     for port in ports:
@@ -323,7 +330,7 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
         for r in recs:
             records.append({**r, "coords": {**r.get("coords", {}),
                                             batch_axis: port}})
-    return {"kind": "record_set", "segments": segments, "records": records}
+    return _coll(records, segments=segments)
 
 
 # --- registry ---------------------------------------------------------------
@@ -401,7 +408,7 @@ def table_from_records(records: Any,
         vals = [row.get(k) for row in rows if row.get(k) is not None]
         dtypes[k] = ("number" if vals and all(
             isinstance(v, (int, float)) for v in vals) else "string")
-    return {"kind": "metric_table",
+    return {"kind": "records/table",
             "name": params.get("name", "records"),
             "description": params.get("description", ""),
             "row_axis": params.get("row_axis", "record"),
@@ -426,7 +433,7 @@ def viz_spec(records: Any, params: Mapping[str, Any],
     if not x or not y:
         raise ValueError("viz/spec needs encoding.x and encoding.y")
     spec: dict[str, Any] = {
-        "kind": "viz_spec",
+        "kind": "records/chart",
         "title": params.get("title", ""),
         "mark": params.get("mark", "bar"),
         "encoding": {"x": x, "y": y,
@@ -435,9 +442,8 @@ def viz_spec(records: Any, params: Mapping[str, Any],
     if source_label:
         spec["source"] = source_label
     else:
-        recs = _records(records) if not (isinstance(records, Mapping)
-                                         and isinstance(records.get("rows"), list)) \
-            else records["rows"]
+        recs = (records["rows"] if isinstance(records, Mapping)
+                and isinstance(records.get("rows"), list) else _records(records))
         rows = []
         for r in recs:
             row = {k: v for k, v in r.items() if k != "coords"}
@@ -476,14 +482,14 @@ def text_stats(inputs: Mapping[str, Any],
     params:
       field       which field holds the text (default "text")
       measures    list of measure specs, each {"kind", "name", ...}:
-        {"kind": "pattern", "name": n, "patterns": [regex...],
+        {"type": "pattern", "name": n, "patterns": [regex...],
          "where": "prefix" | "anywhere" (default), "ignore_case": bool}
             → per-record 0/1: does ANY pattern match?
-        {"kind": "lexical", "name": n, "lowercase": bool=true,
+        {"type": "lexical", "name": n, "lowercase": bool=true,
          "min_length": int=1}
             → per-record word/distinct-word counts and duplication
               (1 − distinct/total).
-        {"kind": "corpus_frequency", "name": n, "stat":
+        {"type": "corpus_frequency", "name": n, "stat":
          "mean_log10" (default) | "mean" | "coverage",
          "lowercase": bool=true, "min_length": int=1,
          "frequencies": {word: count}   — or wire a `frequencies`
@@ -531,7 +537,7 @@ def text_stats(inputs: Mapping[str, Any],
 
     compiled = []
     for m in measures:
-        kind = m.get("kind")
+        kind = m.get("type") or m.get("kind")
         name = m.get("name") or kind
         if kind == "pattern":
             flags = re.IGNORECASE if m.get("ignore_case") else 0
@@ -622,15 +628,15 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     # `grid`, the pre-rename alias of factor-cross, resolves through
     # `lexicon.ALIASES` like every other retired name.
     "records/cross":
-        lambda inputs, params: factor_cross(params),
+        lambda inputs, params: _coll(factor_cross(params)),
     "records/template":
-        lambda inputs, params: template(
+        lambda inputs, params: _coll(template(
             _records(inputs.get("records") or params.get("records")),
-            params),
+            params)),
     "records/select":
-        lambda inputs, params: select(inputs["records"], params),
+        lambda inputs, params: _coll(select(inputs["records"], params)),
     "records/delta":
-        lambda inputs, params: paired_delta(inputs["records"], params),
+        lambda inputs, params: _coll(paired_delta(inputs["records"], params)),
     "records/stats":
         lambda inputs, params: group_stats(inputs["records"], params),
     "records/table":
@@ -639,7 +645,7 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "records/union":
         lambda inputs, params: union(inputs, params),
     "text/stats":
-        lambda inputs, params: text_stats(inputs, params),
+        lambda inputs, params: _coll(text_stats(inputs, params)),
     "eval/expectation":
         lambda inputs, params: eval_expectation(inputs, params),
     # Interp readouts (the mechbench-experiments port): pure numpy over
@@ -667,14 +673,14 @@ def eval_expectation(inputs: Mapping[str, Any],
     carried as data, publishing a metric table with verdicts.
 
     Expectation kinds (per record, joined on id):
-      {"kind": "uniform", "over": [outcomes], "max_kl_bits": t}
+      {"type": "uniform", "over": [outcomes], "max_kl_bits": t}
           -> kl_bits from uniform over the outcome masses; pass iff
              kl_bits <= t and the outcomes carry real mass.
-      {"kind": "answer", "value": tok, "min_p": t}
+      {"type": "answer", "value": tok, "min_p": t}
           -> p_expected from the read's top tokens; pass iff >= t.
-      {"kind": "min_entropy", "bits": t}
+      {"type": "min_entropy", "bits": t}
           -> pass iff the decision entropy >= t (diversity floor).
-      {"kind": "weights", "weights": {outcome: w}, "max_kl_bits": t}
+      {"type": "weights", "weights": {outcome: w}, "max_kl_bits": t}
           -> kl_bits from the NORMALIZED weights over the outcome
              masses (the shaped-target battery: a rung is judged
              against its OWN target, not uniform); pass iff <= t.
@@ -695,10 +701,11 @@ def eval_expectation(inputs: Mapping[str, Any],
         exp = expectations.get(c["id"])
         if not exp:
             continue
-        row: dict[str, Any] = {"id": c["id"], "expect": exp["kind"],
+        expect_type = exp.get("type") or exp["kind"]
+        row: dict[str, Any] = {"id": c["id"], "expect": expect_type,
                                 "entropy_bits": c.get("entropy_bits")}
         ok = False
-        if exp["kind"] == "uniform":
+        if expect_type == "uniform":
             # Where the outcome masses come from, in order of authority:
             # an explicit outcome_mass map (rollout-aggregated reads),
             # else DERIVED from top_tokens by exact token text. The
@@ -729,7 +736,7 @@ def eval_expectation(inputs: Mapping[str, Any],
                 row["pass"] = "unjudgeable: no outcome mass in the read"
                 rows.append(row)
                 continue
-        elif exp["kind"] == "weights":
+        elif expect_type == "weights":
             masses = c.get("outcome_mass") or {}
             if not masses:
                 masses = {}
@@ -752,7 +759,7 @@ def eval_expectation(inputs: Mapping[str, Any],
                 row["pass"] = "unjudgeable: no outcome mass in the read"
                 rows.append(row)
                 continue
-        elif exp["kind"] == "answer":
+        elif expect_type == "answer":
             want = str(exp["value"])
             p = None
             for t in c.get("top_tokens") or []:
@@ -761,10 +768,10 @@ def eval_expectation(inputs: Mapping[str, Any],
                     break
             row["p_expected"] = round(p, 4) if p is not None else None
             ok = p is not None and p >= float(exp.get("min_p", 0.99))
-        elif exp["kind"] == "min_entropy":
+        elif expect_type == "min_entropy":
             ok = float(c.get("entropy_bits") or 0.0) >= float(exp["bits"])
         else:
-            raise ValueError(f"unknown expectation kind: {exp['kind']!r}")
+            raise ValueError(f"unknown expectation type: {expect_type!r}")
         row["pass"] = ok
         n_judged += 1
         n_pass += int(ok)
@@ -776,7 +783,7 @@ def eval_expectation(inputs: Mapping[str, Any],
             "kl_bits": "number", "outcome_mass": "number",
             "p_expected": "number", "pass": "string",
             "pass_rate": "number", "n_pass": "number", "n_judged": "number"}
-    return {"kind": "metric_table",
+    return {"kind": "records/table",
             "name": params.get("name", "expectation-eval"),
             "description": params.get("description", ""),
             "row_axis": "condition",

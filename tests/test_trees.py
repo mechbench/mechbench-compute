@@ -17,14 +17,15 @@ from mechbench_compute.blocks import PURE_BLOCKS
 
 
 def similarity_of(points: np.ndarray) -> dict:
-    """A `similarity_matrix` object as `vectors/similarity` emits one."""
+    """A collection of `geometry/similarity` as `geometry/similarity` emits one."""
     from mechbench_compute import geometry
+    from mechbench_compute.lexicon import kinds as K
 
     unit = points / np.linalg.norm(points, axis=1, keepdims=True)
-    return {"kind": "similarity_matrix", "layers": [{
+    return K.collection("geometry/similarity", [{
         "layer": 0, "ids": [f"i{i}" for i in range(len(points))],
         "labels": [None] * len(points),
-        "matrix": geometry.cosine_matrix(unit.astype(np.float32)).tolist()}]}
+        "matrix": geometry.cosine_matrix(unit.astype(np.float32)).tolist()}])
 
 
 def corpus(kind: str, n: int = 30, seed: int = 0) -> np.ndarray:
@@ -65,7 +66,7 @@ class TestTheMeasure:
     def stats(self, kind, **params):
         out = PURE_BLOCKS["geometry/mst"](
             {"matrix": similarity_of(corpus(kind))}, params)
-        return out["layers"][0]
+        return out["items"][0]
 
     def test_collapse_and_evenness_both_have_low_variance(self):
         collapsed = self.stats("collapsed")
@@ -90,12 +91,12 @@ class TestTheMeasure:
         # comparable.
         base = similarity_of(corpus("clustered"))
         cv1 = PURE_BLOCKS["geometry/mst"](
-            {"matrix": base}, {})["layers"][0]["cv"]
-        scaled = {**base, "layers": [{**base["layers"][0], "matrix": [
+            {"matrix": base}, {})["items"][0]["cv"]
+        scaled = {**base, "items": [{**base["items"][0], "matrix": [
             [1 - (1 - v) * 0.5 for v in row]
-            for row in base["layers"][0]["matrix"]]}]}
+            for row in base["items"][0]["matrix"]]}]}
         cv2 = PURE_BLOCKS["geometry/mst"](
-            {"matrix": scaled}, {})["layers"][0]["cv"]
+            {"matrix": scaled}, {})["items"][0]["cv"]
         assert cv1 == pytest.approx(cv2, abs=0.02)
 
 
@@ -105,18 +106,22 @@ class TestTheBlock:
                  "vector": v.tolist()} for i, v in enumerate(corpus("clustered"))]
         out = PURE_BLOCKS["geometry/mst"](
             {"vectors": {"kind": "residual_vectors", "rows": rows}}, {})
-        assert out["layers"][0]["layer"] == 3
-        assert out["layers"][0]["n"] == len(rows)
+        assert out["items"][0]["layer"] == 3
+        assert out["items"][0]["n"] == len(rows)
 
-    def test_the_rows_view_renders_without_a_custom_renderer(self):
+    def test_a_table_reads_the_items_directly(self):
+        # One item per group, and `records/table` reads them as rows: the
+        # flat duplicate the old shape carried is gone.
         out = PURE_BLOCKS["geometry/mst"](
             {"matrix": similarity_of(corpus("even"))}, {})
-        row = out["rows"][0]
-        assert {"layer", "n", "mean", "variance", "cv", "bridges"} <= set(row)
-        assert "edges" not in row and "ids" not in row
+        item = out["items"][0]
+        assert {"layer", "n", "mean", "variance", "cv", "bridges"} <= set(item)
+        table = PURE_BLOCKS["records/table"]({"records": out}, {})
+        assert table["kind"] == "records/table"
+        assert [r["n"] for r in table["rows"]] == [item["n"]]
 
     def test_a_wrong_input_says_what_it_wanted(self):
-        with pytest.raises(ValueError, match="similarity_matrix"):
+        with pytest.raises(ValueError, match="geometry/similarity"):
             PURE_BLOCKS["geometry/mst"]({"matrix": [1, 2]}, {})
 
 
@@ -135,7 +140,7 @@ class TestCentering:
     def _mean_edge(self, rows, **params):
         out = trees.mst({"vectors": {"kind": "residual_vectors", "rows": rows}},
                         params)
-        return out["layers"][0]["mean"], out
+        return out["items"][0]["mean"], out
 
     def _rows(self, V):
         return [{"id": f"r{i}", "layer": 23, "vector": v.tolist()}

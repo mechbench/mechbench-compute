@@ -144,7 +144,7 @@ class Completion:
         return msg.Message(role="assistant", content=self.parts)
 
     def to_wire(self) -> dict[str, Any]:
-        return {"kind": "completion", "text": self.text,
+        return {"kind": "provider/completion", "text": self.text,
                 "parts": [p.to_wire() for p in self.parts],
                 "stop_reason": self.stop_reason,
                 "usage": self.usage.to_wire(),
