@@ -135,9 +135,15 @@ def distribution(logp: np.ndarray, tokenizer, *, top_k: int,
     lp = np.asarray(logp, dtype=np.float64).reshape(-1)
     probs = np.exp(lp)
     nz = probs[probs > 0]
+    # A stable sort: tokens with exactly equal log-probability (common at a
+    # high-entropy layer read through the unembedding, where bf16 logits
+    # tie by the hundred) rank by token id, so the same logits give the
+    # same `top` every time and on every machine. An unstable sort made
+    # thirty of a funnel's 140 top tokens differ between two identical
+    # runs.
     out: dict[str, Any] = {
         "entropy_bits": round(float(-(nz * np.log2(nz)).sum()), 4),
-        "top": [_entry(tokenizer, int(t), lp) for t in np.argsort(-lp)[: int(top_k)]],
+        "top": [_entry(tokenizer, int(t), lp) for t in np.argsort(-lp, kind="stable")[: int(top_k)]],
     }
     if tracked:
         out["tracked"] = {str(name): _entry(tokenizer, int(tid), lp)

@@ -62,6 +62,15 @@ class TestItems:
         assert d["entropy_bits"] == pytest.approx(1.2955, abs=1e-3)
         assert "tracked" not in S.distribution(lp, Tok(), top_k=1)
 
+    def test_ties_rank_by_token_id(self):
+        # Equal log-probabilities rank by token id, every time.
+        lp = np.log(np.array([0.2, 0.2, 0.2, 0.2, 0.2]))
+        for _ in range(5):
+            d = S.distribution(lp, Tok(), top_k=3)
+            assert [t["token"]["id"] for t in d["top"]] == [0, 1, 2]
+        lp = np.log(np.array([0.1, 0.3, 0.3, 0.3]))
+        assert [t["token"]["id"] for t in S.distribution(lp, Tok(), top_k=2)["top"]] == [1, 2]
+
     def test_grid_and_coordinate(self):
         g = S.grid("r", ["layer", "position"], {"logprob": [[0.0, -1.0]]}, tokens=["a", "b"],
                    target={"id": 1, "text": "t1"})

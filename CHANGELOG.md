@@ -13,6 +13,24 @@ nothing said so.
 
 ---
 
+## 0.77.1 — 2026-09-15
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **A distribution's `top` ranks tied tokens by id.** Tokens with
+  exactly equal log-probability — common at a high-entropy layer read
+  through the unembedding, where bf16 logits tie by the hundred — were
+  ordered by an unstable sort, so two identical runs could name
+  different top tokens where the probabilities were the same. A
+  stable sort now breaks ties toward the lower token id, which is also
+  what the pre-2b `argmax` did. Found re-running experiment 020: thirty
+  of a funnel's 140 top tokens differed between two identical reads.
+  Probabilities and entropies were never affected.
+
 ## 0.77.0 — 2026-09-15
 
 ### Changes that raise
