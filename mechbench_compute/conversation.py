@@ -330,8 +330,9 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
     inputs = inputs or {}
     raw_participants = (inputs.get("participants") or params.get("participants") or [])
     if isinstance(raw_participants, Mapping):
-        raw_participants = (raw_participants.get("agents")
-                            or raw_participants.get("records") or [])
+        from mechbench_compute.lexicon import kinds as K
+
+        raw_participants = raw_participants.get("agents") or K.items_of(raw_participants)
     participants = [Agent.parse(p, index=i) for i, p in enumerate(raw_participants)]
     if len(participants) < 2:
         raise ValueError(

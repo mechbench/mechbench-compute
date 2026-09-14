@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## 0.76.2 — 2026-09-14
+
+### Changes that raise
+
+- **`text/generate` and `logits/funnel` refuse an empty record set**, as
+  `logits/decision` does since 0.76.1: an empty collection is never
+  what a protocol meant. `adapter/train` already refused.
+- **Every executor block reads its records through `lexicon.items_of`.**
+  `text/generate`, `adapter/train` (records and anchors) and
+  `logits/funnel` still took a fetched object's list from `conditions`
+  or `records` by name, so a proper `collection` (list under `items`)
+  fed to them by param read as empty — `adapter/train` then raised "no
+  non-empty training groups". Found by experiment 002's second re-run,
+  the first with its battery written as a proper collection. So did
+  `text/conversation`'s participants.
+
+### Changes that alter results without raising
+
+- _None._
+
 ## 0.76.1 — 2026-09-14
 
 ### Changes that raise

@@ -829,7 +829,11 @@ class ProtocolExecutor:
         tok = model.tokenizer
         records = inputs.get("records") or params.get("records") or []
         if isinstance(records, dict):
-            records = records.get("conditions") or records.get("records") or []
+            records = lexicon.items_of(records)
+        if not records:
+            raise ValueError(
+                "text/generate: no records to run over — wire records to "
+                "the `records` port or pass them by param")
         f_system = params.get("system_field", "system")
         f_user = params.get("user_field", "user")
         n = int(params.get("n", 1))
@@ -1844,7 +1848,7 @@ class ProtocolExecutor:
 
         records = inputs.get("records") or params.get("records") or []
         if isinstance(records, dict):
-            records = records.get("conditions") or records.get("records") or []
+            records = lexicon.items_of(records)
         f_system = params.get("system_field", "system")
         f_user = params.get("user_field", "user")
         f_prefill = params.get("prefill_field", "prefill")
@@ -1896,8 +1900,7 @@ class ProtocolExecutor:
 
         anchor_records = inputs.get("anchors") or params.get("anchors") or []
         if isinstance(anchor_records, dict):
-            anchor_records = (anchor_records.get("conditions")
-                              or anchor_records.get("records") or [])
+            anchor_records = lexicon.items_of(anchor_records)
         f_answer = params.get("answer_field", "answer")
         anchors = build_anchor_items(
             tok, [(rendered_of(r), r[f_answer]) for r in anchor_records])
@@ -2005,7 +2008,11 @@ class ProtocolExecutor:
         # protocol that fetched its prompts by param ran over nothing.
         records = inputs.get("records") or params.get("records") or []
         if isinstance(records, dict):
-            records = records.get("conditions") or records.get("records") or []
+            records = lexicon.items_of(records)
+        if not records:
+            raise ValueError(
+                "logits/funnel: no records to run over — wire records to "
+                "the `records` port or pass them by param")
         f_system = params.get("system_field", "system")
         f_user = params.get("user_field", "user")
         f_prefill = params.get("prefill_field", "prefill")
