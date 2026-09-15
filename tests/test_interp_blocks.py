@@ -30,7 +30,17 @@ class StubArch:
 
 
 class StubTokenizer:
+    """Word-per-token: each word maps to id 1 + (len(word) % 7), after a
+    BOS of 0. The chat template is the identity, so a condition and a
+    raw record tokenize alike and the arithmetic below holds for both."""
+
     all_special_ids = (0,)
+
+    def encode(self, text, add_special_tokens=True):
+        return [0] + [1 + (len(w) % 7) for w in text.split()]
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True, **kw):
+        return messages[-1]["content"]
 
     def decode(self, ids):
         return " ".join(f"t{int(i)}" for i in ids)
@@ -163,10 +173,35 @@ class TestAblateLayers:
         row = next(r for r in out["items"] if r.get("layer") == 2)
         assert row["delta_logp"] == pytest.approx(_expected_delta(2), abs=1e-3)
 
-    def test_unknown_component_refuses(self):
-        with pytest.raises(ValueError, match="component"):
+    def test_a_point_that_is_not_a_sublayer_output_refuses(self):
+        with pytest.raises(ValueError, match="unknown point"):
             interp.ablate_layers(StubModel(), [{"id": "c", "user": "a"}],
-                                 {"component": "norm"})
+                                 {"point": "norm"})
+        with pytest.raises(ValueError, match="sub-layer output"):
+            interp.ablate_layers(StubModel(), [{"id": "c", "user": "a"}],
+                                 {"point": "resid_post"})
+
+    def test_the_default_zeroes_the_whole_layer(self):
+        out = interp.ablate_layers(StubModel(), [{"id": "c", "user": "a"}], {"layers": [0]})
+        assert out["points"] == ["attn_out", "mlp_out"]
+
+    def test_a_sweep_at_a_prefilled_decision_point_reads_where_a_decision_read_does(self):
+        """One rendering, two ops, one number: the sweep's baseline log-prob
+        for a prefilled condition is the last-position log-prob of the same
+        rendering — what `logits/decision` reports for that condition."""
+        from mechbench_compute.distill import render
+        from mechbench_compute.interp import _last_logp
+
+        model = StubModel()
+        cond = {"id": "c", "system": "s", "user": "roll the die", "prefill": '{ "roll": ',
+                "tracked": {"three": "ccc"}}
+        out = interp.ablate_layers(model, [cond], {"layers": [0]})
+        r = render(model, cond)
+        assert r.chat and r.text.endswith('{ "roll": ')
+        lp = _last_logp(model.run(r.array).logits)
+        tok = 1 + (len("ccc") % 7)
+        assert out["conditions"][0]["target"]["id"] == tok
+        assert out["conditions"][0]["baseline_logp"] == pytest.approx(float(lp[tok]), abs=1e-4)
 
 
 class TestResidualVectors:
@@ -217,73 +252,74 @@ class TestPooledPositions:
         return out, np.array(out["items"][0]["vector"])
 
     def test_mean_pools_the_whole_sequence(self):
-        out, v = self._vec(pool="mean")
+        out, v = self._vec(pool={"reduce": "mean", "over": "all"})
         for dim in (0, 3, 4):
             assert v[dim] == pytest.approx(2.0 / 3.0, abs=1e-4)
         assert np.count_nonzero(v) == 3
         assert out["items"][0]["n_pooled"] == 3
 
-    def test_pool_skip_drops_leading_positions(self):
-        out, v = self._vec(pool="mean", pool_skip=1)
+    def test_a_window_after_the_first_position(self):
+        out, v = self._vec(pool={"reduce": "mean", "over": {"after": 1}})
         assert v[0] == pytest.approx(0.0)
         for dim in (3, 4):
             assert v[dim] == pytest.approx(1.0, abs=1e-4)
         assert out["items"][0]["n_pooled"] == 2
 
-    def test_last_k_of_one_reproduces_the_final_position(self):
+    def test_pooling_the_last_position_reproduces_the_single_read(self):
         # The compatibility anchor: pooling one position must equal the
         # unpooled read, or the two paths have drifted apart.
-        _, pooled = self._vec(pool="last_k", pool_k=1)
-        _, single = self._vec(position="final")
+        _, pooled = self._vec(pool={"reduce": "mean", "over": {"range": [-1, None]}})
+        _, single = self._vec(position="last")
         assert pooled.tolist() == single.tolist()
+        _, listed = self._vec(pool={"reduce": "mean", "over": [-1]})
+        assert listed.tolist() == single.tolist()
 
     def test_max_takes_the_elementwise_maximum(self):
-        _, v = self._vec(pool="max")
+        _, v = self._vec(pool={"reduce": "max", "over": "all"})
         for dim in (0, 3, 4):
             assert v[dim] == pytest.approx(2.0)
 
     def test_the_record_says_how_it_was_made(self):
-        out, _ = self._vec(pool="last_k", pool_k=2, pool_skip=1)
+        out, _ = self._vec(pool={"reduce": "mean", "over": {"range": [1, 3]}})
         assert out["position"] == "pooled"
-        assert out["pool"] == "last_k"
-        assert out["pool_k"] == 2
-        assert out["pool_skip"] == 1
+        assert out["pool"] == {"reduce": "mean", "over": {"range": [1, 3]}}
+        assert out["items"][0]["n_pooled"] == 2
 
     def test_no_pool_is_untouched(self):
         # Adding the parameter must not change a single number in a
         # record made without it — published geometry depends on this.
-        out, v = self._vec(position="final")
-        assert out["position"] == "final"
-        assert "pool" not in out and "pool_skip" not in out
+        out, v = self._vec(position="last")
+        assert out["position"] == "last"
+        assert "pool" not in out
         assert "n_pooled" not in out["items"][0]
         assert v[4] == pytest.approx(2.0)
         assert np.count_nonzero(v) == 1
 
-    def test_skipping_past_the_end_falls_back_to_the_last_position(self):
+    def test_a_window_past_the_end_falls_back_to_the_last_position(self):
         # Zeros would look like a vector and mean nothing.
-        out, v = self._vec(pool="mean", pool_skip=99)
+        out, v = self._vec(pool={"reduce": "mean", "over": {"after": 99}})
         assert out["items"][0]["n_pooled"] == 1
         assert v[4] == pytest.approx(2.0)
 
     def test_pooling_needs_no_resolvable_position(self):
         # `subject` would raise without a `subject` field; pooling
-        # never resolves a position, so it must not.
+        # never resolves a single position, so it must not.
         out = interp.residual_vectors(
             StubModel(), [{"id": "c", "user": "aa bbb"}],
-            {"layers": [1], "position": "subject", "pool": "mean"})
+            {"layers": [1], "position": "subject", "pool": {"reduce": "mean", "over": "all"}})
         assert out["items"][0]["n_pooled"] == 3
 
     def test_a_bad_pool_refuses(self):
-        with pytest.raises(ValueError, match="unknown pool"):
-            self._vec(pool="median")
+        with pytest.raises(ValueError, match="unknown pool reduce"):
+            self._vec(pool={"reduce": "median", "over": "all"})
 
-    def test_last_k_without_k_refuses(self):
-        with pytest.raises(ValueError, match="pool_k"):
+    def test_the_retired_pool_string_is_refused_with_the_new_form(self):
+        with pytest.raises(ValueError, match="range"):
             self._vec(pool="last_k")
 
-    def test_negative_skip_refuses(self):
-        with pytest.raises(ValueError, match="pool_skip"):
-            self._vec(pool="mean", pool_skip=-1)
+    def test_a_bad_selector_refuses(self):
+        with pytest.raises(ValueError, match="unknown positions"):
+            self._vec(pool={"reduce": "mean", "over": "middle"})
 
 
 class TestResidualDivergence:
@@ -359,8 +395,8 @@ class TestGateComponent:
         model = StubModel()
         out = interp.ablate_layers(
             model, [{"id": "c", "user": "a b"}],
-            {"component": "gate", "layers": [1]})
-        assert out["component"] == "gate"
+            {"point": "gate_out", "layers": [1]})
+        assert out["points"] == ["gate_out"]
         row = next(r for r in out["items"] if r.get("layer") == 1)
         assert row["delta_logp"] < 0  # the stub penalizes any named zero-hook
 
@@ -717,17 +753,18 @@ class TestEmptyDocuments:
     impossible, and skipping it must change n visibly."""
 
     def test_a_document_is_embedded_by_its_text(self):
-        from mechbench_compute.interp import _prompt_of
+        from mechbench_compute.distill import render
 
-        assert _prompt_of({"id": "a", "text": "a story"}) == "a story"
+        r = render(StubModel(), {"id": "a", "text": "a story"})
+        assert r.text == "a story" and not r.chat and r.ids == [0, 2, 6]
 
     def test_an_empty_record_is_refused_by_name(self):
         import pytest
 
-        from mechbench_compute.interp import _prompt_of
+        from mechbench_compute.distill import render
 
         with pytest.raises(ValueError, match="record 'a' has no prompt"):
-            _prompt_of({"id": "a", "text": "   "})
+            render(StubModel(), {"id": "a", "text": "   "})
 
     def test_unmapped_content_blocks_are_not_silently_empty(self, monkeypatch):
         from dataclasses import dataclass, field

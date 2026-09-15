@@ -44,6 +44,7 @@ from typing import Any
 
 import numpy as np
 
+from mechbench_compute import points as P
 from mechbench_compute import shapes as S
 
 # --- shapes ------------------------------------------------------------------

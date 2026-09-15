@@ -349,7 +349,24 @@ class TestRecordCoercion:
         assert _items(both) == [{"id": "r"}]
 
     def test_a_document_can_be_embedded_by_its_text(self):
-        from mechbench_compute.interp import _prompt_of
+        from mechbench_compute.distill import render
 
-        assert _prompt_of({"id": "a", "text": "a story"}) == "a story"
-        assert _prompt_of({"id": "a", "user": "u", "text": "t"}) == "u"
+        class Tok:
+            def encode(self, text, add_special_tokens=True):
+                return [len(w) for w in text.split()]
+
+            def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True, **kw):
+                return "<chat>" + messages[-1]["content"]
+
+        class M:
+            tokenizer = Tok()
+
+        # A document renders raw; a condition through the chat template;
+        # a condition may turn the template off; a raw record may turn it on.
+        assert render(M(), {"id": "a", "text": "a story"}).text == "a story"
+        r = render(M(), {"id": "a", "user": "u", "text": "t", "prefill": "{"})
+        assert r.text == "<chat>u{" and r.chat
+        assert render(M(), {"id": "a", "user": "u", "template": False}).text == "u"
+        assert render(M(), {"id": "a", "text": "t", "template": "chat"}).text == "<chat>t"
+        with pytest.raises(ValueError, match="no prompt"):
+            render(M(), {"id": "a", "text": "   "})

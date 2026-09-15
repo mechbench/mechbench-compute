@@ -210,5 +210,5 @@ class TestParamChecking:
     def test_pooling_params_are_accepted_on_residual_vectors(self):
         from mechbench_compute.block_params import check_params
         check_params("activations/vectors",
-                     {"layers": [23], "pool": "mean", "pool_skip": 1,
+                     {"layers": [23], "pool": {"reduce": "mean", "over": {"after": 1}},
                       "skip_empty": True})

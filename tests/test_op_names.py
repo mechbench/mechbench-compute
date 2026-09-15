@@ -148,6 +148,6 @@ class TestTheResumeAndReduceLookupsAcceptAnySpelling:
 
     def test_check_params_by_old_name(self):
         from mechbench_compute.block_params import check_params
-        check_params("~canonical/ops/decision-read/1", {"outcomes": ["a"]})
+        check_params("~canonical/ops/decision-read/1", {"tracked": {"a": "a"}})
         with pytest.raises(ValueError, match="logits/decision"):
             check_params("~canonical/ops/decision-read/1", {"nope": 1})

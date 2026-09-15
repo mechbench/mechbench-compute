@@ -13,6 +13,68 @@ nothing said so.
 
 ---
 
+## 0.79.0 — 2026-09-15
+
+### Changes that raise
+
+- **`template` is gone from every op; one rendering.** Every model op
+  renders its records through `distill.render`: a condition — `user`,
+  optional `system`, optional `prefill` — goes through the model's chat
+  template as one user turn with the assistant's turn begun by the
+  prefill, exactly as `logits/decision` and `text/generate` always
+  rendered it; a record carrying only `text` or `prompt`, or saying
+  `template: false`, is tokenized raw; `template: "chat"` on such a
+  record renders it as the user turn (the retired `template: "raw"` on a
+  record reads as `false`). A protocol that still passes the `template`
+  param is refused by name. Every interp op can now read at a decision
+  point inside an assistant turn; a test holds an ablation sweep's
+  baseline to the decision read's number for one prefilled condition.
+- **One `tracked` param.** `target` (`intervene/layers`, `heads`,
+  `trace`, `logits/lens`, `logits/attribution`), `track`/`tracks`
+  (`intervene/apply`, `intervene/steer`) and `outcomes`
+  (`logits/decision`, `intervene/apply`) are gone; `tracked: {name:
+  token}` names every token an op reports on, the first entry being the
+  target a sweep's Δ log p is taken on (the model's own top-1 when none
+  is named), and `logits/attribution` decomposes the difference of the
+  first two. A record's own `tracked` still takes precedence, and a
+  record written earlier with `target`, `outcomes`, `tracks`, `track` or
+  `contrast` is still read.
+- **One position grammar.** `"last"`, `"all"`, a list of indices,
+  `{"tokens": …}`, `{"range": [a, b]}`, `{"after": n}`, `"subject"`,
+  `"generated"` — accepted wherever a position is chosen (`positions.py`
+  resolves them all). `position` on `activations/vectors`, `intervene/
+  steer` and a capture readout takes the same selector and must resolve
+  to one position; `"final"` reads as `"last"`. **One pooling clause**:
+  `pool: {"reduce": "mean" | "max", "over": <selector>}` replaces
+  `pool`/`pool_k`/`pool_skip` on `activations/vectors` (`first_k` after
+  `skip` is `{"range": [skip, skip + k]}`, `last_k` is `{"range": [-k,
+  null]}`) and `steps` + `reduce` on `trajectory/capture`, where `over`
+  counts the trajectory's steps. The retired string form is refused
+  with the new one named.
+- **One point vocabulary** (`points.py`): `resid_pre`, `resid_post`,
+  `attn_out`, `mlp_out`, `gate_out`, `attn.q`, …, `embed`,
+  `final_norm`, `logits`. `point: post | pre` on `activations/vectors`,
+  `activations/divergence`, `trajectory/capture` and `direction/*`
+  becomes `resid_post | resid_pre` (the short forms are still read);
+  `intervene/layers`' `component: block | attention | mlp | gate` becomes
+  `point`, the sub-layer output(s) zeroed — `attn_out`, `mlp_out`,
+  `gate_out`, one or several, both by default (the whole layer, on the
+  path that always computed it). `space.point` uses the same names.
+
+### Changes that alter results without raising
+
+- **A chat-templated capture renders as a decision read does.** Ops that
+  took `template: "chat"` rendered through the tokenizer's own
+  `apply_chat_template` on the model's VLM path; they now render through
+  `render_chat` (system merged into the user turn, no special tokens
+  re-added), the path `logits/decision` and `text/generate` use. Where
+  the two templates agreed, nothing changes; where they did not, the
+  capture moves to where the decision was read. The result headers
+  record `points`/`pool` in place of `component`/`pool_k`/`pool_skip`/
+  `steps`/`reduce`, and no longer carry `template`.
+
+---
+
 ## 0.78.1 — 2026-09-15
 
 ### Changes that raise

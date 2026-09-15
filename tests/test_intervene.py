@@ -130,6 +130,12 @@ class TestSpecParsing:
 
 
 class _FakeTok:
+    def encode(self, text, add_special_tokens=True):
+        return [1, 2, 3]
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True, **kw):
+        return messages[-1]["content"]
+
     def decode(self, ids):
         return {1: "The", 2: " old", 3: " light"}.get(int(ids[0]), f"t{ids[0]}")
 

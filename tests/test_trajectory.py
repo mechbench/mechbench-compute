@@ -25,6 +25,12 @@ class StubArch:
 class StubTokenizer:
     all_special_ids = (0,)
 
+    def encode(self, text, add_special_tokens=True):
+        return [0] + [1 + (len(w) % 7) for w in text.split()]
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True, **kw):
+        return messages[-1]["content"]
+
     def decode(self, ids):
         return "".join(f"t{int(i)}" for i in ids)
 
@@ -157,12 +163,13 @@ class TestCapturePositionsAxis:
     def test_reduce_mean_over_a_step_window(self):
         # positions 1..3 of "a bb ccc dddd": tokens 2,3,4 at layer 0 (scale 1)
         m = StubModel()
+        pool = {"reduce": "mean", "over": {"range": [1, 4]}}
         out = trajectory.capture(m, [{"id": "a", "text": "a bb ccc dddd"}],
                                  {"axis": "positions", "layer": 0, "positions": "all",
-                                  "steps": {"range": [1, 4]}, "reduce": "mean"})
-        assert out["reduce"] == "mean" and len(out["items"]) == 1
+                                  "pool": pool})
+        assert out["pool"] == pool and len(out["items"]) == 1
         row = out["items"][0]
-        assert row["n_pooled"] == 3 and row["steps"] == [1, 4]
+        assert row["n_pooled"] == 3 and row["pool"] == pool
         v = row["vector"]  # rounded to 5 places on the wire
         third = pytest.approx(1 / 3, abs=1e-4)
         assert v[2] == third and v[3] == third and v[4] == third
@@ -201,7 +208,7 @@ class TestCapturePositionsAxis:
             out = trajectory.capture(StubModel(), records, big, project=d)
             assert out["projected"] and len(out["items"]) == 240
             out2 = trajectory.capture(StubModel(), records,
-                                      {**big, "reduce": "mean"})
+                                      {**big, "pool": {"reduce": "mean", "over": "all"}})
             assert len(out2["items"]) == 60  # one pooled vector each
         finally:
             interp.MAX_VECTOR_FLOATS = monkey
@@ -367,15 +374,35 @@ class TestWiring:
         assert rows[0]["text"].startswith("The old")
 
 
-class TestFirstKPool:
-    def test_windowed_pool_reads_the_opening(self):
-        from mechbench_compute.interp import _pool_spec, _pooled
-        spec = _pool_spec({"pool": "first_k", "pool_k": 2, "pool_skip": 1})
+class TestPoolClause:
+    def test_a_window_reads_the_opening(self):
+        from mechbench_compute import positions as POS
+        spec = POS.pool_spec({"pool": {"reduce": "mean", "over": {"range": [1, 3]}}})
         mat = np.array([[0.0], [1.0], [3.0], [10.0]])
-        v, n = _pooled(mat, spec)
+        v, n = POS.pooled(mat, POS.resolve(spec["over"], 4), spec["reduce"])
         assert n == 2 and v[0] == 2.0  # positions 1 and 2
 
-    def test_first_k_needs_k(self):
-        from mechbench_compute.interp import _pool_spec
-        with pytest.raises(ValueError, match="pool_k"):
-            _pool_spec({"pool": "first_k"})
+    def test_the_retired_string_form_is_refused_with_the_new_one(self):
+        from mechbench_compute import positions as POS
+        with pytest.raises(ValueError, match="range"):
+            POS.pool_spec({"pool": "first_k"})
+
+    def test_every_selector_resolves(self):
+        from mechbench_compute import positions as POS
+        toks = ["a", "bb", "ccc", "dd", "a"]
+        n = len(toks)
+        assert POS.resolve("last", n) == [4] and POS.resolve("final", n) == [4]
+        assert POS.resolve("all", n) == [0, 1, 2, 3, 4]
+        assert POS.resolve([1, -1], n) == [1, 4]
+        assert POS.resolve({"tokens": ["a"]}, n, tokens=toks) == [0, 4]
+        assert POS.resolve({"range": [1, 3]}, n) == [1, 2]
+        assert POS.resolve({"range": [-2, None]}, n) == [3, 4]
+        assert POS.resolve({"after": 3}, n) == [3, 4]
+        assert POS.resolve("subject", n, tokens=toks, record={"subject": "bb ccc"}) == [2]
+        assert POS.resolve("generated", n, gen_start=3) == [3, 4]
+        assert POS.resolve("generated", n, prompt_len=2) == [2, 3, 4]
+        with pytest.raises(ValueError, match="generated"):
+            POS.resolve("generated", n)
+        with pytest.raises(ValueError, match="one is needed"):
+            POS.one("all", n)
+        assert POS.one({"range": [-1, None]}, n) == 4

@@ -474,8 +474,8 @@ def render(model, record: Mapping[str, Any], *, date_string: str | None = None) 
     tok = model.tokenizer
     prefill = str(record.get("prefill") or "")
     if chat:
-        rendered = render_chat(tok, str(record.get("system") or ""), text, prefill,
-                               date_string=date_string)
+        kw = {} if date_string is None else {"date_string": date_string}
+        rendered = render_chat(tok, str(record.get("system") or ""), text, prefill, **kw)
     else:
         rendered = text + prefill
     return Rendered(encode(tok, rendered), rendered, chat)
