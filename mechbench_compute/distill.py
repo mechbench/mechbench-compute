@@ -777,8 +777,13 @@ def expand_top_outcomes_cached(model, tokenizer, prompt_ids: list[int],
         else:
             row = root_row  # the prefill already produced this position
         probs = _dist(row)
-        order = np.argsort(-probs)
-        for t in order[:50]:
+        # The fifty most probable children, most probable first. A full
+        # argsort over a 262k vocabulary costs ~20 ms per node and the
+        # node needs fifty of them: partition first, sort the fifty
+        # (ties by token id, so the order is the same on every run).
+        top = np.argpartition(-probs, 50)[:50]
+        order = top[np.lexsort((top, -probs[top]))]
+        for t in order:
             p_child = float(probs[t])
             total = float(np.exp(-neg_lp)) * p_child
             if total < branch_floor:
