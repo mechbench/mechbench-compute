@@ -483,11 +483,12 @@ class ProtocolExecutor:
 
         from mechbench_compute import resume as resume_mod
 
-        # Before anything runs: does every node name an operation? A
-        # graph that cannot run should say so in the first second, not
-        # after the four nodes upstream of the typo have been computed
-        # (task 000512; 000513 extends this to params).
-        _preflight_blocks(nodes, order)
+        # Before anything runs: is this graph runnable at all? Blocks,
+        # params and ports are decidable at load, and a graph that
+        # cannot run should say so in the first second rather than after
+        # the nodes upstream of the mistake have been computed (000512,
+        # 000513).
+        _preflight(nodes, edges, order)
 
         resume = resume or {}
         # A consumer may require a minimum resume level of an upstream
@@ -2195,32 +2196,82 @@ def _spend_total(by_node: dict[str, Any]) -> dict[str, Any]:
             "dry_run": all(bool(v.get("dry_run")) for v in by_node.values())}
 
 
-def _preflight_blocks(nodes, order) -> None:
-    """Every node names an operation, or the graph refuses before the
-    first one runs (task 000512).
+def _preflight(nodes, edges, order) -> None:
+    """Everything about a graph that is decidable before it runs, decided
+    before it runs (tasks 000512, 000513).
 
-    Resolution used to happen node by node, in execution order, so a
-    graph whose last node was misspelled spent everything upstream of it
-    proving so — a 014 trace burned most of a day that way. Every node's
-    name is checked here, and ALL the bad ones are reported: a protocol
-    being carried forward from a retired spelling usually has several,
-    and one-at-a-time is the expensive way to find that out.
+    The executor used to check a node's block, params and ports when
+    execution reached it, so a graph that could not run spent everything
+    upstream of the first bad node proving so — one 014 trace took five
+    resumes and most of a day to arrive at a param refusal that was
+    decidable at load. Three things are known here, for every node:
+
+    - its **operation** exists (a retired spelling names its
+      replacement);
+    - every **param** is one the op reads — names only, so nothing is
+      fetched and no binding has to be resolved;
+    - every **port** an edge or an `inputs` entry names exists, and
+      every required port is filled by one of them.
+
+    What a port is FILLED WITH is not knowable here — it is the upstream
+    node's output — so the kind check stays where it is, in the loop.
+
+    Every problem is reported, not the first: a protocol being carried
+    forward usually has several, and fix-one-run-again over a long
+    protocol is the expensive version of this bug.
     """
-    bad: list[str] = []
+    from mechbench_compute.block_params import check_params
+
+    problems: list[str] = []
+    into: dict[str, set[str]] = {}
+    for e in edges:
+        to = e.get("to") or {}
+        if isinstance(to.get("node"), str) and isinstance(to.get("port"), str):
+            into.setdefault(to["node"], set()).add(to["port"])
+
     for nid in order:
-        block = nodes[nid].get("block")
+        node = nodes[nid]
+        block = node.get("block")
         if not isinstance(block, str):
-            bad.append(f"  {nid}: no block")
+            problems.append(f"  {nid}: no block")
             continue
         try:
-            lexicon.resolve(block)
+            name = lexicon.resolve(block)
         except KeyError:
-            bad.append(f"  {nid}: {lexicon.explain_unknown(block)}")
-    if bad:
+            problems.append(f"  {nid}: {lexicon.explain_unknown(block)}")
+            continue
+        try:
+            check_params(name, node.get("params") or {})
+        except ValueError as e:
+            problems.append(f"  {nid} ({name}): {e}")
+        op = lexicon.BY_NAME[name]
+        filled = into.get(nid, set()) | {
+            k for k, v in (node.get("inputs") or {}).items() if v is not None}
+        for port_name in sorted(filled):
+            if op.port(port_name) is None:
+                known = ", ".join(sorted(p.name for p in op.inputs)) or "none"
+                problems.append(
+                    f"  {nid} ({name}): no input port {port_name!r}. "
+                    f"Its ports: {known}.")
+        for port in op.inputs:
+            if not port.required:
+                continue
+            if port.wildcard:
+                if not filled:
+                    problems.append(
+                        f"  {nid} ({name}): needs at least one input edge "
+                        f"(`{port.kind}` on a port of your naming).")
+            elif port.name not in filled:
+                problems.append(
+                    f"  {nid} ({name}): needs an input on its {port.name!r} "
+                    f"port (`{port.kind}`): wire an edge onto it, or give it "
+                    f"under the node's `inputs`.")
+
+    if problems:
         raise ValueError(
-            f"this protocol names {len(bad)} operation"
-            f"{'s' if len(bad) > 1 else ''} that do not exist:\n"
-            + "\n".join(bad))
+            f"this protocol cannot run — {len(problems)} problem"
+            f"{'s' if len(problems) > 1 else ''} found before anything ran:\n"
+            + "\n".join(problems))
 
 
 def _wire_params(params):

@@ -43,7 +43,7 @@ class TestPreflight:
             blocks_mod.PURE_BLOCKS, "records/cross",
             lambda inputs, params: (ran.append(1), real(inputs, params))[1])
 
-        with pytest.raises(ValueError, match="do not exist"):
+        with pytest.raises(ValueError, match="cannot run"):
             ProtocolExecutor().run(_spec("records/cross", "records/selekt"))
         assert ran == [], "a node ran before the graph was checked"
 
@@ -61,7 +61,7 @@ class TestPreflight:
             ProtocolExecutor().run(
                 _spec("records/cross", "records/stats", "records/table"))
         msg = str(e.value)
-        assert "2 operations that do not exist" in msg
+        assert "2 problems found before anything ran" in msg
         assert "records/summarize" in msg and "records/tabulate" in msg
 
     def test_a_node_with_no_block_is_named_too(self):
@@ -73,3 +73,91 @@ class TestPreflight:
     def test_a_good_graph_is_untouched(self):
         out = ProtocolExecutor().run(_spec("records/cross", "records/select"))
         assert out.payload["nodes_executed"] == ["n0", "n1"]
+
+
+class TestParamsAndPorts:
+    """Task 000513. A param no block accepts, an edge onto a port that
+    does not exist, and a required port with nothing on it are all
+    decidable at load: params are static and the wiring is the graph."""
+
+    def test_the_failure_that_motivated_this(self, monkeypatch):
+        # The 014 trace: an August graph whose LAST node passed
+        # `template` to a block that lost the param. It ran for a day.
+        ran = []
+        from mechbench_compute import blocks as blocks_mod
+
+        real = blocks_mod.PURE_BLOCKS["records/cross"]
+        monkeypatch.setitem(
+            blocks_mod.PURE_BLOCKS, "records/cross",
+            lambda inputs, params: (ran.append(1), real(inputs, params))[1])
+
+        spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
+            "graph": {"nodes": [
+                {"id": "design", "block": "records/cross", "params": dict(CROSS)},
+                {"id": "cap", "block": "activations/capture",
+                 "params": {"model": "m", "layers": [12], "template": "chat"},
+                 "inputs": {"records": [{"id": "r", "user": "u"}]}},
+            ], "edges": []}})
+        with pytest.raises(ValueError) as e:
+            ProtocolExecutor().run(spec)
+        msg = str(e.value)
+        assert "cap (activations/capture)" in msg
+        assert "'template'" in msg
+        assert ran == [], "the upstream node ran before the graph was checked"
+
+    def test_a_param_error_and_a_block_error_are_reported_together(self):
+        spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
+            "graph": {"nodes": [
+                {"id": "a", "block": "records/stats", "params": {}},
+                {"id": "b", "block": "records/cross",
+                 "params": {**CROSS, "facters": []}},
+            ], "edges": []}})
+        with pytest.raises(ValueError) as e:
+            ProtocolExecutor().run(spec)
+        msg = str(e.value)
+        assert "2 problems" in msg
+        assert "records/summarize" in msg      # the retired block
+        assert "facters" in msg                 # the misspelled param
+
+    def test_an_edge_onto_a_port_that_does_not_exist(self):
+        spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
+            "graph": {"nodes": [
+                {"id": "design", "block": "records/cross", "params": dict(CROSS)},
+                {"id": "pick", "block": "records/select", "params": {}},
+            ], "edges": [{"from": {"node": "design", "port": "records"},
+                          "to": {"node": "pick", "port": "recrods"},
+                          "kind": "records"}]}})
+        with pytest.raises(ValueError, match="no input port 'recrods'"):
+            ProtocolExecutor().run(spec)
+
+    def test_a_required_port_with_nothing_on_it(self):
+        spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
+            "graph": {"nodes": [
+                {"id": "pick", "block": "records/select", "params": {}},
+            ], "edges": []}})
+        with pytest.raises(ValueError, match="needs an input on its 'records' port"):
+            ProtocolExecutor().run(spec)
+
+    def test_an_optional_port_left_empty_is_fine(self):
+        # `records/select` takes one port; `text/measure`'s second is
+        # optional, and a graph that leaves it alone is runnable.
+        out = ProtocolExecutor().run(ProtocolSpec(
+            kind="pipeline", prompt="", model_id=None, extra={
+                "graph": {"nodes": [
+                    {"id": "design", "block": "records/cross", "params": dict(CROSS)},
+                    {"id": "pick", "block": "records/select",
+                     "params": {"where": {"x": "a"}}},
+                ], "edges": [{"from": {"node": "design", "port": "records"},
+                              "to": {"node": "pick", "port": "records"},
+                              "kind": "records"}]}}))
+        assert out.payload["nodes_executed"] == ["design", "pick"]
+
+    def test_a_wildcard_op_with_no_edges_says_so(self):
+        # `records/union` names its ports freely; what it needs is that
+        # there be some.
+        spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
+            "graph": {"nodes": [
+                {"id": "merged", "block": "records/union", "params": {}},
+            ], "edges": []}})
+        with pytest.raises(ValueError, match="at least one input edge"):
+            ProtocolExecutor().run(spec)

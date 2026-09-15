@@ -13,6 +13,38 @@ nothing said so.
 
 ---
 
+## 0.82.1 — 2026-09-17
+
+### Changes that raise
+
+- **A protocol is proved runnable before it runs** (task 000513). The
+  executor checked a node's params and ports when execution reached it,
+  so a graph that could not run spent everything upstream of the first
+  mistake proving so: one 014 trace took five resumes and most of a day
+  to arrive at `activations/capture does not accept 'template'`, a
+  refusal that was decidable at load. Now, for every node, before any
+  node runs: the operation exists, every param is one the op reads, and
+  every port an edge or an `inputs` entry names exists with the required
+  ones filled. **Every problem is reported together**, not the first —
+  a protocol being carried forward usually has several, and
+  fix-one-run-again over a long protocol is the expensive version of
+  this bug.
+
+  No graph that ran before fails now: these are the same checks, at the
+  same strictness, earlier. What a port is filled WITH is still checked
+  in the loop, because that is the upstream node's output and is not
+  knowable at load.
+
+  Stored protocols written before typed ports (0.78.0) put a port's
+  value under `params`; 0.82.0 stopped lifting those onto the port, so
+  they already refused — this release refuses them at load, naming
+  every node at once. Re-authoring is the fix, and an author script
+  that emits the current shape produces a protocol that runs.
+
+### Changes that alter results without raising
+
+- _None._
+
 ## 0.82.0 — 2026-09-16
 
 The release the alias tables named. Both of them — the 2026-09-14 family
