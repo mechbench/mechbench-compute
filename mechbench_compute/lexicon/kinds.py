@@ -647,6 +647,8 @@ BY_KIND: dict[str, Kind] = {k.name: k for k in KINDS}
 KIND_ALIASES: dict[str, tuple[str, bool]] = {
     "document_collection": (COLLECTION, True),
     "record_set": ("records/record", True),
+    # What the experiment authors wrote on their prompt objects.
+    "records": ("records/record", True),
     "~canonical/kinds/text": ("text/document", False),
     "~canonical/kinds/transcript": ("text/transcript", False),
     "transcript": ("text/transcript", False),
@@ -710,7 +712,7 @@ KIND_ALIASES: dict[str, tuple[str, bool]] = {
 #: Where the legacy plural objects kept their items, by old kind. The
 #: old shapes are still on the bench; `items_of` reads them.
 _LEGACY_ITEMS_FIELD: dict[str, str] = {
-    "document_collection": "items", "record_set": "records",
+    "document_collection": "items", "record_set": "records", "records": "records",
     "decision_read": "conditions", "decision_distribution": "conditions",
     "intervene_readout": "rows", "ablation_sweep": "rows", "steer_sweep": "rows",
     "patch_trace": "pairs", "attention_patterns": "rows", "logit_attribution": "rows",

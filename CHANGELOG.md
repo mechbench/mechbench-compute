@@ -13,6 +13,31 @@ nothing said so.
 
 ---
 
+## 0.78.1 — 2026-09-15
+
+### Changes that raise
+
+- **`records/template` reads its port through the one reader.** The
+  0.78.0 registry handed the upstream `collection` itself to the
+  template loop, which iterated the container's keys and failed with
+  `'str' object has no attribute 'get'` on the first protocol that
+  wired a `records/cross` into it. Every records block is now tested
+  with a collection on its port, as the executor delivers one.
+- **`check_inputs` does not refuse a kind it does not know.** A kind
+  string outside the registry — an extension's, or one an author wrote
+  before kinds were named — is no name to refuse by; the value passes
+  as an unkinded one does. And `"records"`, the spelling every
+  experiment author put on its prompt objects, resolves to a
+  collection of `records/record`, so those objects satisfy a `records`
+  port (0.78.0 refused them: "takes a collection of `records/record`,
+  but was wired `records`").
+
+### Changes that alter results without raising
+
+- _None._
+
+---
+
 ## 0.78.0 — 2026-09-15
 
 ### Changes that raise

@@ -129,7 +129,9 @@ def _kind_of(value: Any) -> tuple[str | None, bool]:
     try:
         name, plural = K.resolve_kind(k, warn=False)
     except KeyError:
-        return k, False
+        # A kind the registry does not know — an extension's, or a
+        # string an older author wrote — is no name to refuse by.
+        return None, False
     return name, plural
 
 

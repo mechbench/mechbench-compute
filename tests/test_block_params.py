@@ -429,6 +429,20 @@ def test_a_value_with_no_kind_is_not_second_guessed():
     # An older stored object, or a literal, carries no name to refuse by.
     check_inputs("direction/normalize", {"direction": {"vector": [1.0, 0.0]}})
     check_inputs("text/tokenize", {"vocabulary": ["red", "blue"]})
+    # Nor does a kind the registry does not know — an extension's, or a
+    # string an author wrote before kinds were named.
+    check_inputs("activations/vectors", {"records": {"kind": "owner/x", "items": [{"id": "a"}]}})
+
+
+def test_the_prompt_objects_the_experiments_stored_are_record_collections():
+    # `{"kind": "records", "records": [...]}` is what every experiment
+    # author emitted for a prompt set; it is a collection of records.
+    stored = {"kind": "records", "records": [{"id": "p", "user": "u"}]}
+    out = check_inputs("activations/vectors", {"records": stored})
+    assert out["records"] is stored
+    from mechbench_compute.lexicon import kinds as K
+    assert K.item_kind_of(stored) == "records/record"
+    assert K.items_of(stored) == [{"id": "p", "user": "u"}]
 
 
 def test_a_port_given_as_a_param_is_lifted_with_a_warning_until_it_is_refused():
