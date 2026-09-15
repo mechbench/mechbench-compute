@@ -115,6 +115,10 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "records/rank": [("reduce.py", "TopK"), ("reduce.py", "_block_of")],
     "records/bin": [("reduce.py", "Histogram"), ("reduce.py", "_block_of")],
     "adapter/measure": [("weights.py", "measure_adapter")],
+    "weights/capture": [(P, "_block_capture_weights"),
+                        ("weights.py", "capture_weights")],
+    "weights/decompose": [(P, "_block_decompose_weights"),
+                          ("weights.py", "decompose_weights")],
     "tools/calc": [("tools.py", "calc")],
     "tools/lookup": [("tools.py", "bench_lookup")],
 }

@@ -195,6 +195,31 @@ provenance.
 An adapter reaches a model-running node on that node's `adapter` port,
 fused for that node only on top of whatever adapters the model reference
 already carries.
+
+`measure` reads an adapter as DATA — per module, what training wrote
+there and how concentrated it is — which is the `weights` family's
+question asked of a delta rather than of a model.
+""",
+    ),
+    Family(
+        "weights",
+        "The model's own parameters, read as data: what the model IS, rather than what it did on an input.",
+        """\
+Every other family reads a forward pass. This one reads the learned
+matrices themselves — no prompt, no sampling, nothing to be
+representative of.
+
+`capture` names parameter points in the module tree
+(`layers.12.self_attn.q_proj`, `embed_tokens`, `layers.*.mlp.down_proj`)
+and emits one `weights/parameter` per tensor: its shape, its norm, how
+much of it is zero, and, when asked, its spectrum and its values. The
+reduced forms are the default because a parameter is large — a 4B
+model's embedding table is 400 million numbers, and the interesting
+facts about it are a few dozen.
+
+A question about what TRAINING changed, rather than what the model is,
+belongs to `adapter/measure`: an adapter's delta is already the
+difference, and reading it needs neither the model nor its base.
 """,
     ),
     Family(

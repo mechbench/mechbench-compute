@@ -13,6 +13,52 @@ nothing said so.
 
 ---
 
+## 0.83.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- **A `weights` family: the model's parameters, read as data** (task
+  000457). Every other family reads a forward pass; this one reads the
+  learned matrices themselves, with no prompt and nothing to be
+  representative of.
+
+  - **`weights/capture`** names parameter points the way the module tree
+    does — `layers.12.self_attn.q_proj`, `embed_tokens`,
+    `layers.*.mlp.down_proj`, with `*` standing for one segment — and
+    emits one **`weights/parameter`** per tensor: shape, `frobenius`,
+    `mean`, `std`, `max_abs` (where an outlier channel shows) and
+    `sparsity`. `spectrum: k` adds the top singular values, σ₁ and the
+    effective rank at the cost of an SVD per tensor; `values: true`
+    carries the tensor itself and is refused past two million numbers.
+    The cheap stats are computed where the tensor is, in row blocks with
+    the sums accumulated in float64: all 4.6 billion parameters of
+    Gemma 4 E2B in **1.8 seconds**, and more accurately than a float32
+    pass over the host copy, which was also 20× slower.
+  - **`weights/decompose`** turns a parameter's principal directions
+    into `direction/vector` items — in the residual stream, which is the
+    only space the rest of the platform can talk about. `q_proj`,
+    `k_proj`, `v_proj`, `gate_proj` and `up_proj` READ the residual
+    stream, so their right singular vectors are the directions they ask
+    about; `o_proj` and `down_proj` WRITE it, so their left singular
+    vectors are what they contribute. A module where neither side is the
+    residual stream is refused by name. What comes out is the same kind
+    `direction/fit` emits from activations, so `direction/unembed` names
+    the tokens a weight direction promotes and `geometry/compare`
+    measures a weight direction against an activation one — which is the
+    bridge between the two halves of the grammar.
+
+  The parameter-scoped `intervene` from the same task (editing a weight
+  for the life of a run, with the fuse/restore contract) is not in this
+  release.
+
 ## 0.82.1 — 2026-09-17
 
 ### Changes that raise

@@ -877,9 +877,115 @@ to exactly that depth.
     example_inputs={"vocabulary": ["red", "blue", "green", "turquoise"]},
 )
 
+CAPTURE_WEIGHTS = Op(
+    name="weights/capture",
+    summary=(
+        "Read the model's own learned tensors — their shape, norm, "
+        "sparsity and, on request, their spectrum and their values — with "
+        "no prompt and no forward pass."
+    ),
+    description="""\
+Every other readout runs the model. This one reads it: what the model IS,
+rather than what it did on an input, so there is nothing for the reading
+to be representative of and nothing to sample.
+
+`points` names parameters the way the module tree does —
+`layers.12.self_attn.q_proj`, `embed_tokens`,
+`layers.*.mlp.down_proj`, `layers.*.post_attention_layernorm` — with
+`*` standing for one segment. A point that names a module takes its
+parameters; `"all"` takes every tensor the model has, which on a 4B
+model is several hundred.
+
+Each item carries the cheap facts always: `shape`, `frobenius`, `mean`,
+`std`, `max_abs` (where an outlier channel shows) and `sparsity`. Two
+are asked for, because both are expensive in their own way:
+
+* `spectrum: k` computes an SVD per tensor and records the top `k`
+  singular values, σ₁ and the effective rank — about a second for a
+  2048×1536 matrix, so name the points you mean.
+* `values: true` carries the tensor itself, and is refused past two
+  million numbers across the selection: a 4B model's embedding table is
+  four hundred million, and the reduced forms above are what this block
+  is for.
+
+An adapter on the node's `adapter` port is fused before the read, so the
+parameters captured are the adapted ones — the base plus what training
+wrote. To read what training wrote BY ITSELF, `adapter/measure` reads
+the adapter's own deltas and needs no model at all.
+""",
+    inputs=(ADAPTER,),
+    emits=Emits('weights/parameter', collection=True, doc="One item per parameter tensor, id and `coords.module` naming it in the model's own tree: `shape`, `n`, `dtype`, `frobenius`, `mean`, `std`, `max_abs`, `sparsity`, plus `singular_values`/`spectral`/`effective_rank` under `spectrum` and `values` under `values`. The header carries the `model` and `captured` — the tensors read, the numbers that is, and how many the model has."),
+    params=(
+        P("points", "list[string] | \"all\"",
+          "Which parameters to read, named as the module tree names them; "
+          "`*` stands for one segment.",
+          "all"),
+        P("spectrum", "int",
+          "Record this many singular values per tensor, with σ₁ and the "
+          "effective rank. An SVD per tensor: name your points.",
+          0),
+        P("values", "bool",
+          "Carry each tensor itself, flattened. Refused past two million "
+          "numbers across the selection.",
+          False),
+    ),
+    example={"model": "$model", "points": ["layers.*.mlp.down_proj"],
+             "spectrum": 8},
+)
+
+DECOMPOSE_WEIGHTS = Op(
+    name="weights/decompose",
+    summary=(
+        "A parameter's principal directions in the residual stream — what "
+        "a projection reads, or what it writes — as directions the rest of "
+        "the direction family can take."
+    ),
+    description="""\
+A weight matrix has two spaces, its input's and its output's, and for the
+attention and MLP projections exactly one of them is **the residual
+stream** — the space the rest of the model, and every readout, talks
+about. `q_proj`, `k_proj`, `v_proj`, `gate_proj` and `up_proj` READ the
+residual stream, so their right singular vectors are the directions they
+ask about; `o_proj` and `down_proj` WRITE it, so their left singular
+vectors are the directions they contribute. The other side is head or
+hidden space, where a direction means nothing to an unembedding or to
+another layer, and this block refuses it by name.
+
+What comes out is `direction/vector` — the same kind `direction/fit`
+emits from activations — so everything that family does applies:
+`direction/unembed` names the tokens a direction promotes,
+`direction/project` measures activations against it,
+`geometry/compare` measures two of them against each other. A weight's
+direction and an activation's direction are comparable when they share a
+space, which is what makes this the bridge between the two halves.
+
+`points` is required: an SVD per tensor is not something to do to a
+whole model by accident.
+""",
+    inputs=(ADAPTER,),
+    emits=Emits('direction/vector', collection=True, doc="`top_k` items per module, ids `<parameter>#<k>`: the unit direction, `norm` its singular value, `space` naming the model, the layer and the point the module reads or writes (`attn.in_norm`, `attn_out`, `mlp.in_norm`, `mlp_out`), and `derivation` recording the module, the side and the index. The header's `decomposed` lists what was skipped and why."),
+    params=(
+        P("points", "list[string]",
+          "Which parameters to decompose, named as the module tree names "
+          "them; `*` stands for one segment. Required — an SVD per tensor "
+          "is not something to do to a whole model by accident."),
+        P("top_k", "int",
+          "How many directions per module, largest singular value first.",
+          4),
+        P("side", "\"auto\" | \"in\" | \"out\"",
+          "Which side to read. `auto` takes whichever side is the residual "
+          "stream; naming one takes only the modules whose residual side is "
+          "that, and says why it skipped the rest.",
+          "auto"),
+    ),
+    example={"model": "$model", "points": ["layers.*.self_attn.o_proj"],
+             "top_k": 2},
+)
+
 OPS: tuple[Op, ...] = (
     INTERVENE, ABLATE_LAYERS, ABLATE_HEADS, ATTENTION_PATTERNS,
     ATTRIBUTION_LOGITS, PATCH_TRACE, RESIDUALS_DIVERGENCE, RESIDUALS_VECTORS,
     LENS_POSITIONS, LENS_TRAJECTORY, STEER_INJECT,
     GENERATE, DECISION_READ, SCORE, TOKENIZE_STATS,
+    CAPTURE_WEIGHTS, DECOMPOSE_WEIGHTS,
 )

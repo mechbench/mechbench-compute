@@ -157,7 +157,7 @@ def test_names_are_two_level_bare_and_unique() -> None:
     assert not lonely, f"families of one: {lonely}"
     assert set(families) == {
         "records", "text", "eval", "logits", "activations", "geometry",
-        "intervene", "direction", "trajectory", "adapter", "tools",
+        "intervene", "direction", "trajectory", "adapter", "weights", "tools",
     }
 
 

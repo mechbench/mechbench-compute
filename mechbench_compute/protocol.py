@@ -737,6 +737,12 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_trajectory_capture, inputs, params,
                     on_item=on_item, on_start=expand)
+            elif block == "weights/capture":
+                results[nid] = self._run_model_block(
+                    self._block_capture_weights, inputs, params)
+            elif block == "weights/decompose":
+                results[nid] = self._run_model_block(
+                    self._block_decompose_weights, inputs, params)
             elif block == "text/tokenize":
                 # The tokenizer is the model's; an adapter does not
                 # change it, so this block takes no adapter port.
@@ -1202,6 +1208,30 @@ class ProtocolExecutor:
             # Reproducible: a spooled row IS the row this loop produced.
             out["items"] = [reuse.get(f"{r['id']}:{r['factor']}", r) for r in out["items"]]
         return out
+
+    def _block_capture_weights(self, inputs, params):
+        """weights/capture (task 000457): the model's own parameters as
+        data. No prompt, no forward pass — and an adapter on the port is
+        fused first, so what is read is the model as this node has it."""
+        from mechbench_compute import weights as weights_mod
+
+        model = self._model_loaded(params.get("model"))
+        ref = params.get("model")
+        return weights_mod.capture_weights(
+            model.lm, params,
+            model_wire=ref.to_wire() if hasattr(ref, "to_wire") else ref)
+
+    def _block_decompose_weights(self, inputs, params):
+        """weights/decompose (task 000457): a parameter's principal
+        directions in the residual stream, as directions the direction
+        family can take."""
+        from mechbench_compute import weights as weights_mod
+
+        model = self._model_loaded(params.get("model"))
+        ref = params.get("model")
+        return weights_mod.decompose_weights(
+            model.lm, params,
+            model_wire=ref.to_wire() if hasattr(ref, "to_wire") else ref)
 
     def _block_direction_vocab(self, inputs, params):
         """direction/unembed (task 000367): a direction

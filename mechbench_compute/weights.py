@@ -1,12 +1,23 @@
-"""Weight space: what training WROTE, read from the weights themselves.
+"""Weight space: the model's parameters, and what training wrote to them.
 
-Every readout the lexicon had until now reads an activation at a hook
+Every readout the lexicon had until 0.81.2 reads an activation at a hook
 point during a forward pass — what the model did on this input. A
 parameter answers a different question: what the model IS, and what
-training changed. An adapter is the purest case of the second: it is
-nothing but a set of low-rank deltas, one per (layer, projection), and
-it is already an object on the bench. Reading it needs no model, no
-prompt and no forward pass (task 000458, weights-as-points 000457).
+training changed. Neither needs a prompt, a sample, or anything to be
+representative of (weights-as-points, tasks 000457 and 000458).
+
+Three readouts live here:
+
+- **`weights/capture`** — the model's own tensors, named by the module
+  tree (`layers.12.self_attn.q_proj.weight`). Shape, norm, sparsity and
+  outlier magnitude always; the spectrum and the values only when asked,
+  because both are expensive in their own way.
+- **`weights/decompose`** — a parameter's principal directions IN THE
+  RESIDUAL STREAM, as `direction/vector` items the direction family can
+  take. Which side of a matrix is the residual stream is a per-module
+  fact (`RESIDUAL_SIDE`), and a module where neither side is refuses.
+- **`adapter/measure`** — an adapter's deltas, which are already the
+  difference training made, and need neither the model nor its base.
 
 **The r×r trick.** A LoRA delta is `ΔW = scale · B · A` with `B` out×r
 and `A` r×in, r ≤ 8 — so ΔW is a 2560×2048 matrix of which at most 8
@@ -43,11 +54,303 @@ The numbers each module gets:
 from __future__ import annotations
 
 import os
+import re
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
+
+#: A capture refuses more values than this, as an activation capture
+#: does: the reduced forms are the point, and one 262144×1536 embedding
+#: table is 400M floats. `values: true` on a wide selection should fail
+#: with a number, not fill a job's memory.
+MAX_VALUES = 2_000_000
+
+#: How many values a stats pass casts to float32 at once. The cast is
+#: what costs memory (four bytes a number, on a model whose largest
+#: tensor is 2.3 billion of them), so the reductions run in row blocks
+#: of about this size.
+_STAT_BLOCK_VALUES = 16_000_000
+
+#: The scope every parameter name in an MLX model carries. A point may
+#: be written with or without it; `layers.12.…` is what a person types
+#: and what an adapter's keys use.
+_SCOPE = "model."
+
+
+def parameter_names(lm: Any) -> dict[str, Any]:
+    """`{name: tensor}` for every parameter of a loaded text decoder,
+    named as the module tree names it (`layers.12.self_attn.q_proj.
+    weight`), the `model.` scope stripped."""
+    from mlx.utils import tree_flatten
+
+    out: dict[str, Any] = {}
+    for name, arr in tree_flatten(lm.parameters()):
+        out[name.removeprefix(_SCOPE)] = arr
+    return out
+
+
+def _pattern(point: str) -> re.Pattern[str]:
+    """A parameter point as a matcher. `*` stands for one segment, so
+    `layers.*.mlp.down_proj` is every layer's down projection; anything
+    else is literal. A point that names a MODULE matches its parameters
+    (`…q_proj` matches `…q_proj.weight`)."""
+    body = re.escape(point).replace(r"\*", r"[^.]+")
+    return re.compile(rf"^{body}(\.[^.]+)?$")
+
+
+def select_points(names: Iterable[str], points: Any) -> list[str]:
+    """The parameter names a node's `points` selects, in model order.
+
+    `"all"` is every parameter, which is a lot (540 tensors on a 4B
+    model) — useful for a stats sweep, never for values.
+    """
+    have = list(names)
+    if points in (None, "all"):
+        return have
+    if isinstance(points, str):
+        points = [points]
+    wanted: list[str] = []
+    for p in points:
+        raw = str(p)
+        bare = raw.removeprefix(_SCOPE)
+        matcher = _pattern(bare)
+        hit = [n for n in have if matcher.match(n)]
+        if not hit:
+            raise ValueError(
+                f"no parameter matches {raw!r}. A point names the module "
+                f"tree — `layers.12.self_attn.q_proj`, `embed_tokens`, "
+                f"`layers.*.mlp.down_proj` — and this model carries "
+                f"{len(have)} parameters, e.g. {', '.join(have[:3])}.")
+        wanted += [n for n in hit if n not in wanted]
+    return [n for n in have if n in set(wanted)]
+
+
+def _coords_of(name: str) -> dict[str, Any]:
+    """What a parameter's name says about where it is."""
+    parts = name.split(".")
+    coords: dict[str, Any] = {}
+    if parts[0] == "layers" and len(parts) > 2 and parts[1].isdigit():
+        coords["layer"] = int(parts[1])
+        rest = parts[2:]
+        if len(rest) > 1 and rest[0] in ("self_attn", "mlp"):
+            coords["container"] = rest[0]
+            coords["projection"] = rest[1]
+        coords["module"] = ".".join(parts[:-1]) if len(parts) > 2 else name
+    else:
+        coords["module"] = ".".join(parts[:-1]) or name
+    coords["parameter"] = parts[-1]
+    return coords
+
+
+def parameter_stats(arr: Any, *, spectrum: int = 0) -> dict[str, Any]:
+    """What a parameter is, as numbers.
+
+    The cheap ones are computed WHERE THE TENSOR IS — four reductions on
+    the GPU, five numbers back — because a 4B model is 4.6 billion of
+    them and copying that to the host to take a mean costs half a minute
+    for readings that are five floats each. The spectrum is the
+    exception: an SVD is numpy's, and an SVD of a 2048×1536 matrix is
+    about a second, so it happens only when asked for.
+    """
+    import mlx.core as mx
+
+    a = arr if isinstance(arr, mx.array) else mx.array(np.asarray(arr))
+    n = int(a.size)
+    if n == 0:
+        return {"frobenius": 0.0, "mean": 0.0, "std": 0.0,
+                "max_abs": 0.0, "sparsity": 0.0}
+    # In row blocks, for two reasons that both bite on a real model: the
+    # float32 cast of a 262144×8960 embedding table is 9 GB held at once,
+    # and MLX's shape dimensions are 32-bit, so its 2.3 billion elements
+    # cannot be reshaped to a vector at all. Sums are accumulated in
+    # float64 on the host, so a billion small numbers still add up.
+    rows = a.shape[0] if a.ndim else 1
+    block = max(1, min(rows, int(_STAT_BLOCK_VALUES // max(1, n // max(1, rows)))))
+    total = sq = zeros = 0.0
+    biggest = 0.0
+    for start in range(0, rows, block):
+        chunk = (a[start:start + block] if a.ndim else a).astype(mx.float32)
+        s, s2, z, m = (mx.sum(chunk), mx.sum(chunk * chunk),
+                       mx.sum(chunk == 0), mx.max(mx.abs(chunk)))
+        mx.eval(s, s2, z, m)
+        total += float(s)
+        sq += float(s2)
+        zeros += float(z)
+        biggest = max(biggest, float(m))
+    mean = total / n
+    stats: dict[str, Any] = {
+        "frobenius": float(np.sqrt(sq)),
+        "mean": mean,
+        "std": float(np.sqrt(max(0.0, sq / n - mean * mean))),
+        "max_abs": biggest,
+        "sparsity": zeros / n,
+    }
+    if spectrum and a.ndim == 2:
+        sv = np.linalg.svd(np.array(a.astype(mx.float32)), compute_uv=False)
+        stats["singular_values"] = [float(x) for x in sv[:spectrum]]
+        stats["spectral"] = float(sv[0])
+        stats["effective_rank"] = effective_rank(sv)
+    return stats
+
+
+def capture_weights(lm: Any, params: Mapping[str, Any] | None = None,
+                    *, model_wire: Any = None) -> dict[str, Any]:
+    """`weights/capture`: parameters as objects — one item per tensor.
+
+    No forward pass and no prompt: what is read is the model itself.
+    """
+    params = dict(params or {})
+    spectrum = int(params.get("spectrum", 0) or 0)
+    want_values = bool(params.get("values", False))
+    tensors = parameter_names(lm)
+    chosen = select_points(tensors, params.get("points", "all"))
+
+    if want_values:
+        total = sum(int(np.prod(tensors[n].shape)) for n in chosen)
+        if total > MAX_VALUES:
+            raise ValueError(
+                f"`values: true` over {len(chosen)} parameters is "
+                f"{total:,} values, past the {MAX_VALUES:,} ceiling. Name "
+                f"fewer points, or leave the values off — the stats and the "
+                f"spectrum are the reduced forms this block is for.")
+
+    import mlx.core as mx
+
+    items: list[dict[str, Any]] = []
+    for name in chosen:
+        tensor = tensors[name]
+        item: dict[str, Any] = {
+            "id": name,
+            "coords": _coords_of(name),
+            "kind": "weights/parameter",
+            "shape": [int(d) for d in tensor.shape],
+            "n": int(tensor.size),
+            "dtype": str(tensor.dtype).replace("mlx.core.", ""),
+            **parameter_stats(tensor, spectrum=spectrum),
+        }
+        if want_values:
+            item["values"] = np.array(
+                tensor.astype(mx.float32), dtype=np.float32).reshape(-1).tolist()
+        items.append(item)
+
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection(
+        "weights/parameter", items,
+        model=model_wire,
+        captured={"parameters": len(items),
+                  "values": sum(it["n"] for it in items),
+                  "of": len(tensors)},
+        name=params.get("name"),
+        description=params.get("description"),
+    )
+
+
+#: Which side of a projection is the residual stream, and the point the
+#: model reads or writes it at. A weight's singular vectors live in two
+#: spaces — its input's and its output's — and only one of them is a
+#: space anything else in the platform can talk about: `q_proj`'s rows
+#: are questions asked OF the residual stream, `o_proj`'s columns are
+#: what it writes INTO it. The other side is head or hidden space, where
+#: a direction means nothing to an unembedding or to another layer.
+RESIDUAL_SIDE: dict[str, tuple[str, str]] = {
+    "q_proj": ("in", "attn.in_norm"),
+    "k_proj": ("in", "attn.in_norm"),
+    "v_proj": ("in", "attn.in_norm"),
+    "o_proj": ("out", "attn_out"),
+    "gate_proj": ("in", "mlp.in_norm"),
+    "up_proj": ("in", "mlp.in_norm"),
+    "down_proj": ("out", "mlp_out"),
+}
+
+
+def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
+                      *, model_wire: Any = None) -> dict[str, Any]:
+    """`weights/decompose`: a parameter's principal directions, in the
+    residual stream, as `direction/vector` items.
+
+    The left singular vectors of `o_proj` are the directions that module
+    WRITES into the residual stream, largest first; the right singular
+    vectors of `q_proj` are the directions it READS. Either is a
+    direction in the model's activation space, so everything the
+    direction family does applies: `direction/unembed` names the tokens
+    one promotes, `geometry/compare` measures two against each other.
+    """
+    params = dict(params or {})
+    top_k = max(1, int(params.get("top_k", 4)))
+    side_want = str(params.get("side", "auto"))
+    tensors = parameter_names(lm)
+    chosen = select_points(tensors, params.get("points", []))
+    if not params.get("points"):
+        raise ValueError(
+            "weights/decompose needs `points`: an SVD per tensor is not "
+            "something to do to a whole model by default. Name the modules "
+            "— `layers.*.self_attn.o_proj`, `layers.12.mlp.down_proj`.")
+
+    import mlx.core as mx
+
+    items: list[dict[str, Any]] = []
+    refused: list[str] = []
+    for name in chosen:
+        arr = np.array(tensors[name].astype(mx.float32), dtype=np.float32)
+        if arr.ndim != 2:
+            refused.append(f"{name} (not a matrix)")
+            continue
+        coords = _coords_of(name)
+        proj = coords.get("projection")
+        known = RESIDUAL_SIDE.get(str(proj))
+        if known is None:
+            refused.append(f"{name} (neither side is the residual stream)")
+            continue
+        side, point = known
+        if side_want in ("in", "out") and side_want != side:
+            refused.append(f"{name} (its {side_want} side is not the residual stream)")
+            continue
+        u, sv, vt = np.linalg.svd(arr, full_matrices=False)
+        # `out` reads the left vectors (rows of the output space), `in`
+        # the right ones (rows of the input space).
+        basis = u.T if side == "out" else vt
+        for k in range(min(top_k, basis.shape[0])):
+            vec = basis[k]
+            vec = vec / float(np.linalg.norm(vec))
+            items.append({
+                "id": f"{name}#{k}",
+                "coords": {**coords, "index": k},
+                "kind": "direction/vector",
+                "space": {"model": model_wire if isinstance(model_wire, str)
+                          else (model_wire or {}).get("base")
+                          if isinstance(model_wire, Mapping) else None,
+                          "layer": coords.get("layer"), "point": point,
+                          "d": len(vec)},
+                "vector": [float(x) for x in vec],
+                "norm": float(sv[k]),
+                "unit": True,
+                "derivation": {"method": "weights/decompose", "module": name,
+                               "side": side, "index": k,
+                               "singular_value": float(sv[k]),
+                               "spectral": float(sv[0])},
+            })
+    if not items:
+        raise ValueError(
+            "weights/decompose produced no direction: "
+            + "; ".join(refused[:4])
+            + ". A direction is only a direction in a space something "
+            "reads — the residual stream. `q_proj`, `k_proj`, `v_proj`, "
+            "`gate_proj` and `up_proj` read it; `o_proj` and `down_proj` "
+            "write it.")
+
+    from mechbench_compute.lexicon import kinds as K
+
+    return K.collection(
+        "direction/vector", items,
+        model=model_wire,
+        decomposed={"modules": len({it["derivation"]["module"] for it in items}),
+                    "per_module": top_k, "skipped": refused},
+        name=params.get("name"),
+        description=params.get("description"),
+    )
 
 
 def adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str], dict[str, np.ndarray]]:

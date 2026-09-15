@@ -29,7 +29,8 @@ INTERNAL = [
 ]
 
 FAMILIES = {"records", "text", "eval", "logits", "activations", "geometry",
-            "intervene", "direction", "trajectory", "adapter", "tools",
+            "intervene", "direction", "trajectory", "adapter", "weights",
+            "tools",
             # platform families: kinds no op produces
             "sandbox", "provider", "model", "run"}
 
