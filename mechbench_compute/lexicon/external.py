@@ -304,9 +304,9 @@ resumability and per-call provenance; a local model is the cheap first test.
           "measurement.",
           ""),
         P("scale", "object",
-          "What the judge answers with: `{\"kind\": \"numeric\", \"min\": 1, "
-          "\"max\": 5}` (or `\"range\": [1, 5]`); `{\"kind\": "
-          "\"categorical\", \"labels\": [...]}`; or `{\"kind\": "
+          "What the judge answers with: `{\"type\": \"numeric\", \"min\": 1, "
+          "\"max\": 5}` (or `\"range\": [1, 5]`); `{\"type\": "
+          "\"categorical\", \"labels\": [...]}`; or `{\"type\": "
           "\"pairwise\"}`.",
           {"type": "numeric", "min": 1, "max": 5}),
         P("n_votes", "int", "How many times each subject is judged.", 1),

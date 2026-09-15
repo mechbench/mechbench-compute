@@ -64,7 +64,8 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Callable, Iterable, Iterator, Mapping, NamedTuple
+from dataclasses import dataclass
+from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple
 
 import mlx.core as mx
 import numpy as np
@@ -425,6 +426,59 @@ def render_chat(tokenizer, system: str, user: str, prefill: str = "",
     return tokenizer.apply_chat_template(
         [{"role": "user", "content": merged}],
         tokenize=False, add_generation_prompt=True, **kwargs) + prefill
+
+
+@dataclass(frozen=True)
+class Rendered:
+    """A record, rendered: the token ids the model sees, the text they
+    came from, whether the chat template applied, and the prompt's
+    length in tokens — every id, for a record without a trace, which is
+    what `"generated"` positions count from."""
+
+    ids: list[int]
+    text: str
+    chat: bool
+
+    @property
+    def prompt_len(self) -> int:
+        return len(self.ids)
+
+    @property
+    def array(self):
+        return mx.array([self.ids], dtype=mx.int32)
+
+    def tokens(self, tokenizer) -> list[str]:
+        return [tokenizer.decode([int(t)]) for t in self.ids]
+
+
+def render(model, record: Mapping[str, Any], *, date_string: str | None = None) -> Rendered:
+    """One way from a record to token ids.
+
+    A condition — `user`, optional `system`, optional `prefill` — renders
+    through the model's chat template as one user turn, the assistant's
+    turn begun with the prefill; that is where a decision is read and
+    what every model op sees. A record that says `template: false`, or
+    that carries only `text` or `prompt`, is tokenized raw (its prefill,
+    if any, appended); `template: "chat"` on such a record renders it as
+    the user turn. The retired `template: "raw"` reads as `false`.
+    """
+    template = record.get("template")
+    raw = template is False or template == "raw"
+    text = record.get("user") or record.get("prompt") or record.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(
+            f"record {record.get('id')!r} has no prompt: expected `user` "
+            "(a condition), `prompt`, or `text` (a document)")
+    chat = (template is True or template == "chat"
+            or ("user" in record and not raw))
+    tok = model.tokenizer
+    prefill = str(record.get("prefill") or "")
+    if chat:
+        rendered = render_chat(tok, str(record.get("system") or ""), text, prefill,
+                               date_string=date_string)
+    else:
+        rendered = text + prefill
+    return Rendered(encode(tok, rendered), rendered, chat)
 
 
 def encode(tokenizer, text: str) -> list[int]:

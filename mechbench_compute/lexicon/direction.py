@@ -39,9 +39,9 @@ _NAMED_DIRECTIONS = (
 
 def _point() -> P:
     return P("point", "string",
-             "Override the point recorded on the direction. By default it is "
-             "taken from the vectors record (`\"resid_post\"` for `point: "
-             "\"post\"`).",
+             "Override the point recorded on the direction — `\"resid_post\"`, "
+             "`\"resid_pre\"`, or any point name. By default it is taken from "
+             "the vectors' own `space`.",
              None)
 
 

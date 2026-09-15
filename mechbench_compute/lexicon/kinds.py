@@ -36,7 +36,8 @@ def F(type_: str, doc: str, **extra: Any) -> dict[str, Any]:
 ID = F("string", "The record's identity within its collection.")
 COORDS = F("object", "The experimental coordinates the record belongs to: axis name → level key.",
            additionalProperties={"type": ["string", "integer", "number"]})
-SPACE_DOC = ("The activation space the vector lives in: `{model, layer | null, point, head | null, d}`. "
+SPACE_DOC = ("The activation space the vector lives in: `{model, layer | null, point, head | null, d}`; "
+             "`point` is one of the forward pass's point names (`resid_post`, `attn_out`, `attn.q`, …). "
              "Two vectors are comparable only when their spaces agree.")
 TOKEN = F("object", "A token as `{id, text}`.", properties={"id": {"type": "integer"}, "text": {"type": "string"}})
 VEC = F("array", "A dense float vector; position is the only key.", items={"type": "number"})
@@ -73,8 +74,8 @@ CONDITION = Kind(
         "user": F("string", "The user turn.", **{"x-mechbench-text": True}),
         "system": F("string", "The system prompt, when there is one."),
         "prefill": F("string", "Text the assistant's turn begins with, so a read happens at the first token after it."),
-        "outcomes": F("array", "Candidate answers whose probability mass a decision read reports.", items={"type": "string"}),
-        "tracked": F("object", "Named tokens a read reports on, by name.", additionalProperties={"type": "string"}),
+        "tracked": F("object", "Named tokens a read reports on, by name; the first is the target.", additionalProperties={"type": "string"}),
+        "template": F("boolean", "`false` to tokenize the record raw rather than through the chat template."),
     },
     required=("id", "user"),
     key=("id",),
@@ -274,7 +275,7 @@ LENS = Kind(
     fields={"target": TOKEN},
     required=("id", "axes", "measures", "tokens", "target"),
     key=("id",),
-    header={"layers": "The layers read, in row order.", "template": "How prompts were tokenized."},
+    header={"layers": "The layers read, in row order."},
     doc="Axes `[layer, position]`; measures `logprob` and `rank` (0 is the top readout).",
 )
 
@@ -288,7 +289,7 @@ ATTRIBUTION = Kind(
     required=("id", "axes", "measures", "target", "additivity"),
     key=("id",),
     header={"components": "The component names: `embed`, then `L0`, `L1`, …", "apply_ln": "Whether the final norm was folded in.",
-            "layers": "The layers decomposed (all of them).", "template": "How prompts were tokenized."},
+            "layers": "The layers decomposed (all of them)."},
     doc="Axis `[component]`, in the header's `components` order; measure `contribution`.",
 )
 
@@ -306,7 +307,7 @@ VECTOR = Kind(
     header={"point": "The hook point read.", "source": "`resid`, `queries` or `keys`.",
             "position": "Which position, or `pooled`.", "pool": "The pooling, when pooled.",
             "layers": "The layers captured.", "d_model": "The vector width.",
-            "template": "How prompts were tokenized.", "model": "The model's wire form.",
+            "model": "The model's wire form.",
             "skipped_empty": "Records dropped for having no text, when any.",
             "segments": "When made by `records/union`: the ports and how many each contributed."},
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
@@ -348,7 +349,7 @@ DIVERGENCE = Kind(
     extends="activations/grid",
     required=("id", "axes", "measures"),
     key=("id",),
-    header={"point": "The residual compared.", "layers": "The layers, in row order.", "template": "How prompts were tokenized."},
+    header={"point": "The residual compared.", "layers": "The layers, in row order."},
     doc="Axes `[layer, position]`; measure `divergence`; `tokens` are prompt `a`'s.",
 )
 
@@ -358,7 +359,7 @@ ATTENTION = Kind(
     extends="activations/grid",
     required=("id", "axes", "measures", "tokens"),
     key=("id",),
-    header={"n_heads": "Heads per layer.", "layers": "The layers captured, in axis order.", "template": "How prompts were tokenized."},
+    header={"n_heads": "Heads per layer.", "layers": "The layers captured, in axis order."},
     doc="Axes `[layer, head, query, key]`; measure `weight` — row = the attending position, column = the attended-to position.",
 )
 
@@ -418,7 +419,7 @@ READOUT = Kind(
     key=("id", "factor"),
     header={"spec": "The intervention items as run, with objects replaced by their provenance.",
             "sweep": "The factors run, including 0 when a control was added.",
-            "readout": "`decision` or `capture`.", "template": "How prompts were tokenized.",
+            "readout": "`decision` or `capture`.",
             "layer": "For a steer sweep: the injection layer.",
             "direction": "For a steer sweep: the axis and values, norm and counts of the direction built."},
     renderer=_TABLE_RENDERER,
@@ -434,7 +435,7 @@ ABLATION = Kind(
     required=("id", "layer", "delta_logp"),
     key=("id", "layer"),
     header={"component": "What was removed at each layer.", "layers": "The layers swept.",
-            "n_conditions": "How many records.", "template": "How prompts were tokenized.",
+            "n_conditions": "How many records.",
             "conditions": "Per record: `{id, target, baseline_logp}` — the untouched read each delta is against.",
             "aggregates": "`{mean_delta, median_delta}` per layer across records."},
     renderer=_TABLE_RENDERER,
@@ -446,8 +447,7 @@ HEADS = Kind(
     extends="activations/grid",
     fields={"layers": F("array", "The layers, in row order.", items={"type": "integer"}),
             "n_heads": F("integer", "Heads per layer."), "n_conditions": F("integer", "How many records."),
-            "conditions": F("array", "Per record: `{id, target, baseline_logp}`.", items={"type": "object"}),
-            "template": F("string", "How prompts were tokenized.")},
+            "conditions": F("array", "Per record: `{id, target, baseline_logp}`.", items={"type": "object"})},
     required=("id", "axes", "measures", "layers", "n_heads"),
     doc="Axes `[layer, head]`; measure `mean_delta`. One grid for the whole record set, id `mean`.",
 )
@@ -461,7 +461,7 @@ TRACE = Kind(
             "value_b": F("number", "The metric on prompt `b` (corrupted), the baseline.")},
     required=("id", "axes", "measures"),
     key=("id",),
-    header={"point": "The residual patched.", "metric": "`logprob` or `prob`.", "layers": "The layers, in row order.", "template": "How prompts were tokenized."},
+    header={"point": "The residual patched.", "metric": "`logprob` or `prob`.", "layers": "The layers, in row order."},
     doc="Axes `[layer, position]`; measure `recovery` — the change in the metric from the `b` baseline; `tokens` are prompt `b`'s.",
 )
 
@@ -501,7 +501,7 @@ POINT = Kind(
     key=("id", "step"),
     header={"axis": "`layers` or `positions`.", "point": "The residual read.", "layers": "The layers.",
             "position": "For a layers axis: which position.", "positions": "For a positions axis: which positions.",
-            "d_model": "The vector width.", "template": "How prompts were tokenized.",
+            "d_model": "The vector width.",
             "replay": "`trace`, `text` or `mixed`.", "n_items": "How many records.",
             "max_steps": "The per-record step cap, when set.", "reduce": "The reduction, when reduced.", "steps": "The window, when reduced."},
     renderer=_TABLE_RENDERER,

@@ -33,6 +33,8 @@ from typing import Any
 
 import numpy as np
 
+from mechbench_compute import points as P
+
 _ROUND_VECTOR = 5
 _ROUND_P = 5
 _ROUND_LOGP = 4
@@ -198,13 +200,8 @@ def space_of(item: Mapping[str, Any], header: Mapping[str, Any] | None = None) -
     point = item.get("point") or h.get("point") or "resid_post"
     return space(model=item.get("model") or h.get("model")
                  or (item.get("derivation") or {}).get("model"),
-                 layer=item.get("layer"), point=_point_name(str(point)),
+                 layer=item.get("layer"), point=P.normalize(str(point)),
                  d=int(d) if d is not None else 0, head=item.get("head"))
-
-
-def _point_name(p: str) -> str:
-    """`post` → `resid_post`; a hook-style name is kept as is."""
-    return p if "." in p or p.startswith("resid_") or p in ("embed", "final_norm", "logits") else f"resid_{p}"
 
 
 def layer_of(item: Mapping[str, Any]) -> int | None:

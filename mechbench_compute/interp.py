@@ -20,9 +20,11 @@ diff on the platform:
                           cosine matrix + separation metrics over
                           labeled vectors. Lives in blocks.PURE_BLOCKS.
 
-Prompts default to RAW tokenization (no chat template): the original
-experiments measure completion behavior, and a chat wrapper changes
-both the positions and the task. `template: "chat"` opts in.
+Every op renders its records one way (`distill.render`): a condition
+(`user`, optional `system` and `prefill`) through the model's chat
+template, a bare `text`/`prompt` record raw. So an ablation sweep can
+read at a decision point inside an assistant turn, exactly where
+`logits/decision` reads.
 """
 
 from __future__ import annotations
@@ -33,31 +35,45 @@ from typing import Any
 import mlx.core as mx
 import numpy as np
 
+from mechbench_compute import points as P
+from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
+from mechbench_compute.distill import encode, render
 from mechbench_compute.interventions import Ablate, Capture
 
 #: Refuse vector payloads past this many floats — a mistyped layer list
 #: must not emit a gigabyte of CBOR. ~16 MB of float64 at the cap.
 MAX_VECTOR_FLOATS = 2_000_000
 
-_COMPONENTS: dict[str, Callable[[int], Any]] = {
-    "block": Ablate.layer,
-    "attention": Ablate.attention,
-    "mlp": Ablate.mlp,
-    # MatFormer's per-layer-input gate (step 03's side channel). On a
-    # non-MatFormer model the hook name does not exist and the run
-    # refuses with the arch's own error.
-    "gate": Ablate.side_channel,
+#: The points `intervene/layers` can zero at a layer, by the point's
+#: name. On a non-MatFormer model `gate_out` has no hook and the run
+#: refuses with the arch's own error.
+_ABLATE_AT: dict[str, Callable[[int], Any]] = {
+    "attn_out": Ablate.attention,
+    "mlp_out": Ablate.mlp,
+    "gate_out": Ablate.side_channel,
 }
+
+
+def _ablation_points(spec: Any) -> list[str]:
+    """The `point` param of `intervene/layers`: one name or a list of
+    them, each a sub-layer output; the default is both, the whole
+    layer's contribution."""
+    if spec is None:
+        return ["attn_out", "mlp_out"]
+    names = [spec] if isinstance(spec, str) else [str(p) for p in spec]
+    out = [P.normalize(n) for n in names]
+    bad = [n for n in out if n not in _ABLATE_AT]
+    if bad or not out:
+        raise ValueError(
+            f"intervene/layers zeroes a sub-layer output — one or more of "
+            f"{sorted(_ABLATE_AT)} — not {bad or spec!r}")
+    return out
 
 
 def _K():
     from mechbench_compute.lexicon import kinds as K
     return K
-
-
-def _tokenize(model, prompt: str, template: str) -> mx.array:
-    return model.tokenize(prompt, chat_template=(template == "chat"))
 
 
 def _last_logp(logits: mx.array) -> np.ndarray:
@@ -80,43 +96,32 @@ def _resolve_layers(spec: Any, n_layers: int) -> list[int]:
     return layers
 
 
-def _prompt_of(record: Mapping[str, Any]) -> str:
-    # Three conventions, one meaning: `user` on a condition record,
-    # `prompt` on a raw one, and `text` on a document item — embedding
-    # a stored corpus is the same operation as embedding a prompt.
-    p = record.get("user") or record.get("prompt") or record.get("text")
-    # Whitespace is not text: embedding "   " is meaningless, and the
-    # same emptiness test has to hold here and in skip_empty.
-    if not isinstance(p, str) or not p.strip():
-        raise ValueError(
-            f"record {record.get('id')!r} has no prompt: expected `user` "
-            "(condition-set convention), `prompt`, or `text` (a document)"
-        )
-    return p
+def _render_text(model, record: Mapping[str, Any], text: str) -> mx.array:
+    """One side of a pair, rendered as the pair's record says (raw unless
+    it carries `template: "chat"`)."""
+    return render(model, {"id": record.get("id"), "text": text,
+                          "template": record.get("template")}).array
 
 
 def _target_token_id(model, target: str) -> int:
     """The first token of `target`, tokenized raw as a continuation."""
-    ids = model.tokenize(target, chat_template=False)
-    flat = [int(t) for t in np.array(ids).reshape(-1)]
+    flat = encode(model.tokenizer, target)
     # skip BOS-like specials the tokenizer prepends
     specials = set(getattr(model.tokenizer, "all_special_ids", []) or [])
     for t in flat:
         if t not in specials:
-            return t
+            return int(t)
     raise ValueError(f"target {target!r} tokenized to specials only")
 
 
 def _tracked_ids(model, record: Mapping[str, Any], *,
-                 tracked: Mapping[str, Any] | None = None,
-                 outcomes: Sequence[Any] | None = None,
-                 tracks: Mapping[str, Any] | None = None,
-                 track: Any = None) -> dict[str, int]:
+                 tracked: Mapping[str, Any] | None = None) -> dict[str, int]:
     """The tokens a read reports on, by name: `tracked` (name → token
-    string), with the record's own field taking precedence over the
-    block's param. The older spellings — `outcomes` (each its own
-    name), `tracks`, and a single `track` — are read the same way for
-    the alias window; each block passes the ones it declares."""
+    string), the record's own field taking precedence over the op's
+    param, in declaration order — the first entry is the target a
+    sweep's delta is taken on. A record written before the spellings
+    were one may still carry `target`, `outcomes`, `tracks` or `track`;
+    those are read after `tracked`, each token under its own text."""
     out: dict[str, int] = {}
 
     def put(name: Any, text: Any) -> None:
@@ -125,14 +130,31 @@ def _tracked_ids(model, record: Mapping[str, Any], *,
 
     for name, text in dict(record.get("tracked") or tracked or {}).items():
         put(name, text)
-    for o in list(record.get("outcomes") or outcomes or []):
+    if record.get("target"):
+        put(record["target"], record["target"])
+    for o in list(record.get("outcomes") or []):
         put(o, o)
-    for name, text in dict(record.get("tracks") or tracks or {}).items():
+    for name, text in dict(record.get("tracks") or {}).items():
         put(name, text)
-    one = record.get("track") or track
-    if one:
-        put(one, one)
+    if record.get("track"):
+        put(record["track"], record["track"])
     return out
+
+
+def _target_of(model, record: Mapping[str, Any], params: Mapping[str, Any],
+               lp: np.ndarray | None) -> tuple[int, dict[str, int]]:
+    """(the target token, every tracked token): the first `tracked`
+    entry is the target; with none named, the model's own top-1 under
+    `lp` is. Returns the tracked map too, so a readout can report every
+    named token."""
+    tracked = _tracked_ids(model, record, tracked=params.get("tracked"))
+    if tracked:
+        return next(iter(tracked.values())), tracked
+    if lp is None:
+        raise ValueError(
+            f"record {record.get('id')!r}: no `tracked` token and no "
+            "baseline to take the model's top-1 from")
+    return int(np.argmax(lp)), tracked
 
 
 def _coords_of(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
@@ -164,41 +186,36 @@ def ablate_layers(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Per-layer ablation sweep: for each condition, skip (or zero one
-    sublayer of) each layer in turn and measure Δ log p of the target —
-    the condition's `target` string's first token, or the baseline's
-    top-1 when no target is named."""
-    component = str(params.get("component", "block"))
-    if component not in _COMPONENTS:
-        raise ValueError(
-            f"unknown component {component!r}: one of {sorted(_COMPONENTS)}"
-        )
-    template = str(params.get("template", "raw"))
+    """Per-layer ablation sweep: for each condition, zero the named
+    `point`(s) of each layer in turn and measure Δ log p of the target —
+    the first `tracked` token, or the baseline's top-1 when none is
+    named."""
+    points = _ablation_points(params.get("point"))
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
         raise ValueError("ablate/layers needs at least one condition")
     if on_start:
         on_start(len(records) * (len(layers) + 1))
 
-    intervene = _COMPONENTS[component]
+    def intervene(layer: int) -> list[Any]:
+        # Zeroing both sub-layer outputs leaves the stream as it entered
+        # the layer — the whole-layer skip, on the path that has always
+        # computed it.
+        if set(points) == {"attn_out", "mlp_out"}:
+            return [Ablate.layer(layer)]
+        return [_ABLATE_AT[p](layer) for p in points]
     rows: list[dict[str, Any]] = []
     conditions: list[dict[str, Any]] = []
     damage_by_layer: dict[int, list[float]] = {i: [] for i in layers}
     for record in records:
-        prompt = _prompt_of(record)
-        ids = _tokenize(model, prompt, template)
+        ids = render(model, record).array
         base_lp = _last_logp(model.run(ids).logits)
         if on_item:
             on_item()
-        target = record.get("target") or params.get("target")
-        if target:
-            tok = _target_token_id(model, str(target))
-        else:
-            tok = int(np.argmax(base_lp))
+        tok, _ = _target_of(model, record, params, base_lp)
         baseline = float(base_lp[tok])
         for layer in layers:
-            ids = _tokenize(model, prompt, template)
-            lp = _last_logp(model.run(ids, interventions=[intervene(layer)]).logits)
+            lp = _last_logp(model.run(ids, interventions=intervene(layer)).logits)
             delta = float(lp[tok]) - baseline
             damage_by_layer[layer].append(delta)
             rows.append({
@@ -216,8 +233,7 @@ def ablate_layers(
 
     return _K().collection(
         "intervene/ablation", rows,
-        component=component,
-        template=template,
+        points=points,
         layers=layers,
         n_conditions=len(records),
         conditions=conditions,
@@ -230,92 +246,10 @@ def ablate_layers(
             ],
         },
         description=(
-            f"Δ log p of the target token when each layer's {component} "
-            "contribution is removed; more negative = more load-bearing."
+            f"Δ log p of the target token when each layer's {'+'.join(points)} "
+            "is zeroed; more negative = more load-bearing."
         ),
     )
-
-
-def _position_index(model, ids: mx.array, record: Mapping[str, Any],
-                    position: Any) -> int:
-    if isinstance(position, int):
-        return position
-    if position in (None, "final"):
-        return int(np.array(ids).shape[-1]) - 1
-    if position == "subject":
-        subject = record.get("subject")
-        if not isinstance(subject, str) or not subject:
-            raise ValueError(
-                f"record {record.get('id')!r}: position 'subject' needs a "
-                "`subject` field naming a substring of the prompt"
-            )
-        tokens = [model.tokenizer.decode([int(t)])
-                  for t in np.array(ids).reshape(-1)]
-        # Among tokens whose text appears in the subject, prefer the
-        # LONGEST (ties -> latest): 'casa' must beat a stray 'a' later
-        # in the sentence. The subject's own final piece carries the
-        # representation (the original geometry convention). Casefolded:
-        # 'Capital' at a sentence start is still the subject 'capital'.
-        folded = subject.casefold()
-        hits = [(len(t.strip()), i) for i, t in enumerate(tokens)
-                if t.strip() and t.strip().casefold() in folded]
-        if not hits:
-            raise ValueError(
-                f"record {record.get('id')!r}: subject {subject!r} not "
-                "found among the prompt's tokens"
-            )
-        return max(hits)[1]
-    raise ValueError(f"unknown position {position!r}")
-
-
-POOLS = ("mean", "max", "last_k", "first_k")
-
-
-def _pool_spec(params: Mapping[str, Any]) -> dict[str, Any] | None:
-    """`pool` turns a one-position read into a whole-sequence read.
-
-    A single position is the right substrate for a prompt whose
-    meaning sits at one token — a subject, a decision point. It is the
-    wrong one for a document: embedding a story at `final` embeds its
-    ENDING, so a corpus with varied endings and identical middles
-    looks varied and no measure downstream can tell. Task 000431.
-
-    `first_k` (task 000368) is the windowed read: `pool_skip` positions
-    in, `pool_k` positions wide — a story's opening after its envelope,
-    where experiment 014 fit its outcome axis (tokens 5..30).
-    """
-    pool = params.get("pool")
-    if pool is None:
-        return None
-    pool = str(pool)
-    if pool not in POOLS:
-        raise ValueError(f"unknown pool {pool!r}: one of {POOLS}")
-    k = params.get("pool_k")
-    if pool in ("last_k", "first_k") and not (isinstance(k, int) and k >= 1):
-        raise ValueError(f"pool {pool!r} needs a positive integer `pool_k`")
-    skip = int(params.get("pool_skip", 0) or 0)
-    if skip < 0:
-        raise ValueError("`pool_skip` cannot be negative")
-    return {"pool": pool, "k": int(k) if pool in ("last_k", "first_k") else None,
-            "skip": skip}
-
-
-def _pooled(mat: np.ndarray, spec: Mapping[str, Any]) -> tuple[np.ndarray, int]:
-    """Reduce `mat` ([seq, d]) over the sequence axis. Returns the
-    vector and how many positions actually went into it, because a
-    pooled vector that does not say its own n is not auditable."""
-    sub = mat[spec["skip"]:] if spec["skip"] else mat
-    if sub.shape[0] == 0:
-        # `pool_skip` ate the whole sequence. Fall back to the last
-        # position rather than emitting zeros, which would look like a
-        # vector and mean nothing.
-        sub = mat[-1:]
-    if spec["pool"] == "last_k":
-        sub = sub[-spec["k"]:]
-    elif spec["pool"] == "first_k":
-        sub = sub[: spec["k"]]
-    v = sub.max(axis=0) if spec["pool"] == "max" else sub.mean(axis=0)
-    return v, int(sub.shape[0])
 
 
 def residual_vectors(
@@ -329,15 +263,14 @@ def residual_vectors(
     the substrate every geometry experiment reads. Labels ride along
     (`label` field, or the coords key named by params.label_coord) so
     similarity blocks can group without re-parsing ids."""
-    template = str(params.get("template", "raw"))
-    point = str(params.get("point", "post"))
+    point = P.residual(params.get("point"))
     source = str(params.get("source", "resid"))
     if source not in ("resid", "queries", "keys"):
         raise ValueError(
             f"unknown source {source!r}: 'resid', 'queries' or 'keys'")
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
-    position = params.get("position", "final")
-    pool = _pool_spec(params)
+    position = params.get("position", "last")
+    pool = POS.pool_spec(params)
     if not records:
         raise ValueError("residuals/vectors needs at least one condition")
     # A document with no text cannot be embedded. Dropping one changes
@@ -371,37 +304,39 @@ def residual_vectors(
         on_start(len(records))
 
     if source == "resid":
-        cap = Capture.residual(layers, point=point)
+        cap = Capture.residual(layers, point=P.side(point))
     elif source == "queries":
         cap = Capture.queries(layers)
     else:
         cap = Capture.keys(layers)
     rows: list[dict[str, Any]] = []
     mid = S.model_id_of(model)
-    resid_point = S._point_name(point)
     for record in records:
-        ids = _tokenize(model, _prompt_of(record), template)
+        r = render(model, record)
+        ids = r.array
+        toks = r.tokens(model.tokenizer)
         result = model.run(ids, interventions=[cap])
-        # Pooling reads the whole sequence, so no position is resolved
-        # at all — and a record whose `position` would not resolve
-        # (no `subject`, say) is still poolable.
-        pos = None if pool else _position_index(model, ids, record, position)
+        # Pooling reads the selected positions, so no single position is
+        # resolved — and a record whose `position` would not resolve (no
+        # `subject`, say) is still poolable.
+        sel = dict(tokens=toks, record=record, prompt_len=r.prompt_len)
+        pos = None if pool else POS.one(position, len(r.ids), **sel)
+        over = POS.resolve(pool["over"], len(r.ids), **sel) if pool else None
         coords = _coords_of(record, params)
-        read_token = (None if pool else
-                      S.token(model.tokenizer, int(np.array(ids).reshape(-1)[pos])))
+        read_token = None if pool else S.token(model.tokenizer, r.ids[pos])
         for layer in layers:
             if source == "resid":
-                t = result.cache[f"blocks.{layer}.resid_{point}"]
+                t = result.cache[f"blocks.{layer}.{point}"]
                 if pool:
                     seq = t[0].astype(mx.float32)
                     mx.eval(seq)
-                    v, n_pooled = _pooled(np.array(seq), pool)
+                    v, n_pooled = POS.pooled(np.array(seq), over, pool["reduce"])
                 else:
                     v = t[0, pos, :].astype(mx.float32)
                     mx.eval(v)
                     v, n_pooled = np.array(v), None
                 rows.append(S.vector(
-                    v, S.space(model=mid, layer=layer, point=resid_point, d=width),
+                    v, S.space(model=mid, layer=layer, point=point, d=width),
                     id=record.get("id"), coords=coords, token=read_token,
                     n_pooled=n_pooled))
             else:
@@ -410,7 +345,7 @@ def residual_vectors(
                 arr = np.array(t.astype(mx.float32))[0]  # [heads, L, hd]
                 for head in range(arr.shape[0]):
                     if pool:
-                        v, n_pooled = _pooled(arr[head], pool)
+                        v, n_pooled = POS.pooled(arr[head], over, pool["reduce"])
                     else:
                         v, n_pooled = arr[head, pos, :], None
                     rows.append(S.vector(
@@ -428,12 +363,9 @@ def residual_vectors(
         # A pooled record says so where a reader looks for the
         # position, rather than reporting a position it never read.
         position="pooled" if pool else str(position),
-        **({"pool": pool["pool"], "pool_skip": pool["skip"],
-            **({"pool_k": pool["k"]} if pool["k"] is not None else {})}
-           if pool else {}),
+        **({"pool": pool} if pool else {}),
         layers=layers,
         d_model=width,
-        template=template,
         **({"skipped_empty": skipped} if skipped else {}),
     )
 
@@ -452,20 +384,19 @@ def residual_divergence(
     Pairs must tokenize to equal lengths — that is what 'matched'
     means; unequal pairs are reported as errors, not silently aligned.
     """
-    template = str(params.get("template", "raw"))
-    point = str(params.get("point", "post"))
+    point = P.residual(params.get("point"))
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
         raise ValueError("residuals/divergence needs at least one pair")
     if on_start:
         on_start(len(records) * 2)
 
-    cap = Capture.residual(layers, point=point)
+    cap = Capture.residual(layers, point=P.side(point))
     pairs: list[dict[str, Any]] = []
     for record in records:
         a, b = _pair(record)
-        ids_a = _tokenize(model, a, template)
-        ids_b = _tokenize(model, b, template)
+        ids_a = _render_text(model, record, a)
+        ids_b = _render_text(model, record, b)
         len_a = int(np.array(ids_a).shape[-1])
         len_b = int(np.array(ids_b).shape[-1])
         if len_a != len_b:
@@ -488,9 +419,9 @@ def residual_divergence(
                   for t in np.array(ids_a).reshape(-1)]
         matrix: list[list[float]] = []
         for layer in layers:
-            va = np.array(run_a.cache[f"blocks.{layer}.resid_{point}"][0]
+            va = np.array(run_a.cache[f"blocks.{layer}.{point}"][0]
                           .astype(mx.float32))
-            vb = np.array(run_b.cache[f"blocks.{layer}.resid_{point}"][0]
+            vb = np.array(run_b.cache[f"blocks.{layer}.{point}"][0]
                           .astype(mx.float32))
             na = np.linalg.norm(va, axis=-1)
             nb = np.linalg.norm(vb, axis=-1)
@@ -503,7 +434,6 @@ def residual_divergence(
         "activations/divergence", pairs,
         point=point,
         layers=layers,
-        template=template,
         description=(
             "1 − cosine similarity of the two residual streams per "
             "(layer, position). 0 = identical; the map shows where a "
@@ -525,7 +455,6 @@ def lens_positions(
     visible? Rank 0 means the target is that position's top readout."""
     from mechbench_compute import lens
 
-    template = str(params.get("template", "raw"))
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
         raise ValueError("lens/positions needs at least one condition")
@@ -535,14 +464,9 @@ def lens_positions(
     cap = Capture.residual(layers, point="post")
     rows: list[dict[str, Any]] = []
     for record in records:
-        prompt = _prompt_of(record)
-        ids = _tokenize(model, prompt, template)
+        ids = render(model, record).array
         result = model.run(ids, interventions=[cap])
-        target = record.get("target") or params.get("target")
-        if target:
-            tok = _target_token_id(model, str(target))
-        else:
-            tok = int(np.argmax(_last_logp(result.logits)))
+        tok, _ = _target_of(model, record, params, _last_logp(result.logits))
         ranks, logprobs = lens.logit_lens_per_position(
             model, result.cache, tok, layers=layers)
         tokens = [model.tokenizer.decode([int(t)])
@@ -558,7 +482,6 @@ def lens_positions(
     return _K().collection(
         "logits/lens", rows,
         layers=layers,
-        template=template,
         description=(
             "Logit-lens readout of the target token at every (layer, "
             "position): log p and rank of the target when each layer's "
@@ -582,8 +505,7 @@ def patch_trace(
     positions is one unit)."""
     from mechbench_compute.interventions import Patch
 
-    template = str(params.get("template", "raw"))
-    point = str(params.get("point", "resid_post"))
+    point = P.residual(params.get("point"))
     metric = str(params.get("metric", "logprob"))
     if metric not in ("logprob", "prob"):
         raise ValueError(f"unknown metric {metric!r}: 'logprob' or 'prob'")
@@ -593,12 +515,12 @@ def patch_trace(
     if on_start:
         on_start(len(records) * len(layers))
 
-    cap = Capture.residual(layers, point=point.removeprefix("resid_"))
+    cap = Capture.residual(layers, point=P.side(point))
     pairs: list[dict[str, Any]] = []
     for record in records:
         clean, corrupt = _pair(record)
-        ids_clean = _tokenize(model, clean, template)
-        ids_corrupt = _tokenize(model, corrupt, template)
+        ids_clean = _render_text(model, record, clean)
+        ids_corrupt = _render_text(model, record, corrupt)
         n_clean = int(np.array(ids_clean).shape[-1])
         n_corrupt = int(np.array(ids_corrupt).shape[-1])
         if n_clean != n_corrupt:
@@ -613,9 +535,7 @@ def patch_trace(
             continue
         clean_run = model.run(ids_clean, interventions=[cap])
         clean_lp = _last_logp(clean_run.logits)
-        target = record.get("target") or params.get("target")
-        tok = (_target_token_id(model, str(target)) if target
-               else int(np.argmax(clean_lp)))
+        tok, _ = _target_of(model, record, params, clean_lp)
         # 'prob' only registers when the clean prompt puts real mass on
         # the target (the original step 09 used the clean top-1, which
         # guarantees it); 'logprob' registers recovery at ANY mass —
@@ -655,7 +575,6 @@ def patch_trace(
         point=point,
         metric=metric,
         layers=layers,
-        template=template,
         description=(
             "Activation patching: p(clean answer) recovered when the "
             "clean residual is patched into the corrupt run at each "
@@ -679,7 +598,6 @@ def attention_patterns(
     """Steps 05/06: post-softmax attention weights per head at chosen
     layers. Layers must be named explicitly — every layer of every
     head of a long prompt is a picture nobody asked for."""
-    template = str(params.get("template", "raw"))
     spec = params.get("layers")
     if spec in (None, "all"):
         raise ValueError(
@@ -697,7 +615,7 @@ def attention_patterns(
     rows: list[dict[str, Any]] = []
     total_floats = 0
     for record in records:
-        ids = _tokenize(model, _prompt_of(record), template)
+        ids = render(model, record).array
         result = model.run(ids, interventions=[cap])
         tokens = [model.tokenizer.decode([int(t)])
                   for t in np.array(ids).reshape(-1)]
@@ -722,7 +640,6 @@ def attention_patterns(
         "activations/attention", rows,
         n_heads=model.arch.n_heads,
         layers=layers,
-        template=template,
         description=(
             "Post-softmax attention weights per head: row = the "
             "attending position, column = the attended-to position."
@@ -740,7 +657,6 @@ def ablate_heads(
     """Step 07: zero one head at a time across (layers × heads) and
     measure Δ log p of the target — the head-level version of the
     layer sweep. Progress ticks per (condition, layer)."""
-    template = str(params.get("template", "raw"))
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     n_heads = model.arch.n_heads
     if not records:
@@ -751,14 +667,11 @@ def ablate_heads(
     sums = np.zeros((len(layers), n_heads), dtype=np.float64)
     metas: list[dict[str, Any]] = []
     for record in records:
-        prompt = _prompt_of(record)
-        ids = _tokenize(model, prompt, template)
+        ids = render(model, record).array
         base_lp = _last_logp(model.run(ids).logits)
         if on_item:
             on_item()
-        target = record.get("target") or params.get("target")
-        tok = (_target_token_id(model, str(target)) if target
-               else int(np.argmax(base_lp)))
+        tok, _ = _target_of(model, record, params, base_lp)
         baseline = float(base_lp[tok])
         metas.append({
             "id": record.get("id"),
@@ -781,7 +694,6 @@ def ablate_heads(
         "n_heads": n_heads,
         "n_conditions": len(records),
         "conditions": metas,
-        "template": template,
         "description": (
             "Mean Δ log p of the target with each single head zeroed — "
             "rows are layers, columns are heads; dark cells are heads "
@@ -811,7 +723,6 @@ def logit_attribution(
     """
     from mechbench_compute import attribution
 
-    template = str(params.get("template", "raw"))
     apply_ln = bool(params.get("apply_ln", True))
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     if layers != list(range(model.arch.n_layers)):
@@ -840,14 +751,17 @@ def logit_attribution(
         interventions.append(Cap.per_head_out(per_head_layers))
     rows: list[dict[str, Any]] = []
     for record in records:
-        ids = _tokenize(model, _prompt_of(record), template)
+        ids = render(model, record).array
         result = model.run(ids, interventions=interventions)
         lp = _last_logp(result.logits)
-        target = record.get("target") or params.get("target")
-        tok = (_target_token_id(model, str(target)) if target
-               else int(np.argmax(lp)))
+        tok, tracked = _target_of(model, record, params, lp)
+        # Two tracked tokens: the contributions are to the DIFFERENCE of
+        # their logits (target minus the second). A record from before
+        # the spellings were one may still name the second as `contrast`.
+        others = [t for t in tracked.values() if t != tok]
         contrast = record.get("contrast")
-        ctok = _target_token_id(model, str(contrast)) if contrast else None
+        ctok = (_target_token_id(model, str(contrast)) if contrast
+                else (others[0] if others else None))
 
         acc = attribution.accumulated_resid(result.cache, include_pre=True)
         components = np.diff(acc, axis=0, prepend=np.zeros_like(acc[:1]))
@@ -908,7 +822,6 @@ def logit_attribution(
         "logits/attribution", rows,
         apply_ln=apply_ln,
         layers=layers,
-        template=template,
         components=["embed", *[f"L{i}" for i in layers]],
         description=(
             "Direct logit attribution: each component's contribution to "
@@ -940,7 +853,6 @@ def steer_inject(
     """
     from mechbench_compute.interventions import Patch
 
-    template = str(params.get("template", "raw"))
     layer = params.get("layer")
     if not isinstance(layer, int):
         raise TypeError("steer/inject needs an integer `layer` to inject at")
@@ -986,13 +898,13 @@ def steer_inject(
     out_rows: list[dict[str, Any]] = []
     value = mx.array(dvec)
     for record in records:
-        prompt = _prompt_of(record)
-        ids = _tokenize(model, prompt, template)
-        seq = int(np.array(ids).shape[-1])
-        position = record.get("position", params.get("position", "final"))
-        pos_idx = seq - 1 if position in (None, "final") else int(position)
-        tracked = _tracked_ids(model, record, tracked=params.get("tracked"),
-                               tracks=params.get("tracks"), track=params.get("track"))
+        r = render(model, record)
+        ids = r.array
+        seq = len(r.ids)
+        position = record.get("position", params.get("position", "last"))
+        pos_idx = POS.one(position, seq, tokens=r.tokens(model.tokenizer),
+                          record=record, prompt_len=r.prompt_len)
+        tracked = _tracked_ids(model, record, tracked=params.get("tracked"))
         for alpha in alphas:
             interventions = (
                 [] if alpha == 0.0
@@ -1020,7 +932,6 @@ def steer_inject(
             "n_positive": len(pos),
             "n_negative": len(neg),
         },
-        template=template,
         description=(
             f"Residual injection at L{layer}: centroid({pos_label}) − "
             f"centroid({neg_label}), scaled by alpha, added at the "

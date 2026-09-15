@@ -21,7 +21,7 @@ corpus-scale trace small enough to store.
 from __future__ import annotations
 
 from mechbench_compute.lexicon._base import Emits, In, Op, P
-from mechbench_compute.lexicon.model import ADAPTER
+from mechbench_compute.lexicon.model import _POSITIONS_DOC, _RESIDUAL_POINT, ADAPTER
 
 _TRAJECTORY = In("trajectory", "trajectory/point",
                  "A trajectory: a collection of points with vectors.", many=True)
@@ -45,8 +45,9 @@ A corpus-scale trajectory is large (200 stories × 160 steps × the model
 width), so there are three ways to keep it an object:
 
 * `max_steps` — stop after that many steps per record.
-* `reduce: "mean"` — one pooled vector per record over the selected
-  `steps` window: what an outcome axis is fit on.
+* `pool` — one vector per record, the reduction over a window of its
+  steps (`{"reduce": "mean", "over": {"range": [5, 30]}}`): what an
+  outcome axis is fit on.
 * `project` — a direction: read the scalar coordinate along it at capture
   time and emit no vectors at all. The trace itself, as numbers.
 
@@ -86,29 +87,24 @@ the model saw.
           "For `axis: \"positions\"`, the one layer to read along the "
           "sequence. (A one-element `layers` list is accepted too.)",
           None),
-        P("position", "\"final\" | \"subject\" | int",
-          "For `axis: \"layers\"`, which token to follow through the layers.",
-          "final"),
-        P("positions", "\"generated\" | \"all\" | object",
-          "For `axis: \"positions\"`, which positions to step along: "
-          "`\"generated\"` (from where generation began — the story, not the "
-          "prompt), `\"all\"`, `{\"range\": [a, b]}` or `{\"after\": n}`.",
+        P("position", "selector",
+          f"For `axis: \"layers\"`, which token to follow through the layers: "
+          f"{_POSITIONS_DOC}, resolving to one position.",
+          "last"),
+        P("positions", "selector",
+          f"For `axis: \"positions\"`, which positions to step along: "
+          f"{_POSITIONS_DOC} — `\"generated\"` is the story, not the prompt.",
           "generated"),
-        P("steps", "object",
-          "A window of steps, counted from the trajectory's own start: "
-          "`{\"range\": [5, 30]}` keeps steps 5 … 29. With `reduce`, the "
-          "window the pooled vector is taken over.",
-          None),
         P("max_steps", "int",
           "Stop after this many steps per record.",
           None),
-        P("reduce", "string",
-          "`\"mean\"`: emit one vector per record — the mean over the "
-          "selected steps — instead of one per step.",
+        P("pool", "object",
+          "Emit one vector per record — the reduction over a window of its "
+          "steps — instead of one per step: `{\"reduce\": \"mean\" | \"max\", "
+          "\"over\": <selector>}`, `over` counting steps from the trajectory's "
+          "own start, so `{\"range\": [5, 30]}` is steps 5 … 29.",
           None),
-        P("point", "string",
-          "Which residual to read: `\"post\"` (after each layer) or `\"pre\"`.",
-          "post"),
+        _RESIDUAL_POINT,
         P("replay", "string",
           "`\"auto\"`: use the record's stored token ids when it has a "
           "trace, else tokenize its text. `\"trace\"`: require the trace. "
@@ -119,10 +115,6 @@ the model saw.
           "(`vocab`, with this many top tokens), a lens reading per step. "
           "`0` records none.",
           0),
-        P("template", "string",
-          "How a record's text is tokenized when it has no trace: "
-          "`\"raw\"` or `\"chat\"`.",
-          "raw"),
     ),
     example={
         "model": "$model",

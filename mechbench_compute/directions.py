@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 
+from mechbench_compute import points as P
 from mechbench_compute import shapes as S
 
 KIND = "direction/vector"
@@ -102,7 +103,7 @@ def _space_at(vectors: Mapping[str, Any], rows: Sequence[Mapping[str, Any]],
     """The rows' shared space, with the point overridden when asked."""
     sp = S.space_of(rows[0], header=vectors)
     if point:
-        sp["point"] = S._point_name(str(point))
+        sp["point"] = P.normalize(str(point))
     sp["head"] = None
     return sp
 

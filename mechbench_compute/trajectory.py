@@ -81,35 +81,6 @@ def _trace_ids(record: Mapping[str, Any]) -> tuple[list[int] | None, int | None]
     return [int(t) for t in ids], start
 
 
-def _position_indices(spec: Any, seq_len: int, gen_start: int | None,
-                      prompt_len: int | None) -> list[int]:
-    """Which positions a positions-axis trajectory reads.
-
-    "all"                 every position
-    "generated"           from where generation began (the trace's
-                          span, else the tokenized prompt's end) —
-                          the story, not the envelope
-    {"range": [a, b]}     positions a..b-1 (b clipped to the sequence)
-    {"after": n}          positions n.. (n clipped)
-    """
-    if spec in (None, "all"):
-        return list(range(seq_len))
-    if spec == "generated":
-        start = gen_start if gen_start is not None else prompt_len
-        if start is None:
-            raise ValueError(
-                "positions 'generated' needs a trace with generation_spans, "
-                "or a record whose prompt length is known")
-        return list(range(max(0, min(start, seq_len)), seq_len))
-    if isinstance(spec, Mapping):
-        if "range" in spec:
-            a, b = spec["range"]
-            return list(range(max(0, int(a)), min(int(b), seq_len)))
-        if "after" in spec:
-            return list(range(max(0, min(int(spec["after"]), seq_len)), seq_len))
-    raise ValueError(f"unknown positions {spec!r}")
-
-
 # --- capture (the model block) -----------------------------------------------
 
 
@@ -125,19 +96,14 @@ def capture(
     import mlx.core as mx
 
     from mechbench_compute import Capture
-    from mechbench_compute.interp import (
-        MAX_VECTOR_FLOATS,
-        _position_index,
-        _prompt_of,
-        _resolve_layers,
-        _tokenize,
-    )
+    from mechbench_compute import positions as POS
+    from mechbench_compute.distill import render
+    from mechbench_compute.interp import MAX_VECTOR_FLOATS, _resolve_layers
 
     axis = str(params.get("axis", "layers"))
     if axis not in AXES:
         raise ValueError(f"unknown axis {axis!r}: one of {AXES}")
-    point = str(params.get("point", "post"))
-    template = str(params.get("template", "raw"))
+    point = P.residual(params.get("point"))
     replay = str(params.get("replay", "auto"))
     if replay not in ("auto", "trace", "text"):
         raise ValueError("replay must be 'auto', 'trace' or 'text'")
@@ -153,13 +119,7 @@ def capture(
     #   project: <direction> — read the scalar coordinate along a
     #           direction AT capture time and emit no vectors at all —
     #           the trace itself, 200 × 160 numbers.
-    reduce = params.get("reduce")
-    if reduce not in (None, "mean"):
-        raise ValueError("reduce must be 'mean' when given")
-    step_window = params.get("steps")
-    lo, hi = (None, None)
-    if isinstance(step_window, Mapping) and "range" in step_window:
-        lo, hi = int(step_window["range"][0]), int(step_window["range"][1])
+    pool = POS.pool_spec(params)
     direction = project
     dvec = None
     if direction is not None:
@@ -175,7 +135,7 @@ def capture(
 
     if axis == "layers":
         layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
-        position = params.get("position", "final")
+        position = params.get("position", "last")
         steps_per = len(layers)
     else:
         layer_spec = params.get("layer", params.get("layers"))
@@ -199,7 +159,7 @@ def capture(
     # 15k numbers as coordinates).
     if direction is not None:
         per_record = 0
-    elif reduce == "mean":
+    elif pool:
         per_record = width
     else:
         per_record = None if steps_per is None else steps_per * width
@@ -209,15 +169,14 @@ def capture(
             raise ValueError(
                 f"{len(records)} records × {per_record // width} steps × "
                 f"{width} dims = {total} floats exceeds the "
-                f"{MAX_VECTOR_FLOATS} cap — set `reduce`, `project`, or "
+                f"{MAX_VECTOR_FLOATS} cap — set `pool`, `project`, or "
                 "`max_steps`, or capture fewer records")
     if on_start:
         on_start(len(records))
 
-    cap = Capture.residual(layers, point=point)
+    cap = Capture.residual(layers, point=P.side(point))
     tok = model.tokenizer
     mid = S.model_id_of(model)
-    resid_point = S._point_name(point)
     rows: list[dict[str, Any]] = []
     used_trace = 0
     for record in records:
@@ -229,24 +188,27 @@ def capture(
                 raise ValueError(
                     f"record {record.get('id')!r} has no trace and replay is "
                     "'trace' — score/generate at fidelity 'trace' first")
-            ids = _tokenize(model, _prompt_of(record), template)
-            prompt_len = None
+            r = render(model, record)
+            ids = r.array
+            prompt_len = r.prompt_len
         else:
             used_trace += 1
             ids = mx.array([ids_list])
             prompt_len = gen_start
         arr = np.array(ids).reshape(-1)
         seq_len = int(arr.shape[0])
+        toks = [tok.decode([int(t)]) for t in arr]
+        sel = dict(tokens=toks, record=record, prompt_len=prompt_len, gen_start=gen_start)
         result = model.run(ids, interventions=[cap])
         coords = _coords_of(record, params)
 
         def sp(layer: int) -> dict[str, Any]:
-            return S.space(model=mid, layer=layer, point=resid_point, d=width)
+            return S.space(model=mid, layer=layer, point=point, d=width)
 
         if axis == "layers":
-            pos = _position_index(model, ids, record, position)
+            pos = POS.one(position, seq_len, **sel)
             for step, layer in enumerate(layers):
-                t = result.cache[f"blocks.{layer}.resid_{point}"]
+                t = result.cache[f"blocks.{layer}.{point}"]
                 v = t[0, pos, :].astype(mx.float32)
                 mx.eval(v)
                 rows.append(_projected(
@@ -254,25 +216,23 @@ def capture(
                          model, vocab_top), np.array(v), dvec, direction))
         else:
             layer = layers[0]
-            t = result.cache[f"blocks.{layer}.resid_{point}"]
+            t = result.cache[f"blocks.{layer}.{point}"]
             seq = t[0].astype(mx.float32)
             mx.eval(seq)
             mat = np.array(seq)
-            idx = _position_indices(position, seq_len, gen_start, prompt_len)
-            if lo is not None:
-                # `steps` counts from the trajectory's own start.
-                idx = [p for s, p in enumerate(idx) if lo <= s < hi]
+            idx = POS.resolve(position, seq_len, **sel)
             if max_steps:
                 idx = idx[: int(max_steps)]
             if not idx:
                 raise ValueError(
                     f"record {record.get('id')!r}: no positions in the window")
-            if reduce == "mean":
-                v = mat[idx].mean(axis=0)
-                row = _row(record, coords, sp(layer), 0, idx[0], v, tok, arr, model, 0)
+            if pool:
+                # `pool.over` selects among the trajectory's STEPS.
+                over = [idx[s] for s in POS.resolve(pool["over"], len(idx))]
+                v, n_pooled = POS.pooled(mat, over, pool["reduce"])
+                row = _row(record, coords, sp(layer), 0, over[0] if over else idx[0], v, tok, arr, model, 0)
                 row.pop("token", None)
-                row.update({"n_pooled": len(idx),
-                            "steps": [int(lo or 0), int(hi) if hi else len(idx)]})
+                row.update({"n_pooled": n_pooled, "pool": pool})
                 rows.append(_projected(row, v, dvec, direction))
             else:
                 if dvec is None:
@@ -281,7 +241,7 @@ def capture(
                         raise ValueError(
                             f"trajectory exceeds the {MAX_VECTOR_FLOATS}-float "
                             f"cap at record {record.get('id')!r}; set `max_steps`, "
-                            "`reduce`, or `project`, or capture fewer records")
+                            "`pool`, or `project`, or capture fewer records")
                 for step, p in enumerate(idx):
                     row = _row(record, coords, sp(layer), step, p, mat[p], tok, arr,
                                model, vocab_top)
@@ -301,13 +261,12 @@ def capture(
         position=str(position) if axis == "layers" else None,
         positions=(position if axis == "positions" else None),
         d_model=width,
-        template=template,
         replay="trace" if used_trace == len(records)
                else ("text" if used_trace == 0 else "mixed"),
         n_items=len(records),
         projected=dvec is not None,
         **({"max_steps": int(max_steps)} if max_steps else {}),
-        **({"reduce": reduce, "steps": step_window} if reduce else {}),
+        **({"pool": pool} if pool else {}),
     )
 
 

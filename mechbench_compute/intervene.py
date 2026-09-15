@@ -32,34 +32,12 @@ import mlx.core as mx
 import numpy as np
 
 from mechbench_compute import directions as dirs
+from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
+from mechbench_compute.points import LAYOUT as _LAYOUT
 
 OPS = ("zero", "mean", "resample", "patch", "add", "scale", "clamp",
        "project_out", "rotate")
-
-#: point family -> (position axis, head axis, feature axis) of the tensor
-#: dispatched at that point. Tensors are batch-first.
-_LAYOUT: dict[str, tuple[int, int | None, int]] = {
-    # [B, L, D]
-    "resid_pre": (1, None, 2), "resid_post": (1, None, 2), "attn_out": (1, None, 2),
-    "mlp_out": (1, None, 2), "gate_out": (1, None, 2), "attn.in_norm": (1, None, 2),
-    "mlp.in_norm": (1, None, 2), "embed": (1, None, 2), "final_norm": (1, None, 2),
-    # [B, L, F]  (neurons on the feature axis)
-    "mlp.gate": (1, None, 2), "mlp.up": (1, None, 2), "mlp.act": (1, None, 2),
-    "mlp.down_in": (1, None, 2),
-    # [B, L, V]
-    "logits": (1, None, 2),
-    # [B, L, n_heads*hd]
-    "attn.o_in": (1, None, 2),
-    # [B, n_heads, L, hd]
-    "attn.q": (2, 1, 3), "attn.q_pre_rope": (2, 1, 3), "attn.per_head_out": (2, 1, 3),
-    # [B, n_kv, L_kv, hd]
-    "attn.k": (2, 1, 3), "attn.v": (2, 1, 3), "attn.k_pre_rope": (2, 1, 3),
-    # [B, L, n_heads, hd]  (pre-transpose)
-    "attn.q_pre_norm": (1, 2, 3), "attn.k_pre_norm": (1, 2, 3),
-    # [B, n_heads, L, S]  (query positions on axis 2; keys are the feature axis)
-    "attn.weights": (2, 1, 3), "attn.scores": (2, 1, 3),
-}
 
 _GLOBAL_POINTS = frozenset({"embed", "final_norm", "logits"})
 
@@ -178,7 +156,8 @@ class Spec:
         return [self.point if layer is None else f"blocks.{layer}.{self.point}"
                 for layer in self.layers]
 
-    def build(self, layer: int | None, tokens: Sequence[str]) -> Callable:
+    def build(self, layer: int | None, tokens: Sequence[str],
+              record: Mapping[str, Any] | None = None) -> Callable:
         pos_axis, head_axis, feat_axis = _LAYOUT[self.point]
         positions = self.positions
         heads, neurons = self.heads, self.neurons
@@ -197,23 +176,13 @@ class Spec:
         rng = self._rng
 
         def _positions(L: int) -> list[int]:
-            if positions == "all":
-                return list(range(L))
-            if positions == "last":
-                return [L - 1]
-            if isinstance(positions, Mapping):
-                if "range" in positions:
-                    a, b = positions["range"]
-                    return list(range(max(0, int(a)), min(L, int(b))))
-                if "tokens" in positions:
-                    want = {str(t).strip().casefold() for t in positions["tokens"]}
-                    hit = [i for i, t in enumerate(tokens[:L])
-                           if str(t).strip().casefold() in want]
-                    if not hit:
-                        raise SpecError(f"none of {sorted(want)} among the prompt's tokens")
-                    return hit
-                raise SpecError(f"unknown positions spec {positions!r}")
-            return [(int(p) + L) % L for p in _as_list(positions)]
+            # One grammar (positions.py); `L` is the tensor's own length at
+            # this point, which a key/value axis may differ in.
+            try:
+                return POS.resolve(positions, L, tokens=list(tokens[:L]), record=record,
+                                   prompt_len=min(len(tokens), L))
+            except ValueError as e:
+                raise SpecError(str(e)) from None
 
         def fn(act: mx.array, info) -> mx.array:
             shape = act.shape
@@ -298,11 +267,12 @@ class SpecIntervention:
     """An `Intervention` (as_hooks / as_captures) over a whole spec list
     for one record's tokens."""
 
-    def __init__(self, specs: Sequence[Spec], tokens: Sequence[str]) -> None:
+    def __init__(self, specs: Sequence[Spec], tokens: Sequence[str],
+                 record: Mapping[str, Any] | None = None) -> None:
         self._hooks: dict[str, Callable] = {}
         for spec in specs:
             for layer, name in zip(spec.layers, spec.hook_names(), strict=True):
-                fn = spec.build(layer, tokens)
+                fn = spec.build(layer, tokens, record)
                 prev = self._hooks.get(name)
                 if prev is None:
                     self._hooks[name] = fn
@@ -347,7 +317,8 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
         inputs: Mapping[str, Any] | None = None,
         on_item: Callable | None = None,
         on_start: Callable[[int], None] | None = None) -> dict[str, Any]:
-    from mechbench_compute.interp import _last_logp, _prompt_of, _tokenize
+    from mechbench_compute.distill import render
+    from mechbench_compute.interp import _last_logp
 
     inputs = inputs or {}
     items = list(params.get("spec") or [])
@@ -367,7 +338,6 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
         filled.append(it)
     seed = int(params.get("seed", 0))
     specs = [Spec(it, n_layers=model.arch.n_layers, seed=seed) for it in filled]
-    template = str(params.get("template", "raw"))
     factors = [float(f) for f in (params.get("sweep") or {}).get("strength", [1.0])]
     if bool(params.get("control", True)) and 0.0 not in factors:
         factors = [0.0, *factors]
@@ -387,12 +357,10 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
     mid = S.model_id_of(model)
     rows: list[dict[str, Any]] = []
     for record in records:
-        prompt = _prompt_of(record)
-        ids = _tokenize(model, prompt, template)
+        ids = render(model, record).array
         flat = [int(t) for t in np.array(ids).reshape(-1)]
         tokens = [model.tokenizer.decode([t]) for t in flat]
-        tracked = _tracked_ids(model, record, tracked=params.get("tracked"),
-                               outcomes=params.get("outcomes"), track=params.get("track"))
+        tracked = _tracked_ids(model, record, tracked=params.get("tracked"))
         for factor in factors:
             key = f"{record.get('id')}:{factor}"
             if factor == 0.0:
@@ -406,7 +374,7 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
                         s2.__dict__.update(spec.__dict__)
                         s2.strength = spec.strength * factor
                     scaled.append(s2)
-                ivs = [SpecIntervention(scaled, tokens)]
+                ivs = [SpecIntervention(scaled, tokens, record)]
             if rk == "decision":
                 res = model.run(ids, interventions=ivs)
                 lp = _last_logp(res.logits)
@@ -421,8 +389,8 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
                     raise SpecError("capture readout needs `points`")
                 res = model.run(ids, interventions=ivs, capture=points)
                 L = len(flat)
-                pos = readout.get("position", "final")
-                pidx = L - 1 if pos in (None, "final") else (int(pos) + L) % L
+                pidx = POS.one(readout.get("position", "last"), L, tokens=tokens,
+                               record=record, prompt_len=L)
                 caps = []
                 for p in points:
                     t = res.cache[p]
@@ -445,7 +413,6 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
         spec=_wire_spec(filled),
         sweep=factors,
         readout=rk,
-        template=template,
         description=(
             f"{len(specs)} intervention(s) applied together per forward; factor 0 "
             f"is the control; strengths scale with the sweep factor."),

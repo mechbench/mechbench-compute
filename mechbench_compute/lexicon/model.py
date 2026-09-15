@@ -3,18 +3,32 @@ activations, and generating from it.
 
 Shared conventions, stated once here and referred to from the entries:
 
-* A record's **prompt** is its `user`, `prompt` or `text` field (the
-  first present). The chat-shaped blocks (`text/generate`, `logits/decision`,
-  `logits/funnel`) read `system`, `user` and `prefill`; a record that
-  carries the text under another name goes through `records/rename`
-  first.
-* `template` is how a prompt is tokenized: `"raw"` as plain text,
-  `"chat"` wrapped in the model's chat template as one user turn.
-* `layers` is a list of layer indices or `"all"`.
-* A **target** is a token whose probability the block follows. It is
+* **One rendering.** Every op renders a record the same way. A
+  condition — `user`, optional `system`, optional `prefill` — goes
+  through the model's chat template as one user turn, the assistant's
+  turn begun with the prefill: that is where a decision is read, and
+  every op here can read there. A record that carries only `text` or
+  `prompt`, or one that says `template: false`, is tokenized raw; a
+  record that carries the text under another name goes through
+  `records/rename` first.
+* **`tracked`** `{name: token}` names the tokens an op reports on; a
+  record's own `tracked` takes precedence over the param. The first
+  entry is the target — the token a sweep's Δ log p is taken on; with
+  none named, the model's own top-1 for that prompt is. Each token is
   tokenized as a continuation, so include the leading space where the
-  model would ("` Paris`", not "`Paris`"); a record's own `target`
-  field takes precedence over the param.
+  model would ("` Paris`", not "`Paris`").
+* **Positions.** One selector wherever a position is chosen:
+  `"last"`, `"all"`, a list of indices (negative from the end),
+  `{"tokens": [...]}`, `{"range": [a, b]}`, `{"after": n}`,
+  `"subject"` (the last token of the record's `subject` string) or
+  `"generated"` (from where generation began). A single-position param
+  must resolve to one position. One pooling clause, `pool: {"reduce":
+  "mean" | "max", "over": <selector>}`, reads the selected positions
+  and reduces them.
+* **Points.** `resid_pre`, `resid_post`, `attn_out`, `mlp_out`,
+  `gate_out`, `attn.q`, …, `embed`, `final_norm`, `logits` — the one
+  vocabulary every `point` param and every `space.point` uses.
+* `layers` is a list of layer indices or `"all"`.
 * Every op here runs on the node's `model` and accepts an `adapter`
   on its port of that name: a LoRA fused on top of the model for this
   node only, on top of any adapters the model reference carries.
@@ -33,28 +47,35 @@ ADAPTER = In("adapter", "adapter/lora",
              "scales this one.",
              required=False)
 
-_TEMPLATE = P("template", "string",
-              "How each prompt is tokenized: `\"raw\"` as plain text, `\"chat\"` "
-              "wrapped in the model's chat template as a user turn.",
-              "raw")
-
 _LAYERS_ALL = P("layers", "list[int] | \"all\"",
                 "Which layers to run over.",
                 "all")
 
+_POSITIONS_DOC = (
+    "`\"last\"`, `\"all\"`, a list of indices (negative from the end), "
+    "`{\"tokens\": [...]}`, `{\"range\": [a, b]}`, `{\"after\": n}`, "
+    "`\"subject\"` or `\"generated\"`"
+)
 
-def _target(what: str) -> P:
-    return P("target", "string",
-             f"The token whose probability is followed — {what}. Tokenized as a "
-             "continuation (include the leading space). A record's own `target` "
-             "field takes precedence; when neither is given, the model's own "
-             "top-1 prediction for that prompt is used.",
+_RESIDUAL_POINT = P("point", "string",
+                    "Which residual stream to read: `\"resid_post\"` (after each "
+                    "layer) or `\"resid_pre\"` (before it).",
+                    "resid_post")
+
+
+def _tracked(what: str) -> P:
+    return P("tracked", "object",
+             f"Tokens to follow by name, `{{\"answer\": \" Paris\"}}`; the first "
+             f"is the target — {what}. Each is tokenized as a continuation "
+             "(include the leading space). A record's own `tracked` takes "
+             "precedence; with none named, the model's own top-1 prediction "
+             "for that prompt is the target.",
              None)
 
 
 _PROMPTS = In("records", "records/record",
               "The prompts, one per record; a record's prompt is its `user`, "
-              "`prompt` or `text` field. A record may carry its own `target`.",
+              "`prompt` or `text` field. A record may carry its own `tracked`.",
               many=True)
 
 _PAIRS = In("records", "records/pair",
@@ -106,7 +127,7 @@ against. The output has one row per record per sweep factor.
 |---|---|---|---|
 | `point` | string | `"resid_post"` | Where in the forward pass to act. Residual points: `resid_pre`, `resid_post`, `attn_out`, `mlp_out`. Inside a block: `attn.in_norm`, `attn.q`, `attn.k`, `attn.v`, `attn.q_pre_rope`, `attn.k_pre_rope`, `attn.q_pre_norm`, `attn.k_pre_norm`, `attn.scores`, `attn.weights`, `attn.per_head_out`, `attn.o_in`, `mlp.in_norm`, `mlp.gate`, `mlp.up`, `mlp.act`, `mlp.down_in`, `gate_out`. Whole-model points, which take no `layers`: `embed`, `final_norm`, `logits`. |
 | `layers` | list[int] \\| `"all"` | `"all"` | Which layers the item applies to. |
-| `positions` | `"last"` \\| `"all"` \\| list[int] \\| object | `"last"` | Which token positions. A list of indices (negative counts from the end); `{"tokens": ["lighthouse"]}` selects every position whose token matches; `{"range": [2, 6]}` selects a half-open span. |
+| `positions` | selector | `"last"` | Which token positions: `"last"`, `"all"`, a list of indices (negative from the end), `{"tokens": ["lighthouse"]}` (every position whose token matches), `{"range": [2, 6]}`, `{"after": n}`, `"subject"` or `"generated"`. |
 | `heads` | list[int] | all | Restrict the item to these attention heads, at a point that has a head axis (`attn.q`, `attn.k`, `attn.v`, `attn.scores`, `attn.weights`, `attn.per_head_out`, and the pre-norm/pre-rope variants). |
 | `neurons` | list[int] | all | Restrict the item to these indices along the feature axis — MLP neurons at `mlp.act`, residual dimensions at `resid_post`, vocabulary entries at `logits`. |
 | `op` | string | `"zero"` | What to do there — see the table below. |
@@ -139,8 +160,8 @@ grammar.
         In("records", "records/record",
            "The prompts to run, one forward pass each; a record's prompt is "
            "its `user`, `prompt` or `text` field. A record may also carry its "
-           "own `track` and `outcomes`, which take precedence over the params "
-           "of the same name.", many=True),
+           "own `tracked`, which takes precedence over the param of the same "
+           "name.", many=True),
         In("direction", "direction/vector",
            "A direction that fills any spec item without one.", required=False),
         In("source", "activations/vector | intervene/readout",
@@ -167,11 +188,11 @@ grammar.
           True),
         P("readout", "object",
           "What to read after the intervened forward pass. "
-          "`{\"kind\": \"decision\"}` records the next-token distribution at "
-          "the last position. `{\"kind\": \"capture\", \"points\": "
-          "[\"blocks.14.resid_post\"], \"position\": \"final\"}` records the "
+          "`{\"type\": \"decision\"}` records the next-token distribution at "
+          "the last position. `{\"type\": \"capture\", \"points\": "
+          "[\"blocks.14.resid_post\"], \"position\": \"last\"}` records the "
           "activation vectors at the named hook points instead — `position` "
-          "is `\"final\"` or a token index. A capture readout is itself "
+          "is a selector naming one position. A capture readout is itself "
           "accepted as another intervention's `source`. `readout.top_k` "
           "overrides the `top_k` param.",
           {"type": "decision"}),
@@ -186,17 +207,6 @@ grammar.
           "leading space where the model would. A record's own `tracked` "
           "field takes precedence.",
           None),
-        P("track", "string",
-          "The older spelling of one tracked token: recorded under "
-          "`tracked` by its own text. A record's own `track` field takes "
-          "precedence.",
-          None),
-        P("outcomes", "list[string]",
-          "The older spelling of tracked tokens: each outcome is recorded "
-          "under `tracked` by its own text — the candidate answers of a "
-          "forced choice. A record's own `outcomes` field takes precedence.",
-          None),
-        _TEMPLATE,
     ),
     example={
         "model": "$model",
@@ -221,31 +231,34 @@ ABLATE_LAYERS = Op(
     ),
     description="""\
 For each record, the block runs the prompt once untouched to get the target
-token's baseline log-probability, then once per layer with that layer's
-chosen `component` ablated, and records the difference. A more negative
+token's baseline log-probability, then once per layer with the named
+`point`(s) of that layer zeroed, and records the difference. A more negative
 `delta_logp` means the layer was carrying more of the answer.
 
-The ablation replaces the component's output with zero, so the residual
-stream passes through that layer unchanged by it.
+Zeroing a sub-layer's output leaves the residual stream unchanged by it;
+zeroing both `attn_out` and `mlp_out` — the default — removes the whole
+layer's contribution. Because records render the chat-shaped way, the
+sweep can be taken at a decision point inside an assistant turn (a record
+with a `prefill`), where `logits/decision` reads.
 """,
     inputs=(_PROMPTS, ADAPTER),
     emits=Emits('intervene/ablation', collection=True, doc="Per record, one item per layer: `id`, `layer`, `delta_logp`. The header's `conditions` carry each record's untouched read (`{id, target, baseline_logp}`), and `aggregates.mean_delta` / `aggregates.median_delta` are per-layer across all records, in `layers` order."),
     params=(
-        P("component", "string",
-          "What to remove at each layer: `\"block\"` (the whole layer — "
-          "attention and MLP), `\"attention\"`, `\"mlp\"`, or `\"gate\"` (the "
-          "per-layer input gate on MatFormer-style models; other "
-          "architectures refuse it).",
-          "block"),
+        P("point", "string | list[string]",
+          "The sub-layer output(s) zeroed at each layer: `\"attn_out\"`, "
+          "`\"mlp_out\"`, or `\"gate_out\"` (the per-layer input gate on "
+          "MatFormer-style models; other architectures refuse it), one or "
+          "several. The default zeroes attention and MLP together — the "
+          "whole layer.",
+          ["attn_out", "mlp_out"]),
         _LAYERS_ALL,
-        _target("the answer whose dependence on each layer is measured"),
-        _TEMPLATE,
+        _tracked("the answer whose dependence on each layer is measured"),
     ),
     example={
         "model": "$model",
-        "component": "mlp",
+        "point": "mlp_out",
         "layers": "all",
-        "target": " Paris",
+        "tracked": {"answer": " Paris"},
     },
     example_inputs={"records": {"$fetch": "$prompts"}},
 )
@@ -271,13 +284,12 @@ about rather than all of them when the prompt set is large.
     emits=Emits('intervene/heads', collection=False, doc="One grid over axes `[layer, head]`: `measures.mean_delta` is the mean Δ log‑p across records; `conditions` lists each record's `{id, target, baseline_logp}`; `layers` and `n_heads` give the axes."),
     params=(
         _LAYERS_ALL,
-        _target("the answer whose dependence on each head is measured"),
-        _TEMPLATE,
+        _tracked("the answer whose dependence on each head is measured"),
     ),
     example={
         "model": "$model",
         "layers": [10, 11, 12, 13, 14, 15],
-        "target": " Paris",
+        "tracked": {"answer": " Paris"},
     },
     example_inputs={"records": {"$fetch": "$prompts"}},
 )
@@ -310,7 +322,6 @@ million values.
         P("layers", "list[int]",
           "The layers whose attention to record. Must be named — `\"all\"` is "
           "refused."),
-        _TEMPLATE,
     ),
     example={
         "model": "$model",
@@ -337,9 +348,9 @@ minus the model's true final logit for the target. A reader never has to take
 the decomposition on faith — a residual far from zero says the decomposition
 does not describe this model.
 
-If a record carries a `contrast` token, the contributions are to the
-*difference* of the two logits (target minus contrast), which is usually the
-more interpretable quantity.
+With two `tracked` tokens, the contributions are to the *difference* of
+their logits (the first minus the second), which is usually the more
+interpretable quantity.
 
 Because additivity only holds over the whole stream, `layers` must be
 `"all"`.
@@ -347,7 +358,7 @@ Because additivity only holds over the whole stream, `layers` must be
     inputs=(
         In("records", "records/record",
            "The prompts, one per record (`user`, `prompt` or `text`). A "
-           "record may carry `target` and `contrast` tokens.", many=True),
+           "record may carry its own `tracked`.", many=True),
         ADAPTER,
     ),
     emits=Emits('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …): `measures.contribution`, the `target` and `contrast` tokens, the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
@@ -366,12 +377,11 @@ Because additivity only holds over the whole stream, `layers` must be
           "head. Opt-in per layer because per-head outputs cost a slower "
           "attention path.",
           None),
-        _target("the logit being decomposed"),
-        _TEMPLATE,
+        _tracked("the logit being decomposed"),
     ),
     example={
         "model": "$model",
-        "target": " Paris",
+        "tracked": {"answer": " Paris"},
         "per_head_layers": [12, 13],
     },
     example_inputs={"records": {"$fetch": "$prompts"}},
@@ -401,8 +411,8 @@ reported as errors rather than silently shifted.
 """,
     inputs=(
         In("records", "records/pair",
-           "Pairs, each with prompt strings `a` and `b`, and optionally a "
-           "`target`.", many=True),
+           "Pairs, each with prompt strings `a` and `b`, and optionally its "
+           "own `tracked`.", many=True),
         ADAPTER,
     ),
     emits=Emits('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` residual is patched in; `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures."),
@@ -418,13 +428,12 @@ reported as errors rather than silently shifted.
           "The residual point patched: `\"resid_post\"` (after the layer) or "
           "`\"resid_pre\"` (before it).",
           "resid_post"),
-        _target("the clean answer whose recovery is traced; defaults to the "
+        _tracked("the clean answer whose recovery is traced; defaults to the "
                 "clean prompt's top‑1"),
-        _TEMPLATE,
     ),
     example={
         "model": "$model",
-        "target": " Paris",
+        "tracked": {"answer": " Paris"},
         "metric": "logprob",
     },
     example_inputs={"records": {"$fetch": "$pairs"}},
@@ -450,11 +459,7 @@ Unequal-length pairs are reported as errors, not aligned by guesswork.
     emits=Emits('activations/divergence', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.divergence` is 1 − cosine; `tokens` are prompt `a`'s. An unaligned pair has `error` and empty measures."),
     params=(
         _LAYERS_ALL,
-        P("point", "string",
-          "Which residual to compare: `\"post\"` (after each layer) or "
-          "`\"pre\"` (before it).",
-          "post"),
-        _TEMPLATE,
+        _RESIDUAL_POINT,
     ),
     example={
         "model": "$model",
@@ -474,16 +479,15 @@ RESIDUALS_VECTORS = Op(
 One forward pass per record; for each requested layer the block records one
 vector. Where in the sequence the vector is read is the important choice:
 
-* `position: "final"` — the last token: right for a prompt whose meaning
+* `position: "last"` — the last token: right for a prompt whose meaning
   sits at its end (a question awaiting its answer).
 * `position: "subject"` — the last token of the record's `subject` string
-  within the prompt.
-* an integer — that token index.
-* `pool` — read the whole sequence and reduce it: `"mean"`, `"max"`,
-  `"last_k"` (the last `pool_k` positions) or `"first_k"` (the `pool_k`
-  positions after skipping `pool_skip`). Right for a document: embedding a
-  story at its final token embeds its *ending*, and a corpus with varied
-  endings and identical middles would look varied.
+  within the prompt; a list of one index names that token.
+* `pool` — read a set of positions and reduce them: `{"reduce": "mean",
+  "over": "all"}` is the whole sequence, `{"reduce": "mean", "over":
+  {"range": [5, 30]}}` a window. Right for a document: embedding a story
+  at its last token embeds its *ending*, and a corpus with varied endings
+  and identical middles would look varied.
 
 Every item carries its `space` (`{model, layer, point, head?, d}`) and the
 record's `coords`, which is what `geometry/similarity`, `geometry/mst` and
@@ -505,42 +509,32 @@ layers or records.
     emits=Emits('activations/vector', collection=True, doc='One item per record per layer (per head, for Q/K sources): `{id, coords, space, vector, norm}`, plus `token` (the token read, when not pooled) and `n_pooled` when pooled. The header carries `model`, `point`, `source`, `position` (`"pooled"` when pooled), `layers`, `d_model`, and `skipped_empty` listing any records dropped under `skip_empty`.'),
     params=(
         _LAYERS_ALL,
-        P("point", "string",
-          "Which residual to read: `\"post\"` (after each layer) or `\"pre\"` "
-          "(before it).",
-          "post"),
+        _RESIDUAL_POINT,
         P("source", "string",
           "What to capture: `\"resid\"` (the residual stream, one vector per "
           "layer), `\"queries\"` or `\"keys\"` (attention Q or K, one vector "
           "per layer per head).",
           "resid"),
-        P("position", "\"final\" | \"subject\" | int",
-          "Which token's vector to read: `\"final\"` (the last), "
-          "`\"subject\"` (the last token of the record's `subject` string), "
-          "or an index. Ignored when `pool` is set.",
-          "final"),
-        P("pool", "string",
-          "Read the whole sequence instead of one position and reduce it: "
-          "`\"mean\"`, `\"max\"`, `\"last_k\"` or `\"first_k\"`.",
+        P("position", "selector",
+          f"Which token's vector to read: {_POSITIONS_DOC}, resolving to a "
+          "single position. Ignored when `pool` is set.",
+          "last"),
+        P("pool", "object",
+          "Read a set of positions and reduce them to one vector: "
+          "`{\"reduce\": \"mean\" | \"max\", \"over\": <selector>}` — "
+          "`{\"reduce\": \"mean\", \"over\": {\"range\": [5, 30]}}` is the "
+          "mean over positions 5 … 29 (a document's body after its "
+          "envelope); `\"over\": \"all\"` is the whole sequence.",
           None),
-        P("pool_k", "int",
-          "For `last_k`/`first_k`: how many positions the window covers. "
-          "Required with those pools.",
-          None),
-        P("pool_skip", "int",
-          "Positions to skip from the start before pooling — a document's "
-          "envelope or prompt prefix, so the vector is of its body.",
-          0),
         P("skip_empty", "bool",
           "Drop records with no text instead of refusing. The dropped ids "
           "are reported in `skipped_empty`, because dropping changes n.",
           False),
-        _TEMPLATE,
     ),
     example={
         "model": "$model",
         "layers": [8, 12, 16],
-        "pool": "first_k", "pool_skip": 5, "pool_k": 25,
+        "pool": {"reduce": "mean", "over": {"range": [5, 30]}},
     },
     example_inputs={"records": {"$fetch": "$stories"}},
 )
@@ -566,12 +560,11 @@ become visible?
     emits=Emits('logits/lens', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.logprob` and `measures.rank` (0 is the top readout), `tokens`, and the `target` token."),
     params=(
         _LAYERS_ALL,
-        _target("the answer being watched for"),
-        _TEMPLATE,
+        _tracked("the answer being watched for"),
     ),
     example={
         "model": "$model",
-        "target": " Paris",
+        "tracked": {"answer": " Paris"},
     },
     example_inputs={"records": {"$fetch": "$prompts"}},
 )
@@ -656,10 +649,11 @@ For anything beyond one direction at one layer and position, use
           "The strengths to sweep. Each prompt is run once per alpha; "
           "alpha `0` is the untouched control.",
           [-8.0, -4.0, 0.0, 4.0, 8.0]),
-        P("position", "\"final\" | int",
-          "The token position the direction is added at. A record's own "
-          "`position` takes precedence.",
-          "final"),
+        P("position", "selector",
+          f"The one token position the direction is added at: {_POSITIONS_DOC}, "
+          "resolving to a single position. A record's own `position` takes "
+          "precedence.",
+          "last"),
         P("top_k", "int",
           "How many of the most likely next tokens to record per row.",
           5),
@@ -670,15 +664,6 @@ For anything beyond one direction at one layer and position, use
           "leading space where the model would. A record's own `tracked` "
           "field takes precedence.",
           None),
-        P("track", "string",
-          "The older spelling of one tracked token: recorded under "
-          "`tracked` by its own text. A record's own `track` takes precedence.",
-          None),
-        P("tracks", "object",
-          "The older spelling of `tracked`, read the same way. A record's own "
-          "`tracks` takes precedence.",
-          None),
-        _TEMPLATE,
     ),
     example={
         "model": "$model",
@@ -763,12 +748,12 @@ assistant's turn is begun with it, so the read happens at the first token
 *after* the prefill — `'{ "name": "'` reads the first token of a JSON value.
 One prefill pass per record gives the full distribution; nothing is sampled.
 
-`outcomes` turns the read into a forced choice: each outcome string is
-tokenized as a continuation and the probability of its first token is
-recorded under `tracked` by the outcome's own text. A `rollout` goes
-further, expanding the most probable *complete* outcomes token by token
-(best-first, reusing the prompt cache) so that multi-token answers are
-compared as wholes.
+`tracked` turns the read into a forced choice: each named token is
+tokenized as a continuation of the rendered prompt and the probability of
+its first token is recorded under `tracked` by its name — `{"1": "1", …,
+"6": "6"}` for a die. A `rollout` goes further, expanding the most probable
+*complete* outcomes token by token (best-first, reusing the prompt cache)
+so that multi-token answers are compared as wholes.
 
 Records keep their `coords`, so a grid of conditions comes out as a grid of
 readings.
@@ -777,20 +762,15 @@ readings.
         In("conditions", "records/record",
            "Chat-shaped records: `user` (required), `system` and `prefill` "
            "(optional), an `id`, and optionally `coords`; a record may carry "
-           "its own `outcomes`.", many=True),
+           "its own `tracked`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each outcome and tracked token by name, `{token, p, logp}`), and `rollout` when one was requested. The header carries `top_k`.'),
+    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`), and `rollout` when one was requested. The header carries `top_k`.'),
     params=(
-        P("outcomes", "list[string]",
-          "The candidate answers: each is tokenized as a continuation of "
-          "the prompt and the probability of its first token is recorded "
-          "under `tracked` by the outcome's own text. A record's own "
-          "`outcomes` field takes precedence.",
-          None),
         P("tracked", "object",
-          "Other tokens to follow by name, `{\"yes\": \" Yes\"}`, recorded "
-          "under `tracked`. A record's own `tracked` takes precedence.",
+          "Tokens to follow by name, `{\"yes\": \" Yes\"}` — the candidate "
+          "answers of a forced choice, each recorded under `tracked`. A "
+          "record's own `tracked` takes precedence.",
           None),
         P("top_k", "int", "How many of the most likely tokens to record.", 10),
         P("rollout", "object",
@@ -805,7 +785,7 @@ readings.
     ),
     example={
         "model": "$model",
-        "outcomes": ["red", "blue", "green"],
+        "tracked": {"red": "red", "blue": "blue", "green": "green"},
     },
     example_inputs={"conditions": {"$fetch": "$conditions"}},
 )

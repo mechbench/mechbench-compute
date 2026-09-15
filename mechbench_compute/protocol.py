@@ -850,7 +850,7 @@ class ProtocolExecutor:
         per sample."""
         import numpy as _np
 
-        from mechbench_compute.distill import encode, prefill_decision, render_chat
+        from mechbench_compute.distill import prefill_decision, render
         from mechbench_compute.generate import sample_completion_cached
         from mechbench_compute.seeds import item_seed
 
@@ -861,8 +861,6 @@ class ProtocolExecutor:
             raise ValueError(
                 "text/generate: no records to run over — wire records to "
                 "the `records` port")
-        f_system = "system"
-        f_user = "user"
         n = int(params.get("n", 1))
         start = int(params.get("start", 0))
         seed = params.get("seed", 0)
@@ -879,13 +877,8 @@ class ProtocolExecutor:
             on_start(len(records) * n)
         items = []
         for rec in records:
-            if f_user not in rec:
-                raise ValueError(
-                    f"generate: record {rec.get('id')!r} has no "
-                    f"{f_user!r} field")
-            rendered = render_chat(tok, rec.get(f_system, ""),
-                                   rec[f_user], "")
-            ids = encode(tok, rendered)
+            r = render(model, dict(rec, prefill=""))
+            rendered, ids = r.text, r.ids
             prefill = prefill_decision(model, ids)
             for k in range(start, start + n):
                 key = f"{rec['id']}:{k}"
@@ -1831,7 +1824,7 @@ class ProtocolExecutor:
         import os
         import tempfile
 
-        from mechbench_compute.distill import encode, render_chat
+        from mechbench_compute.distill import encode, render
         from mechbench_compute.finetune import (
             build_anchor_items,
             build_marginal_items,
@@ -1861,11 +1854,8 @@ class ProtocolExecutor:
             fuse_adapter_stack(model.lm, list(mref.adapter_payloads))
 
         records = lexicon.items_of(inputs.get("records") or [])
-        f_system, f_user, f_prefill = "system", "user", "prefill"
-
         def rendered_of(rec):
-            return render_chat(tok, rec.get(f_system, ""),
-                               rec[f_user], rec.get(f_prefill, ""))
+            return render(model, rec).text
 
         target_spec = params.get("target")
         if not target_spec:
@@ -2006,7 +1996,7 @@ class ProtocolExecutor:
         import numpy as _np
 
         from mechbench_compute import Capture
-        from mechbench_compute.distill import encode, render_chat
+        from mechbench_compute.distill import render
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
@@ -2018,7 +2008,6 @@ class ProtocolExecutor:
             raise ValueError(
                 "logits/funnel: no records to run over — wire records to "
                 "the `records` port")
-        f_system, f_user, f_prefill = "system", "user", "prefill"
         n_layers = len(model.lm.model.layers)
         top_k = int(params.get("top_k", 5))
         from mechbench_compute import shapes as S
@@ -2028,12 +2017,8 @@ class ProtocolExecutor:
             on_start(len(records))
         items = []
         for rec in records:
-            if f_user not in rec:
-                raise ValueError(
-                    f"lens: record {rec.get('id')!r} has no {f_user!r} field")
-            rendered = render_chat(tok, rec.get(f_system, ""),
-                                   rec[f_user], rec.get(f_prefill, ""))
-            ids = encode(tok, rendered)
+            r0 = render(model, rec)
+            rendered, ids = r0.text, r0.ids
             r = model.run(
                 mx.array([ids]),
                 interventions=[Capture.residual(layers=range(n_layers))])
@@ -2126,7 +2111,7 @@ class ProtocolExecutor:
             encode,
             expand_top_outcomes_cached,
             prefill_decision,
-            render_chat,
+            render,
             suffix_tokens,
         )
 
@@ -2143,29 +2128,21 @@ class ProtocolExecutor:
         if on_start:
             on_start(len(conditions))
         rollout = params.get("rollout")
-        outcomes = params.get("outcomes")
         top_k = int(params.get("top_k", 10))
         from mechbench_compute import shapes as S
         # The fields are `system`, `user`, `prefill`, by name: a record
         # that carries them under other names goes through records/rename
         # first, so the adaptation is a node in the graph, not a param.
-        f_system, f_user, f_prefill = "system", "user", "prefill"
         out = []
         for cond in conditions:
-            if f_user not in cond:
-                raise ValueError(
-                    f"decision-read: record {cond.get('id')!r} has no "
-                    f"{f_user!r} field (fields present: "
-                    f"{sorted(k for k in cond if k not in ('id', 'coords'))})")
             key = str(cond["id"])
             if resume_items and key in resume_items:
                 out.append(resume_items[key])
                 if on_item:
                     on_item(key, resume_items[key], True)
                 continue
-            rendered = render_chat(tok, cond.get(f_system, ""),
-                                   cond[f_user], cond.get(f_prefill, ""))
-            ids = encode(tok, rendered)
+            r = render(model, cond)
+            rendered, ids = r.text, r.ids
             prefill = prefill_decision(model, ids)
             lp = np.array(prefill[1] - mx.logsumexp(prefill[1])).astype(np.float64)
             # Per-record outcome sets override the block-level param —
@@ -2174,7 +2151,7 @@ class ProtocolExecutor:
             # name, at its first token as a suffix of the rendered prompt;
             # `tracked` names any other token to follow.
             tracked: dict[str, int] = {}
-            for o in (cond.get("outcomes", outcomes) or []):
+            for o in (cond.get("outcomes") or []):
                 tracked[str(o)] = int(suffix_tokens(tok, rendered, ids, o)[0])
             for name, text in dict(cond.get("tracked") or params.get("tracked") or {}).items():
                 tracked.setdefault(str(name), int(suffix_tokens(tok, rendered, ids, str(text))[0]))
