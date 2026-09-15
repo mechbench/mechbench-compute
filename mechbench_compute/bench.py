@@ -610,10 +610,11 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
 
 def cancel(job_id: str, *, reason: str = "", api_url: str | None = None,
            api_key: str | None = None) -> dict:
-    """Withdraw a job that has not started yet (task 000463).
+    """Withdraw a job nobody is running (tasks 000463, 000511).
 
-    `POST /jobs/:id/cancel`. Works while no compute has been spent —
-    `queued`, and `preparing`, where the runner is fetching weights — and
+    `POST /jobs/:id/cancel`. Works while no compute is being spent —
+    `queued`; `preparing`, where the runner is fetching weights; and
+    `interrupted`, where a runner stopped and has not resumed — and
     is refused for a running job, which a server cannot stop. Idempotent:
     cancelling twice answers the same, with `alreadyCancelled` set, so two
     people draining a queue do not race. Returns `{ok, status, from}`.
