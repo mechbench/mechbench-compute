@@ -206,6 +206,13 @@ class Transport(ABC):
         caps = self.capabilities
         if req.tools and not caps.tools:
             raise CapabilityUnsupported(self.name, "tools")
+        if req.tool_choice is not None and not req.tools:
+            # A choice among nothing (task 000509). Every adapter puts
+            # `tool_choice` on the wire, so this would be sent and either
+            # ignored or refused by the provider in its own words.
+            raise CapabilityUnsupported(
+                self.name, "tool_choice",
+                "no tools were declared, so there is nothing to choose among")
         if req.json_mode and not caps.json_mode:
             raise CapabilityUnsupported(self.name, "json_mode")
         if req.seed is not None and not caps.seed:

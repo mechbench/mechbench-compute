@@ -13,14 +13,41 @@ nothing said so.
 
 ---
 
-## Unreleased
+## 0.81.1 — 2026-09-16
+
+A patch, not a minor, only because **0.82.0 is spoken for**: the 0.80.0
+notes promised both alias tables would be removed there, and the
+`RetiredOpName` warnings in the wild name that version. Nothing that
+worked before this release stops working — every refusal below replaces
+a silent no-op.
 
 ### Changes that raise
 
-- _None._
+- **`text/chat` on local weights refuses `json_mode`, `logprobs` and
+  `tool_choice`** (task 000509). The local path dropped all three
+  without a word: a protocol that asked a local model for JSON got
+  whatever the model felt like, and nothing said the request went
+  nowhere. Each is now refused by name, with what to do instead. The
+  remote path is unchanged — those three have always been refused there
+  by capability, per provider (`providers.base.check_supported`).
+- **`tool_choice` with no `tools` is refused.** A choice among nothing:
+  every adapter put it on the wire, where the provider ignored it or
+  refused it in its own vocabulary.
+- **A `provider_options` key that names no provider is refused.** The
+  bag is keyed by provider — `{"anthropic": {"thinking": …}}` — so a
+  field written at the top level was passed to nobody, which is the
+  failure `provider_options` is most likely to produce.
 
 ### Changes that alter results without raising
 
+- **`stop` works on the local path** (task 000509). `text/chat`
+  declared it, every remote adapter sent it, and the local sampler read
+  only the tokenizer's turn-end tokens — so a local node that asked to
+  stop at a marker ran to `max_tokens` instead. It now ends the sample
+  at the first marker, which is not part of the reply, as every
+  provider's `stop` means. **A local chat node that sets `stop` will
+  produce shorter text than it did.** `generate.sample_completion_cached`
+  takes `stop_strings` for the same reason.
 - **`platform_kinds.register_all` registers a NEW VERSION of a kind
   whose declared fields have changed**, instead of printing "pinned"
   and leaving the registry describing the fields the kind used to have

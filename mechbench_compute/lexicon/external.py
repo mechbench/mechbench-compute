@@ -89,13 +89,20 @@ without contacting the provider at all.
           "the provider's.",
           None),
         P("max_tokens", "int", "The longest reply, in tokens.", 1024),
-        P("stop", "list[string]", "Strings at which generation stops.", None),
+        P("stop", "list[string]",
+          "Strings at which generation stops; the marker itself is not part "
+          "of the reply. Honoured on both paths — the local sampler ends the "
+          "sample at the first of them.",
+          None),
         P("json_mode", "bool",
-          "Ask the provider for a JSON-only reply, where it supports that.",
+          "Ask the provider for a JSON-only reply. Remote only, and refused "
+          "by name on a provider that cannot do it — never silently dropped.",
           False),
         P("logprobs", "int | bool",
-          "Ask the provider to return token log-probabilities, where it "
-          "supports that.",
+          "Ask the provider to return token log-probabilities: an int is the "
+          "top-k. Remote only, and refused by name where the provider has no "
+          "logprobs or a lower ceiling. For a local model, `logits/read` "
+          "reads the distribution itself.",
           None),
         P("tools", "list[string | object]",
           "Tools the model may call: built-in names, or full definitions "
@@ -103,7 +110,9 @@ without contacting the provider at all.
           None),
         P("tool_choice", "string | object",
           "How the provider should choose tools — `\"auto\"`, `\"none\"`, "
-          "or a specific tool — in the provider's own vocabulary.",
+          "or a specific tool — in the provider's own vocabulary. Remote "
+          "only, and refused with no `tools` declared: locally the model's "
+          "chat template offers the tools and does not constrain the choice.",
           None),
         P("max_tool_rounds", "int",
           "How many times a reply may call tools and be asked again.",
@@ -118,8 +127,11 @@ without contacting the provider at all.
           "tools are offered alongside `tools`.",
           None),
         P("provider_options", "object",
-          "Provider-specific request options, merged over any the model "
-          "reference carries — passed through as given.",
+          "Provider-native request fields this block does not model, **keyed "
+          "by provider** — `{\"anthropic\": {\"thinking\": {…}}}` — merged "
+          "over any the model reference carries and passed through as given. "
+          "A key that names no provider is refused: written at the top level "
+          "it would reach nobody.",
           None),
         P("base_url", "string",
           "Send requests to this endpoint instead of the provider's default "
@@ -130,7 +142,8 @@ without contacting the provider at all.
           4),
         P("limit_scope", "string",
           "The rate-limit bucket to share. Defaults to a fingerprint of the "
-          "credential, since limits are per account.",
+          "credential, since limits are per account. This block's own "
+          "limiter, not the provider's — nothing about it goes on the wire.",
           None),
         P("cache", "string | bool",
           "Keep a memo of remote calls keyed by request hash, so unchanged "
@@ -145,7 +158,8 @@ without contacting the provider at all.
           "replay"),
         P("record_requests", "bool",
           "Also store each outgoing request body on its call record, not "
-          "only the response.",
+          "only the response. About what is kept, not what is sent: this "
+          "block writes the record either way.",
           False),
         P("keep_fields", "list[string]",
           "Record fields to copy onto each output item — a reference "

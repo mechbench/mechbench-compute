@@ -25,7 +25,7 @@ generate_labeled_corpus.
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import mlx.core as mx
 import numpy as np
@@ -255,9 +255,23 @@ def offsets_by_cumulative_decode(tokenizer, ids):
     return offs, prev
 
 
+def cut_at_stop(text: str, stop_strings: Sequence[str]) -> str:
+    """The text up to the earliest stop string, which is not included —
+    what every provider's `stop` means (task 000509)."""
+    cut = len(text)
+    for s in stop_strings:
+        if not s:
+            continue
+        at = text.find(s)
+        if at != -1:
+            cut = min(cut, at)
+    return text[:cut]
+
+
 def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
                              temperature=0.9, top_p=0.95, rng=None,
-                             prefill=None, return_ids=False):
+                             prefill=None, return_ids=False,
+                             stop_strings: Sequence[str] = ()):
     """Sample one completion with a KV cache: the prompt is encoded
     once (or reused via `prefill` — a (cache, last_row) pair from
     `distill.prefill_decision`, copied per call), then decoding feeds
@@ -266,6 +280,11 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
 
     Deterministic in `rng`: pass a seeded numpy Generator; the sampler
     draws only from it.
+
+    `stop_strings` ends the sample at the first of them, as a provider's
+    `stop` does: the marker is not part of the returned text, and the
+    ids returned are the ones that produced it (task 000509). The
+    tokenizer's own turn-end tokens always end it, stop strings or not.
     """
     import numpy as _np
 
@@ -274,6 +293,11 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
 
     rng = rng or _np.random.default_rng()
     stop = _stop_ids(model.tokenizer)
+    stops = tuple(s for s in (stop_strings or ()) if s)
+    # Enough tokens to hold the longest marker however it was split: a
+    # token is at least one character, so this window never misses one
+    # that straddles the boundary.
+    window = (max(len(s) for s in stops) + 8) if stops else 0
 
     if prefill is None:
         prefill = _prefill(model, list(prompt_ids))
@@ -282,14 +306,22 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
 
     lm = model.lm
     out_ids: list[int] = []
+    hit_stop = False
     for _ in range(int(max_tokens)):
         next_id = _sample_next(row, temperature=temperature,
                                top_p=top_p, rng=rng)
         if next_id in stop:
             break
         out_ids.append(int(next_id))
+        if stops:
+            tail = model.tokenizer.decode(out_ids[-window:])
+            if any(s in tail for s in stops):
+                hit_stop = True
+                break
         o = lm(mx.array([[int(next_id)]]), cache=cache)
         row = (o.logits if hasattr(o, "logits")
                else o)[0, -1, :].astype(mx.float32)
     text = model.tokenizer.decode(out_ids)
+    if hit_stop:
+        text = cut_at_stop(text, stops)
     return (text, out_ids) if return_ids else text

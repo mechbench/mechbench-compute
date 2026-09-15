@@ -81,6 +81,33 @@ def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
     })
 
 
+#: Params the remote path implements by asking the provider for them,
+#: and the local path has no equivalent of (task 000509). The remote
+#: path refuses these by name when the provider cannot honour them
+#: (`providers.base.check_supported`); the local path refuses them
+#: outright, because a request field nobody reads is a wrong answer
+#: with no error — the failure 000438 exists to prevent.
+_REMOTE_ONLY = {
+    "json_mode": "no local decoder constrains output to JSON; "
+                 "ask for JSON in the prompt, or run this node on a provider",
+    "logprobs": "the local path returns text, not scores — "
+                "`logits/read` is the block that reads a distribution here",
+    "tool_choice": "the local tool protocol is the model's chat template, "
+                   "which offers tools and does not constrain the choice",
+}
+
+
+def _refuse_remote_only(params: Mapping[str, Any]) -> None:
+    asked = [p for p in sorted(_REMOTE_ONLY)
+             if params.get(p) not in (None, False)]
+    if not asked:
+        return
+    lines = "; ".join(f"{p} — {_REMOTE_ONLY[p]}" for p in asked)
+    raise ValueError(
+        f"text/chat on local weights cannot honour {', '.join(asked)}: {lines}. "
+        "Drop the parameter, or give the node a provider model reference.")
+
+
 def _sandbox_and_tools(params: Mapping[str, Any]) -> tuple[Any, tuple[Any, ...]]:
     """`(image, combined_tool_specs)` for a node. When the node
     declares a `sandbox` image, its tools are appended to any the
@@ -353,6 +380,7 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
     # chose not to call anything, which is how 024 lost an arm.
     dialect = (dialects.dialect_for(tok, model=str(getattr(ref, "base", ref)))
                if tool_specs else None)
+    _refuse_remote_only(params)
     recs = _records(records)
     n = int(params.get("n", 1))
     start = int(params.get("start", 0))
@@ -360,6 +388,7 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
     temperature = float(params.get("temperature") or 0.9)
     top_p = float(params.get("top_p") or 0.95)
     max_tokens = int(params.get("max_tokens", 1024))
+    stop_strings = tuple(params.get("stop") or ())
     model_wire = ref.to_wire() if hasattr(ref, "to_wire") else ref
     if on_start:
         on_start(len(recs) * n)
@@ -395,7 +424,8 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
                     tok, turn, tools=hf_tools, dialect=dialect))
                 text = sample_completion_cached(
                     model, ids, max_tokens=max_tokens, temperature=temperature,
-                    top_p=top_p, rng=rng, prefill=prefill_decision(model, ids))
+                    top_p=top_p, rng=rng, prefill=prefill_decision(model, ids),
+                    stop_strings=stop_strings)
                 if not box or round_no == max_tool_rounds:
                     break
                 # The call markup leaves the text: it goes back into

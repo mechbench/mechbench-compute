@@ -208,6 +208,24 @@ class ChatRequest:
                 "provider-native fields")
         return dict(opts)
 
+    def check_options(self) -> None:
+        """Every key of `provider_options` must name a provider (task
+        000509). The bag is keyed by provider, so a caller who writes
+        the provider-native field at the top level —
+        `provider_options: {"thinking": …}` — has written something no
+        adapter will ever read, and nothing would have said so."""
+        from mechbench_compute.providers import registry as _registry
+
+        known = set(_registry.registry())
+        stray = sorted(k for k in self.provider_options if k not in known)
+        if stray:
+            raise ValueError(
+                f"provider_options key(s) {', '.join(stray)} name no provider. "
+                f"The bag is keyed by provider — "
+                f"`{{\"{sorted(known)[0]}\": {{…}}}}` — so a field written at "
+                f"the top level is passed to nobody. Known providers: "
+                f"{', '.join(sorted(known))}.")
+
     def with_messages(self, ms: Sequence[Message]) -> ChatRequest:
         from dataclasses import replace
 
@@ -236,7 +254,9 @@ def request(value: Any = None, **overrides: Any) -> ChatRequest:
                               {"type": "object", "properties": {}}))
         for t in (raw.pop("tools", ()) or ()))
     stop = tuple(raw.pop("stop", ()) or ())
-    return ChatRequest(messages=ms, tools=tools, stop=stop, **raw)
+    req = ChatRequest(messages=ms, tools=tools, stop=stop, **raw)
+    req.check_options()
+    return req
 
 
 def canonical(req: ChatRequest, *, provider: str | None = None) -> dict[str, Any]:

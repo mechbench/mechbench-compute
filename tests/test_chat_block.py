@@ -397,3 +397,77 @@ class TestJobBudget:
             for _ in range(20):
                 ex.run(spec)
         assert job.spent_usd > 0 and job.spent_usd <= job.cap_usd
+
+
+class TestEveryParamIsAPromise:
+    """Task 000509. A param the block cannot honour is a wrong answer
+    with no error — the failure `check_params` exists to prevent, one
+    path at a time. The remote path refuses by capability; the local
+    path had no equivalent of four of these and silently dropped them.
+    """
+
+    def _local(self, params, monkeypatch, sampled="a local answer"):
+        from mechbench_compute import distill, generate
+
+        class FakeTok:
+            def apply_chat_template(self, turns, tokenize=False,
+                                     add_generation_prompt=True, **kw):
+                return " | ".join(f"{t['role']}:{t['content']}" for t in turns)
+
+            def decode(self, ids):
+                return sampled
+
+        class FakeModel:
+            tokenizer = FakeTok()
+
+        monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
+        monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
+        monkeypatch.setattr(generate, "sample_completion_cached",
+                            lambda *a, **k: sampled)
+        return chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
+                                  _records(1), {"n": 1, "seed": 3, **params})
+
+    @pytest.mark.parametrize("param,value", [
+        ("json_mode", True), ("logprobs", 5), ("tool_choice", "auto"),
+    ])
+    def test_the_local_path_refuses_what_it_cannot_do(self, param, value,
+                                                      monkeypatch):
+        with pytest.raises(ValueError, match=param):
+            self._local({param: value}, monkeypatch)
+
+    def test_the_local_path_takes_the_ones_it_can(self, monkeypatch):
+        out = self._local({"stop": ["\n\n"], "temperature": 0.5}, monkeypatch)
+        assert len(out["items"]) == 1
+
+    def test_a_false_json_mode_is_not_a_request_for_json(self, monkeypatch):
+        # The default is False; a protocol that writes it out explicitly
+        # is asking for nothing, and must not be refused for it.
+        assert self._local({"json_mode": False, "logprobs": None},
+                           monkeypatch)["items"]
+
+    def test_the_remote_path_refuses_a_tool_choice_with_no_tools(self):
+        from mechbench_compute.providers.errors import CapabilityUnsupported
+
+        with pytest.raises(CapabilityUnsupported, match="tool_choice"):
+            ProtocolExecutor().run(_spec({"tool_choice": "auto", "n": 1}))
+
+    def test_a_provider_options_key_that_names_no_provider_is_refused(self):
+        from mechbench_compute.providers import messages as pm
+
+        with pytest.raises(ValueError, match="thinking"):
+            pm.request({"model": "m", "provider_options": {"thinking": {"x": 1}}})
+        # …and the keyed form is fine.
+        req = pm.request({"model": "m",
+                          "provider_options": {"anthropic": {"thinking": {}}}})
+        assert req.options_for("anthropic") == {"thinking": {}}
+        assert req.options_for("openai") == {}
+
+
+class TestLocalStopStrings:
+    def test_the_sample_ends_at_the_first_marker_and_drops_it(self):
+        from mechbench_compute.generate import cut_at_stop
+
+        assert cut_at_stop("one\n\ntwo", ["\n\n"]) == "one"
+        assert cut_at_stop("a END b STOP c", ["STOP", "END"]) == "a "
+        assert cut_at_stop("nothing to cut", ["END"]) == "nothing to cut"
+        assert cut_at_stop("empty marker", [""]) == "empty marker"
