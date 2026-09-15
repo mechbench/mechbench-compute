@@ -123,6 +123,16 @@ class TestAliases:
         with pytest.raises(KeyError):
             K.resolve_kind("records/tabel")
 
+    def test_a_legacy_document_collection_is_documents(self):
+        """A corpus generated before the typology satisfies a records
+        port: its items are documents, which are records. Resolving the
+        old plural to the bare container refused every such corpus."""
+        from mechbench_compute.block_params import check_inputs
+
+        assert K.item_kind_of({"kind": "document_collection", "items": []}) == "text/document"
+        assert K.resolve_kind("document_collection", warn=False) == ("text/document", True)
+        check_inputs("activations/capture", {"records": {"kind": "document_collection", "items": [{"id": "a", "text": "t"}]}})
+
     def test_a_legacy_plural_names_its_item_kind(self):
         assert K.item_kind_of({"kind": "residual_vectors"}) == "activations/vector"
         assert K.item_kind_of({"kind": COLLECTION, "item_kind": "logits/decision"}) == "logits/decision"

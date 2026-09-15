@@ -751,7 +751,11 @@ BY_KIND: dict[str, Kind] = {k.name: k for k in KINDS}
 #: name, whether the old object was a collection of it). A plural old
 #: kind maps to its item kind and `True`.
 KIND_ALIASES: dict[str, tuple[str, bool]] = {
-    "document_collection": (COLLECTION, True),
+    # A `document_collection` was a collection of documents; resolving it
+    # to the bare container told a `records/record` port it had been
+    # wired "a collection of `collection`" and refused every corpus
+    # generated before the typology.
+    "document_collection": ("text/document", True),
     "record_set": ("records/record", True),
     # What the experiment authors wrote on their prompt objects.
     "records": ("records/record", True),

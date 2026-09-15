@@ -71,6 +71,35 @@ def check_changelog(version: str) -> str | None:
     return None
 
 
+def rollout_budget() -> None:
+    """`scripts/bench_rollout.py` on the release machine: a decision read
+    with rollout must not have got slower per forward. A matrix of 312
+    reads once took 36 minutes where it had taken 4, and nothing in the
+    numbers said so — the count of forwards was the same; only the
+    clock knew. The budget is coarse (150 ms a forward on E2B, against
+    ~75 measured) so it catches a slower path, not a busy afternoon;
+    it is skipped, and says so, when the runner is executing a job or
+    the model is not in the local cache, because then the number would
+    be about the machine."""
+    status = run(["mechbench", "status"], timeout=30)
+    if status.returncode == 0 and "executing" in (status.stdout or ""):
+        print("  skipped: the runner is executing a job; the number would be the machine's")
+        return
+    env = dict(os.environ, HF_HUB_OFFLINE="1")
+    proc = run([sys.executable, str(REPO / "scripts" / "bench_rollout.py"), "--n", "12"],
+               env=env, timeout=900)
+    out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    if proc.returncode != 0 and "OVER BUDGET" not in out:
+        print("  skipped: the model did not load here (not cached, or no Metal) —")
+        print("  " + out.splitlines()[-1][:160] if out else "")
+        return
+    for line in out.splitlines():
+        if line.startswith(("compute ", "per expansion forward", "OVER BUDGET")) or "median" in line:
+            print("  " + line)
+    if proc.returncode != 0:
+        die("rollout budget", proc)
+
+
 def main() -> None:
     dry = "--dry-run" in sys.argv
     m = re.search(r'^version = "([^"]+)"',
@@ -136,6 +165,9 @@ def main() -> None:
             proc = run([py, "-c", code], env=env, timeout=120)
             if proc.returncode != 0:
                 die(f"smoke: {name}", proc)
+
+    print("[6/6] rollout budget: the cost of an expansion forward")
+    rollout_budget()
 
     print(f"\ngate PASSED for {ver}")
     if dry:
