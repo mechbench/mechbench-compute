@@ -70,6 +70,32 @@ class TestProducers:
         with pytest.raises(ValueError):
             d.from_vectors(_vectors(), layer=9, positive="pos", negative="neg")
 
+    def test_an_axis_fit_across_two_models_lives_in_neither(self):
+        # A base capture and an adapted capture in one union: the
+        # difference of their means is a direction in the basis they
+        # share, not in either model — so two such axes (from two
+        # adapters) compare, and the models are on the derivation.
+        from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute.lexicon import kinds as K
+
+        def capture(model, seed):
+            sp = S.space(model=model, layer=12, point="resid_post", d=4)
+            rng = np.random.default_rng(seed)
+            return K.collection("activations/vector",
+                                [S.vector(list(rng.normal(size=4)), sp, id="p")], model=model)
+
+        base = capture("fake/base", 0)
+        axes = {}
+        for i, name in enumerate(["die", "letters"]):
+            pair = PURE_BLOCKS["records/union"]({"base": base, "adapted": capture(f"fake/{name}", i + 1)}, {})
+            axes[name] = d.from_vectors(pair, layer=12, axis="batch", positive="base", negative="adapted")
+            assert axes[name]["space"]["model"] is None
+            assert axes[name]["derivation"]["models"] == [f"fake/{name}", "fake/base"]
+        union = PURE_BLOCKS["records/union"](axes, {})
+        sim = PURE_BLOCKS["geometry/similarity"]({"items": union}, {"axis": "batch"})
+        assert sim["items"][0]["ids"] == ["die", "letters"]
+        assert -1.0 <= sim["items"][0]["matrix"][0][1] <= 1.0
+
 
 class TestArithmetic:
     def test_orthogonalize_removes_the_component(self):

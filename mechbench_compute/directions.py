@@ -98,14 +98,36 @@ def _items_at(vectors: Mapping[str, Any], layer: int) -> list[Mapping[str, Any]]
     return rows
 
 
+def _models_of(vectors: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The distinct models the rows were captured from, in order."""
+    seen: dict[str, None] = {}
+    for r in rows:
+        m = S.space_of(r, header=vectors).get("model")
+        if m is not None:
+            seen[str(m)] = None
+    return list(seen)
+
+
 def _space_at(vectors: Mapping[str, Any], rows: Sequence[Mapping[str, Any]],
               point: str | None) -> dict[str, Any]:
-    """The rows' shared space, with the point overridden when asked."""
+    """The rows' shared space, with the point overridden when asked.
+
+    Rows from more than one model — a base and an adapted capture in one
+    union — give a direction that lives in neither: its `model` is None
+    (the residual basis they share), and the derivation names them all,
+    so two such axes compare and the models are still on record."""
     sp = S.space_of(rows[0], header=vectors)
+    if len(_models_of(vectors, rows)) > 1:
+        sp["model"] = None
     if point:
         sp["point"] = P.normalize(str(point))
     sp["head"] = None
     return sp
+
+
+def _model_provenance(vectors: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    models = _models_of(vectors, rows)
+    return {"models": models} if len(models) > 1 else {}
 
 
 # --- producers --------------------------------------------------------------
@@ -128,7 +150,8 @@ def from_vectors(vectors: Mapping[str, Any], *, layer: int, positive: str,
     return make(pos.mean(0) - neg.mean(0), _space_at(vectors, rows, point),
                 method="diff_of_means", sources=[source] if source else [],
                 labels={"axis": axis, "positive": positive, "negative": negative},
-                extra={"n_positive": len(pos), "n_negative": len(neg)})
+                extra={"n_positive": len(pos), "n_negative": len(neg),
+                       **_model_provenance(vectors, rows)})
 
 
 def from_pca(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
@@ -156,7 +179,7 @@ def from_pca(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
                 sources=[source] if source else [],
                 labels=({"axis": axis, "value": value} if value is not None else None),
                 extra={"component": int(component), "explained": round(explained, 4),
-                       "n_items": len(x)})
+                       "n_items": len(x), **_model_provenance(vectors, rows)})
 
 
 # --- arithmetic (pure) --------------------------------------------------------
