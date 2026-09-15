@@ -13,6 +13,49 @@ nothing said so.
 
 ---
 
+## 0.84.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- **`intervene/apply` edits weights, not only activations** (task
+  000457, the write half). A spec item that names a **`parameter`**
+  instead of a `point` edits the model itself:
+
+  ```json
+  {"parameter": "layers.12.self_attn.o_proj", "op": "project_out",
+   "direction": {"$fetch": "$axis"}}
+  ```
+
+  The two kinds compose in one spec and differ in scope: an activation
+  edit lasts for one forward pass, a weight edit for the node. Four ops
+  — `zero`, `scale`, `project_out` (take a direction out of what a
+  module reads or writes, the side chosen per module), `truncate` (keep
+  the top `rank` singular directions). `parameter` takes the same names
+  `weights/capture` does, `*` included, so one item can zero every
+  layer's `o_proj`.
+
+  **The model is put back exactly.** The original tensors are kept and
+  reinstalled — never a subtraction that would not round-trip in bf16 —
+  and the restore happens in a `finally`, so a forward pass that raises
+  cannot leave a later node running against an edited model. Verified
+  against Gemma 4 E2B: every `o_proj` scaled to zero moves the readout
+  from certain (H = 0.000) to noise (H = 6.864), and the weights come
+  back bit-identical. The readout's header carries a `weights` list
+  beside `spec`, so a reader knows the model was not the one on the
+  shelf.
+
+  A sweep re-applies the edits at each factor, so `{"strength": [0.5,
+  1.0]}` on a `project_out` removes half a direction and then all of
+  it; factor 0 is the unedited model.
+
 ## 0.83.0 — 2026-09-17
 
 ### Changes that raise

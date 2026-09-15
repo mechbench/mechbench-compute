@@ -155,6 +155,32 @@ The ops:
 
 The older `intervene/ablate-layers` and `intervene/ablate-heads` and `intervene/steer` operations are special cases of this
 grammar.
+
+### Editing a weight instead of an activation
+
+A spec item that names a **`parameter`** rather than a `point` edits the
+model itself — `{"parameter": "layers.12.self_attn.o_proj", "op":
+"project_out", "direction": {"$fetch": "$axis"}}`. The two kinds compose
+in one spec, and differ in scope: an activation edit lasts for one
+forward pass, a weight edit for the node. The tensor is changed, every
+record runs against the changed model, and the original is reinstalled
+afterwards — the tensor itself, kept and put back, never a subtraction
+that would not round-trip in bf16.
+
+A sweep re-applies the weight edits at each factor, so `{"strength":
+[0.5, 1.0]}` on a `project_out` removes half the direction and then all
+of it. Factor 0 is the unedited model, which is the control the readout
+compares against.
+
+| Weight `op` | Effect | Needs |
+|---|---|---|
+| `zero` | Set the tensor to zero — the module stops contributing. | — |
+| `scale` | Multiply it by `strength`. | — |
+| `project_out` | Remove a direction from the side of the matrix that faces the residual stream: what the module WRITES (`o_proj`, `down_proj`) or what it READS (`q_proj`, `k_proj`, `v_proj`, `gate_proj`, `up_proj`). `strength` 1.0 removes it entirely. `side` names the side where it is not implied. | `direction` |
+| `truncate` | Keep the top `rank` singular directions and drop the rest — how much of the module survives being low-rank. | `rank` |
+
+`parameter` takes the same names `weights/capture` does, `*` included:
+one item can zero every layer's `o_proj`.
 """,
     inputs=(
         In("records", "records/record",
@@ -170,7 +196,7 @@ grammar.
            "item without one.", many=True, required=False),
         ADAPTER,
     ),
-    emits=Emits('intervene/readout', collection=True, doc='One item per record per factor: `id`, `coords`, `factor`, and the readout — for a decision, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp}` for the tokens asked about); for a capture, `position` and `captures`, a collection of `activations/vector` with one item per hook point, each in its own `space` (at most 4096 values). The header carries `spec` (the list as run, with directions and sources replaced by their provenance) and `sweep` (the factors, including `0.0` when a control was added).'),
+    emits=Emits('intervene/readout', collection=True, doc='One item per record per factor: `id`, `coords`, `factor`, and the readout — for a decision, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp}` for the tokens asked about); for a capture, `position` and `captures`, a collection of `activations/vector` with one item per hook point, each in its own `space` (at most 4096 values). The header carries `spec` (the list as run, with directions and sources replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf) and `sweep` (the factors, including `0.0` when a control was added).'),
     params=(
         P("spec", "list[object]",
           "The intervention items, applied together in one forward pass per "

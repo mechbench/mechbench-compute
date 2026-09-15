@@ -279,3 +279,107 @@ def test_real_project_out_zeroes_the_projection_at_the_point():
     proj_ctrl = float(np.array(K.items_of(ctrl["captures"])[0]["vector"]) @ u)
     proj_done = float(np.array(K.items_of(done["captures"])[0]["vector"]) @ u)
     assert abs(proj_ctrl) > 1.0 and abs(proj_done) < 0.05 * abs(proj_ctrl)
+
+
+class _WeightModel(_FakeModel):
+    """A model whose logits depend on one of its OWN parameters, so a
+    weight edit changes the readout and a failed restore would show."""
+
+    def __init__(self):
+        from mlx import nn
+
+        class Proj(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.o_proj = nn.Linear(4, 4, bias=False)
+
+        class Layer(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.self_attn = Proj()
+
+        class Inner(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.layers = [Layer()]
+
+        class LM(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model = Inner()
+
+        mx.random.seed(3)
+        self.lm = LM()
+        self.lm.model.layers[0].self_attn.o_proj.weight = mx.array(
+            np.eye(4, dtype=np.float32))
+
+    def run(self, ids, hooks=None, capture=None, interventions=None):
+        r = super().run(ids, hooks=hooks, capture=capture,
+                        interventions=interventions)
+        w = self.lm.model.layers[0].self_attn.o_proj.weight.astype(mx.float32)
+        # The readout passes through the weight, embedded in the 6-token
+        # vocabulary: identity leaves the control alone, and a zeroed
+        # weight flattens the logits.
+        top = mx.concatenate([w, mx.zeros((4, 2))], axis=1)
+        bottom = mx.concatenate([mx.zeros((2, 4)), mx.eye(2)], axis=1)
+        r.logits = r.logits @ mx.concatenate([top, bottom], axis=0)
+        mx.eval(r.logits)
+        return r
+
+
+class TestWeightItems:
+    """Task 000457: a spec item that names a `parameter` edits the model
+    for the node, not the forward pass."""
+
+    def _weight(self, model):
+        return np.array(
+            model.lm.model.layers[0].self_attn.o_proj.weight.astype(mx.float32))
+
+    def test_the_edit_applies_and_the_model_is_put_back_exactly(self):
+        model = _WeightModel()
+        before = self._weight(model).copy()
+        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+                     {"spec": [{"parameter": "layers.0.self_attn.o_proj",
+                                "op": "zero"}], "top_k": 2})
+        assert out["sweep"] == [0.0, 1.0]
+        ctrl, edited = out["items"]
+        assert ctrl["factor"] == 0.0 and edited["factor"] == 1.0
+        # The control saw the untouched model; the edited row did not.
+        assert ctrl["top"][0]["p"] != pytest.approx(edited["top"][0]["p"])
+        assert np.array_equal(self._weight(model), before), "the model was not restored"
+
+    def test_the_header_records_the_weight_edit(self):
+        out = iv.run(_WeightModel(), [{"id": "r1", "user": "hi"}],
+                     {"spec": [{"parameter": "layers.0.self_attn.o_proj",
+                                "op": "scale", "strength": 0.5}]})
+        assert out["weights"] == [{"parameter": "layers.0.self_attn.o_proj",
+                                   "op": "scale", "strength": 0.5}]
+        assert "weight edit" in out["description"]
+
+    def test_a_weight_edit_and_an_activation_edit_compose(self):
+        model = _WeightModel()
+        before = self._weight(model).copy()
+        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+                     {"spec": [{"parameter": "layers.0.self_attn.o_proj",
+                                "op": "scale", "strength": 2.0},
+                               {"point": "resid_post", "layers": [2],
+                                "op": "add", "strength": 1.0,
+                                "direction": _dir([1, 0, 0, 0])}]})
+        assert len(out["items"]) == 2
+        assert out["weights"] and out["spec"]
+        assert np.array_equal(self._weight(model), before)
+
+    def test_the_model_is_restored_even_when_a_record_fails(self):
+        model = _WeightModel()
+        before = self._weight(model).copy()
+
+        def boom(*a, **k):
+            raise RuntimeError("the forward pass died")
+
+        model.run = boom
+        with pytest.raises(RuntimeError, match="died"):
+            iv.run(model, [{"id": "r1", "user": "hi"}],
+                   {"spec": [{"parameter": "layers.0.self_attn.o_proj",
+                              "op": "zero"}], "control": False})
+        assert np.array_equal(self._weight(model), before), \
+            "a failed run left the model edited"

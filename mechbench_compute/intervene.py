@@ -313,6 +313,36 @@ def _wire_spec(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _order(records: Sequence[Mapping[str, Any]], factors: Sequence[float],
+           weight_items: Sequence[Mapping[str, Any]], model):
+    """(record, factor) pairs, with any weight edits in scope.
+
+    Without weight items this is the loop it always was: record outer,
+    factor inner. With them the factor goes outside, because a weight
+    edit is applied once for every record that runs under it — and the
+    edit is undone before the next factor, and before the generator
+    returns, whatever happens in between. A run that left a model edited
+    would poison every later node in the job, which is the failure this
+    `finally` exists for.
+    """
+    if not weight_items:
+        for record in records:
+            for factor in factors:
+                yield record, factor
+        return
+
+    from mechbench_compute import weights as weights_mod
+
+    for factor in factors:
+        handle = ([] if factor == 0.0
+                  else weights_mod.edit_parameters(model.lm, weight_items, factor))
+        try:
+            for record in records:
+                yield record, factor
+        finally:
+            weights_mod.restore_parameters(model.lm, handle)
+
+
 def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
         inputs: Mapping[str, Any] | None = None,
         on_item: Callable | None = None,
@@ -337,7 +367,17 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
             it["source"] = port_src
         filled.append(it)
     seed = int(params.get("seed", 0))
+    # An item that names a `parameter` edits a WEIGHT, not an activation
+    # (task 000457). Its scope is the node rather than the forward pass:
+    # the tensor is changed, every record runs against the changed model,
+    # and the original is reinstalled afterwards. The two kinds compose —
+    # a spec may zero a weight and add a direction mid-forward — so they
+    # are separated here and applied in their own scopes.
+    weight_items = [it for it in filled if it.get("parameter") is not None]
+    filled = [it for it in filled if it.get("parameter") is None]
     specs = [Spec(it, n_layers=model.arch.n_layers, seed=seed) for it in filled]
+    if not specs and not weight_items:
+        raise SpecError("intervene needs a non-empty `spec` list")
     factors = [float(f) for f in (params.get("sweep") or {}).get("strength", [1.0])]
     if bool(params.get("control", True)) and 0.0 not in factors:
         factors = [0.0, *factors]
@@ -356,12 +396,16 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
 
     mid = S.model_id_of(model)
     rows: list[dict[str, Any]] = []
-    for record in records:
-        ids = render(model, record).array
-        flat = [int(t) for t in np.array(ids).reshape(-1)]
-        tokens = [model.tokenizer.decode([t]) for t in flat]
-        tracked = _tracked_ids(model, record, tracked=params.get("tracked"))
-        for factor in factors:
+    # A weight edit is applied once per sweep factor, not once per
+    # record: the tensor is the same for every record that runs under it,
+    # and an SVD per record would be absurd. So the factor is the outer
+    # loop when there are weight items, and the record loop is the same
+    # body either way.
+    for record, factor in _order(records, factors, weight_items, model):
+            ids = render(model, record).array
+            flat = [int(t) for t in np.array(ids).reshape(-1)]
+            tokens = [model.tokenizer.decode([t]) for t in flat]
+            tracked = _tracked_ids(model, record, tracked=params.get("tracked"))
             key = f"{record.get('id')}:{factor}"
             if factor == 0.0:
                 ivs: list[Any] = []
@@ -408,12 +452,23 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
             rows.append(row)
             if on_item:
                 on_item(key, row)
+    # The weight edits ride in the header beside the activation spec, so
+    # a reader of the result knows the model was not the one on the shelf
+    # (task 000457: "the manifest says so").
+    weights_wire = [dict(it) for it in weight_items] or None
+    what = []
+    if specs:
+        what.append(f"{len(specs)} activation intervention(s) per forward")
+    if weight_items:
+        what.append(f"{len(weight_items)} weight edit(s) for the run, "
+                    f"restored after")
     return K.collection(
         "intervene/readout", rows,
         spec=_wire_spec(filled),
+        weights=weights_wire,
         sweep=factors,
         readout=rk,
         description=(
-            f"{len(specs)} intervention(s) applied together per forward; factor 0 "
-            f"is the control; strengths scale with the sweep factor."),
+            f"{'; '.join(what)}. Factor 0 is the control; strengths scale "
+            f"with the sweep factor."),
     )

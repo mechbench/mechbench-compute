@@ -191,3 +191,101 @@ class TestDecompose:
     def test_points_are_required(self, lm):
         with pytest.raises(ValueError, match="needs `points`"):
             W.decompose_weights(lm, {})
+
+
+class TestParameterIntervention:
+    """The write half (000457): a spec item that names a `parameter`
+    edits the model for the life of the node, and the original tensor is
+    put back — the tensor itself, not a subtraction that would not
+    round-trip."""
+
+    def _w(self, lm, name="layers.0.self_attn.o_proj.weight"):
+        return np.array(W.parameter_names(lm)[name].astype(mx.float32))
+
+    def _dir(self, vec):
+        """A direction as a spec item carries one: the kind, not a bare
+        list — the same object an edge from `direction/fit` would."""
+        v = np.asarray(vec, dtype=np.float32)
+        return {"kind": "direction/vector", "id": "d", "vector": [float(x) for x in v],
+                "space": {"model": "acme/tiny", "layer": 0, "point": "attn_out",
+                          "d": int(v.size)},
+                "derivation": {"method": "test"}}
+
+    def test_zero_and_restore_is_exact(self, lm):
+        before = self._w(lm).copy()
+        handle = W.edit_parameters(
+            lm, [{"parameter": "layers.0.self_attn.o_proj", "op": "zero"}])
+        assert np.all(self._w(lm) == 0)
+        W.restore_parameters(lm, handle)
+        assert np.array_equal(self._w(lm), before)
+
+    def test_scale_takes_the_sweep_factor(self, lm):
+        before = self._w(lm).copy()
+        handle = W.edit_parameters(
+            lm, [{"parameter": "layers.0.self_attn.o_proj", "op": "scale",
+                  "strength": 2.0}], factor=0.5)
+        assert np.allclose(self._w(lm), before, atol=1e-6)   # 2.0 × 0.5
+        W.restore_parameters(lm, handle)
+
+    def test_a_star_edits_every_layer(self, lm):
+        handle = W.edit_parameters(
+            lm, [{"parameter": "layers.*.self_attn.o_proj", "op": "zero"}])
+        assert len(handle) == 3
+        for i in range(3):
+            assert np.all(self._w(lm, f"layers.{i}.self_attn.o_proj.weight") == 0)
+        W.restore_parameters(lm, handle)
+        assert np.any(self._w(lm) != 0)
+
+    def test_project_out_removes_a_direction_from_what_it_writes(self, lm):
+        before = self._w(lm)                      # (d, heads)
+        v = before[:, 0] / np.linalg.norm(before[:, 0])
+        handle = W.edit_parameters(
+            lm, [{"parameter": "layers.0.self_attn.o_proj",
+                  "op": "project_out", "direction": self._dir(v)}])
+        after = self._w(lm)
+        # Nothing the module writes has any component along v any more…
+        assert np.allclose(v @ after, 0, atol=1e-5)
+        # …and what was orthogonal to v is untouched.
+        assert np.allclose(after, before - np.outer(v, v @ before), atol=1e-5)
+        W.restore_parameters(lm, handle)
+        assert np.allclose(self._w(lm), before)
+
+    def test_project_out_on_a_reading_module_uses_the_other_side(self, lm):
+        name = "layers.0.self_attn.q_proj.weight"
+        before = self._w(lm, name)                # (heads, d)
+        v = before[0] / np.linalg.norm(before[0])
+        handle = W.edit_parameters(
+            lm, [{"parameter": "layers.0.self_attn.q_proj",
+                  "op": "project_out", "direction": self._dir(v)}])
+        after = self._w(lm, name)
+        assert np.allclose(after @ v, 0, atol=1e-5)   # it can no longer read v
+        W.restore_parameters(lm, handle)
+
+    def test_a_direction_of_the_wrong_width_is_refused(self, lm):
+        with pytest.raises(ValueError, match="only removes from the space"):
+            W.edit_parameters(lm, [{"parameter": "layers.0.self_attn.o_proj",
+                                    "op": "project_out",
+                                    "direction": self._dir([1.0, 0.0])}])
+
+    def test_truncate_keeps_the_top_singular_directions(self, lm):
+        name = "layers.0.mlp.down_proj.weight"
+        before = self._w(lm, name)
+        handle = W.edit_parameters(
+            lm, [{"parameter": "layers.0.mlp.down_proj", "op": "truncate",
+                  "rank": 2}])
+        after = self._w(lm, name)
+        sv = np.linalg.svd(after, compute_uv=False)
+        assert np.count_nonzero(sv > 1e-4) <= 2
+        assert np.linalg.norm(after) < np.linalg.norm(before)
+        W.restore_parameters(lm, handle)
+        assert np.allclose(self._w(lm, name), before)
+
+    def test_truncate_needs_a_rank_and_zero_needs_nothing(self, lm):
+        with pytest.raises(ValueError, match="needs a `rank`"):
+            W.edit_parameters(lm, [{"parameter": "layers.0.mlp.down_proj",
+                                    "op": "truncate"}])
+
+    def test_an_unknown_weight_op_names_the_ones_there_are(self, lm):
+        with pytest.raises(ValueError, match="unknown weight op"):
+            W.edit_parameters(lm, [{"parameter": "layers.0.mlp.down_proj",
+                                    "op": "resample"}])
