@@ -72,6 +72,12 @@ been migrated.
   (`generate`, `select`, `train`, `steer`, `capture`, `project`, …).
   The earlier alias table's targets point at the new names, so
   `decision-read` resolves to `logits/read` in one step.
+- **The rollout's per-node top-50 is a partition, not a full sort.**
+  Each expansion node of `logits/read`'s rollout sorted the whole
+  262k-token distribution to take its fifty most probable children —
+  about 20 ms a node, a minute over the 3,136 nodes of a 312-condition
+  matrix. It now partitions and sorts the fifty (ties by token id), so
+  the children, their order and every number are the same.
 
 ## 0.79.0 — 2026-09-15
 
