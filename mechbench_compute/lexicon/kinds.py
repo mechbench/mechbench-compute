@@ -281,7 +281,10 @@ DECISION = Kind(
     key=("id",),
     header={"model": "The model read.", "top_k": "How many tokens `top` holds."},
     renderer=_TABLE_RENDERER,
-    doc="`tracked` holds each named outcome's first token; a record's `outcomes` name themselves.",
+    doc="What `logits/decision` emits, one per condition, and what `eval/expectation` judges. `tracked` holds "
+        "each named token by the name the protocol gave it — the op's `tracked` param, or the record's own, "
+        "which takes precedence — and the first is the target. `rollout`, when asked for, expands the most "
+        "likely complete outcomes past the first token.",
 )
 
 FUNNEL = Kind(
