@@ -675,7 +675,7 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "records/cross":
         lambda inputs, params: _coll(factor_cross(params)),
     "records/template":
-        lambda inputs, params: _coll(template(inputs["records"], params)),
+        lambda inputs, params: _coll(template(_items(inputs["records"]), params)),
     "records/rename":
         lambda inputs, params: _coll(rename(inputs["records"], params)),
     "records/select":
