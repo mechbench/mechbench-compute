@@ -13,19 +13,17 @@ from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 
 
 def _spec():
-    # read1 -> read2, both "model" blocks (faked below): the shape that
-    # showed the overrun in production.
+    # read1 then read2, both "model" blocks (faked below): the shape that
+    # showed the overrun in production. Each reads its own conditions —
+    # a decision read is not a record stream another read could take.
     graph = {
         "nodes": [
             {"id": "read1", "block": "logits/decision",
-             "params": {}},
+             "params": {}, "inputs": {"conditions": [{"id": "c", "user": "u"}]}},
             {"id": "read2", "block": "logits/decision",
-             "params": {}},
+             "params": {}, "inputs": {"conditions": [{"id": "d", "user": "v"}]}},
         ],
-        "edges": [
-            {"from": {"node": "read1", "port": "out"},
-             "to": {"node": "read2", "port": "records"}, "kind": "records"},
-        ],
+        "edges": [],
     }
     return ProtocolSpec(kind="pipeline", prompt="", model_id=None,
                         extra={"graph": graph})

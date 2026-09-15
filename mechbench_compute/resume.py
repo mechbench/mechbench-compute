@@ -69,12 +69,20 @@ def _chat_level(params: Mapping[str, Any]) -> str:
     return "exchangeable" if provider else "reproducible"
 
 
-def _conversation_level(params: Mapping[str, Any]) -> str:
+def _conversation_level(params: Mapping[str, Any],
+                        inputs: Mapping[str, Any] | None = None) -> str:
     """A conversation's promise is its weakest participant's (task
     000339): the transcript so far is the state, so a local-only
     conversation restores exactly; one remote participant makes the
-    whole thing exchangeable."""
-    for p in (params or {}).get("participants") or []:
+    whole thing exchangeable. The participants arrive on the node's
+    `participants` port — inline under its `inputs` when the level can
+    be known before the run; by edge, the weakest case is assumed."""
+    from mechbench_compute.lexicon import kinds as K
+
+    given = (inputs or {}).get("participants")
+    if given is None:
+        return "exchangeable"
+    for p in K.items_of(given):
         model = p.get("model") if isinstance(p, Mapping) else None
         if isinstance(model, Mapping) and model.get("provider"):
             return "exchangeable"
@@ -84,7 +92,7 @@ def _conversation_level(params: Mapping[str, Any]) -> str:
 #: Blocks whose level is a function of their params rather than a
 #: constant. Same gate either way: process identity still decides
 #: whether a partial is eligible at all.
-def _judge_level(params: Mapping[str, Any]) -> str:
+def _judge_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = None) -> str:
     return _chat_level({"model": (params or {}).get("judge", {}).get("model")})
 
 
@@ -110,11 +118,15 @@ def _name(block: str) -> str:
         return block
 
 
-def resume_level(block: str, params: Mapping[str, Any] | None = None) -> str:
+def resume_level(block: str, params: Mapping[str, Any] | None = None,
+                 inputs: Mapping[str, Any] | None = None) -> str:
+    """What a re-run of `block` may reuse. `params` and the node's
+    inline `inputs` decide it for the blocks whose promise depends on
+    who answers."""
     block = _name(block)
     fn = DYNAMIC_LEVEL.get(block)
     if fn is not None and params is not None:
-        return fn(params)
+        return fn(params, inputs) if fn is not _chat_level else fn(params)
     return BLOCK_RESUME.get(block, {}).get("level", "restart")
 
 

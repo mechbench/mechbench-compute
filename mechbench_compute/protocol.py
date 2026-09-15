@@ -498,7 +498,8 @@ class ProtocolExecutor:
                 if src is None:
                     continue
                 offered = resume_mod.resume_level(nodes[src]["block"],
-                                                  nodes[src].get("params"))
+                                                  nodes[src].get("params"),
+                                                  nodes[src].get("inputs"))
                 if not resume_mod.satisfies(offered, str(level)):
                     forced_restart.add(src)
         node_hashes: dict[str, str] = {}
@@ -566,24 +567,58 @@ class ProtocolExecutor:
                 e["to"]["port"]: results[e["from"]["node"]]
                 for e in in_edges
             }
+            input_paths = {
+                e["to"]["port"]: node_paths.get(e["from"]["node"], "")
+                for e in in_edges
+            }
+            # An input given inline under the node's `inputs` — a
+            # literal, or `{"$fetch": …}` of a stored object — fills a
+            # port the way an edge does, and its content hash joins the
+            # fingerprint the way an upstream node's would.
+            inline_hashes: list[str] = []
+            for port, raw in sorted((node.get("inputs") or {}).items()):
+                if raw is None:
+                    continue
+                if port in inputs:
+                    raise ValueError(
+                        f"{nid}: port {port!r} is wired by an edge and also "
+                        f"given under `inputs` — one or the other")
+                inputs[port] = resolve_value(raw)
+                if isinstance(raw, dict) and "$fetch" in raw:
+                    input_paths[port] = str(resolve_value(raw["$fetch"]))
+                inline_hashes.append(
+                    f"{port}:{resume_mod.content_hash(inputs[port])}")
+            # A protocol written before inputs left params may still
+            # carry one there; it is lifted onto its port, with a
+            # warning, until the release that refuses it.
+            params, lifted = _lift_port_params(block, params)
+            for port, value in lifted.items():
+                if port in inputs:
+                    raise ValueError(
+                        f"{nid}: port {port!r} is wired by an edge and also "
+                        f"given under `params` — remove the param")
+                inputs[port] = value
+                inline_hashes.append(
+                    f"{port}:{resume_mod.content_hash(value)}")
             # Process identity for this node (epic 000320): what it
             # computes is fixed by the block, its wire params, its
-            # upstream outputs' content, and the compute version. A
-            # partial from a previous attempt is reused only under an
-            # equal fingerprint.
+            # inputs' content, and the compute version. A partial from a
+            # previous attempt is reused only under an equal fingerprint.
             current["nid"] = nid
             self._current = current
             # Before anything runs: does this block actually read what
-            # the protocol asked for? (000438 — a silently ignored
-            # param is a wrong answer with no error.)
-            from mechbench_compute.block_params import check_params
+            # the protocol asked for, and take what was wired to it?
+            # (000438 — a silently ignored param is a wrong answer with
+            # no error; an unwired required port is the same, earlier.)
+            from mechbench_compute.block_params import check_inputs, check_params
             check_params(block, _wire_params(params))
+            inputs = check_inputs(block, inputs)
             # The stored identity, not the spelling: one fingerprint per
             # op however the protocol wrote it (docs/LEXICON.md §1).
             fingerprint = resume_mod.node_fingerprint(
                 block=lexicon.canonical_path(block), params=_wire_params(params),
                 input_hashes=[node_hashes.get(e["from"]["node"], "")
-                              for e in in_edges],
+                              for e in in_edges] + inline_hashes,
                 core_version=core_version,
                 model=str(_wire_params(params).get("model", "")),
             )
@@ -625,12 +660,9 @@ class ProtocolExecutor:
                 # executor knows it (lineage-true, renders live).
                 from mechbench_compute.blocks import viz_spec
 
-                src_edge = next((e for e in in_edges
-                                 if e["to"]["port"] == "records"), None)
-                src_label = (node_paths.get(src_edge["from"]["node"])
-                             if src_edge else None)
                 results[nid] = viz_spec(
-                    inputs.get("records"), params, source_label=src_label)
+                    inputs.get("records"), params,
+                    source_label=input_paths.get("records") or None)
             elif block in PURE_BLOCKS:
                 results[nid] = PURE_BLOCKS[block](inputs, params)
             elif block == "logits/decision":
@@ -706,8 +738,9 @@ class ProtocolExecutor:
                     self._block_trajectory_capture, inputs, params,
                     on_item=on_item, on_start=expand)
             elif block == "text/tokenize":
-                results[nid] = self._run_model_block(
-                    self._block_tokenize_stats, inputs, params)
+                # The tokenizer is the model's; an adapter does not
+                # change it, so this block takes no adapter port.
+                results[nid] = self._block_tokenize_stats(inputs, params)
             elif block == "activations/vectors":
                 results[nid] = self._run_model_block(
                     self._block_residual_vectors, inputs, params,
@@ -730,10 +763,6 @@ class ProtocolExecutor:
                 results[nid] = self._block_hf_push_adapter(
                     inputs, params, secrets=secrets)
             elif block == "text/score":
-                input_paths = {
-                    e["to"]["port"]: node_paths.get(e["from"]["node"], "")
-                    for e in in_edges
-                }
                 results[nid] = self._run_model_block(
                     self._block_score, inputs, params, input_paths,
                     on_item=on_item, on_start=expand)
@@ -827,15 +856,13 @@ class ProtocolExecutor:
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
-        records = inputs.get("records") or params.get("records") or []
-        if isinstance(records, dict):
-            records = lexicon.items_of(records)
+        records = lexicon.items_of(inputs.get("records") or [])
         if not records:
             raise ValueError(
                 "text/generate: no records to run over — wire records to "
-                "the `records` port or pass them by param")
-        f_system = params.get("system_field", "system")
-        f_user = params.get("user_field", "user")
+                "the `records` port")
+        f_system = "system"
+        f_user = "user"
         n = int(params.get("n", 1))
         start = int(params.get("start", 0))
         seed = params.get("seed", 0)
@@ -882,6 +909,9 @@ class ProtocolExecutor:
                     "id": f"{rec['id']}-s{k}",
                     "kind": "text/document",
                     "text": text,
+                    # A document is a record: coords on the item, and
+                    # under metadata where older readers look.
+                    "coords": {**rec.get("coords", {}), "sample": k},
                     "metadata": {
                         "coords": {**rec.get("coords", {}), "sample": k},
                         "sampling": {"temperature": temperature,
@@ -983,7 +1013,7 @@ class ProtocolExecutor:
         ref = params.get("model")
         if not hasattr(ref, "base_kind"):
             ref = model_ref_mod.parse(ref)
-        records = inputs.get("records") or params.get("records") or []
+        records = inputs.get("records") or []
         if params.get("tools"):
             # Injected AFTER the fingerprint is computed, so a callable
             # never reaches a node's identity or its emitted params.
@@ -993,7 +1023,7 @@ class ProtocolExecutor:
             out = chat_mod.run_remote(
                 ref, records, params, secrets=secrets,
                 cassette=(memo.tape if memo else
-                          inputs.get("cassette") or params.get("cassette")),
+                          inputs.get("cassette")),
                 cassette_mode="auto" if memo else None,
                 limiter=self._limiter, job_budget=self._budget,
                 on_item=on_item, on_start=on_start,
@@ -1121,7 +1151,7 @@ class ProtocolExecutor:
                 prefill=prefill_decision(model, ids))
 
         if any((p.get("tools") if isinstance(p, dict) else None)
-               for p in (params.get("participants") or [])):
+               for p in lexicon.items_of(inputs.get("participants") or [])):
             params = {**params, "_block_runner": self._tool_block_runner(secrets)}
         return cv.run(params, inputs=inputs, secrets=secrets,
                       limiter=self._limiter, job_budget=self._budget,
@@ -1133,7 +1163,7 @@ class ProtocolExecutor:
         from mechbench_compute import chat as chat_mod
 
         model = self._model_loaded(params.get("model"))
-        records = inputs.get("records") or params.get("records") or []
+        records = inputs.get("records") or []
         return chat_mod.run_local(model, params.get("model"), records, params,
                                   on_item=on_item, on_start=on_start,
                                   resume_items=resume_items)
@@ -1149,10 +1179,9 @@ class ProtocolExecutor:
         mechbench-experiments port of steps 02/04/34/35.)
         """
         from mechbench_compute import interp
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         return interp.ablate_layers(
             model, records, params, on_item=on_item, on_start=on_start)
 
@@ -1163,10 +1192,9 @@ class ProtocolExecutor:
         Items are (record, sweep factor); spooled items are reused in
         canonical order under a matching fingerprint."""
         from mechbench_compute import intervene as intervene_mod
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         reuse = dict(resume_items or {})
         emitted: dict[str, Any] = {}
 
@@ -1188,7 +1216,7 @@ class ProtocolExecutor:
         from mechbench_compute import directions as dirs
 
         model = self._model_loaded(params.get("model"))
-        d = inputs.get("direction") or params.get("direction")
+        d = inputs.get("direction")
         return dirs.vocab_projection(model, d, top_k=int(params.get("top_k", 10)))
 
     def _block_steer_inject(self, inputs, params, on_item=None,
@@ -1196,10 +1224,9 @@ class ProtocolExecutor:
         """intervene/steer — epic 000131 arc B: a
         data-armed residual injection with an alpha sweep."""
         from mechbench_compute import interp
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         return interp.steer_inject(
             model, records, params, inputs=inputs,
             on_item=on_item, on_start=on_start)
@@ -1217,10 +1244,9 @@ class ProtocolExecutor:
         norm's per-position scale has to be folded in. (Steps 32/33.)
         """
         from mechbench_compute import interp
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         return interp.logit_attribution(
             model, records, params, on_item=on_item, on_start=on_start)
 
@@ -1235,10 +1261,9 @@ class ProtocolExecutor:
         content rather than participation. (Step 09.)
         """
         from mechbench_compute import interp
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         return interp.patch_trace(
             model, records, params, on_item=on_item, on_start=on_start)
 
@@ -1246,10 +1271,9 @@ class ProtocolExecutor:
                                   on_start=None):
         """activations/attention — steps 05/06."""
         from mechbench_compute import interp
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         return interp.attention_patterns(
             model, records, params, on_item=on_item, on_start=on_start)
 
@@ -1264,10 +1288,9 @@ class ProtocolExecutor:
         (The mechbench-experiments port of step 07's head sweep.)
         """
         from mechbench_compute import interp
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         return interp.ablate_heads(
             model, records, params, on_item=on_item, on_start=on_start)
 
@@ -1282,10 +1305,9 @@ class ProtocolExecutor:
         the same as decided there. (Step 08's question as a block.)
         """
         from mechbench_compute import interp
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         return interp.lens_positions(
             model, records, params, on_item=on_item, on_start=on_start)
 
@@ -1295,10 +1317,9 @@ class ProtocolExecutor:
         (layers × position) per condition, as data downstream blocks
         (vectors/similarity, future probes) consume."""
         from mechbench_compute import interp
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         return interp.residual_vectors(
             model, records, params, on_item=on_item, on_start=on_start)
 
@@ -1313,10 +1334,9 @@ class ProtocolExecutor:
         difference begins.
         """
         from mechbench_compute import interp
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
+        records = lexicon.items_of(inputs.get("records") or [])
         return interp.residual_divergence(
             model, records, params, on_item=on_item, on_start=on_start)
 
@@ -1327,16 +1347,12 @@ class ProtocolExecutor:
         position along a sequence, replayed from the trace when the
         records carry one."""
         from mechbench_compute import trajectory
-        from mechbench_compute.blocks import _records
 
         model = self._model_loaded(params.get("model"))
-        records = _records(inputs.get("records") or params.get("records"))
-        # A direction to project onto at capture time usually arrives on
-        # an edge (from a from-vectors node), not as a literal param.
-        if inputs.get("project") is not None and params.get("project") is None:
-            params = {**params, "project": inputs["project"]}
+        records = lexicon.items_of(inputs.get("records") or [])
         return trajectory.capture(
-            model, records, params, on_item=on_item, on_start=on_start)
+            model, records, params, project=inputs.get("project"),
+            on_item=on_item, on_start=on_start)
 
     def _block_tokenize_stats(self, inputs, params):
         """text/tokenize (task 000377) — the bound
@@ -1389,7 +1405,7 @@ class ProtocolExecutor:
         @contextlib.contextmanager
         def _cm():
             payloads = list(ref.adapter_payloads) if ref is not None else []
-            node_level = inputs.get("adapter") or params.get("adapter")
+            node_level = inputs.get("adapter")
             if node_level:
                 payloads.append(node_level)
             if not payloads:
@@ -1681,7 +1697,7 @@ class ProtocolExecutor:
 
         from mechbench_compute.peft import peft_export
 
-        payload = inputs.get("adapter") or params.get("adapter")
+        payload = inputs.get("adapter")
         if not isinstance(payload, dict) or "data" not in payload:
             raise ValueError("hf/push-adapter needs an adapter object "
                              "(input port `adapter` or params.adapter "
@@ -1764,15 +1780,13 @@ class ProtocolExecutor:
         reimplementing them."""
         import evaluate
 
-        from mechbench_compute.blocks import _records
-
         metric_name = params.get("metric")
         if not metric_name:
-            raise ValueError("eval/hf-metric needs params.metric")
-        pf = params.get("prediction_field", "prediction")
-        rf = params.get("reference_field", "reference")
+            raise ValueError("eval/metric needs params.metric")
+        pf = "prediction"
+        rf = "reference"
         variant = str(params.get("variant", "base"))
-        recs = _records(inputs.get("records") or params.get("records"))
+        recs = lexicon.items_of(inputs["records"])
         preds = [r.get(pf) for r in recs]
         refs = [r.get(rf) for r in recs]
         metric = evaluate.load(metric_name)
@@ -1846,12 +1860,8 @@ class ProtocolExecutor:
         if hasattr(mref, "adapter_payloads") and mref.adapter_payloads:
             fuse_adapter_stack(model.lm, list(mref.adapter_payloads))
 
-        records = inputs.get("records") or params.get("records") or []
-        if isinstance(records, dict):
-            records = lexicon.items_of(records)
-        f_system = params.get("system_field", "system")
-        f_user = params.get("user_field", "user")
-        f_prefill = params.get("prefill_field", "prefill")
+        records = lexicon.items_of(inputs.get("records") or [])
+        f_system, f_user, f_prefill = "system", "user", "prefill"
 
         def rendered_of(rec):
             return render_chat(tok, rec.get(f_system, ""),
@@ -1898,12 +1908,9 @@ class ProtocolExecutor:
                          if params.get("marginal", True) else [])
             continuations = []
 
-        anchor_records = inputs.get("anchors") or params.get("anchors") or []
-        if isinstance(anchor_records, dict):
-            anchor_records = lexicon.items_of(anchor_records)
-        f_answer = params.get("answer_field", "answer")
+        anchor_records = lexicon.items_of(inputs.get("anchors") or [])
         anchors = build_anchor_items(
-            tok, [(rendered_of(r), r[f_answer]) for r in anchor_records])
+            tok, [(rendered_of(r), r["answer"]) for r in anchor_records])
 
         lora_cfg = params.get("lora") or {}
         rank = int(lora_cfg.get("rank", 8))
@@ -2006,16 +2013,12 @@ class ProtocolExecutor:
         # By edge, or the common `records` param (a literal or a $fetch),
         # like every other model block. This one read only the edge, so a
         # protocol that fetched its prompts by param ran over nothing.
-        records = inputs.get("records") or params.get("records") or []
-        if isinstance(records, dict):
-            records = lexicon.items_of(records)
+        records = lexicon.items_of(inputs.get("records") or [])
         if not records:
             raise ValueError(
                 "logits/funnel: no records to run over — wire records to "
-                "the `records` port or pass them by param")
-        f_system = params.get("system_field", "system")
-        f_user = params.get("user_field", "user")
-        f_prefill = params.get("prefill_field", "prefill")
+                "the `records` port")
+        f_system, f_user, f_prefill = "system", "user", "prefill"
         n_layers = len(model.lm.model.layers)
         top_k = int(params.get("top_k", 5))
         from mechbench_compute import shapes as S
@@ -2070,15 +2073,9 @@ class ProtocolExecutor:
         coll = inputs.get("collection")
         coll_path = (input_paths or {}).get("collection", "")
         if coll is None:
-            ref = params.get("collection_path")
-            if not ref:
-                raise ValueError(
-                    "score: no collection input edge and no "
-                    "collection_path param")
-            from mechbench_compute import bench
-            fetched = bench.fetch(str(ref))
-            coll = fetched.get("payload", fetched)
-            coll_path = str(ref)
+            raise ValueError(
+                "text/score needs a document collection on its `collection` "
+                "port — by edge, or `{\"$fetch\": …}` under the node's inputs")
         items = lexicon.items_of(coll)
         if on_start:
             on_start(len(items))
@@ -2135,28 +2132,24 @@ class ProtocolExecutor:
 
         model = self._model_loaded(params.get("model"))
         tok = model.tokenizer
-        conditions = inputs.get("conditions") or params.get("conditions") or []
-        if isinstance(conditions, dict):
-            conditions = lexicon.items_of(conditions)
+        conditions = lexicon.items_of(inputs.get("conditions") or [])
         if not conditions:
             # An empty read is never what a protocol meant: the battery
             # did not arrive, and a silent empty collection would be read
             # as a finding.
             raise ValueError(
                 "logits/decision: no conditions to read — wire records to "
-                "the `conditions` port or pass them by param")
+                "the `conditions` port")
         if on_start:
             on_start(len(conditions))
         rollout = params.get("rollout")
         outcomes = params.get("outcomes")
         top_k = int(params.get("top_k", 10))
         from mechbench_compute import shapes as S
-        # The consumed field names are params, not convention (Benji's
-        # composer-legibility review): a Template producing `question`
-        # wires user_field: "question" instead of renaming its output.
-        f_system = params.get("system_field", "system")
-        f_user = params.get("user_field", "user")
-        f_prefill = params.get("prefill_field", "prefill")
+        # The fields are `system`, `user`, `prefill`, by name: a record
+        # that carries them under other names goes through records/rename
+        # first, so the adaptation is a node in the graph, not a param.
+        f_system, f_user, f_prefill = "system", "user", "prefill"
         out = []
         for cond in conditions:
             if f_user not in cond:
@@ -2219,6 +2212,35 @@ def _spend_total(by_node: dict[str, Any]) -> dict[str, Any]:
                             "provider": v.get("provider", "")}
                         for k, v in by_node.items()},
             "dry_run": all(bool(v.get("dry_run")) for v in by_node.values())}
+
+
+def _lift_port_params(block, params):
+    """A protocol written before inputs left params (mechbench-compute
+    0.78) may still give a port's value under `params` — `records:
+    {"$fetch": …}`. Until the release that refuses it, the value is
+    lifted onto the port it names, with a warning naming the move.
+    Only a named port lifts: a wildcard op's unknown param is a typo,
+    and `check_params` says so."""
+    import warnings
+
+    from mechbench_compute.block_params import COMMON
+
+    op = lexicon.BY_NAME.get(block)
+    if op is None:
+        return params, {}
+    kept, lifted = {}, {}
+    for k, v in params.items():
+        if (k in op.port_names and k not in op.param_names and k not in COMMON
+                and v is not None):
+            warnings.warn(
+                f"{block}: {k!r} is an input port, not a param — give it "
+                f"under the node's `inputs`. Accepted under `params` until "
+                f"mechbench-compute {lexicon.ALIASES_REMOVED_IN}, then refused.",
+                lexicon.RetiredParam, stacklevel=2)
+            lifted[k] = v
+        else:
+            kept[k] = v
+    return kept, lifted
 
 
 def _wire_params(params):

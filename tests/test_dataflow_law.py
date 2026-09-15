@@ -150,6 +150,8 @@ CATALOG: dict[str, dict] = {
         "params": {"value": "delta", "lo": -5, "hi": 5, "bins": 8}},
     "records/select": {
         "leaves": _leaves(120, seed=5), "params": {"where": {"g": ["a", "b"]}}},
+    "records/rename": {
+        "leaves": _leaves(120, seed=5), "params": {"fields": {"v": "value"}}},
     "records/table": {
         "leaves": _leaves(120, seed=5), "params": {"name": "leaves"}},
     "records/template": {

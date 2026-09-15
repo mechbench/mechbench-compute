@@ -328,10 +328,10 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
     this module knows conversation structure, not MLX.
     """
     inputs = inputs or {}
-    raw_participants = (inputs.get("participants") or params.get("participants") or [])
-    if isinstance(raw_participants, Mapping):
-        from mechbench_compute.lexicon import kinds as K
+    from mechbench_compute.lexicon import kinds as K
 
+    raw_participants = inputs.get("participants") or []
+    if isinstance(raw_participants, Mapping):
         raw_participants = raw_participants.get("agents") or K.items_of(raw_participants)
     participants = [Agent.parse(p, index=i) for i, p in enumerate(raw_participants)]
     if len(participants) < 2:
@@ -354,7 +354,7 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
     if job_budget is not None:
         budget = job_budget.child(budget.cap_usd)
 
-    records = chat_mod._records(inputs.get("records") or params.get("records") or
+    records = chat_mod._records(inputs.get("records") or
                                [{"id": params.get("id", "conversation")}])
     transports = _transports(participants, secrets=secrets, dry_run=dry_run,
                              params=params)

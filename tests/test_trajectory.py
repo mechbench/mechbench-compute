@@ -137,13 +137,17 @@ class TestCapturePositionsAxis:
                                   "max_steps": 3})
         assert [r["position"] for r in out["items"]] == [1, 2, 3]
 
-    def test_label_from_an_annotated_field(self):
+    def test_a_measurement_groups_once_it_is_a_coordinate(self):
+        # `text/stats` writes a hit as a field; `records/rename` moves it
+        # into coords, and from there every item carries it.
+        from mechbench_compute.blocks import rename
+
         m = StubModel()
-        out = trajectory.capture(m, [{"id": "a", "text": "x", "hit": 1}],
-                                 {"axis": "positions", "layer": 0,
-                                  "positions": "all", "label_field": "hit"})
-        # The retired param writes the field as the `label` coordinate.
-        assert out["items"][0]["coords"]["label"] == 1
+        recs = rename([{"id": "a", "text": "x", "hit": 1}], {"fields": {"hit": "coords.hit"}})
+        assert recs == [{"id": "a", "text": "x", "coords": {"hit": 1}}]
+        out = trajectory.capture(m, recs, {"axis": "positions", "layer": 0,
+                                           "positions": "all"})
+        assert out["items"][0]["coords"] == {"hit": 1}
 
     def test_needs_a_layer(self):
         with pytest.raises(ValueError, match="needs `layer`"):
@@ -169,8 +173,8 @@ class TestCapturePositionsAxis:
         d = {"kind": "direction", "vector": onehot(3, 1.0), "layer": 0,
              "point": "post", "derivation": {"method": "test"}}
         out = trajectory.capture(m, [{"id": "a", "text": "a bb ccc"}],
-                                 {"axis": "positions", "layer": 1, "positions": "all",
-                                  "project": d})
+                                 {"axis": "positions", "layer": 1, "positions": "all"},
+                                 project=d)
         assert out["item_kind"] == "activations/coordinate" and out["projected"]
         assert out["items"][0]["direction"]["method"] == "test"
         assert out["items"][0]["direction"]["space"]["layer"] == 0
@@ -194,7 +198,7 @@ class TestCapturePositionsAxis:
                 trajectory.capture(StubModel(), records, big)
             d = {"kind": "direction", "vector": onehot(3, 1.0), "layer": 0,
                  "point": "post"}
-            out = trajectory.capture(StubModel(), records, {**big, "project": d})
+            out = trajectory.capture(StubModel(), records, big, project=d)
             assert out["projected"] and len(out["items"]) == 240
             out2 = trajectory.capture(StubModel(), records,
                                       {**big, "reduce": "mean"})
@@ -205,9 +209,9 @@ class TestCapturePositionsAxis:
     def test_project_dimension_mismatch_is_refused(self):
         with pytest.raises(ValueError, match="dims"):
             trajectory.capture(StubModel(), [{"id": "a", "text": "x"}],
-                               {"axis": "positions", "layer": 0,
-                                "project": {"kind": "direction", "vector": [1.0, 0.0],
-                                            "layer": 0, "point": "post"}})
+                               {"axis": "positions", "layer": 0},
+                               project={"kind": "direction", "vector": [1.0, 0.0],
+                                        "layer": 0, "point": "post"})
 
 
 def _traj(rows, axis="positions", d=D):

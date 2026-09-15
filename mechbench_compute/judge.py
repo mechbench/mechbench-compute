@@ -281,11 +281,11 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
             "a judge node needs `judge: {model, system}` — who is grading is "
             "the first thing a reader will ask")
     scale = Scale(params.get("scale"))
-    fields = [str(f) for f in (params.get("fields") or ["text"])]
-    pairwise_fields = [str(f) for f in (params.get("pairwise_fields")
-                                        or ["text_a", "text_b"])]
-    if scale.kind == "pairwise" and len(pairwise_fields) != 2:
-        raise ValueError("pairwise judging needs exactly two `pairwise_fields`")
+    # The judge reads `text` — `text_a`/`text_b` for a pairwise scale —
+    # and nothing else. A record that carries the text under another
+    # name goes through records/rename first: the graph shows the move.
+    fields = ["text"]
+    pairwise_fields = ["text_a", "text_b"]
     n_votes = max(1, int(params.get("n_votes", 1)))
     seed = params.get("seed", 0)
     rubric = "\n\n".join(x for x in (str(judge.get("system", "")),
@@ -295,7 +295,9 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
             "a judge node needs a rubric — an unstated standard is not a "
             "measurement")
 
-    subjects = chat_mod._records(inputs.get("records") or params.get("records") or [])
+    from mechbench_compute.lexicon import kinds as K
+
+    subjects = K.items_of(inputs.get("records") or [])
     prompts = build_prompts(subjects, scale=scale, rubric=rubric, fields=fields,
                             n_votes=n_votes, seed=seed,
                             pairwise_fields=pairwise_fields)

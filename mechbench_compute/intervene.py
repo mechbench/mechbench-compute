@@ -356,7 +356,7 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
     # Objects may arrive by edge: a `direction` / `source` port fills any
     # spec item that names none of its own.
     port_dir = inputs.get("direction")
-    port_src = inputs.get("source") or inputs.get("vectors")
+    port_src = inputs.get("source")
     filled = []
     for it in items:
         it = dict(it)

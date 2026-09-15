@@ -96,8 +96,8 @@ class TestTheExecutorHashesBeforeItEmits:
 
         graph = {"nodes": [{
             "id": "gen", "block": "text/generate",
-            "params": {"model": BASE, "n": 1, "seed": 7,
-                       "records": [{"id": "r", "user": "Write."}]}}],
+            "params": {"model": BASE, "n": 1, "seed": 7},
+                       "inputs": {"records": [{"id": "r", "user": "Write."}]}}],
             "edges": []}
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
             "graph": graph, "resultPath": "owner/proj/results/j_test"})
@@ -116,8 +116,8 @@ class TestTheExecutorHashesBeforeItEmits:
                             lambda target, *a, **k: emitted.append(target) or {"path": target})
         graph = {"nodes": [{
             "id": "gen", "block": "text/generate",
-            "params": {"model": BASE, "n": 1, "seed": 7,
-                       "records": [{"id": "r", "user": "Write."}]}}],
+            "params": {"model": BASE, "n": 1, "seed": 7},
+                       "inputs": {"records": [{"id": "r", "user": "Write."}]}}],
             "edges": []}
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
             "graph": graph, "resultPath": "owner/proj/results/j_test"})

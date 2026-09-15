@@ -136,26 +136,26 @@ CHART = Kind(
 
 WORD_LIST = Kind(
     "text/word-list",
-    "A list of words, for the generators that sample from one.",
+    "A list of words — for the generators that sample from one, the tokenizer measures, and, with `weights`, a word-frequency table.",
     fields={"words": F("array", "The words.", items={"type": "string"}),
+            "weights": F("object", "Word → count or weight, when the list is a frequency table; its keys are the words."),
             "language": F("string", "The list's language, when known."),
             "description": F("string", "Where the list came from.")},
-    required=("words",),
 )
 
 # --- text ------------------------------------------------------------------------------
 
 DOCUMENT = Kind(
     "text/document",
-    "One generated or collected text, with the trace of how it was made when kept at trace fidelity.",
+    "One generated or collected text, with the trace of how it was made when kept at trace fidelity. A record whose text is in `text`, so every op that reads records reads documents.",
     fields={
-        "id": ID,
         "text": F("string", "The text.", **{"x-mechbench-text": True}),
-        "metadata": F("object", "`coords`, `sampling`, the model's wire form, tool runs — what the producing op recorded."),
+        "metadata": F("object", "`sampling`, the model's wire form, tool runs — what the producing op recorded; documents made before 2026-09 keep their `coords` here too."),
         "trace": F("object", "At trace fidelity: `token_ids`, `text`, `offsets`, `generation_spans`."),
         "segmentations": F("array", "Named spans over the trace: which tokens are prompt, which are body.", items={"type": "object"}),
     },
     required=("id", "text"),
+    extends="records/record",
     key=("id",),
     header={"name": "A label for the collection.", "description": "Free text beside the name.",
             "fidelity": "`text`, `segments` or `trace`: how much of each document was kept.",
@@ -735,6 +735,26 @@ def all_fields(kind: Kind) -> dict[str, dict[str, Any]]:
     return out
 
 
+def ancestry(name: str) -> tuple[str, ...]:
+    """The kind and every kind it extends, nearest first."""
+    out: list[str] = []
+    cur: str | None = name
+    while cur is not None and cur in BY_KIND and cur not in out:
+        out.append(cur)
+        cur = BY_KIND[cur].extends
+    return tuple(out)
+
+
+def satisfies(actual: str, declared: str) -> bool:
+    """Whether an object of kind `actual` may fill a port declared as
+    `declared`: the same kind, or one that extends it. `collection`
+    declared means any kind at all (the port takes whatever items
+    arrive, as `records/union` does)."""
+    if declared == COLLECTION:
+        return True
+    return declared in ancestry(actual)
+
+
 def canonical_kind_path(name: str) -> str:
     """The registered identity of a bare kind name."""
     if name == COLLECTION or name.startswith("~"):
@@ -866,6 +886,6 @@ def canonical_collection(obj: Any) -> Any:
 
 __all__ = [
     "BY_KIND", "COLLECTION", "COLLECTION_KIND", "KINDS", "KIND_ALIASES", "PLATFORM",
-    "all_fields", "canonical_collection", "canonical_kind_path", "collection", "item_kind_of",
-    "items_of", "resolve_kind",
+    "all_fields", "ancestry", "canonical_collection", "canonical_kind_path", "collection",
+    "item_kind_of", "items_of", "resolve_kind", "satisfies",
 ]

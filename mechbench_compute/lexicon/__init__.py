@@ -37,11 +37,14 @@ from mechbench_compute.lexicon._base import (
     KIND_ROOT,
     REQUIRED,
     ROOT,
+    WILDCARD,
     Emits,
+    In,
     Kind,
     Op,
     P,
     Param,
+    Port,
 )
 from mechbench_compute.lexicon.common import COMMON
 from mechbench_compute.lexicon.kinds import (
@@ -49,12 +52,14 @@ from mechbench_compute.lexicon.kinds import (
     BY_KIND,
     KIND_ALIASES,
     KINDS,
+    ancestry,
     canonical_collection,
     canonical_kind_path,
     collection,
     item_kind_of,
     items_of,
     resolve_kind,
+    satisfies,
 )
 
 OPS: tuple[Op, ...] = tuple(
@@ -123,6 +128,11 @@ class RetiredOpName(DeprecationWarning):
     """A protocol spelled an op by a name that has been renamed."""
 
 
+class RetiredParam(DeprecationWarning):
+    """A protocol gave an input under `params` — where it lived before
+    ports were typed — rather than under the node's `inputs`."""
+
+
 def canonical_path(name: str) -> str:
     """The stored identity of a bare op name: `~canonical/ops/<name>`."""
     return name if name.startswith("~") else f"{ROOT}{name}"
@@ -176,6 +186,7 @@ def resolve(block: str, *, warn: bool = True) -> str:
 
 __all__ = [
     "ALIASES", "ALIASES_REMOVED_IN", "BY_NAME", "COMMON", "OPS", "REQUIRED",
-    "ROOT", "Op", "P", "Param", "RetiredKindName", "RetiredOpName", "canonical_path",
-    "is_canonical", "resolve",
+    "ROOT", "WILDCARD", "In", "Op", "P", "Param", "Port", "RetiredKindName",
+    "RetiredOpName", "ancestry", "canonical_path", "is_canonical", "resolve",
+    "satisfies",
 ]

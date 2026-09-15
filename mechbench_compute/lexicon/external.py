@@ -10,7 +10,8 @@ cost is recorded in the result so the bill is part of the measurement.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Emits, Op, P
+from mechbench_compute.lexicon._base import Emits, In, Op, P
+from mechbench_compute.lexicon.model import ADAPTER
 
 _BUDGET = P("budget_usd", "float",
             "The most this node may spend on provider calls, in US dollars. "
@@ -18,20 +19,6 @@ _BUDGET = P("budget_usd", "float",
             "with what it has when the cap is reached. A job-level cap, if "
             "one is set, bounds it further.",
             None)
-
-_CHAT_FIELDS = (
-    P("system_field", "string",
-      "The record field holding the system prompt.",
-      "system"),
-    P("user_field", "string",
-      "The record field holding the user turn, when the record has no "
-      "`messages`.",
-      "user"),
-    P("messages_field", "string",
-      "The record field holding a whole conversation as a list of "
-      "`{role, content}` messages, when the record has one.",
-      "messages"),
-)
 
 CHAT = Op(
     name="text/chat",
@@ -70,18 +57,20 @@ unchanged node costs nothing; a `cassette` replays recorded responses
 without contacting the provider at all.
 """,
     inputs=(
-        "`records` (by edge, or the `records` param) — the prompts, each with "
-        "`messages`, or `system`/`user` fields, plus `id` and optionally "
-        "`coords`. `cassette` (optional, by edge) — recorded responses to "
-        "replay."
+        In("records", "records/record",
+           "The prompts, each with `messages`, or `system`/`user` fields, "
+           "plus `id` and optionally `coords`.", many=True),
+        In("cassette", "provider/cassette",
+           "Recorded responses to play back instead of calling the provider "
+           "— for tests and exact reproduction.", required=False),
+        ADAPTER,
     ),
-    emits=Emits('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `metadata.coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. The header carries `fidelity`, `spend` (calls, cost, cache hits) and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
+    emits=Emits('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. The header carries `fidelity`, `spend` (calls, cost, cache hits) and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
     params=(
         _BUDGET,
-        *_CHAT_FIELDS,
         P("messages", "list[object]",
           "A conversation to send when a record has neither `messages` nor "
-          "a user field.",
+          "a `user` field.",
           None),
         P("system", "string",
           "A system prompt used when the record has none.",
@@ -149,10 +138,6 @@ without contacting the provider at all.
           "(`\"<owner>/<project>/memos/<name>\"`), or `true` to derive one "
           "from the protocol and node ids.",
           None),
-        P("cassette", "object | ref",
-          "Recorded responses to play back instead of calling the provider "
-          "— for tests and exact reproduction. Usually arrives by edge.",
-          None),
         P("cassette_mode", "string",
           "`\"replay\"`: only recorded responses, refuse anything else. "
           "`\"record\"`: call the provider and record. `\"auto\"`: replay "
@@ -169,13 +154,13 @@ without contacting the provider at all.
     ),
     example={
         "model": {"provider": "anthropic", "model": "claude-sonnet-5"},
-        "records": {"$fetch": "$prompts"},
         "budget_usd": 5.0,
         "n": 2,
         "max_tokens": 400,
         "tools": ["calc"],
         "cache": True,
     },
+    example_inputs={"records": {"$fetch": "$prompts"}},
 )
 
 CONVERSATION = Op(
@@ -214,17 +199,17 @@ One conversation runs per input record, or one in all when there are none;
 `{field}` in an `opening` line takes the record's value.
 """,
     inputs=(
-        "`records` (optional, by edge or param) — one conversation per "
-        "record; its fields fill `{field}` placeholders in the opening. "
-        "`participants` (by edge, or the param) — the agent objects."
+        In("participants", "text/agent",
+           "The agents, at least two, with unique names — see above. Usually "
+           "given inline.", many=True),
+        In("records", "records/record",
+           "One conversation per record; its fields fill `{field}` "
+           "placeholders in the opening. Without any, one conversation runs.",
+           many=True, required=False),
     ),
     emits=Emits('text/transcript', collection=True, doc='One item per conversation: `text` (the visible turns as prose), `turns` (`{role, text}`), and `metadata.transcript` — the full transcript with `messages` (each `{index, participant, role_as_seen, text, call?, tool_calls?, channel?}`), `participants`, `stopped_because` and `spend_usd`. The header carries `fidelity` and `spend`.'),
     params=(
         _BUDGET,
-        P("participants", "list[object]",
-          "The agents, at least two, with unique names — see above. Usually "
-          "given here; may arrive by edge.",
-          None),
         P("turns", "object",
           "`{\"policy\": \"round_robin\", \"max_turns\": 6, "
           "\"stop_phrases\": [...], \"moderator\": agent, \"judge\": "
@@ -258,14 +243,16 @@ One conversation runs per input record, or one in all when there are none;
     ),
     example={
         "budget_usd": 2.0,
+        "opening": ["Is a lighthouse a building or a machine?"],
+        "turns": {"policy": "round_robin", "max_turns": 6},
+    },
+    example_inputs={
         "participants": [
             {"name": "Ada", "model": {"provider": "anthropic", "model": "claude-sonnet-5"},
              "system": "You are Ada. You are debating {others}.", "budget_usd": 1.0},
             {"name": "Ben", "model": "google/gemma-3-4b-it",
              "system": "You are Ben. Disagree politely."},
         ],
-        "opening": ["Is a lighthouse a building or a machine?"],
-        "turns": {"policy": "round_robin", "max_turns": 6},
     },
 )
 
@@ -277,9 +264,11 @@ JUDGE = Op(
         "them, and the position order randomised and recorded."
     ),
     description="""\
-Each record is shown to the judge (only the named `fields`, so it cannot
-see the condition labels) together with the rubric and an instruction to
-answer in JSON. Three commitments make the numbers usable:
+Each record's `text` (for a pairwise scale, its `text_a` and `text_b`) is
+shown to the judge — that field and nothing else, so it cannot see the
+condition labels — together with the rubric and an instruction to answer in
+JSON. A record that carries the text under another name goes through
+`records/rename` first. Three commitments make the numbers usable:
 
 * **Votes, not a verdict.** `n_votes` repeats the call. Numeric scores
   are averaged and their spread kept; labels and preferences take the
@@ -297,8 +286,10 @@ The judge runs through `chat`, so it inherits the budget cap, concurrency,
 resumability and per-call provenance; a local model is the cheap first test.
 """,
     inputs=(
-        "`records` (by edge, or the `records` param) — the subjects to "
-        "grade: a record list or a document collection."
+        In("records", "records/record",
+           "The subjects to grade, each with `text` — or `text_a` and "
+           "`text_b` for a pairwise scale. A document collection is read the "
+           "same way.", many=True),
     ),
     emits=Emits('eval/verdict', collection=True, doc='One item per subject: `id`, `coords`, the verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or `winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every `vote`, and `unparsed: true` when no vote could be read. The header carries `judge` (who graded and how), `summary` (mean/median/stdev or counts, `n_unparsed`, `first_shown_win_rate` for pairwise) and `spend`.'),
     params=(
@@ -318,12 +309,6 @@ resumability and per-call provenance; a local model is the cheap first test.
           "\"categorical\", \"labels\": [...]}`; or `{\"kind\": "
           "\"pairwise\"}`.",
           {"type": "numeric", "min": 1, "max": 5}),
-        P("fields", "list[string]",
-          "The record fields shown to the judge, and nothing else.",
-          ["text"]),
-        P("pairwise_fields", "list[string]",
-          "For a pairwise scale: the two fields holding the A and B texts.",
-          ["text_a", "text_b"]),
         P("n_votes", "int", "How many times each subject is judged.", 1),
         _BUDGET,
         P("concurrency", "int",
@@ -331,7 +316,6 @@ resumability and per-call provenance; a local model is the cheap first test.
           4),
     ),
     example={
-        "records": {"$fetch": "$stories"},
         "judge": {"model": {"provider": "anthropic", "model": "claude-sonnet-5"},
                   "system": "You grade short stories for originality."},
         "rubric": "1 = a stock plot told plainly; 5 = a premise you have not seen before.",
@@ -339,6 +323,7 @@ resumability and per-call provenance; a local model is the cheap first test.
         "n_votes": 3,
         "budget_usd": 3.0,
     },
+    example_inputs={"records": {"$fetch": "$stories"}},
 )
 
 EVAL_HF_METRIC = Op(
@@ -350,20 +335,21 @@ EVAL_HF_METRIC = Op(
     ),
     description="""\
 The named metric is loaded from the hub and computed over every record's
-`prediction_field` against its `reference_field`. Each numeric value the
-metric returns becomes one row, stamped with `variant` so that a base run
-and an adapter run union into one table for `records/delta`. The metric
-library's version is recorded on the table, because metric definitions
-change across releases.
+`prediction` against its `reference`. Each numeric value the metric
+returns becomes one row, stamped with `variant` so that a base run and an
+adapter run union into one table for `records/delta`. The metric library's
+version is recorded on the table, because metric definitions change across
+releases.
 """,
-    inputs="`records` (by edge, or the `records` param) — records carrying a prediction and a reference.",
+    inputs=(
+        In("records", "records/record",
+           "Records carrying a `prediction` and a `reference`.", many=True),
+    ),
     emits=Emits('records/table', collection=False, doc='One row per value the metric returned: `metric`, `variant`, `value`, `n`.'),
     params=(
         P("metric", "string",
           "The hub metric's name: `\"accuracy\"`, `\"exact_match\"`, "
           "`\"f1\"`, `\"bleu\"`, `\"rouge\"`, …"),
-        P("prediction_field", "string", "The record field holding the prediction.", "prediction"),
-        P("reference_field", "string", "The record field holding the reference.", "reference"),
         P("kwargs", "object",
           "Extra keyword arguments for the metric's `compute` — e.g. "
           "`{\"average\": \"macro\"}` for F1.",
@@ -373,7 +359,8 @@ change across releases.
           "every row as a coordinate.",
           "base"),
     ),
-    example={"metric": "exact_match", "prediction_field": "answer", "reference_field": "gold", "variant": "adapter"},
+    example={"metric": "exact_match", "variant": "adapter"},
+    example_inputs={"records": {"$fetch": "$answers"}},
 )
 
 EVAL_SUITE = Op(
@@ -393,7 +380,7 @@ Every (task, metric) the harness reports becomes one row, stamped with
 The harness version is recorded on the table: prompt templates change
 between its releases, so the version is part of the measurement.
 """,
-    inputs="None beyond the model — the harness supplies the data.",
+    inputs=(ADAPTER,),
     emits=(
         Emits('records/table', collection=False, doc='One row per (task, metric): `task`, `metric`, `variant`, `value`, `stderr`, `n`.')
     ),
@@ -426,9 +413,9 @@ FINETUNE_LORA = Op(
     ),
     description="""\
 Training data are chat-shaped prompt records; at the point where the
-assistant's turn begins (after any prefill), the model is trained toward a
-**target distribution** over outcome strings rather than toward one answer —
-soft-target cross-entropy. `target` describes that distribution:
+assistant's turn begins (after any `prefill`), the model is trained toward
+a **target distribution** over outcome strings rather than toward one
+answer — soft-target cross-entropy. `target` describes that distribution:
 `{"uniform": [outcomes]}`, or `{"weights": {outcome: weight}}` (raw corpus
 frequencies, say), optionally reshaped by a `transform` chain — `sqrt`,
 `pow`, `temper`, `temper_to_entropy`, `mix_uniform`, `top_k`, `normalize` —
@@ -450,12 +437,14 @@ If the model reference already carries adapters, training happens on the
 fused stack — the new round learns a delta on top. Long runs checkpoint
 every `checkpoint_every` steps and resume from the same trajectory.
 """,
-    inputs="""\
-`records` (by edge, or the `records` param) — the training prompts, with
-the fields named by `system_field`, `user_field`, `prefill_field`.
-`anchors` (optional, by edge or param) — prompt records with the field
-named by `answer_field`.
-""",
+    inputs=(
+        In("records", "records/record",
+           "The training prompts: chat-shaped records with `user`, and "
+           "optionally `system` and `prefill`.", many=True),
+        In("anchors", "records/record",
+           "Prompt records with a known `answer`, mixed into each batch.",
+           many=True, required=False),
+    ),
     emits=Emits('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`."),
     params=(
         P("target", "object",
@@ -489,30 +478,19 @@ named by `answer_field`.
           "Run the one-token-per-slot gate before training; `{\"samples\": "
           "40}` sets how many sequences it checks.",
           True),
-        P("anchors", "list[record]",
-          "Anchor prompts with known answers, when they do not arrive by "
-          "edge.",
-          None),
-        P("answer_field", "string", "The anchor record field holding the answer.", "answer"),
         P("checkpoint_every", "int",
           "Save resumable training state every this many steps.",
           50),
-        P("system_field", "string", "The record field holding the system prompt.", "system"),
-        P("user_field", "string", "The record field holding the user turn.", "user"),
-        P("prefill_field", "string",
-          "The record field holding the start of the assistant's turn, up "
-          "to the decision point.",
-          "prefill"),
     ),
     example={
         "model": "$model",
-        "records": {"$fetch": "$prompts"},
         "target": {"weights": {"$fetch": "$frequencies"},
                    "transform": [{"op": "sqrt"}, {"op": "normalize"}]},
         "steps": 300,
         "lora": {"rank": 8, "alpha": 16},
         "seed": 7,
     },
+    example_inputs={"records": {"$fetch": "$prompts"}, "anchors": {"$fetch": "$anchors"}},
 )
 
 HF_PUSH_ADAPTER = Op(
@@ -532,7 +510,10 @@ Needs a Hugging Face write token in the job owner's vault. `dry_run` stages
 the repository locally and reports the files and sizes without touching the
 hub or needing a token.
 """,
-    inputs="`adapter` (by edge, or the common `adapter` param) — the adapter object, usually from `adapter/train`.",
+    inputs=(
+        In("adapter", "adapter/lora",
+           "The adapter to publish, usually from `adapter/train`."),
+    ),
     emits=(
         Emits('adapter/push', collection=False, doc='`repo`, `private`, `files` (name and size), `lora`, `base_model`, `commit`, `url`, and `hf_adapter_ref` to fetch it back.')
     ),
@@ -541,7 +522,8 @@ hub or needing a token.
         P("private", "bool", "Create the repository private.", True),
         P("commit_message", "string", "The commit message.", "mechbench: adapter push"),
     ),
-    example={"adapter": {"$fetch": "$adapter"}, "repo": "benjismith/spinner-fair-v1", "private": True},
+    example={"repo": "benjismith/spinner-fair-v1", "private": True},
+    example_inputs={"adapter": {"$fetch": "$adapter"}},
 )
 
 MERGE = Op(
@@ -564,8 +546,10 @@ stores the checkpoint under the run's project, usable afterwards as
 commits it to the hub, usable as `{"base": {"hf": "repo@sha"}}`. A failed
 upload to the bench resumes: files already there with matching hashes are
 skipped.
+
+Nothing arrives by edge: the stack to merge is the `model` reference's.
 """,
-    inputs="None beyond the `model` reference, which must carry adapters.",
+    inputs=(),
     emits=Emits('adapter/checkpoint', collection=False, doc='Where the checkpoint landed, its files with their hashes, and the stack that was merged.'),
     params=(
         P("to", "object",
@@ -587,9 +571,10 @@ The expression is parsed and refused if it contains anything but numeric
 literals and `+ - * / // % **` (and parentheses): a tool a model can steer
 must not be an evaluator. Offered to a `chat` or `conversation` node by
 naming `"calc"` in its `tools`; the model's call supplies `arguments:
-{expression}`.
+{expression}`. A tool has no input ports — its arguments come from the
+call.
 """,
-    inputs="`arguments` (by the tool call) — `{\"expression\": \"…\"}`.",
+    inputs=(),
     emits=None,
     params=(
         P("expression", "string",
@@ -610,9 +595,10 @@ TOOLS_BENCH_LOOKUP = Op(
 Returns the object's payload, or one field of it when the call names a
 `field`. Offered to a `chat` or `conversation` node as `"bench.lookup"`;
 the model's call supplies `arguments: {path, field?}`. Every fetch is
-recorded on the item that made it.
+recorded on the item that made it. A tool has no input ports — its
+arguments come from the call.
 """,
-    inputs="`arguments` (by the tool call) — `{\"path\": \"…\", \"field\": \"…\"}`.",
+    inputs=(),
     emits=None,
     params=(
         P("path", "string",

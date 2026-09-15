@@ -192,7 +192,12 @@ class TestParamChecking:
         from mechbench_compute.block_params import check_params
         check_params("geometry/mst",
                      {"center": True, "bridge_sigma": 2.0, "name": "v",
-                      "vectors": {}, "keep_edges": False})
+                      "keep_edges": False})
+
+    def test_a_port_given_as_a_param_is_refused_with_directions(self):
+        from mechbench_compute.block_params import check_params
+        with pytest.raises(ValueError, match="input port"):
+            check_params("geometry/mst", {"vectors": {}})
 
     def test_an_unregistered_block_is_unchecked(self):
         # Every CANONICAL op is declared now (000478), so the unchecked

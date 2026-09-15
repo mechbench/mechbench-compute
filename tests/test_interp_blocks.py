@@ -186,12 +186,13 @@ class TestResidualVectors:
         assert np.count_nonzero(v) == 1
         assert row["norm"] == pytest.approx(2.0)
 
-    def test_label_coord_pulls_from_coords(self):
+    def test_every_item_carries_the_records_coords(self):
+        # A grouping is a coordinate; the grouping ops name it by `axis`.
         model = StubModel()
         out = interp.residual_vectors(
             model, [{"id": "c", "user": "a", "coords": {"language": "fr"}}],
-            {"layers": [0], "label_coord": "language"})
-        assert out["items"][0]["coords"] == {"language": "fr", "label": "fr"}
+            {"layers": [0]})
+        assert out["items"][0]["coords"] == {"language": "fr"}
 
     def test_the_float_cap_refuses_a_runaway_capture(self, monkeypatch):
         monkeypatch.setattr(interp, "MAX_VECTOR_FLOATS", 10)

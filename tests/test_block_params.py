@@ -33,7 +33,8 @@ import re
 
 import pytest
 
-from mechbench_compute.block_params import ACCEPTED, COMMON, check_params
+from mechbench_compute.block_params import ACCEPTED, COMMON, check_inputs, check_params
+from mechbench_compute.lexicon import BY_NAME
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
 P = "protocol.py"
@@ -86,9 +87,8 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
                                               ("interp.py", "residual_divergence")],
     # --- pure blocks ---
     "records/cross": [("blocks.py", "factor_cross")],
-    # An alias for factor-cross: protocols pinned before the rename.
-    "records/cross": [("blocks.py", "factor_cross")],
     "records/template": [("blocks.py", "template")],
+    "records/rename": [("blocks.py", "rename")],
     "records/select": [("blocks.py", "select")],
     "records/delta": [("blocks.py", "paired_delta")],
     "records/stats": [("blocks.py", "group_stats")],
@@ -111,9 +111,10 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "trajectory/aggregate": [("trajectory.py", "aggregate")],
     # The reduce ops share one closure; the MONOID is what differs, and
     # each one's params are its own.
-    "records/sum": [("reduce.py", "FloatSum")],
-    "records/top-k": [("reduce.py", "TopK")],
-    "records/histogram": [("reduce.py", "Histogram")],
+    # `_block_of` is the closure that reads the records port for all three.
+    "records/sum": [("reduce.py", "FloatSum"), ("reduce.py", "_block_of")],
+    "records/top-k": [("reduce.py", "TopK"), ("reduce.py", "_block_of")],
+    "records/histogram": [("reduce.py", "Histogram"), ("reduce.py", "_block_of")],
     "tools/calc": [("tools.py", "calc")],
     "tools/lookup": [("tools.py", "bench_lookup")],
 }
@@ -123,7 +124,20 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
 #: statement, not a shrug. Empty is the goal.
 EXEMPT: dict[str, dict[str, str]] = {}
 
-READS = re.compile(r"""params(?:\.get\(\s*|\[\s*)["']([^"']+)["']""")
+#: Names a block reads off `inputs` that are not ports — each with the
+#: reason.
+PORT_EXEMPT: dict[str, dict[str, str]] = {
+    "tools/calc": {"arguments": "a tool's arguments come from the model's call, not an edge"},
+    "tools/lookup": {"arguments": "a tool's arguments come from the model's call, not an edge"},
+}
+
+def _reads_of(var: str) -> re.Pattern[str]:
+    # `params["x"]`, `params.get("x")`, and the guarded `(inputs or {}).get("x")`.
+    return re.compile(rf"""(?:\({var} or \{{\}}\)|{var})(?:\.get\(\s*|\[\s*)["']([^"']+)["']""")
+
+
+READS = _reads_of("params")
+READS_INPUTS = _reads_of("inputs")
 _MODULES: dict[str, tuple[str, dict[str, ast.AST]]] = {}
 
 
@@ -164,14 +178,18 @@ def _imports(src: str) -> dict[str, str]:
     return out
 
 
-def _hands_params(call: ast.Call) -> bool:
-    if any(isinstance(a, ast.Name) and a.id == "params" for a in call.args):
+def _hands(call: ast.Call, var: str) -> bool:
+    if any(isinstance(a, ast.Name) and a.id == var for a in call.args):
         return True
     if any(isinstance(a, ast.Starred) and isinstance(a.value, ast.Name)
-           and a.value.id == "params" for a in call.args):
+           and a.value.id == var for a in call.args):
         return True
     return any(k.value is not None and isinstance(k.value, ast.Name)
-               and k.value.id == "params" for k in call.keywords)
+               and k.value.id == var for k in call.keywords)
+
+
+def _hands_params(call: ast.Call) -> bool:
+    return _hands(call, "params")
 
 
 def _called_name(call: ast.Call) -> tuple[str | None, str | None]:
@@ -184,10 +202,14 @@ def _called_name(call: ast.Call) -> tuple[str | None, str | None]:
     return None, None
 
 
-def params_read(sites: list[tuple[str, str | None]]) -> set[str]:
-    """Every param name read at these sites, following `params` wherever
-    it is handed on — module-local calls, cross-module imports, and into
-    packages. Depth-bounded and cycle-safe."""
+def names_read(sites: list[tuple[str, str | None]], var: str = "params",
+               *, bodies: list[str] | None = None) -> set[str]:
+    """Every name read from `var` at these sites — `params["x"]`,
+    `inputs.get("x")` — following `var` wherever it is handed on:
+    module-local calls, cross-module imports, and into packages.
+    Depth-bounded and cycle-safe. `bodies`, when given, collects the
+    source of every site visited."""
+    reads = _reads_of(var)
     found: set[str] = set()
     seen: set[tuple[str, str | None]] = set()
     stack: list[tuple[str, str | None, int]] = [(m, s, 0) for m, s in sites]
@@ -199,16 +221,18 @@ def params_read(sites: list[tuple[str, str | None]]) -> set[str]:
             seen.add((rel, sym))
             src, syms = _load(rel)
             if sym is None:
-                found |= set(READS.findall(src))
+                found |= set(reads.findall(src))
                 continue
             node = syms.get(sym)
             if node is None:
                 continue
             body = ast.get_source_segment(src, node) or ""
-            found |= set(READS.findall(body))
+            if bodies is not None:
+                bodies.append(body)
+            found |= set(reads.findall(body))
             imports = _imports(src)
             for call in (n for n in ast.walk(node) if isinstance(n, ast.Call)):
-                if not _hands_params(call):
+                if not _hands(call, var):
                     continue
                 base, target = _called_name(call)
                 if target is None:
@@ -220,6 +244,45 @@ def params_read(sites: list[tuple[str, str | None]]) -> set[str]:
                 elif target in imports:
                     stack.append((imports[target], target, depth + 1))
     return found
+
+
+def params_read(sites: list[tuple[str, str | None]]) -> set[str]:
+    return names_read(sites, "params")
+
+
+def _dispatch_branch(ref: str) -> str:
+    """The executor's dispatch branch for `ref`: the lines between
+    `block == "ref":` and the next `elif`/`else`, where a port is
+    sometimes read straight off `inputs` (a chart's source, a score's
+    collection path)."""
+    src = (ROOT / P).read_text()
+    m = re.search(
+        rf'block == "{re.escape(ref)}":\s*\n(.*?)(?=\n\s+elif block|\n\s+else:)',
+        src, re.S)
+    return m.group(1) if m else ""
+
+
+def _registry_entry(ref: str) -> str:
+    """The pure-block registry's adapter for `ref` — the lambda that
+    hands `inputs["records"]` to the function the site names."""
+    src = (ROOT / "blocks.py").read_text()
+    m = re.search(rf'"{re.escape(ref)}":\s*\n?\s*lambda inputs, params:(.*?)(?=\n\s+"[a-z]|\n\}})',
+                  src, re.S)
+    return m.group(1) if m else ""
+
+
+def ports_read(ref: str) -> set[str]:
+    """Every port name the op reads off `inputs`: at its sites, in the
+    registry adapter, and in the executor's dispatch branch. An op run
+    through `_run_model_block` reads `adapter` there, for every op alike."""
+    bodies: list[str] = []
+    read = names_read(SITES[ref], "inputs", bodies=bodies)
+    branch = _dispatch_branch(ref)
+    read |= set(READS_INPUTS.findall(branch))
+    read |= set(READS_INPUTS.findall(_registry_entry(ref)))
+    if "_run_model_block" in branch or any("_run_model_block" in b for b in bodies):
+        read.add("adapter")
+    return read
 
 
 def registered_ops() -> set[str]:
@@ -282,11 +345,109 @@ def test_the_declaration_claims_nothing_the_block_ignores(ref):
         f"EXEMPT with the reason it cannot be seen here.")
 
 
+@pytest.mark.parametrize("ref", sorted(SITES))
+def test_the_declaration_covers_every_port_the_block_reads(ref):
+    """A port the block reads but does not declare would be refused by
+    `check_inputs` when wired — a false refusal."""
+    op = BY_NAME[ref]
+    if op.wildcard is not None:
+        return  # any port name lands on the wildcard
+    missing = sorted(ports_read(ref) - op.port_names - set(PORT_EXEMPT.get(ref, {})))
+    assert not missing, (
+        f"{ref} reads {missing} from its inputs but declares no such port — "
+        f"an edge onto one would be refused for no reason")
+
+
+@pytest.mark.parametrize("ref", sorted(SITES))
+def test_the_declaration_claims_no_port_the_block_ignores(ref):
+    """A declared port nothing reads is the 000438 bug on the input side:
+    wired, accepted, and silently unused."""
+    op = BY_NAME[ref]
+    declared = {p.name for p in op.inputs if not p.wildcard}
+    claimed = sorted(declared - ports_read(ref))
+    assert not claimed, (
+        f"{ref} declares ports {claimed} but never reads them from inputs")
+
+
 def test_exemptions_carry_a_reason():
-    for ref, entries in EXEMPT.items():
-        assert ref in ACCEPTED, f"exemption for an undeclared block: {ref}"
-        for param, why in entries.items():
-            assert why.strip(), f"{ref}.{param} is exempt with no reason given"
+    for table in (EXEMPT, PORT_EXEMPT):
+        for ref, entries in table.items():
+            assert ref in ACCEPTED, f"exemption for an undeclared block: {ref}"
+            for param, why in entries.items():
+                assert why.strip(), f"{ref}.{param} is exempt with no reason given"
+
+
+# --- check_inputs behaviour ---------------------------------------------------
+
+def test_an_unknown_port_is_refused_by_name():
+    with pytest.raises(ValueError) as caught:
+        check_inputs("geometry/mst", {"similarity": {"kind": "collection", "item_kind": "geometry/similarity", "key": [], "items": []}})
+    msg = str(caught.value)
+    assert "similarity" in msg and "geometry/mst" in msg and "matrix" in msg
+
+
+def test_an_unwired_required_port_is_refused_before_anything_runs():
+    with pytest.raises(ValueError) as caught:
+        check_inputs("direction/project", {"vectors": [{"id": "a"}]})
+    msg = str(caught.value)
+    assert "direction/project" in msg and "'direction'" in msg and "direction/vector" in msg
+
+
+def test_a_kind_that_does_not_satisfy_the_port_is_refused_with_both_names():
+    verdicts = {"kind": "collection", "item_kind": "eval/verdict", "key": ["id"], "items": []}
+    with pytest.raises(ValueError) as caught:
+        check_inputs("geometry/similarity", {"vectors": verdicts})
+    msg = str(caught.value)
+    assert "geometry/similarity" in msg and "activations/vector" in msg and "eval/verdict" in msg
+
+
+def test_a_kind_that_extends_the_port_kind_satisfies_it():
+    reads = {"kind": "collection", "item_kind": "logits/decision", "key": ["id"], "items": []}
+    out = check_inputs("eval/expectation", {"results": reads, "expectations": [{"id": "x", "expect": {}}]})
+    assert out["results"] is reads
+    # A bare list on a collection port is wrapped as the collection it stands for.
+    assert out["expectations"]["kind"] == "collection"
+    assert out["expectations"]["item_kind"] == "records/record"
+    # A retired spelling resolves before it is compared.
+    old = {"kind": "decision_read", "conditions": []}
+    check_inputs("eval/expectation", {"results": old, "expectations": []})
+
+
+def test_a_document_collection_is_a_record_collection():
+    docs = {"kind": "collection", "item_kind": "text/document", "key": ["id"], "items": []}
+    check_inputs("text/stats", {"records": docs})
+    check_inputs("eval/judge", {"records": docs})
+
+
+def test_a_wildcard_op_takes_any_port_name_but_needs_one():
+    check_inputs("records/union", {"base": [{"id": "a"}], "adapted": [{"id": "b"}]})
+    with pytest.raises(ValueError, match="at least one"):
+        check_inputs("records/union", {})
+
+
+def test_a_value_with_no_kind_is_not_second_guessed():
+    # An older stored object, or a literal, carries no name to refuse by.
+    check_inputs("direction/normalize", {"direction": {"vector": [1.0, 0.0]}})
+    check_inputs("text/tokenize", {"vocabulary": ["red", "blue"]})
+
+
+def test_a_port_given_as_a_param_is_lifted_with_a_warning_until_it_is_refused():
+    """A protocol stored before inputs left params still runs: the value
+    moves onto its port, and the warning names the move and the release
+    that will refuse it. A wildcard op's unknown param is not lifted —
+    that is a typo for `check_params` to name."""
+    from mechbench_compute.lexicon import ALIASES_REMOVED_IN, RetiredParam
+    from mechbench_compute.protocol import _lift_port_params
+
+    with pytest.warns(RetiredParam, match=f"until mechbench-compute {ALIASES_REMOVED_IN}"):
+        kept, lifted = _lift_port_params(
+            "logits/decision", {"model": "m", "conditions": [{"id": "c", "user": "u"}], "top_k": 3})
+    assert kept == {"model": "m", "top_k": 3}
+    assert lifted == {"conditions": [{"id": "c", "user": "u"}]}
+    kept, lifted = _lift_port_params("records/union", {"batch_axs": "x"})
+    assert kept == {"batch_axs": "x"} and lifted == {}
+    with pytest.raises(ValueError, match="input port"):
+        check_params("logits/decision", {"conditions": []})
 
 
 # --- check_params behaviour ---------------------------------------------------

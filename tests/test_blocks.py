@@ -131,14 +131,14 @@ def test_eval_expectation_reads_a_current_decision_collection():
     assert by_id["capital"]["pass"] is True and by_id["capital"]["p_expected"] == 0.999
 
 
-def test_eval_expectation_accepts_params_fallback():
-    table = eval_expectation({}, {
-        "results": [{"id": "a", "entropy_bits": 3.0}],
-        "expectations": [{"id": "a", "expect": {"kind": "min_entropy",
-                                                  "bits": 2.0}}],
-    })
-    row_a = next(r for r in table["items"] if r["id"] == "a")
-    assert row_a["pass"] is True
+def test_eval_expectation_reads_its_ports_only():
+    # Inputs arrive on ports, never under params: a result list given
+    # there is not read (the executor refuses it by name before this).
+    with pytest.raises(KeyError):
+        eval_expectation({}, {
+            "results": [{"id": "a", "entropy_bits": 3.0}],
+            "expectations": [{"id": "a", "expect": {"kind": "min_entropy", "bits": 2.0}}],
+        })
 
 
 def test_suite_metric_records_shapes_lm_eval_results():
@@ -155,6 +155,44 @@ def test_suite_metric_records_shapes_lm_eval_results():
     assert acc["coords"] == {"task": "arc_easy", "metric": "acc",
                               "variant": "adapted"}
     assert acc["value"] == 0.74 and acc["stderr"] == 0.02 and acc["n"] == 50
+
+
+class TestRename:
+    """records/rename: the one visible adaptation step."""
+
+    def test_moves_fields_and_keeps_the_rest(self):
+        from mechbench_compute.blocks import rename
+
+        out = rename([{"id": "a", "coords": {"g": "x"}, "question": "Q?", "gold": "42"}],
+                     {"fields": {"question": "user", "gold": "reference"}})
+        assert out == [{"id": "a", "coords": {"g": "x"}, "user": "Q?", "reference": "42"}]
+
+    def test_a_dotted_path_moves_into_and_out_of_a_nested_object(self):
+        from mechbench_compute.blocks import rename
+
+        doc = {"id": "s0", "text": "…", "hit": 1, "metadata": {"coords": {"prompt": "flash"}}}
+        # Moves apply in order: the coords lift first, then the hit into it.
+        out = rename([doc], {"fields": {"metadata.coords": "coords", "hit": "coords.hit"}})
+        assert out[0] == {"id": "s0", "text": "…", "metadata": {},
+                          "coords": {"prompt": "flash", "hit": 1}}
+        # The input record was not mutated.
+        assert doc["hit"] == 1 and doc["metadata"]["coords"] == {"prompt": "flash"}
+
+    def test_a_missing_field_is_left_alone_and_an_empty_map_is_refused(self):
+        from mechbench_compute.blocks import rename
+
+        assert rename([{"id": "a"}], {"fields": {"nope": "user"}}) == [{"id": "a"}]
+        with pytest.raises(ValueError, match="fields"):
+            rename([{"id": "a"}], {})
+
+    def test_it_is_registered_and_reads_a_collection(self):
+        from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute.lexicon import kinds as K
+
+        out = PURE_BLOCKS["records/rename"](
+            {"records": K.collection("records/record", [{"id": "a", "q": 1}])},
+            {"fields": {"q": "user"}})
+        assert out["item_kind"] == "records/record" and out["items"] == [{"id": "a", "user": 1}]
 
 
 def test_table_from_records_flattens_coords_and_types_columns():
@@ -277,15 +315,15 @@ class TestRecordCoercion:
     were each writing their own coercion before this."""
 
     def test_items_are_records(self):
-        from mechbench_compute.blocks import _records
+        from mechbench_compute.blocks import _items
 
-        assert _records(A_CORPUS) == A_CORPUS["items"]
+        assert _items(A_CORPUS) == A_CORPUS["items"]
 
     def test_the_older_conventions_still_win_first(self):
-        from mechbench_compute.blocks import _records
+        from mechbench_compute.blocks import _items
 
         both = {"records": [{"id": "r"}], "items": [{"id": "i"}]}
-        assert _records(both) == [{"id": "r"}]
+        assert _items(both) == [{"id": "r"}]
 
     def test_a_document_can_be_embedded_by_its_text(self):
         from mechbench_compute.interp import _prompt_of

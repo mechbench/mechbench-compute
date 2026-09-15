@@ -153,9 +153,8 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     axis = str(params.get("axis") or "label")
     from mechbench_compute.lexicon import kinds as K
 
-    src = (inputs.get("matrix") or inputs.get("similarity")
-           or params.get("matrix"))
-    vectors = inputs.get("vectors") or params.get("vectors")
+    src = inputs.get("matrix")
+    vectors = inputs.get("vectors")
 
     def _is(obj: Any, item_kind: str) -> bool:
         return isinstance(obj, Mapping) and K.item_kind_of(obj) == item_kind

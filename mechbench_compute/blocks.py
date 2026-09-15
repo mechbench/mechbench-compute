@@ -145,16 +145,59 @@ def template(records: list[dict[str, Any]],
     return out
 
 
-def _records(x: Any) -> list[dict[str, Any]]:
-    """Coerce a node output to its record list: a `collection`, a bare
-    list, or a pre-2026-09 plural object (the lexicon knows their
-    fields)."""
+def _items(x: Any) -> list[dict[str, Any]]:
+    """The items of an input, however it arrived — the lexicon's one
+    reader, for a `collection`, a bare list, or an older plural object."""
     from mechbench_compute.lexicon import kinds as K
 
-    try:
-        return K.items_of(x)
-    except ValueError:
-        raise ValueError("input is not a record stream") from None
+    return K.items_of(x)
+
+
+def _pop_path(rec: dict[str, Any], path: str) -> tuple[bool, Any]:
+    """Remove the value at a dotted path, copying each container on the
+    way so the input record is never mutated. (found, value)."""
+    parts = path.split(".")
+    cur = rec
+    for p in parts[:-1]:
+        nxt = cur.get(p)
+        if not isinstance(nxt, Mapping):
+            return False, None
+        nxt = dict(nxt)
+        cur[p] = nxt
+        cur = nxt
+    if parts[-1] not in cur:
+        return False, None
+    return True, cur.pop(parts[-1])
+
+
+def _set_path(rec: dict[str, Any], path: str, value: Any) -> None:
+    parts = path.split(".")
+    cur = rec
+    for p in parts[:-1]:
+        nxt = cur.get(p)
+        nxt = dict(nxt) if isinstance(nxt, Mapping) else {}
+        cur[p] = nxt
+        cur = nxt
+    cur[parts[-1]] = value
+
+
+def rename(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """records/rename: move fields on every record, `fields: {old: new}`.
+    A name may be a dotted path (`coords.opening`, `metadata.coords`), so
+    a value moves into or out of a nested object. A record without the
+    old field is left as it is; everything not named is kept."""
+    fields = params.get("fields")
+    if not isinstance(fields, Mapping) or not fields:
+        raise ValueError("records/rename needs `fields`: {\"old\": \"new\", …}")
+    out = []
+    for r in _items(records):
+        rec = dict(r)
+        for old, new in fields.items():
+            found, value = _pop_path(rec, str(old))
+            if found:
+                _set_path(rec, str(new), value)
+        out.append(rec)
+    return out
 
 
 def _coll(items: list[dict[str, Any]], **header: Any) -> dict[str, Any]:
@@ -171,7 +214,7 @@ def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
     `text/stats` `annotate` wrote (a pattern hit is a field, not a
     coord) filters too (task 000368). fields: [names] keeps id+coords
     plus the named fields."""
-    recs = _records(records)
+    recs = _items(records)
     where: Mapping[str, Any] = params.get("where") or {}
     out = []
     for r in recs:
@@ -198,7 +241,7 @@ def paired_delta(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]
     identifying the baseline records; value: the numeric field.
     Output records keep coords (minus nothing) plus value/baseline/
     delta fields — composable straight into group_stats."""
-    recs = _records(records)
+    recs = _items(records)
     match_on = params.get("match_on") or []
     baseline_where: Mapping[str, Any] = params["baseline_where"]
     value_field = params["value"]
@@ -240,7 +283,7 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     what a judged corpus needs — an unreadable verdict is not a zero
     (task 000356), and the rows that were dropped must be visible."""
     from statistics import mean, median
-    recs = _records(records)
+    recs = _items(records)
     by = params.get("by") or []
     value_field = params["value"]
     on_missing = str(params.get("on_missing", "error"))
@@ -326,7 +369,7 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
     segments = []
     records = []
     for port in ports:
-        recs = _records(inputs[port])
+        recs = _items(inputs[port])
         segments.append({"source": port, "count": len(recs)})
         for r in recs:
             records.append({**r, "coords": {**r.get("coords", {}),
@@ -386,7 +429,7 @@ def table_from_records(records: Any,
     """Present a record stream as a metric table: coords flatten into
     leading columns, remaining scalar fields follow. The generic
     records -> table presenter (delta tables, group stats, ...)."""
-    recs = _records(records)
+    recs = _items(records)
     coord_keys: list[str] = []
     value_keys: list[str] = []
     for r in recs:
@@ -444,7 +487,7 @@ def viz_spec(records: Any, params: Mapping[str, Any],
         spec["source"] = source_label
     else:
         recs = (records["rows"] if isinstance(records, Mapping)
-                and isinstance(records.get("rows"), list) else _records(records))
+                and isinstance(records.get("rows"), list) else _items(records))
         rows = []
         for r in recs:
             row = {k: v for k, v in r.items() if k != "coords"}
@@ -508,13 +551,14 @@ def text_stats(inputs: Mapping[str, Any],
     import math as _math
     import re
 
-    raw = (inputs.get("records") or inputs.get("documents")
-           or params.get("records"))
-    if isinstance(raw, Mapping) and "items" in raw:
-        recs = list(raw["items"])
-    else:
-        recs = _records(raw)
-    field = params.get("field", "text")
+    raw = inputs.get("records")
+    if raw is None:
+        raw = inputs.get("documents")
+    if raw is None:
+        raise ValueError(
+            "text/stats needs texts on its `records` or `documents` port")
+    recs = _items(raw)
+    field = "text"
     measures = params.get("measures") or []
     mode = params.get("mode", "annotate")
     # `keep` (task 000368): an annotated row carries the whole item —
@@ -631,9 +675,9 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "records/cross":
         lambda inputs, params: _coll(factor_cross(params)),
     "records/template":
-        lambda inputs, params: _coll(template(
-            _records(inputs.get("records") or params.get("records")),
-            params)),
+        lambda inputs, params: _coll(template(inputs["records"], params)),
+    "records/rename":
+        lambda inputs, params: _coll(rename(inputs["records"], params)),
     "records/select":
         lambda inputs, params: _coll(select(inputs["records"], params)),
     "records/delta":
@@ -641,8 +685,7 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "records/stats":
         lambda inputs, params: group_stats(inputs["records"], params),
     "records/table":
-        lambda inputs, params: table_from_records(
-            inputs.get("records") or params.get("records"), params),
+        lambda inputs, params: table_from_records(inputs["records"], params),
     "records/union":
         lambda inputs, params: union(inputs, params),
     "text/stats":
@@ -691,10 +734,8 @@ def eval_expectation(inputs: Mapping[str, Any],
     """
     import math
 
-    results = _records(inputs.get("results") or params.get("results"))
-    expectations = {r["id"]: r["expect"]
-                    for r in _records(inputs.get("expectations")
-                                       or params.get("expectations"))}
+    results = _items(inputs["results"])
+    expectations = {r["id"]: r["expect"] for r in _items(inputs["expectations"])}
     from mechbench_compute import shapes as S
     from mechbench_compute.lexicon import kinds as K
 

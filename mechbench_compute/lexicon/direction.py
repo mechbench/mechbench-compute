@@ -17,17 +17,24 @@ readings use.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Emits, Op, P
+from mechbench_compute.lexicon._base import WILDCARD, Emits, In, Op, P
+from mechbench_compute.lexicon.model import ADAPTER
 
-_DIRECTION_IN = (
-    "`direction` (by edge, or the `direction` param) — a direction record."
+_DIRECTION = In("direction", "direction/vector", "The direction.")
+
+_VECTORS = In("vectors", "activations/vector",
+              "A collection of vectors with items at the chosen `layer`.",
+              many=True)
+
+_NAMED_DIRECTIONS = (
+    In("directions", "direction/vector",
+       "The directions as one list, when they do not each arrive on a port "
+       "of their own; they are named `d0`, `d1`, … in the result.",
+       many=True, required=False),
+    In(WILDCARD, "direction/vector",
+       "One direction per edge, on a port of your naming; the port name is "
+       "the direction's name in the result.", required=False),
 )
-
-_DIRECTIONS_IN = """\
-The directions come from every edge port carrying a direction record (the
-port names become the names in the result), and/or from the `directions`
-param as a list.
-"""
 
 
 def _point() -> P:
@@ -64,9 +71,9 @@ This is the difference-of-means method — the simplest and most robust way
 to find a concept direction, and the one most steering results are built on.
 """,
     inputs=(
-        "`vectors` (by edge, or the `vectors` param) — a collection of "
-        "`activations/vector` with items at the chosen `layer`, grouped on "
-        "the `axis` coordinate."
+        In("vectors", "activations/vector",
+           "A collection of vectors with items at the chosen `layer`, grouped "
+           "on the `axis` coordinate.", many=True),
     ),
     emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"diff_of_means"`, with `axis`, `positive`, `negative`, `n_positive` and `n_negative`.'),
     params=(
@@ -81,12 +88,12 @@ to find a concept direction, and the one most steering results are built on.
         _source(),
     ),
     example={
-        "vectors": {"$fetch": "$vectors"},
         "layer": 14,
         "axis": "register",
         "positive": "formal",
         "negative": "casual",
     },
+    example_inputs={"vectors": {"$fetch": "$vectors"}},
 )
 
 FROM_PCA = Op(
@@ -105,10 +112,7 @@ number of items.
 
 At least two items are needed.
 """,
-    inputs=(
-        "`vectors` (by edge, or the `vectors` param) — a collection of "
-        "`activations/vector` with items at the chosen `layer`."
-    ),
+    inputs=(_VECTORS,),
     emits=(
         Emits('direction/vector', collection=False, doc='`derivation.method` is `"pca"`, with `derivation.component`, `derivation.explained` and `derivation.n_items`.')
     ),
@@ -131,7 +135,8 @@ At least two items are needed.
         _point(),
         _source(),
     ),
-    example={"vectors": {"$fetch": "$vectors"}, "layer": 14, "component": 0},
+    example={"layer": 14, "component": 0},
+    example_inputs={"vectors": {"$fetch": "$vectors"}},
 )
 
 ADD = Op(
@@ -147,22 +152,17 @@ meaningless and is refused rather than producing a plausible-looking vector.
 `weights: [1, -0.5]` is "the first, minus half the second". The result is
 normalised to unit length.
 """,
-    inputs=_DIRECTIONS_IN,
+    inputs=_NAMED_DIRECTIONS,
     emits=(
         Emits('direction/vector', collection=False, doc='`derivation.method` is `"add"`, with `derivation.weights`.')
     ),
     params=(
-        P("directions", "list[direction]",
-          "The directions to sum, when they do not arrive by edge.",
-          None),
         P("weights", "list[float]",
           "One coefficient per direction, in input order.",
           None),
     ),
-    example={
-        "directions": [{"$fetch": "$formal"}, {"$fetch": "$terse"}],
-        "weights": [1.0, 0.5],
-    },
+    example={"weights": [1.0, 0.5]},
+    example_inputs={"directions": [{"$fetch": "$formal"}, {"$fetch": "$terse"}]},
 )
 
 AVERAGE = Op(
@@ -178,14 +178,11 @@ equally however large its original norm was. That is the right question for
 dominated by whichever axis happened to be longest. Same as `direction/add`
 with equal weights, except that the derivation says `average`.
 """,
-    inputs=_DIRECTIONS_IN,
+    inputs=_NAMED_DIRECTIONS,
     emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"average"`.'),
-    params=(
-        P("directions", "list[direction]",
-          "The directions to average, when they do not arrive by edge.",
-          None),
-    ),
-    example={"directions": [{"$fetch": "$axis_a"}, {"$fetch": "$axis_b"}]},
+    params=(),
+    example={},
+    example_inputs={"directions": [{"$fetch": "$axis_a"}, {"$fetch": "$axis_b"}]},
 )
 
 ORTHOGONALIZE = Op(
@@ -202,21 +199,16 @@ re-normalised. A direction that lies entirely within the span of `against`
 has nothing left and the block refuses it. All inputs must share a space.
 """,
     inputs=(
-        "`direction` (by edge or param) — the direction to clean. `against` "
-        "(by edge or param) — one direction record or a list of them."
+        In("direction", "direction/vector", "The direction to clean."),
+        In("against", "direction/vector",
+           "The direction(s) to remove — one, or a list of them.", many=True),
     ),
     emits=(
         Emits('direction/vector', collection=False, doc='`derivation.method` is `"orthogonalize"`, with `derivation.against` (how many independent directions were removed).')
     ),
-    params=(
-        P("direction", "direction",
-          "The direction to clean, when it does not arrive by edge.",
-          None),
-        P("against", "direction | list[direction]",
-          "The direction(s) to remove, when they do not arrive by edge.",
-          None),
-    ),
-    example={
+    params=(),
+    example={},
+    example_inputs={
         "direction": {"$fetch": "$sentiment"},
         "against": [{"$fetch": "$length"}],
     },
@@ -233,14 +225,11 @@ Directions made by the other `direction/*` ops are unit already. This is
 for one that was hand-built or imported, and for making normalisation a
 visible step in the graph rather than an assumption.
 """,
-    inputs=_DIRECTION_IN,
+    inputs=(In("direction", "direction/vector", "The direction to normalise."),),
     emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"normalize"`.'),
-    params=(
-        P("direction", "direction",
-          "The direction to normalise, when it does not arrive by edge.",
-          None),
-    ),
-    example={"direction": {"$fetch": "$imported"}},
+    params=(),
+    example={},
+    example_inputs={"direction": {"$fetch": "$imported"}},
 )
 
 PROJECT = Op(
@@ -257,19 +246,17 @@ way the vectors did. A quick way to see whether a direction separates the
 groups it was built from — or ones it was not.
 """,
     inputs=(
-        "`vectors` (by edge, or the `vectors` param) — a collection of "
-        "`activations/vector` with items at the direction's layer. "
-        "`direction` (by edge or param) — the direction."
+        In("vectors", "activations/vector",
+           "A collection of vectors with items at the direction's layer.",
+           many=True),
+        In("direction", "direction/vector", "The direction to project onto."),
     ),
     emits=(
         Emits('activations/coordinate', collection=True, doc="One item per input vector: `id`, `coords`, `space`, the `direction`'s identity and `coord`, the dot product with the unit direction.")
     ),
-    params=(
-        P("direction", "direction",
-          "The direction to project onto, when it does not arrive by edge.",
-          None),
-    ),
-    example={"vectors": {"$fetch": "$vectors"}, "direction": {"$fetch": "$axis"}},
+    params=(),
+    example={},
+    example_inputs={"vectors": {"$fetch": "$vectors"}, "direction": {"$fetch": "$axis"}},
 )
 
 SIMILARITY = Op(
@@ -280,25 +267,21 @@ SIMILARITY = Op(
     ),
     description="""\
 Given exactly `a` and `b`, one cosine. Given any other set of directions
-(by edge ports and/or the `directions` list), the pairwise matrix — the
-question "are these eight adapters' axes aligned?" in one node instead of
-twenty-eight. Directions are named by their port (or `d0`, `d1`, … from the
-list), and each one's original `norm` rides along. All must share a space.
+(on ports of your naming, and/or the `directions` list), the pairwise
+matrix — the question "are these eight adapters' axes aligned?" in one node
+instead of twenty-eight. Directions are named by their port (or `d0`, `d1`,
+… from the list), and each one's original `norm` rides along. All must
+share a space.
 """,
     inputs=(
-        "Either `a` and `b` (by edge or param), or any set of direction "
-        "ports and/or the `directions` param."
+        In("a", "direction/vector", "The first of exactly two directions.", required=False),
+        In("b", "direction/vector", "The second of exactly two directions.", required=False),
+        *_NAMED_DIRECTIONS,
     ),
     emits=Emits('geometry/similarity', collection=False, doc='For two directions: `cosine`. For many: `names`, `cosines` (the matrix), `norms` and `pairs` (every pair with its cosine, most similar first). `metric` is `cosine` and `space` the shared space either way.'),
-    params=(
-        P("a", "direction", "The first of exactly two directions.", None),
-        P("b", "direction", "The second of exactly two directions.", None),
-        P("directions", "list[direction]",
-          "Several directions for the pairwise matrix, when they do not "
-          "arrive by edge.",
-          None),
-    ),
-    example={"a": {"$fetch": "$axis_run1"}, "b": {"$fetch": "$axis_run2"}},
+    params=(),
+    example={},
+    example_inputs={"a": {"$fetch": "$axis_run1"}, "b": {"$fetch": "$axis_run2"}},
 )
 
 VOCAB = Op(
@@ -318,17 +301,15 @@ The reading is only literal for directions at the residual stream; a
 direction inside an attention block is not in the space the unembedding
 reads.
 """,
-    inputs=_DIRECTION_IN,
+    inputs=(In("direction", "direction/vector", "The direction to read."), ADAPTER),
     emits=(
         Emits('direction/vocab', collection=False, doc="`space`, `top_k`, and `positive` and `negative` — each a distribution (`entropy_bits`, `top` as `{token, p, logp}`) of the unembedding applied to that sign.")
     ),
     params=(
-        P("direction", "direction",
-          "The direction to read, when it does not arrive by edge.",
-          None),
         P("top_k", "int", "How many tokens to list per sign.", 10),
     ),
-    example={"model": "$model", "direction": {"$fetch": "$axis"}, "top_k": 20},
+    example={"model": "$model", "top_k": 20},
+    example_inputs={"direction": {"$fetch": "$axis"}},
 )
 
 OPS: tuple[Op, ...] = (

@@ -42,11 +42,10 @@ ITEM_KIND = "text/document"
 
 
 def _records(value: Any) -> list[dict[str, Any]]:
-    # `blocks._records` understands document collections since the
-    # vector path needed it too; this stays as the module's name for it.
-    from mechbench_compute.blocks import _records as base_records
+    """The records to run over, however the port delivered them."""
+    from mechbench_compute.lexicon import kinds as K
 
-    return base_records(value)
+    return K.items_of(value or [])
 
 
 def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
@@ -56,16 +55,15 @@ def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
     """One record's request. A record carries either a full `messages`
     conversation or the `system`/`user` fields a corpus record has —
     the same fields `generate` reads, so a protocol can swap a local
-    generate node for a chat node without rewriting its corpus."""
-    f_system = params.get("system_field", "system")
-    f_user = params.get("user_field", "user")
-    f_messages = params.get("messages_field", "messages")
-    convo = rec.get(f_messages)
-    if convo is None and f_user in rec:
-        convo = [{"role": "user", "content": rec[f_user]}]
+    generate node for a chat node without rewriting its corpus. A
+    record that carries them under other names goes through
+    records/rename first."""
+    convo = rec.get("messages")
+    if convo is None and "user" in rec:
+        convo = [{"role": "user", "content": rec["user"]}]
     if convo is None:
         convo = params.get("messages") or []
-    system = str(rec.get(f_system) or params.get("system") or "")
+    system = str(rec.get("system") or params.get("system") or "")
     return pm.request({
         "model": model,
         "system": system,
@@ -144,8 +142,11 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
                   if not isinstance(p, pm.TextPart)]
     if tool_parts:
         meta["parts"] = tool_parts
+    # A document is a record: its coordinates sit on the item as every
+    # other record's do (and under `metadata` as well, where the readers
+    # of older collections look).
     item = {"id": f"{rec.get('id')}-s{k}", "kind": ITEM_KIND, "text": text,
-            "metadata": meta}
+            "coords": dict(meta["coords"]), "metadata": meta}
     if params.get("keep_fields"):
         for f in params["keep_fields"]:
             if f in rec:

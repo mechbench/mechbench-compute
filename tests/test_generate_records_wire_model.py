@@ -45,8 +45,8 @@ def _resolved_ref() -> model_ref_mod.ModelRef:
 def _spec(fidelity: str):
     graph = {"nodes": [{
         "id": "gen", "block": "text/generate",
-        "params": {"model": "$model", "n": 2, "seed": 7, "fidelity": fidelity,
-                   "records": [{"id": "flash", "user": "Write a story."}]},
+        "params": {"model": "$model", "n": 2, "seed": 7, "fidelity": fidelity},
+        "inputs": {"records": [{"id": "flash", "user": "Write a story."}]},
     }], "edges": []}
     return ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
         "graph": graph,
@@ -106,8 +106,8 @@ class TestTheRecordedModel:
         _fake_generate_substrate(monkeypatch, calls)
         graph = {"nodes": [{
             "id": "gen", "block": "text/generate",
-            "params": {"model": BASE, "n": 1, "seed": 7, "fidelity": "trace",
-                       "records": [{"id": "flash", "user": "Write."}]}}],
+            "params": {"model": BASE, "n": 1, "seed": 7, "fidelity": "trace"},
+            "inputs": {"records": [{"id": "flash", "user": "Write."}]}}],
             "edges": []}
         out = ProtocolExecutor().run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))

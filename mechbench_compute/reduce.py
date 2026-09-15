@@ -265,11 +265,11 @@ def reduce_chunks(block: str, chunks: Sequence[Sequence[Mapping[str, Any]]],
 
 def _block_of(name: str):
     def fn(inputs, params):
-        from mechbench_compute.blocks import _records
+        from mechbench_compute.lexicon import kinds as K
 
         m = monoid_for(name, params)
         raw = inputs.get("records") if isinstance(inputs, Mapping) else inputs
-        recs = _records(raw if raw is not None else params.get("records"))
+        recs = K.items_of(raw if raw is not None else [])
         return m.finalize(m.partial(recs, params), params)
     return fn
 

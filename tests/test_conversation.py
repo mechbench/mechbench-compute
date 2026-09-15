@@ -29,7 +29,9 @@ def run(**params):
         "budget_usd": 1.0,
     }
     base.update(params)
-    return cv.run(base)
+    # What the node computes ON arrives on its ports, not in params.
+    inputs = {k: base.pop(k) for k in ("participants", "records") if k in base}
+    return cv.run(base, inputs=inputs)
 
 
 def transcript(out, i=0):
@@ -239,8 +241,8 @@ class TestBudgetAndResume:
 
     def test_a_remote_participant_needs_a_budget_at_all(self):
         with pytest.raises(ValueError, match="budget_usd"):
-            cv.run({"participants": [agent("a"), agent("b")],
-                    "turns": {"max_turns": 2}})
+            cv.run({"turns": {"max_turns": 2}},
+                   inputs={"participants": [agent("a"), agent("b")]})
 
     def test_spooled_turns_are_replayed_not_repurchased(self):
         first = run()
@@ -252,11 +254,11 @@ class TestBudgetAndResume:
                               strict=True)
         }
         again = cv.run({
-            "participants": [agent("claude"), agent("gpt")],
             "opening": ["Let's decide where to eat."],
             "turns": {"policy": "round_robin", "max_turns": 4},
             "budget_usd": 1.0,
-        }, resume_items=spooled)
+        }, inputs={"participants": [agent("claude"), agent("gpt")]},
+            resume_items=spooled)
         assert again["spend"]["calls"] == 2      # two turns were reused
         assert ([t["text"] for t in again["items"][0]["turns"][:3]]
                 == [t["text"] for t in first["items"][0]["turns"][:3]])
@@ -265,10 +267,14 @@ class TestBudgetAndResume:
         remote = {"participants": [agent("a"), agent("b")]}
         local = {"participants": [{"name": "a", "model": "google/gemma-3-4b-it"},
                                   {"name": "b", "model": "google/gemma-3-4b-it"}]}
+        # The participants are the node's inline inputs; by edge, the
+        # level cannot be known before the run and the weakest is assumed.
         assert resume_mod.resume_level(
-            "text/conversation", remote) == "exchangeable"
+            "text/conversation", {}, remote) == "exchangeable"
         assert resume_mod.resume_level(
-            "text/conversation", local) == "state-restorable"
+            "text/conversation", {}, local) == "state-restorable"
+        assert resume_mod.resume_level(
+            "text/conversation", {}, {}) == "exchangeable"
 
 
 class TestThroughTheExecutor:
@@ -276,11 +282,11 @@ class TestThroughTheExecutor:
         graph = {"nodes": [{
             "id": "talk", "block": "text/conversation",
             "params": {
-                "participants": [agent("claude"), agent("gpt")],
                 "opening": ["Hello."],
                 "turns": {"policy": "round_robin", "max_turns": 4},
                 "budget_usd": 1.0,
-            }}], "edges": []}
+            },
+            "inputs": {"participants": [agent("claude"), agent("gpt")]}}], "edges": []}
         out = ProtocolExecutor().run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
         node = out.payload["outputs"]["talk"]
@@ -311,13 +317,14 @@ class TestThroughTheExecutor:
         graph = {"nodes": [{
             "id": "talk", "block": "text/conversation",
             "params": {
-                "participants": [{"name": "gemma", "model": "google/gemma-3-4b-it",
-                                  "system": "You are {name}."},
-                                 agent("claude")],
                 "opening": ["Hello."],
                 "turns": {"policy": "round_robin", "max_turns": 2},
                 "budget_usd": 1.0,
-            }}], "edges": []}
+            },
+            "inputs": {"participants": [
+                {"name": "gemma", "model": "google/gemma-3-4b-it",
+                 "system": "You are {name}."},
+                agent("claude")]}}], "edges": []}
         out = ex.run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,
                                   extra={"graph": graph}))
         turns = out.payload["outputs"]["talk"]["items"][0]["turns"]

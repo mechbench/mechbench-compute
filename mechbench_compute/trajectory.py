@@ -53,16 +53,12 @@ AXES = ("layers", "positions")
 
 def _coords_of(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """The record's coordinates, as every item carries them. A document
-    item keeps its coords under `metadata`; the retired `label` field,
-    and the `label_coord` / `label_field` params, are read as the
-    `label` coordinate so older protocols group as they did."""
+    item keeps its coords under `metadata`; the retired `label` field is
+    read as the `label` coordinate so older records group as they did.
+    A measurement a record carries as a field becomes a coordinate
+    through `records/rename` upstream, not here."""
     coords = dict(record.get("coords") or (record.get("metadata") or {}).get("coords") or {})
     label = record.get("label")
-    if label is None and params.get("label_coord"):
-        label = (record.get("coords") or record.get("metadata") or {}).get(
-            params["label_coord"])
-    if label is None and params.get("label_field"):
-        label = record.get(params["label_field"])
     if label is not None and "label" not in coords:
         coords["label"] = label
     return coords
@@ -121,6 +117,7 @@ def capture(
     model,
     records: Sequence[Mapping[str, Any]],
     params: Mapping[str, Any],
+    project: Mapping[str, Any] | None = None,
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
@@ -163,7 +160,7 @@ def capture(
     lo, hi = (None, None)
     if isinstance(step_window, Mapping) and "range" in step_window:
         lo, hi = int(step_window["range"][0]), int(step_window["range"][1])
-    direction = params.get("project")
+    direction = project
     dvec = None
     if direction is not None:
         from mechbench_compute import directions as dirs
@@ -386,8 +383,8 @@ def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
     the funnel read against one axis, which is a legitimate question."""
     from mechbench_compute import directions as dirs
 
-    traj = _trajectory_of(inputs.get("trajectory") or params.get("trajectory"))
-    d = inputs.get("direction") or params.get("direction")
+    traj = _trajectory_of(inputs.get("trajectory"))
+    d = inputs.get("direction")
     if not isinstance(d, Mapping) or "vector" not in d:
         raise ValueError("trajectory/project needs a `direction` record")
     dv = dirs.as_array(d)
@@ -420,8 +417,8 @@ def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
     two single-item trajectories under different prompts or models):
     per-step cosine, angle in degrees, norm ratio; and the DIVERGENCE
     step — the first at which cosine falls below `threshold`."""
-    a = _trajectory_of(inputs.get("a") or params.get("a"), "a")
-    b = _trajectory_of(inputs.get("b") or params.get("b"), "b")
+    a = _trajectory_of(inputs.get("a"), "a")
+    b = _trajectory_of(inputs.get("b"), "b")
     if a.get("axis") != b.get("axis"):
         raise ValueError("trajectories must share an axis to be compared")
     pair_by = str(params.get("pair_by", "id"))
@@ -490,7 +487,7 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                  what `direction/from-vectors` reads, so an outcome axis
                  is this block followed by that one.
     """
-    traj = _trajectory_of(inputs.get("trajectory") or params.get("trajectory"),
+    traj = _trajectory_of(inputs.get("trajectory"),
                           coords_ok=True)
     by = str(params.get("by", "label"))
     mode = str(params.get("as", "per_step"))

@@ -20,12 +20,11 @@ corpus-scale trace small enough to store.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Emits, Op, P
+from mechbench_compute.lexicon._base import Emits, In, Op, P
+from mechbench_compute.lexicon.model import ADAPTER
 
-_TRAJ_IN = (
-    "`trajectory` (by edge, or the `trajectory` param) — a collection of "
-    "`trajectory/point`."
-)
+_TRAJECTORY = In("trajectory", "trajectory/point",
+                 "A trajectory: a collection of points with vectors.", many=True)
 
 CAPTURE = Op(
     name="trajectory/capture",
@@ -51,20 +50,29 @@ width), so there are three ways to keep it an object:
 * `project` — a direction: read the scalar coordinate along it at capture
   time and emit no vectors at all. The trace itself, as numbers.
 
+Every item carries the record's `coords`, which is what
+`trajectory/aggregate` groups on. A measurement a record carries as a
+field (what `text/stats` writes) becomes a coordinate through
+`records/rename` — `{"opening": "coords.opening"}` — before the capture.
+
 **Replay.** A record generated at trace fidelity carries the exact token ids
 it was generated as and where generation began. `replay: "auto"` uses those
 when present and tokenizes the text otherwise; re-tokenizing a generated
 story can shift a token boundary, and the trace is the ground truth of what
 the model saw.
 """,
-    inputs="""\
-`records` — the texts, each a record with a prompt (`user`, `prompt` or
-`text`) or a `trace`, and optionally `coords` and a `subject` when
-`position` is `"subject"`.
-
-`project` (optional, by edge) — a direction record, the same as the
-`project` param.
-""",
+    inputs=(
+        In("records", "records/record",
+           "The texts, each a record with a prompt (`user`, `prompt` or "
+           "`text`) or a `trace`, and optionally `coords` and a `subject` "
+           "when `position` is `\"subject\"`. A document collection is read "
+           "the same way.", many=True),
+        In("project", "direction/vector",
+           "A direction: read each step's scalar coordinate along it at "
+           "capture time and emit coordinates instead of vectors.",
+           required=False),
+        ADAPTER,
+    ),
     emits=Emits('trajectory/point', collection=True, doc='One item per record per step: `{id, coords, space, step, position, token, norm, vector}`, with `vocab` (a distribution) when asked for, and `n_pooled` plus `steps` when reduced. With `project`, a collection of `activations/coordinate` instead: `coord` and the direction\'s identity in place of the vector, `projected: true` in the header. The header carries `axis`, `point`, `layers`, `position`/`positions`, `d_model` and `replay` (`"trace"`, `"text"` or `"mixed"`).'),
     params=(
         P("axis", "string",
@@ -98,10 +106,6 @@ the model saw.
           "`\"mean\"`: emit one vector per record — the mean over the "
           "selected steps — instead of one per step.",
           None),
-        P("project", "direction",
-          "Read each step's scalar coordinate along this direction at "
-          "capture time and emit coordinates instead of vectors.",
-          None),
         P("point", "string",
           "Which residual to read: `\"post\"` (after each layer) or `\"pre\"`.",
           "post"),
@@ -115,16 +119,6 @@ the model saw.
           "(`vocab`, with this many top tokens), a lens reading per step. "
           "`0` records none.",
           0),
-        P("label_coord", "string",
-          "Retired: every item carries the record's `coords`, and "
-          "`trajectory/aggregate` groups on any of them. When given, the "
-          "named coordinate is also written as the `label` coordinate.",
-          None),
-        P("label_field", "string",
-          "Retired: when given, the named top-level field of a record (what "
-          "`text/stats` writes when it annotates) is written as the `label` "
-          "coordinate, so `by: \"label\"` still finds it.",
-          None),
         P("template", "string",
           "How a record's text is tokenized when it has no trace: "
           "`\"raw\"` or `\"chat\"`.",
@@ -132,12 +126,11 @@ the model saw.
     ),
     example={
         "model": "$model",
-        "records": {"$fetch": "$stories"},
         "axis": "positions",
         "layer": 12,
         "positions": "generated",
-        "project": {"$fetch": "$outcome_axis"},
     },
+    example_inputs={"records": {"$fetch": "$stories"}, "project": {"$fetch": "$outcome_axis"}},
 )
 
 PROJECT = Op(
@@ -155,24 +148,20 @@ enforced: projecting a layers-axis trajectory onto a single-layer direction
 is the funnel read against one axis, which is a legitimate question.
 """,
     inputs=(
-        f"{_TRAJ_IN} `direction` (by edge, or the `direction` param) — a "
-        "direction record of the trajectory's width."
+        _TRAJECTORY,
+        In("direction", "direction/vector",
+           "A direction of the trajectory's width."),
     ),
     emits=(
         Emits('activations/coordinate', collection=True, doc="One coordinate per input point: `id`, `coords`, `space`, `step`, `position`, `token`, the `direction`'s identity and `coord` (the vector kept as well under `keep_vectors`); the header repeats the input's, with `projected: true`.")
     ),
     params=(
-        P("trajectory", "record",
-          "The trajectory, when it does not arrive by edge.",
-          None),
-        P("direction", "direction",
-          "The direction to project onto, when it does not arrive by edge.",
-          None),
         P("keep_vectors", "bool",
           "Keep each row's `vector` beside its `coord`.",
           False),
     ),
-    example={
+    example={"keep_vectors": False},
+    example_inputs={
         "trajectory": {"$fetch": "$trajectory"},
         "direction": {"$fetch": "$axis"},
     },
@@ -195,11 +184,12 @@ step at which the mean cosine falls below `threshold`.
 Both trajectories must have the same axis and carry vectors (not
 projections).
 """,
-    inputs="`a` and `b` (by edge, or the params of the same names) — two `trajectory` records.",
+    inputs=(
+        In("a", "trajectory/point", "The first trajectory.", many=True),
+        In("b", "trajectory/point", "The second trajectory.", many=True),
+    ),
     emits=Emits('trajectory/comparison', collection=True, doc='One item per pair: `cosine`, `angle_deg`, `norm_a`, `norm_b`, `norm_ratio`. The header carries `divergence_step`, `min_cosine_step`, `per_step` (`{step, mean_cosine, n}`) and `n_pairs`.'),
     params=(
-        P("a", "record", "The first trajectory, when it does not arrive by edge.", None),
-        P("b", "record", "The second trajectory, when it does not arrive by edge.", None),
         P("pair_by", "string",
           "`\"id\"`: pair rows with the same record id and step. `\"step\"`: "
           "pair by step alone.",
@@ -208,7 +198,8 @@ projections).
           "The mean cosine below which the trajectories count as diverged.",
           0.9),
     ),
-    example={"a": {"$fetch": "$base_traj"}, "b": {"$fetch": "$tuned_traj"}, "threshold": 0.9},
+    example={"threshold": 0.9},
+    example_inputs={"a": {"$fetch": "$base_traj"}, "b": {"$fetch": "$tuned_traj"}},
 )
 
 AGGREGATE = Op(
@@ -237,12 +228,13 @@ reduced `as`:
   tokens 5 … 30" — is this block followed by that one (with `axis` set to
   the same `by`).
 """,
-    inputs=_TRAJ_IN + " A collection of `activations/coordinate` (a projected trajectory) is read the same way.",
+    inputs=(
+        In("trajectory", "trajectory/point | activations/coordinate",
+           "A trajectory of points, or a projected one of coordinates, read "
+           "the same way.", many=True),
+    ),
     emits=Emits('trajectory/summary', collection=True, doc="For `per_step` and `window`: one item per group (and per step), with a mean `vector` or a mean `coord` as the input had; the header repeats the input's and adds `aggregated: {by, as, steps}`. For `vectors`: a collection of `activations/vector` instead, one item per group with the group on the `by` coordinate."),
     params=(
-        P("trajectory", "record",
-          "The trajectory, when it does not arrive by edge.",
-          None),
         P("by", "string",
           "What to group on: a coordinate (`\"label\"`, `\"genre\"`), "
           "`\"id\"`, or a field present on the items.",
@@ -256,11 +248,11 @@ reduced `as`:
           "all"),
     ),
     example={
-        "trajectory": {"$fetch": "$trajectory"},
         "by": "label",
         "as": "vectors",
         "steps": {"range": [5, 30]},
     },
+    example_inputs={"trajectory": {"$fetch": "$trajectory"}},
 )
 
 OPS: tuple[Op, ...] = (CAPTURE, PROJECT, COMPARE, AGGREGATE)

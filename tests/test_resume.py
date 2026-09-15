@@ -68,11 +68,11 @@ def _gen_spec(n=3):
     graph = {
         "nodes": [
             {"id": "gen", "block": "text/generate",
-             "params": {"model": "fake/m@rev", "n": n, "seed": 7,
-                        "records": [
-                            {"id": "flash", "user": "Write a story."},
-                            {"id": "neutral", "user": "Write another."},
-                        ]}},
+             "params": {"model": "fake/m@rev", "n": n, "seed": 7},
+             "inputs": {"records": [
+                 {"id": "flash", "user": "Write a story."},
+                 {"id": "neutral", "user": "Write another."},
+             ]}},
             {"id": "stats", "block": "text/stats",
              "params": {"measures": [{"kind": "lexical", "name": "lex"}],
                         "mode": "annotate"}},

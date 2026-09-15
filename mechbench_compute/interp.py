@@ -137,12 +137,10 @@ def _tracked_ids(model, record: Mapping[str, Any], *,
 
 def _coords_of(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """The record's coordinates. A grouping is a coordinate; the retired
-    `label` field and the `label_coord` param are read as the `label`
-    coordinate so older records group as they did."""
-    coords = dict(record.get("coords") or {})
+    `label` field is read as the `label` coordinate so older records
+    group as they did. (A document keeps its coords under `metadata`.)"""
+    coords = dict(record.get("coords") or (record.get("metadata") or {}).get("coords") or {})
     label = record.get("label")
-    if label is None and params.get("label_coord"):
-        label = coords.get(params["label_coord"])
     if label is not None and "label" not in coords:
         coords["label"] = label
     return coords
@@ -961,7 +959,7 @@ def steer_inject(
             "positive: <value>, negative: <value>} naming groups in the "
             "vectors collection")
 
-    vectors = (inputs or {}).get("vectors") or params.get("vectors")
+    vectors = (inputs or {}).get("vectors")
     if not isinstance(vectors, Mapping) or _K().item_kind_of(vectors) != "activations/vector":
         raise ValueError(
             "intervene/steer needs a collection of activations/vector on "
@@ -1039,7 +1037,7 @@ def vector_similarity(inputs: Mapping[str, Any],
     silhouette when labels exist)."""
     from mechbench_compute import geometry
 
-    src = inputs.get("vectors") or params.get("vectors")
+    src = inputs.get("vectors")
     if not isinstance(src, Mapping) or _K().item_kind_of(src) != "activations/vector":
         raise ValueError(
             "geometry/similarity needs a collection of activations/vector "

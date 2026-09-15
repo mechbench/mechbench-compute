@@ -276,7 +276,7 @@ def vocab_projection(model, d: Mapping[str, Any], *, top_k: int = 10) -> dict[st
 
 def _directions_from(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     got: list[Mapping[str, Any]] = []
-    listed = inputs.get("directions") or params.get("directions")
+    listed = inputs.get("directions")
     if isinstance(listed, list):
         got.extend(listed)
     for k in sorted(inputs):
@@ -289,7 +289,7 @@ def _directions_from(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> li
 
 
 def block_from_vectors(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    vectors = inputs.get("vectors") or params.get("vectors")
+    vectors = inputs.get("vectors")
     return from_vectors(vectors, layer=int(params["layer"]),
                         axis=str(params.get("axis") or DEFAULT_AXIS),
                         positive=str(params["positive"]), negative=str(params["negative"]),
@@ -297,7 +297,7 @@ def block_from_vectors(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> 
 
 
 def block_from_pca(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    vectors = inputs.get("vectors") or params.get("vectors")
+    vectors = inputs.get("vectors")
     # `label` is the retired spelling of `value` on the `label` axis.
     value = params.get("value", params.get("label"))
     return from_pca(vectors, layer=int(params["layer"]),
@@ -315,15 +315,15 @@ def block_average(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[
 
 
 def block_orthogonalize(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    d = inputs.get("direction") or params.get("direction")
-    against = inputs.get("against") or params.get("against")
+    d = inputs.get("direction")
+    against = inputs.get("against")
     if isinstance(against, Mapping):
         against = [against]
     return orthogonalize(d, list(against or []))
 
 
 def block_normalize(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    return normalize(inputs.get("direction") or params.get("direction"))
+    return normalize(inputs.get("direction"))
 
 
 def similarity_matrix(named: Sequence[tuple[str, Mapping[str, Any]]]) -> dict[str, Any]:
@@ -355,12 +355,12 @@ def similarity_matrix(named: Sequence[tuple[str, Mapping[str, Any]]]) -> dict[st
 def block_similarity(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """`a` and `b` → one cosine (unchanged). Any other set of direction
     ports (or params.directions) → the pairwise matrix, named by port."""
-    a = inputs.get("a") or params.get("a")
-    b = inputs.get("b") or params.get("b")
+    a = inputs.get("a")
+    b = inputs.get("b")
     if a is not None and b is not None:
         return similarity(a, b)
     named: list[tuple[str, Mapping[str, Any]]] = []
-    listed = inputs.get("directions") or params.get("directions")
+    listed = inputs.get("directions")
     if isinstance(listed, list):
         named.extend((f"d{i}", d) for i, d in enumerate(listed))
     for k in sorted(inputs):
@@ -371,8 +371,8 @@ def block_similarity(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> di
 
 
 def block_project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    return project_rows(inputs.get("vectors") or params.get("vectors"),
-                        inputs.get("direction") or params.get("direction"))
+    return project_rows(inputs.get("vectors"),
+                        inputs.get("direction"))
 
 
 PURE_DIRECTION_BLOCKS = {

@@ -136,6 +136,48 @@ class Param:
         return d
 
 
+#: The name of a wildcard port: an op declaring one accepts an edge on
+#: any port name not otherwise declared, each carrying what the wildcard
+#: declares. The names are data — `records/union` stamps them on a
+#: coordinate, `direction/add` names its inputs by them.
+WILDCARD = "*"
+
+
+@dataclass(frozen=True)
+class Port:
+    """One input of an op: what may arrive on a named edge.
+
+    `kind` is a bare kind name; with `many`, the port carries a
+    `collection` of that kind, otherwise one object of it. A kind that
+    extends the declared one satisfies it. Where two unrelated kinds are
+    read the same way, `kind` lists both with ` | `. `required` ports
+    must be wired (or given inline) before the node runs.
+
+    A port is filled by an edge from an upstream node, or — for a small
+    literal or a stored object — under the node's `inputs` map, as a
+    list, an object, or `{"$fetch": …}`. Never under `params`: what a
+    node computes on is an input, what it computes with is a param.
+    """
+
+    name: str
+    kind: str
+    doc: str
+    required: bool = True
+    many: bool = False
+
+    @property
+    def kinds(self) -> tuple[str, ...]:
+        return tuple(k.strip() for k in self.kind.split("|"))
+
+    @property
+    def wildcard(self) -> bool:
+        return self.name == WILDCARD
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "kind": self.kind, "kinds": list(self.kinds),
+                "doc": self.doc, "required": self.required, "many": self.many}
+
+
 @dataclass(frozen=True)
 class Op:
     """One canonical operation, described for the person using it.
@@ -144,10 +186,11 @@ class Op:
     what an index and `llms.txt` show, so it has to stand alone.
     `description`: markdown, as long as it needs to be — what the op
     does, the shapes it expects, what the result looks like.
-    `inputs`: what arrives by edge or by the common wiring params.
-    `emits`: the record it produces. `example`: a params object that
-    would run, with `$bindings` and `{"$fetch": …}` where a value comes
-    from outside the protocol.
+    `inputs`: the typed ports — what arrives by edge, or inline under
+    the node's `inputs`. `emits`: the record it produces. `example`: a
+    params object that would run, with `$bindings` and `{"$fetch": …}`
+    where a value comes from outside the protocol; `example_inputs` the
+    node's `inputs` beside it, when the example needs any.
     """
 
     #: The bare name, `family/op` — what a protocol writes.
@@ -155,11 +198,12 @@ class Op:
     summary: str
     description: str
     params: tuple[Param, ...]
-    inputs: str = ""
+    inputs: tuple[Port, ...] = ()
     #: The kind produced, or None for an op whose result is not a bench
     #: object (a tool handler's).
     emits: Emits | None = None
     example: dict[str, Any] | None = None
+    example_inputs: dict[str, Any] | None = None
 
     @property
     def path(self) -> str:
@@ -174,6 +218,22 @@ class Op:
     def param_names(self) -> frozenset[str]:
         return frozenset(p.name for p in self.params)
 
+    @property
+    def port_names(self) -> frozenset[str]:
+        return frozenset(p.name for p in self.inputs)
+
+    @property
+    def wildcard(self) -> Port | None:
+        return next((p for p in self.inputs if p.wildcard), None)
+
+    def port(self, name: str) -> Port | None:
+        """The declared port an edge on `name` lands on: the port of
+        that name, else the wildcard, else None."""
+        for p in self.inputs:
+            if p.name == name:
+                return p
+        return self.wildcard
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -181,13 +241,20 @@ class Op:
             "family": self.family,
             "summary": self.summary,
             "description": self.description,
-            "inputs": self.inputs,
+            "inputs": [p.to_dict() for p in self.inputs],
             "emits": self.emits.to_dict() if self.emits else None,
             "params": [p.to_dict() for p in self.params],
             "example": self.example,
+            "example_inputs": self.example_inputs,
         }
 
 
 def P(name: str, type: str, doc: str, default: Any = REQUIRED) -> Param:
     """Shorthand for a declaration file: `P("top_k", "int", "…", 5)`."""
     return Param(name, type, doc, default)
+
+
+def In(name: str, kind: str, doc: str, *, required: bool = True, many: bool = False) -> Port:
+    """Shorthand for a declaration file: `In("records", "records/record",
+    "…", many=True)`."""
+    return Port(name, kind, doc, required, many)

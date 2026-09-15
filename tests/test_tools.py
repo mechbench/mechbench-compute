@@ -175,16 +175,15 @@ class TestTheRemoteToolLoop:
 class TestToolsInAConversation:
     def test_a_participant_may_carry_tools_and_the_transcript_records_them(self):
         out = cv.run({
-            "participants": [
-                {"name": "asker", "model": {"provider": "mock", "model": "m"},
-                 "tools": ["calc"],
-                 "provider_options": {"mock": {"tool_call": "calc"}}},
-                {"name": "other", "model": {"provider": "mock", "model": "m"}},
-            ],
             "opening": ["What is 6*7?"],
             "turns": {"policy": "round_robin", "max_turns": 2},
             "budget_usd": 1.0,
-        })
+        }, inputs={"participants": [
+            {"name": "asker", "model": {"provider": "mock", "model": "m"},
+             "tools": ["calc"],
+             "provider_options": {"mock": {"tool_call": "calc"}}},
+            {"name": "other", "model": {"provider": "mock", "model": "m"}},
+        ]})
         messages = out["items"][0]["metadata"]["transcript"]["messages"]
         asker = next(m for m in messages if m["participant"] == "asker")
         assert asker["call"]["tool_runs"][0]["tool"] == "calc"
@@ -233,8 +232,8 @@ class TestThroughTheExecutor:
                 "tools": ["calc"],
                 "max_tool_rounds": 1,
                 "provider_options": {"mock": {"tool_call": "calc"}},
-                "records": [{"id": "r0", "user": "what is 6*7?"}],
-            }}], "edges": []}
+            },
+            "inputs": {"records": [{"id": "r0", "user": "what is 6*7?"}]}}], "edges": []}
         out = ProtocolExecutor().run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
         item = out.payload["outputs"]["ask"]["items"][0]

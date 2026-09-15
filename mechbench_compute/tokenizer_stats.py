@@ -35,35 +35,31 @@ from typing import Any
 from mechbench_compute.distill import encode, suffix_tokens
 
 
-def _items_of(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> list[str]:
-    items = params.get("items")
-    if items is None:
-        obj = inputs.get("vocabulary") or params.get("vocabulary")
-        if isinstance(obj, Mapping) and isinstance(obj.get("weights"), Mapping):
+def _items_of(inputs: Mapping[str, Any]) -> list[str]:
+    """The strings to measure, from the `vocabulary` port — a word list
+    (`words`), a frequency table or training target (`weights` keys),
+    or a bare list of strings — else each record's text on `records`."""
+    items = None
+    obj = inputs.get("vocabulary")
+    if isinstance(obj, Mapping):
+        if isinstance(obj.get("weights"), Mapping):
             items = list(obj["weights"].keys())
-        elif isinstance(obj, list):
-            items = obj
-    if items is None:
-        recs = inputs.get("records") or params.get("records")
-        if isinstance(recs, Mapping):
-            from mechbench_compute.lexicon import kinds as K
+        elif isinstance(obj.get("words"), list):
+            items = list(obj["words"])
+    elif isinstance(obj, list):
+        items = obj
+    if items is None and inputs.get("records") is not None:
+        from mechbench_compute.lexicon import kinds as K
 
-            try:
-                recs = K.items_of(recs)
-            except ValueError:
-                recs = None
-        if isinstance(recs, list):
-            field = str(params.get("field", "text"))
-            items = []
-            for r in recs:
-                v = (r.get(field) or r.get("text") or r.get("user")
-                     or r.get("prompt")) if isinstance(r, Mapping) else r
-                if isinstance(v, str) and v.strip():
-                    items.append(v)
+        items = []
+        for r in K.items_of(inputs["records"]):
+            v = (r.get("text") or r.get("user") or r.get("prompt")) if isinstance(r, Mapping) else r
+            if isinstance(v, str) and v.strip():
+                items.append(v)
     if not items:
         raise ValueError(
-            "tokenize/stats needs `items`, a `vocabulary` (target_map or "
-            "list), or records with text")
+            "text/tokenize needs a `vocabulary` (a word list, a weights map, "
+            "or a list of strings) or `records` with text")
     return [str(x) for x in items]
 
 
@@ -94,7 +90,7 @@ def tokenizer_stats(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
                     params: Mapping[str, Any]) -> dict[str, Any]:
     """The measurement, over a tokenizer object; the block wrapper in
     protocol.py supplies the bound model's tokenizer."""
-    items = _items_of(inputs, params)
+    items = _items_of(inputs)
     prefix = str(params.get("prefix", "") or "")
     prefix_ids = encode(tokenizer, prefix) if prefix else []
     # A hole must always bind, and run bindings are strings: "" (or

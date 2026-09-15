@@ -13,6 +13,65 @@ nothing said so.
 
 ---
 
+## 0.78.0 — 2026-09-15
+
+### Changes that raise
+
+- **Inputs are typed ports, and a port is not a param.** Every op
+  declares its input ports — name, kind, whether a collection, whether
+  required — and the executor checks them before the node runs: an
+  edge onto a port the op does not have, a required port with nothing
+  on it, and a value whose kind does not satisfy the port's (by
+  `extends`) are each refused by name. The params that duplicated a
+  port are gone from the lexicon: `records`, `documents`, `vectors`,
+  `matrix`, `collection`, `collection_path`, `items`, `direction`,
+  `directions`, `against`, `a`, `b`, `trajectory`, `results`,
+  `expectations`, `conditions`, `anchors`, `adapter`, `cassette`,
+  `participants`, `vocabulary`, `project`. A value that used to go
+  there goes under the node's `inputs` — a literal, or `{"$fetch":
+  …}` — or arrives by edge. A stored protocol that still carries one
+  under `params` runs with a `RetiredParam` warning until 0.80.0, then
+  refuses; a protocol that carries one of the removed field-name
+  params (below) refuses now.
+- **The field-name params are gone.** `system_field`, `user_field`,
+  `prefill_field`, `messages_field`, `answer_field`,
+  `prediction_field`, `reference_field`, `field`, `fields` and
+  `pairwise_fields` (on `eval/judge`), `label_field` and
+  `label_coord`. Each op reads the fields it names — `system`,
+  `user`, `prefill`; `answer`; `prediction`, `reference`; `text`,
+  `text_a`, `text_b` — and a record that carries a value under another
+  name goes through the new **`records/rename`** first: `fields: {old:
+  new}`, with dotted paths so a measurement can become a coordinate
+  (`{"opening": "coords.opening"}`). `value` stays on `records/delta`,
+  `records/stats`, `records/sum`, `records/top-k` and
+  `records/histogram`: a record has many numeric fields and the port's
+  kind cannot say which one the question is about.
+- **`text/tokenize` takes its items on the `vocabulary` port** (a word
+  list, a weights map, or a bare list of strings) or on `records`; the
+  `items` param is gone. It no longer accepts an `adapter`, which
+  cannot change a tokenizer.
+- **`intervene/apply` reads replacement activations on its `source`
+  port only**; the `vectors` spelling of that port is gone.
+  `geometry/mst` reads a similarity collection on `matrix` only; the
+  `similarity` spelling is gone.
+
+### Changes that alter results without raising
+
+- **A document carries its `coords` on the item**, as every record
+  does, beside the copy under `metadata.coords` that older readers
+  look for; `text/document` now extends `records/record`, so every op
+  that reads records reads a document collection. Stored documents
+  are unchanged; new ones carry one more field, which changes their
+  content hash and nothing else.
+- **A node's fingerprint covers its inline inputs.** What a node
+  computes on — wired or given under `inputs` — is part of its
+  process identity, so a re-run with a different inline collection
+  restarts the node rather than reusing a partial.
+- `text/word-list` gains an optional `weights` field: a frequency
+  table is a word list whose keys are the words.
+
+---
+
 ## 0.77.1 — 2026-09-15
 
 ### Changes that raise

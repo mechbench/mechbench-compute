@@ -10,9 +10,11 @@ records from an edge onto their `records` port.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Emits, Op, P
+from mechbench_compute.lexicon._base import WILDCARD, Emits, In, Op, P
 
-_RECORDS_IN = "`records` (by edge) — the records to work on."
+_RECORDS = In("records", "records/record | records/table",
+              "The records to work on. A table's rows are read as records.",
+              many=True)
 
 _FACTORS_DESC = """\
 Each factor has a `name` and its **levels**: either enumerated —
@@ -38,7 +40,7 @@ FACTOR_CROSS = Op(
         "fully-crossed design, with each record carrying its coordinates."
     ),
     description=_FACTORS_DESC,
-    inputs="None — this op makes records from its params.",
+    inputs=(),
     emits=Emits('records/record', collection=True, doc='One record per combination: `{id, coords, values}`.'),
     params=(
         P("factors", "list[object]",
@@ -74,11 +76,14 @@ substituted value may itself contain placeholders (an elaborate opening that
 embeds `{gender}`); substitution repeats until nothing changes, up to four
 passes. Everything outside braces is verbatim.
 
-The output records keep their `id` and `coords`, so a downstream
-`logits/decision` or `text/generate` can be told `user_field: "question"` and read
-the field this op wrote.
+The output records keep their `id` and `coords`. Name the templates after
+the fields the next op reads — `system`, `user`, `prefill` for the
+chat-shaped ops — and no adaptation step is needed between them.
 """,
-    inputs="`records` (by edge, or the `records` param) — records with `values`, usually from `records/cross`.",
+    inputs=(
+        In("records", "records/record",
+           "Records with `values`, usually from `records/cross`.", many=True),
+    ),
     emits=Emits('records/record', collection=True, doc='One record per input record: `{id, coords}` plus one field per template.'),
     params=(
         P("templates", "object",
@@ -92,6 +97,38 @@ the field this op wrote.
             "user": "Write {genre}. Begin with the phrase: {seed}",
         },
     },
+    example_inputs={"records": {"$fetch": "$design"}},
+)
+
+RENAME = Op(
+    name="records/rename",
+    summary=(
+        "Rename fields on every record — the one visible adaptation step "
+        "between an op that wrote a field under one name and an op that "
+        "reads it under another."
+    ),
+    description="""\
+Every op reads the fields it names: the chat-shaped ops read `system`,
+`user` and `prefill`; `eval/metric` reads `prediction` and `reference`;
+`text/stats` and `eval/judge` read `text`. When a record carries the right
+value under another name, this op moves it, and the graph shows the move
+rather than hiding it in a parameter.
+
+`fields` maps old name → new name. A name may be a dotted path, so a
+value can be moved into or out of `coords` (`{"opening": "coords.opening"}`
+makes a measurement a coordinate the grouping ops can read) or lifted from
+a document's `metadata.coords`. A record without the old field is left as
+it is. Everything not named is kept.
+""",
+    inputs=(_RECORDS,),
+    emits=Emits('records/record', collection=True, doc='The same records, with the named fields moved.'),
+    params=(
+        P("fields", "object",
+          "Old name → new name, each a field or a dotted path such as "
+          "`coords.genre`."),
+    ),
+    example={"fields": {"question": "user", "opening": "coords.opening"}},
+    example_inputs={"records": {"$fetch": "$records"}},
 )
 
 SELECT = Op(
@@ -109,7 +146,7 @@ matches.
 
 `fields` projects the survivors down to `id`, `coords` and the named fields.
 """,
-    inputs=_RECORDS_IN,
+    inputs=(_RECORDS,),
     emits=Emits('records/record', collection=True, doc='The matching records.'),
     params=(
         P("where", "object",
@@ -122,6 +159,7 @@ matches.
           None),
     ),
     example={"where": {"genre": ["noir", "fable"], "leak": 0}},
+    example_inputs={"records": {"$fetch": "$records"}},
 )
 
 UNION = Op(
@@ -142,7 +180,12 @@ port they came from on the `batch_axis` coordinate — the grouping
 `direction/from-vectors` reads with `axis` set to it. Cross-model comparison
 is a union followed by the direction algebra.
 """,
-    inputs="Any number of edges, each carrying a collection (of records, or of `activations/vector`). Port names are the values on the batch coordinate.",
+    inputs=(
+        In(WILDCARD, "collection",
+           "Any number of edges, each carrying a collection — of records, or "
+           "of `activations/vector` — on a port of your naming; the name "
+           "becomes the value on the batch coordinate.", many=True),
+    ),
     emits=(
         Emits('records/record', collection=True, doc="Every input's records, each with the batch coordinate; the header's `segments` says how many came from each port. When every input was a collection of `activations/vector`, so is the output, every item keeping its own `space`.")
     ),
@@ -153,6 +196,7 @@ is a union followed by the direction algebra.
           "batch"),
     ),
     example={"batch_axis": "run"},
+    example_inputs={"base": {"$fetch": "$base_vectors"}, "adapted": {"$fetch": "$adapted_vectors"}},
 )
 
 PAIRED_DELTA = Op(
@@ -169,10 +213,12 @@ with no matching baseline is an error, not a silent omission.
 
 The output keeps `coords`, so it feeds `records/stats` directly.
 """,
-    inputs=_RECORDS_IN,
+    inputs=(_RECORDS,),
     emits=Emits('records/record', collection=True, doc='One record per non-baseline record: `{id, coords, value, baseline, delta}`.'),
     params=(
-        P("value", "string", "The numeric field to difference."),
+        P("value", "string",
+          "The numeric field to difference. A record has many numeric "
+          "fields; this names the one the question is about."),
         P("baseline_where", "object",
           "Coordinates identifying the baseline records, e.g. "
           "`{\"alpha\": 0}`."),
@@ -182,6 +228,7 @@ The output keeps `coords`, so it feeds `records/stats` directly.
           None),
     ),
     example={"value": "entropy_bits", "baseline_where": {"alpha": 0}, "match_on": ["prompt"]},
+    example_inputs={"records": {"$fetch": "$reads"}},
 )
 
 GROUP_STATS = Op(
@@ -201,12 +248,14 @@ notices is wrong. When absent values are expected — a judge that could not
 be read, an unscored item — set `on_missing: "skip"` and the count of
 skipped records is reported on the table as `n_missing`.
 """,
-    inputs=_RECORDS_IN,
+    inputs=(_RECORDS,),
     emits=(
         Emits('records/table', collection=False, doc='One row per group with the `by` coordinates and `n`, `median`, `mean`, `min`, `max`, `share_negative`; `n_missing` when any were skipped.')
     ),
     params=(
-        P("value", "string", "The numeric field to summarise."),
+        P("value", "string",
+          "The numeric field to summarise. A record has many numeric "
+          "fields; this names the one the question is about."),
         P("by", "list[string]",
           "The coordinates to group on. Empty gives one overall row.",
           None),
@@ -216,6 +265,7 @@ skipped records is reported on the table as `n_missing`.
           "error"),
     ),
     example={"value": "delta", "by": ["genre", "alpha"]},
+    example_inputs={"records": {"$fetch": "$deltas"}},
 )
 
 TABLE_FROM_RECORDS = Op(
@@ -229,7 +279,7 @@ The generic records-to-table step. Every coordinate seen across the records
 becomes a column, then every scalar (number or string) field; each column's
 type is inferred from its values. Nested fields are left out.
 """,
-    inputs="`records` (by edge, or the `records` param).",
+    inputs=(_RECORDS,),
     emits=Emits('records/table', collection=False, doc='`columns` (`{name, dtype}`) and `rows`.'),
     params=(
         P("row_axis", "string",
@@ -238,6 +288,7 @@ type is inferred from its values. Nested fields are left out.
           "record"),
     ),
     example={"row_axis": "condition", "name": "steering deltas"},
+    example_inputs={"records": {"$fetch": "$deltas"}},
 )
 
 TEXT_STATS = Op(
@@ -248,7 +299,7 @@ TEXT_STATS = Op(
         "annotate the records or summarise the corpus."
     ),
     description="""\
-Each entry of `measures` is applied to every record's `field`:
+Each entry of `measures` is applied to every record's `text`:
 
 | `type` | Fields written per record | Options |
 |---|---|---|
@@ -257,15 +308,23 @@ Each entry of `measures` is applied to every record's `field`:
 | `corpus_frequency` | `<name>`: the statistic over the reference frequency of the text's words; `<name>_coverage`: the fraction of words found in the table | `frequencies` (word → count, or wire a `frequencies` input), `stat`: `"mean_log10"` (rarer vocabulary ⇒ lower), `"mean"` or `"coverage"`, `lowercase`, `min_length` |
 
 In `annotate` mode the output is the records with those fields added —
-ready for `records/select`, `records/stats` or `trajectory/capture` (which can label
-by them). In `corpus` mode it is one summary record: per pattern a count and
-rate, corpus-wide word and distinct-word counts and duplication, and the
-mean of each frequency statistic.
+ready for `records/select`, `records/stats` or `trajectory/capture`. To
+group on a measure downstream, `records/rename` it into `coords`. In
+`corpus` mode it is one summary record: per pattern a count and rate,
+corpus-wide word and distinct-word counts and duplication, and the mean of
+each frequency statistic.
 """,
     inputs=(
-        "`records` or `documents` (by edge, or the `records` param) — a "
-        "record list or a document collection. `frequencies` (optional, by "
-        "edge) — a word-frequency table for `corpus_frequency` measures."
+        In("records", "records/record",
+           "The texts, each in its `text` field. One of `records` and "
+           "`documents` is required.", many=True, required=False),
+        In("documents", "text/document",
+           "A document collection, usually from `text/generate` or `text/chat`.",
+           many=True, required=False),
+        In("frequencies", "text/word-list",
+           "A word-frequency table (`weights`: word → count) for "
+           "`corpus_frequency` measures that name none of their own.",
+           required=False),
     ),
     emits=(
         Emits('records/record', collection=True, doc='In `annotate` mode, one record per item (`id`, `coords`, the measure fields, and the whole item when `keep` is set). In `corpus` mode, a single record with the corpus summary.')
@@ -275,7 +334,6 @@ mean of each frequency statistic.
           "The measurements to make, each `{kind, name, …}` as in the "
           "table above.",
           None),
-        P("field", "string", "The record field holding the text.", "text"),
         P("mode", "string",
           "`\"annotate\"`: emit each record with its measures. "
           "`\"corpus\"`: emit one summary record.",
@@ -288,7 +346,6 @@ mean of each frequency statistic.
           False),
     ),
     example={
-        "field": "text",
         "measures": [
             {"type": "pattern", "name": "lighthouse",
              "patterns": ["\\blighthouse\\b"], "ignore_case": True},
@@ -306,10 +363,11 @@ An exact reduce: values are kept as a multiset and summed with a correctly
 rounded algorithm, so the result is the same whatever order or chunking the
 records arrived in. Safe to run over partial results and merge.
 """,
-    inputs=_RECORDS_IN,
+    inputs=(_RECORDS,),
     emits=Emits('records/sum', collection=False, doc='`{n, sum}`.'),
     params=(P("value", "string", "The numeric field to sum."),),
     example={"value": "cost_usd"},
+    example_inputs={"records": {"$fetch": "$records"}},
 )
 
 REDUCE_TOP_K = Op(
@@ -320,13 +378,14 @@ Sorted by the field descending, ties broken by `id`, so the result is
 deterministic. An exact reduce: the top-k of a union is the top-k of the
 top-ks, so partial results merge without loss.
 """,
-    inputs=_RECORDS_IN,
+    inputs=(_RECORDS,),
     emits=Emits('records/record', collection=True, doc='The top k, in order.'),
     params=(
         P("value", "string", "The numeric field to rank by."),
         P("k", "int", "How many to keep.", 10),
     ),
     example={"value": "delta", "k": 5},
+    example_inputs={"records": {"$fetch": "$deltas"}},
 )
 
 REDUCE_HISTOGRAM = Op(
@@ -337,7 +396,7 @@ REDUCE_HISTOGRAM = Op(
 `hi` are counted separately rather than dropped, so the total always equals
 the number of records. An exact reduce: counts add.
 """,
-    inputs=_RECORDS_IN,
+    inputs=(_RECORDS,),
     emits=Emits('records/histogram', collection=False, doc='`bins` (the counts, in order), `below`, `above`.'),
     params=(
         P("value", "string", "The numeric field to bin."),
@@ -346,6 +405,7 @@ the number of records. An exact reduce: counts add.
         P("bins", "int", "How many equal-width bins between `lo` and `hi`."),
     ),
     example={"value": "entropy_bits", "lo": 0.0, "hi": 8.0, "bins": 16},
+    example_inputs={"records": {"$fetch": "$reads"}},
 )
 
 EVAL_EXPECTATION = Op(
@@ -375,22 +435,19 @@ verdict.
 The header's `summary` carries the pass rate: the number a write-up cites.
 """,
     inputs=(
-        "`results` (by edge or param) — a collection of `logits/decision` "
-        "(or of any kind that extends `logits/distribution`). `expectations` "
-        "(by edge or param) — records `{id, expect}`."
+        In("results", "logits/distribution",
+           "The decision reads — a collection of `logits/decision`, or of any "
+           "kind that extends `logits/distribution`.", many=True),
+        In("expectations", "records/record",
+           "Records `{id, expect}`, one per result to judge.", many=True),
     ),
     emits=(
         Emits('eval/verdict', collection=True, doc='One verdict per judged result: `id`, `coords`, `expect`, `entropy_bits`, `kl_bits`, `mass`, `p_expected`, and `pass` (null with a `note` when unjudgeable). The header\'s `summary` carries `pass_rate`, `n_pass`, `n_judged` and `n_unjudgeable`.')
     ),
-    params=(
-        P("results", "record | list[record]",
-          "The decision reads, when they do not arrive by edge.",
-          None),
-        P("expectations", "list[record]",
-          "The expectations, when they do not arrive by edge.",
-          None),
-    ),
-    example={
+    params=(),
+    example={},
+    example_inputs={
+        "results": {"$fetch": "$reads"},
         "expectations": [
             {"id": "d6", "expect": {"type": "uniform",
                                     "over": ["1", "2", "3", "4", "5", "6"],
@@ -413,7 +470,10 @@ from the live data; otherwise the rows ride inline under `data.rows` and the
 spec is self-contained. Coordinates are flattened into each row so they can
 be encoded directly.
 """,
-    inputs="`records` (by edge) — a table or record list to chart.",
+    inputs=(
+        In("records", "records/record | records/table",
+           "The table or records to chart.", many=True),
+    ),
     emits=Emits('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`), and `source` or `data`.'),
     params=(
         P("encoding", "object",
@@ -430,6 +490,7 @@ be encoded directly.
         "mark": "line",
         "encoding": {"x": "layer", "y": "mean", "series": "genre"},
     },
+    example_inputs={"records": {"$fetch": "$table"}},
 )
 
 VECTORS_SIMILARITY = Op(
@@ -450,7 +511,9 @@ Raw cosine between transformer activations is dominated by a shared
 direction they all lean toward; for a variety measure prefer `geometry/mst`
 with `center: true`, which subtracts it.
 """,
-    inputs="`vectors` (by edge, or the `vectors` param) — a collection of `activations/vector`.",
+    inputs=(
+        In("vectors", "activations/vector", "The vectors to compare.", many=True),
+    ),
     emits=(
         Emits('geometry/similarity', collection=True, doc='One item per group: `{layer, head?, space, ids, labels, matrix, separation?, nn_purity?, silhouette?}`, `labels` being the items\' values on the `axis` coordinate. The header carries `position`, `point`, `metric` and `axis`.')
     ),
@@ -461,6 +524,7 @@ with `center: true`, which subtracts it.
           "label"),
     ),
     example={"axis": "genre"},
+    example_inputs={"vectors": {"$fetch": "$vectors"}},
 )
 
 VECTORS_MST = Op(
@@ -494,9 +558,13 @@ The tree is built deterministically (ties break toward the lower index), so
 a run that reproduces its numbers reproduces its tree.
 """,
     inputs=(
-        "`vectors` (by edge or param) — a collection of `activations/vector`; "
-        "or `matrix` / `similarity` (by edge, or the `matrix` param) — a "
-        "collection of `geometry/similarity`."
+        In("vectors", "activations/vector",
+           "The vectors to measure. One of `vectors` and `matrix` is required.",
+           many=True, required=False),
+        In("matrix", "geometry/similarity",
+           "Already-computed similarities, from `geometry/similarity`, when "
+           "the vectors themselves are not needed (`center` is).",
+           many=True, required=False),
     ),
     emits=Emits('geometry/mst', collection=True, doc='One item per group (a layer, or a layer and head): `n`, `n_edges`, `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`, `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels` (the items\' values on the `axis` coordinate), and `edges` as `[i, j, weight]` when kept. The header carries `metric`, `centered`, `bridge_sigma` and `axis`. `records/table` reads the items as its rows.'),
     params=(
@@ -517,11 +585,12 @@ a run that reproduces its numbers reproduces its tree.
           "only the statistics.",
           True),
     ),
-    example={"vectors": {"$fetch": "$vectors"}, "center": True},
+    example={"center": True},
+    example_inputs={"vectors": {"$fetch": "$vectors"}},
 )
 
 OPS: tuple[Op, ...] = (
-    FACTOR_CROSS, TEMPLATE, SELECT, UNION, PAIRED_DELTA, GROUP_STATS,
+    FACTOR_CROSS, TEMPLATE, RENAME, SELECT, UNION, PAIRED_DELTA, GROUP_STATS,
     TABLE_FROM_RECORDS, TEXT_STATS, REDUCE_SUM, REDUCE_TOP_K, REDUCE_HISTOGRAM,
     EVAL_EXPECTATION, VIZ_SPEC, VECTORS_SIMILARITY, VECTORS_MST,
 )

@@ -15,7 +15,7 @@ import re
 import pytest
 
 from mechbench_compute import lexicon
-from mechbench_compute.block_params import ACCEPTED, COMMON, check_params
+from mechbench_compute.block_params import ACCEPTED, COMMON, check_inputs, check_params
 from mechbench_compute.lexicon import BY_NAME, OPS, Op
 
 # What must never appear in published text. A bare six-digit id, "task
@@ -33,7 +33,8 @@ INTERNAL = [
 
 def _texts(op: Op) -> list[tuple[str, str]]:
     out = [("summary", op.summary), ("description", op.description),
-           ("inputs", op.inputs), ("emits", op.emits.doc if op.emits else "")]
+           ("emits", op.emits.doc if op.emits else "")]
+    out += [(f"port {p.name}.doc", p.doc) for p in op.inputs]
     out += [(f"param {p.name}.doc", p.doc) for p in op.params]
     out += [(f"param {p.name}.type", p.type) for p in op.params]
     return out
@@ -52,6 +53,37 @@ def test_entry_is_complete(op: Op) -> None:
         assert p.doc.strip(), f"{op.name}.{p.name}: no description"
     names = [p.name for p in op.params]
     assert len(names) == len(set(names)), f"{op.name}: duplicate params"
+    ports = [p.name for p in op.inputs]
+    assert len(ports) == len(set(ports)), f"{op.name}: duplicate ports"
+    for p in op.inputs:
+        assert p.doc.strip(), f"{op.name} port {p.name}: no description"
+
+
+@pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
+def test_every_port_names_a_declared_kind(op: Op) -> None:
+    """A port's kind is a name in the kinds registry, so the docs can link
+    it and `check_inputs` can walk its ancestry."""
+    for p in op.inputs:
+        for k in p.kinds:
+            assert k in lexicon.BY_KIND, f"{op.name} port {p.name}: unknown kind {k!r}"
+        assert p.name == lexicon.WILDCARD or re.fullmatch(r"[a-z][a-z0-9_]*", p.name), (
+            f"{op.name}: port name {p.name!r}")
+
+
+@pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
+def test_no_param_names_a_port(op: Op) -> None:
+    """An input is a port, never a param: the two would be the same value
+    spelled twice, and `check_params` could not tell an unwired port from
+    a typo. The sentence "by edge, or the param" is the smell."""
+    assert not (op.param_names & op.port_names), (
+        f"{op.name}: {sorted(op.param_names & op.port_names)} declared as both")
+    for where, text in _texts(op):
+        assert not re.search(r"by edge,? or (the|by) (the )?param", text, re.I), (
+            f"{op.name} {where}: an input is described as a param")
+    for retired in ("user_field", "system_field", "prefill_field", "answer_field",
+                    "prediction_field", "reference_field", "messages_field",
+                    "label_field", "label_coord", "pairwise_fields", "collection_path"):
+        assert retired not in op.param_names, f"{op.name} still declares {retired}"
 
 
 @pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
@@ -79,8 +111,16 @@ def test_example_would_be_accepted(op: Op) -> None:
     if op.example is None:
         pytest.skip("no example written")
     # The example must not name a param the block refuses — the exact
-    # mistake the documentation exists to prevent.
+    # mistake the documentation exists to prevent — and its inputs must
+    # land on ports the block has. A `{"$fetch": …}` carries no kind
+    # until it resolves, so the example's inputs are checked by port
+    # name, with every required port present.
     check_params(op.name, op.example)
+    inputs = dict(op.example_inputs or {})
+    for p in op.inputs:
+        if p.required and not p.wildcard and p.name not in inputs:
+            assert p.name in inputs, f"{op.name}: example wires no {p.name!r}, which is required"
+    check_inputs(op.name, inputs)
 
 
 def test_common_params_are_documented() -> None:

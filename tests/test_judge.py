@@ -31,7 +31,8 @@ def judged(text, **params):
         "records": STORIES,
     }
     base.update(params)
-    return J.run(base)
+    # The subjects arrive on the `records` port, not in params.
+    return J.run(base, inputs={"records": base.pop("records")})
 
 
 class TestScales:
@@ -171,15 +172,15 @@ class TestTheBlock:
     def test_a_judge_without_a_rubric_or_a_model_is_refused(self):
         with pytest.raises(ValueError, match="needs a rubric"):
             J.run({"judge": {"model": {"provider": "mock", "model": "m"}},
-                   "budget_usd": 1.0, "records": STORIES})
+                   "budget_usd": 1.0}, inputs={"records": STORIES})
         with pytest.raises(ValueError, match="judge: \\{model, system\\}"):
-            J.run({"scale": {"kind": "numeric"}, "records": STORIES})
+            J.run({"scale": {"kind": "numeric"}}, inputs={"records": STORIES})
 
     def test_a_remote_judge_needs_a_cap(self):
         with pytest.raises(ValueError, match="budget_usd"):
             J.run({"judge": {"model": {"provider": "mock", "model": "m"},
-                             "system": "grade it"},
-                   "records": STORIES})
+                             "system": "grade it"}},
+                  inputs={"records": STORIES})
 
 
 class TestThroughTheExecutor:
@@ -193,8 +194,8 @@ class TestThroughTheExecutor:
                 "scale": {"kind": "numeric", "min": 1, "max": 5},
                 "n_votes": 2,
                 "budget_usd": 1.0,
-                "records": STORIES,
-            }}], "edges": []}
+            },
+            "inputs": {"records": STORIES}}], "edges": []}
         out = ProtocolExecutor().run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
         node = out.payload["outputs"]["grade"]
@@ -225,8 +226,8 @@ class TestThroughTheExecutor:
                     "judge": {"model": "google/gemma-3-4b-it",
                               "system": "Grade the story for cliché."},
                     "scale": {"kind": "numeric", "min": 1, "max": 5},
-                    "records": STORIES,
-                }}], "edges": []}}))
+                },
+                "inputs": {"records": STORIES}}], "edges": []}}))
         node = out.payload["outputs"]["grade"]
         assert node["summary"]["mean"] == 2.0
         # A local judge spends nothing, so there is no bill to report.
@@ -268,8 +269,7 @@ class TestSubjectsFromACorpus:
                       "provider_options": {"mock": {"text": '{"score": 3}'}}},
             "scale": {"kind": "numeric", "min": 1, "max": 5},
             "budget_usd": 1.0,
-            "records": CORPUS_FIXTURE,
-        })
+        }, inputs={"records": CORPUS_FIXTURE})
         assert [r["coords"]["prompt"] for r in out["items"]] == ["neutral", "flash"]
 
     def test_the_judge_sees_the_story_and_not_its_condition(self):
