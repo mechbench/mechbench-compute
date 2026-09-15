@@ -169,3 +169,54 @@ def test_to_dict_is_json_shaped() -> None:
         for p in op.params:
             d = p.to_dict()
             assert ("default" in d) != d["required"]
+
+
+def _publishable(where: str, text: str) -> None:
+    for pat in INTERNAL:
+        m = pat.search(text)
+        assert m is None, f"{where}: {m.group(0)!r} is a reference nobody outside this repo can follow"
+
+
+def test_every_family_is_declared_and_described() -> None:
+    """The families are the namespaces of both vocabularies: each one an
+    op or a kind belongs to is declared with a summary and a doc, and
+    nothing is declared that has no members."""
+    from mechbench_compute.lexicon import kinds as K
+
+    used = {op.family for op in OPS} | {k.family for k in K.KINDS if k.name != K.COLLECTION}
+    declared = {f.name for f in lexicon.FAMILIES}
+    assert used == declared, f"undeclared: {sorted(used - declared)}; empty: {sorted(declared - used)}"
+    for f in lexicon.FAMILIES:
+        s = f.summary.strip()
+        assert s and s[-1] in ".?!" and len(s) < 400, f"family {f.name}: summary"
+        assert f.doc.strip(), f"family {f.name}: no doc"
+        _publishable(f"family {f.name}", f.summary + "\n" + f.doc)
+        assert lexicon.BY_FAMILY[f.name] is f
+        import json
+        json.dumps(f.to_dict())
+
+
+def test_every_value_type_is_described() -> None:
+    """A value type is declared with its summary, its doc, and typed,
+    described fields; the point vocabulary's page lists exactly the
+    points the code accepts."""
+    import json
+
+    from mechbench_compute import points
+    from mechbench_compute.lexicon import values as V
+
+    for v in lexicon.VALUES:
+        s = v.summary.strip()
+        assert s and s[-1] in ".?!" and len(s) < 400, f"value {v.name}: summary"
+        assert v.doc.strip(), f"value {v.name}: no doc"
+        assert re.fullmatch(r"[a-z]+", v.name), v.name
+        for f, spec in v.fields.items():
+            assert spec.get("type") and spec.get("description"), f"value {v.name}.{f}: type and description"
+        for r in v.required:
+            assert r in v.fields, f"value {v.name}: required {r!r} is not a field"
+        _publishable(f"value {v.name}", "\n".join([v.summary, v.doc, *(f["description"] for f in v.fields.values())]))
+        json.dumps(v.to_dict())
+    assert V.DOCUMENTED_POINTS == frozenset(points.POINTS)
+    for name in points.POINTS:
+        assert f"`{name}`" in V.BY_VALUE["point"].doc, f"point {name} is not on the page"
+    assert {v.name for v in lexicon.VALUES if v.grammar} == {"position", "pool", "point"}

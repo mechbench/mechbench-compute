@@ -39,14 +39,18 @@ from mechbench_compute.lexicon._base import (
     ROOT,
     WILDCARD,
     Emits,
+    Family,
     In,
     Kind,
     Op,
     P,
     Param,
     Port,
+    Value,
 )
 from mechbench_compute.lexicon.common import COMMON
+from mechbench_compute.lexicon.families import BY_FAMILY, FAMILIES
+from mechbench_compute.lexicon.values import BY_VALUE, VALUES
 from mechbench_compute.lexicon.kinds import (
     RetiredKindName,
     BY_KIND,
@@ -190,8 +194,8 @@ def resolve(block: str, *, warn: bool = True) -> str:
 
 
 __all__ = [
-    "ALIASES", "ALIASES_REMOVED_IN", "BY_NAME", "COMMON", "OPS", "REQUIRED",
-    "ROOT", "WILDCARD", "In", "Op", "P", "Param", "Port", "RetiredKindName",
-    "RetiredOpName", "ancestry", "canonical_path", "is_canonical", "resolve",
-    "satisfies",
+    "ALIASES", "ALIASES_REMOVED_IN", "BY_FAMILY", "BY_NAME", "BY_VALUE", "COMMON",
+    "FAMILIES", "OPS", "REQUIRED", "ROOT", "VALUES", "WILDCARD", "Family", "In", "Op",
+    "P", "Param", "Port", "RetiredKindName", "RetiredOpName", "Value", "ancestry",
+    "canonical_path", "is_canonical", "resolve", "satisfies",
 ]

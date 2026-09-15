@@ -8,8 +8,9 @@ collection's items by their key before hashing, so the same items in any
 order are the same bytes.
 
 Value types — `space`, `token`, a distribution's `top` and `tracked` —
-are fields, not kinds; `shapes.py` constructs them and every op builds
-its items through it. The lattice (§6) is declared with `extends`.
+are fields, not kinds; `values.py` declares their shapes and prose,
+`shapes.py` constructs them and every op builds its items through it.
+The lattice (§6) is declared with `extends`.
 
 Names retired on 2026-09-14 (task 000496) resolve through `KIND_ALIASES`
 until the release named in `lexicon.ALIASES_REMOVED_IN`.
@@ -23,32 +24,18 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind, Metric, P
+from mechbench_compute.lexicon.values import (  # noqa: F401 — re-exported for the readers that import them here
+    COORDS,
+    F,
+    ID,
+    SPACE,
+    SPACE_DOC,
+    TOKEN,
+    TOP,
+    TRACKED,
+    VEC,
+)
 
-# --- field shorthands ---------------------------------------------------------------
-
-
-def F(type_: str, doc: str, **extra: Any) -> dict[str, Any]:
-    d: dict[str, Any] = {"type": type_, "description": doc}
-    d.update(extra)
-    return d
-
-
-ID = F("string", "The record's identity within its collection.")
-COORDS = F("object", "The experimental coordinates the record belongs to: axis name → level key.",
-           additionalProperties={"type": ["string", "integer", "number"]})
-SPACE_DOC = ("The activation space the vector lives in: `{model, layer | null, point, head | null, d}`; "
-             "`point` is one of the forward pass's point names (`resid_post`, `attn_out`, `attn.q`, …). "
-             "Two vectors are comparable only when their spaces agree.")
-TOKEN = F("object", "A token as `{id, text}`.", properties={"id": {"type": "integer"}, "text": {"type": "string"}})
-VEC = F("array", "A dense float vector; position is the only key.", items={"type": "number"})
-SPACE = F("object", SPACE_DOC,
-          properties={"model": {"type": ["string", "null"]}, "layer": {"type": ["integer", "null"]},
-                      "point": {"type": "string"}, "head": {"type": ["integer", "null"]}, "d": {"type": "integer"}},
-          required=["model", "layer", "point", "head", "d"])
-TOP = F("array", "The most likely tokens, ranked by probability, each `{token, p, logp}`.",
-        items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}}})
-TRACKED = F("object", "Name → `{token, p, logp}` for the tokens the caller asked about, by the names it gave.",
-            additionalProperties={"type": "object"})
 DIST = F("object", "A `logits/distribution`: `{entropy_bits, top, tracked?}`.",
          properties={"entropy_bits": {"type": "number"}, "top": TOP, "tracked": TRACKED})
 
@@ -64,6 +51,12 @@ RECORD = Kind(
     key=("id",),
     header={"segments": "When the collection was made by `records/union`: the ports it came from and how many records each contributed."},
     renderer=_TABLE_RENDERER,
+    doc="The root of the lattice: a condition, a pair, a document, a vector and a grid extend it, so a port "
+        "typed `records/record` takes any of them. The ops that reshape and summarise records — `select`, "
+        "`rename`, `union`, `delta`, `stats`, `sum`, `top-k`, `histogram`, `table`, `chart` — take any "
+        "collection at all, whatever its item kind, since every item has an id and its fields. Fields beyond "
+        "`id` and `coords` are whatever the producing op wrote; a consumer that needs one under another name "
+        "gets it through `records/rename`, never through a parameter.",
     metrics=(
         Metric("hamming", "distance", True,
                "How many coordinate axes two records differ on; an axis one of them lacks counts as a difference. The design's own factor structure, as a distance."),
@@ -84,6 +77,11 @@ CONDITION = Kind(
     required=("id", "user"),
     key=("id",),
     renderer=_TABLE_RENDERER,
+    doc="Every model-running op renders a condition the same way: `system` and `user` through the model's chat "
+        "template as one user turn, the assistant's turn begun with `prefill`, so the decision point — where "
+        "`logits/decision` reads — is the first token after the prefill, and every capture, sweep and lens can "
+        "read there too. `records/template` writes conditions from a design; a record carrying only `text` or "
+        "`prompt` is tokenized raw instead, as is one that says `template: false`.",
 )
 
 PAIR = Kind(
@@ -110,6 +108,10 @@ TABLE = Kind(
     },
     required=("columns", "rows"),
     renderer={"primitive": "table", "field_map": {"rows": "rows"}},
+    doc="A table is for reading, not for further computation: its rows are plain objects typed by `columns`, "
+        "not items of a kind, so nothing downstream reads a table but a chart and a person. `records/table` "
+        "makes one from any collection (coordinates become the leading columns), and `records/stats` emits one "
+        "directly.",
 )
 
 HISTOGRAM = Kind(
@@ -166,6 +168,10 @@ DOCUMENT = Kind(
             "fidelity": "`text`, `segments` or `trace`: how much of each document was kept.",
             "summary": "For a remote run: calls, cost, cache hits.", "spend": "What the run bought from providers."},
     renderer={"primitive": "text", "field_map": {"text": "text"}},
+    doc="What `text/generate` and `text/chat` write, one per completion. The collection's `fidelity` says how "
+        "much was kept: `text` alone, `segments` (which spans are prompt and which are body), or `trace` (the "
+        "token ids and offsets, which `text/score` and a positions trajectory need). A document is a record, so a "
+        "corpus flows into `text/stats`, `records/select` and `activations/vectors` unchanged.",
 )
 
 TRANSCRIPT = Kind(
@@ -183,6 +189,9 @@ TRANSCRIPT = Kind(
     header={"name": "A label for the collection.", "description": "Free text beside the name.",
             "spend": "What the run bought from providers."},
     renderer={"primitive": "chat", "field_map": {"messages": "messages"}},
+    doc="What `text/conversation` writes: every message in order, each naming the participant who said it and "
+        "the role each side saw it as, with any tool calls it made. `stopped` records why the conversation ended "
+        "— the turn cap, or a stop phrase — so a transcript that ended early says so itself.",
 )
 
 ANNOTATION = Kind(
@@ -196,6 +205,9 @@ ANNOTATION = Kind(
             "collection": "The stored collection the annotations are over.",
             "value_type": "`numeric` or `categorical`.",
             "required_fidelity": "The fidelity the collection must have been kept at."},
+    doc="An annotation layer sits beside a document collection rather than inside it: the collection is left "
+        "as stored and the layer points into it by document id and token span. `text/score` writes one, a "
+        "surprisal per token; a viewer draws the layer over the text it annotates.",
 )
 
 TOKENIZATION = Kind(
@@ -220,6 +232,10 @@ TOKENIZATION = Kind(
     },
     required=("tokenizer", "n_items", "mean_depth", "rows"),
     renderer={"primitive": "table", "field_map": {"rows": "rows"}},
+    doc="The measurement to take before a decision read: a set of outcomes the tokenizer splits into several "
+        "pieces cannot be compared at one token, and a prefix whose own tokenization changes when an item "
+        "follows it moves the decision point. The `gate`, when asked for, says whether every item met the "
+        "expected depth, and names the ones that did not.",
 )
 
 AGENT = Kind(
@@ -312,7 +328,8 @@ ATTRIBUTION = Kind(
 VECTOR = Kind(
     "activations/vector",
     "One vector from a model's activation space, tagged with the space it lives in and what it was read from.",
-    fields={"id": ID, "coords": COORDS, "space": SPACE, "vector": VEC,
+    extends="records/record",
+    fields={"space": SPACE, "vector": VEC,
             "norm": F("number", "The vector's magnitude."),
             "token": TOKEN,
             "n_pooled": F("integer", "How many positions went into it, when pooled.")},
@@ -352,19 +369,28 @@ COORDINATE = Kind(
     header={"axis": "For a projected trajectory: `layers` or `positions`.",
             "projected": "Always true: a coordinate collection is a projected one."},
     renderer=_TABLE_RENDERER,
+    doc="What `direction/project` and `trajectory/project` emit: one number per vector, the dot product with a "
+        "unit direction, with the space and the direction's derivation carried so the number can be read back "
+        "to what it measures. A projected trajectory is a collection of these keyed by step; the vector itself "
+        "is not kept, which is the point.",
 )
 
 GRID = Kind(
     "activations/grid",
     "A scalar field over model axes for one record: declared axes, named measures indexed in axis order, and the tokens when an axis is position.",
-    fields={"id": ID, "coords": COORDS,
-            "axes": F("array", "The axes, in value-index order: `layer`, `position`, `head`, `query`, `key`, `component`.", items={"type": "string"}),
+    extends="records/record",
+    fields={"axes": F("array", "The axes, in value-index order: `layer`, `position`, `head`, `query`, `key`, `component`.", items={"type": "string"}),
             "measures": F("object", "Measure name → values, a nested list indexed in `axes` order."),
             "tokens": F("array", "The prompt's tokens, when an axis is `position`.", items={"type": "string"}),
             "error": F("string", "Why the record could not be measured, when it could not; then `measures` is empty.")},
     required=("id", "axes", "measures"),
     key=("id",),
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
+    doc="The ancestor of every map an op draws over the model: a lens, an attribution, a divergence, an "
+        "attention pattern, a trace, a head-ablation grid. `axes` says what the nested `measures` are indexed "
+        "by, in order, so a reader (or a chart) knows that `measures.logprob[3][7]` is layer 3, position 7. A "
+        "record that could not be measured carries `error` and empty measures rather than being dropped, so "
+        "a grid collection has one item per input record.",
 )
 
 DIVERGENCE = Kind(
@@ -467,6 +493,10 @@ ABLATION = Kind(
             "conditions": "Per record: `{id, target, baseline_logp}` — the untouched read each delta is against.",
             "aggregates": "`{mean_delta, median_delta}` per layer across records."},
     renderer=_TABLE_RENDERER,
+    doc="What `intervene/layers` emits: one item per (record, layer), the drop in the target's log-probability "
+        "when that layer's sub-layer outputs are zeroed. The baseline each delta is measured against is on the "
+        "header, per record, so a delta is never read without the number it is a difference from; a layer the "
+        "answer runs through shows as a large negative delta.",
 )
 
 HEADS = Kind(
@@ -513,6 +543,10 @@ VOCAB = Kind(
     fields={"space": SPACE, "top_k": F("integer", "How many tokens per sign."),
             "positive": DIST, "negative": DIST},
     required=("space", "positive", "negative"),
+    doc="What `direction/vocab` emits: the direction pushed through the unembedding as if it were a final "
+        "residual, and its negative likewise, each read as a next-token distribution. The tokens the positive "
+        "side promotes are what the axis 'says'; the negative side is what it says when reversed. Two "
+        "distributions, so the distribution metrics compare a direction's vocabulary with another's.",
 )
 
 # --- trajectory ------------------------------------------------------------------------
@@ -548,6 +582,9 @@ COMPARISON = Kind(
             "n_pairs": "Rows paired.", "divergence_step": "The first step below the threshold.", "min_cosine_step": "The step of least agreement.",
             "per_step": "`{step, mean_cosine, n}` across ids."},
     renderer=_TABLE_RENDERER,
+    doc="What `trajectory/compare` emits: the two trajectories paired by id or by step, and at each step the "
+        "cosine and angle between their vectors and the ratio of their norms. The header carries the first "
+        "step at which the cosine fell below the threshold — where two models, or two prompts, stop agreeing.",
 )
 
 SUMMARY = Kind(
@@ -561,6 +598,10 @@ SUMMARY = Kind(
     key=("group", "step"),
     header={"aggregated": "`{by, as, steps}` — how the rows were grouped and reduced."},
     renderer=_TABLE_RENDERER,
+    doc="What `trajectory/aggregate` emits, in one of three shapes the header's `as` names: per step, the mean "
+        "coordinate and its standard deviation across the group; over a window, one value per group; or as "
+        "vectors, the group's mean vector with the spread of its members around it — the shape "
+        "`direction/from-vectors` reads directly.",
 )
 
 # --- adapter ---------------------------------------------------------------------------
@@ -574,6 +615,11 @@ LORA = Kind(
             "train": F("object", "Steps, lr, seed, batch, final loss, the target spec, and the counts."),
             "data": F("string", "The safetensors bytes.", contentEncoding="binary")},
     required=("format", "lora", "data"),
+    doc="What `adapter/train` emits, and what a model-running node takes on its `adapter` port. `train` records "
+        "the whole training — steps, learning rate, seed, batch, final loss, the target it was trained toward "
+        "and the counts — so the adapter's own object is the methods section of the experiment that made it, "
+        "and `trained_on` names the base and the adapters it was stacked on, which is what a later fusion must "
+        "match.",
 )
 
 CHECKPOINT = Kind(
@@ -624,22 +670,46 @@ VERDICT = Kind(
             "summary": "For a judge: mean/median/stdev or counts, `n_unparsed`, the position-bias diagnostic. For an expectation: `pass_rate`, `n_pass`, `n_judged`, `n_unjudgeable`.",
             "spend": "What the judging cost.", "name": "A label for the collection.", "description": "Free text beside the name."},
     renderer=_TABLE_RENDERER,
+    doc="One kind for every evaluation, so a verdict from a judge and one from an expectation sit in one table "
+        "and one rate. A judge's verdict keeps every vote with the order the options were shown in, so a "
+        "position bias can be seen rather than suspected; an expectation's keeps the number it was judged on "
+        "(the entropy, the KL, the mass) beside the pass, and says why when it could not be judged at all.",
 )
 
 # --- platform kinds (not produced by ops) -------------------------------------------------
 
 PLATFORM: tuple[Kind, ...] = (
-    Kind("sandbox/image", "A sandbox image: base, tools, limits, and the tree it starts from.", platform=True),
+    Kind("sandbox/image", "A sandbox image: base, tools, limits, and the tree it starts from.", platform=True,
+         doc="What a sandboxed conversation starts from. Two sessions on the same image start from the same tree, "
+             "so their snapshots differ only by what the tools did."),
     Kind("sandbox/snapshot", "A directory as a value: entries sorted by path, mounts by identity.", platform=True,
-         renderer={"primitive": "table", "field_map": {"rows": "entries"}}),
-    Kind("sandbox/call", "One tool call inside a sandbox session, with what it read and wrote.", platform=True),
-    Kind("provider/cassette", "Recorded provider responses keyed by request hash, for replay.", platform=True),
-    Kind("provider/call", "The provenance of one provider call: model version, usage, cost, latency.", platform=True),
-    Kind("provider/completion", "One provider reply: text, parts, stop reason, usage, and its call.", platform=True),
-    Kind("model/ref", "A model reference: a base and the adapters that are part of what it means.", platform=True),
-    Kind("model/pointer", "Where a published model lives, so a later reference can load it.", platform=True),
-    Kind("run/ladder", "A ladder of rungs, as the older experiments recorded one.", platform=True),
-    Kind("run/result", "A protocol run's result: every node's path, the manifest, the spend.", platform=True),
+         renderer={"primitive": "table", "field_map": {"rows": "entries"}},
+         doc="A filesystem tree as a stored object, so what a session's tools wrote is content-addressed like every "
+             "other result: the same tree from two runs is the same object."),
+    Kind("sandbox/call", "One tool call inside a sandbox session, with what it read and wrote.", platform=True,
+         doc="The record of one invocation: which tool, with what arguments, and the files it read and wrote."),
+    Kind("provider/cassette", "Recorded provider responses keyed by request hash, for replay.", platform=True,
+         doc="The replies a run received from hosted models, keyed by the hash of the request that got them, so a "
+             "re-run replays the same replies without calling the provider again."),
+    Kind("provider/call", "The provenance of one provider call: model version, usage, cost, latency.", platform=True,
+         doc="What one request to a hosted model cost and what served it — the version the provider reported, the "
+             "tokens in and out, the time taken."),
+    Kind("provider/completion", "One provider reply: text, parts, stop reason, usage, and its call.", platform=True,
+         doc="One reply as the provider returned it, with the call that produced it, before it became a document "
+             "or a transcript message."),
+    Kind("model/ref", "A model reference: a base and the adapters that are part of what it means.", platform=True,
+         doc="What a protocol's `model` parameter names and what every space's `model` records. The adapters a "
+             "reference carries are fused before anything else; an adapter arriving on a node's port is fused on "
+             "top, for that node only."),
+    Kind("model/pointer", "Where a published model lives, so a later reference can load it.", platform=True,
+         doc="What `adapter/merge` leaves behind: the location of a merged checkpoint, on the bench or on the hub, "
+             "usable as the base of a later model reference."),
+    Kind("run/ladder", "A ladder of rungs, as the older experiments recorded one.", platform=True,
+         doc="A sequence of training rungs recorded as one object, from before protocols were the unit of a "
+             "run; kept so those results still read."),
+    Kind("run/result", "A protocol run's result: every node's path, the manifest, the spend.", platform=True,
+         doc="Written by the executor when a run completes: the stored object of every node, keyed by node id, "
+             "with the manifest that fingerprints the run and what it spent."),
     AGENT,
 )
 
@@ -650,6 +720,11 @@ COLLECTION_KIND = Kind(
             "key": F("array", "The item fields that identify an item.", items={"type": "string"}),
             "items": F("array", "The items.", items={"type": "object"})},
     required=("item_kind", "key", "items"),
+    doc="Every plural result is this one shape. The item kind declares the `key` — the fields that identify an "
+        "item — and its header, the collection-level facts that ride with the items (a model, a metric, a "
+        "pass rate). Items are sorted by key before the object is hashed, so the same items in any order are "
+        "the same object; order that matters is a property of the key (`step`, `layer`), never of the "
+        "container. A port declared as `collection` takes any collection at all.",
 )
 
 KINDS: tuple[Kind, ...] = (

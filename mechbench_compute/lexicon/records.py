@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from mechbench_compute.lexicon._base import WILDCARD, Emits, In, Op, P
 
-_RECORDS = In("records", "records/record | records/table",
-              "The records to work on. A table's rows are read as records.",
+_RECORDS = In("records", "collection | records/table",
+              "The records to work on: any collection of items — records, "
+              "decision reads, vectors, verdicts, tree summaries — since every "
+              "item has an id and its fields; a table's rows are read as records.",
               many=True)
 
 _FACTORS_DESC = """\
@@ -471,8 +473,8 @@ spec is self-contained. Coordinates are flattened into each row so they can
 be encoded directly.
 """,
     inputs=(
-        In("records", "records/record | records/table",
-           "The table or records to chart.", many=True),
+        In("records", "collection | records/table",
+           "The table, or any collection of items, to chart.", many=True),
     ),
     emits=Emits('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`), and `source` or `data`.'),
     params=(

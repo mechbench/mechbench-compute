@@ -95,6 +95,30 @@ nothing said so.
   record `points`/`pool` in place of `component`/`pool_k`/`pool_skip`/
   `steps`/`reduce`, and no longer carry `template`.
 
+### Changes that accept more
+
+- **The records ops take any collection.** `records/select`, `rename`,
+  `delta`, `stats`, `sum`, `top-k`, `histogram`, `table` and `chart`
+  declared their `records` port as `records/record | records/table`,
+  which since typed ports (0.78.0) refused a collection of decision
+  reads, vectors, verdicts or tree summaries by kind — though every one
+  of those has an id and fields to summarise, and the tree's own
+  description says a table reads it. The port is now `collection |
+  records/table`: any collection of items, or a table.
+- **`activations/vector` and `activations/grid` extend
+  `records/record`**, as the lattice always said: a vector or a grid is
+  a record with a space or with axes, so a port typed `records/record`
+  takes a collection of either. Their fields are unchanged (`id` and
+  `coords` were already declared on both); `logits/distribution` stays
+  a root of its own, being a summary that is also a field value.
+- **The lexicon declares its families and value types.** `Family(name,
+  summary, doc)` for the eleven op families and the four platform
+  families; `Value(name, summary, doc, fields, grammar)` for `space`,
+  `token`, `top`, `tracked`, `coords`, `derivation` and the three
+  grammars `position`, `pool`, `point` — the point page is held to
+  `points.POINTS` by a test. `lexicon.FAMILIES`/`VALUES`; the docs
+  dump carries both; every kind that had only a summary now has a doc.
+
 ---
 
 ## 0.78.1 — 2026-09-15

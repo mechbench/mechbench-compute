@@ -53,6 +53,47 @@ class Metric:
 
 
 @dataclass(frozen=True)
+class Family:
+    """One namespace of the two vocabularies: the operations and the kinds
+    that share a first segment (`records/`, `direction/`), described for
+    the reader who wants to know what the family is FOR before choosing
+    a member. `name` is the segment; `summary` is one sentence; `doc` is
+    as long as it needs to be. A family with kinds and no operations
+    (`model/`, `run/`) is a platform family: its kinds are produced by
+    the platform, not by an op."""
+
+    name: str
+    summary: str
+    doc: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "summary": self.summary, "doc": self.doc}
+
+
+@dataclass(frozen=True)
+class Value:
+    """A value type: a field shape (`space`, `token`, `coords`) or a
+    parameter grammar (the position selector, the point vocabulary) that
+    many kinds and ops share, declared once so it is described once.
+    Not a kind — it is never stored on its own and has no key — but a
+    reader meets it on every page that uses it. `fields` are its
+    properties in the shape a kind's fields take; `grammar` marks a
+    parameter vocabulary rather than a stored shape."""
+
+    name: str
+    summary: str
+    doc: str = ""
+    fields: dict[str, dict[str, Any]] = field(default_factory=dict)
+    required: tuple[str, ...] = ()
+    grammar: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "summary": self.summary, "doc": self.doc,
+                "fields": self.fields, "required": list(self.required),
+                "grammar": self.grammar}
+
+
+@dataclass(frozen=True)
 class Kind:
     """One data kind, declared for the person who will read it.
 
