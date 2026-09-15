@@ -68,23 +68,50 @@ def manifests():
     return out
 
 
+def _registered_version(e: Any) -> int | None:
+    """The version the registry holds, when a refusal says a different
+    manifest is registered at this path (API task 000508)."""
+    body = getattr(e, "body", None)
+    if not isinstance(body, dict) or body.get("code") != "MANIFEST_PINNED":
+        return None
+    v = body.get("registeredVersion")
+    try:
+        return int(str(v))
+    except (TypeError, ValueError):
+        return None
+
+
 def register_all() -> None:
+    """Bring the registry up to the declarations (task 000508).
+
+    A kind whose declared fields have changed is registered as a NEW
+    version at the same path: the registry refuses a changed manifest at
+    a registered version and says which version it holds, and this
+    re-registers at the next number. The manifest it replaces stays
+    readable at `?version=N`, so the published contract keeps its
+    history instead of freezing on the day a kind was first written.
+
+    The number counts the times this kind has changed ON THIS REGISTRY,
+    which is why the declaration does not carry it: two registries with
+    different histories would disagree, and the one that matters is the
+    one being written to.
+    """
     from mechbench_compute import bench
 
     for m in manifests():
         try:
             r = bench.register_kind(m)
-            print(f"registered {r['path']}"
-                  + (" (idempotent)" if r.get("idempotent") else ""))
         except bench.BenchError as e:
-            if "MANIFEST_PINNED" in str(e):
-                # An earlier registration of this version exists with
-                # different canonical bytes (typically schema evolution
-                # adding optional fields). Pinned versions stay pinned;
-                # changes go to a new version path.
-                print(f"pinned    {m.path} (existing version retained)")
-            else:
+            held = _registered_version(e)
+            if held is None:
                 raise
+            r = bench.register_kind(m.model_copy(update={"version": str(held + 1)}))
+            was = (r.get("supersedes") or {}).get("version")
+            print(f"superseded {r['path']} (version {was} -> {r.get('version')})")
+            continue
+        print(f"registered {r['path']}"
+              + (f" v{r['version']}" if r.get("version") else "")
+              + (" (idempotent)" if r.get("idempotent") else ""))
 
 
 if __name__ == "__main__":

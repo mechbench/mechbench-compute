@@ -41,7 +41,24 @@ if TYPE_CHECKING:
 
 
 class BenchError(RuntimeError):
-    """A bench API call failed; the message carries the server detail."""
+    """A bench API call failed; the message carries the server detail.
+
+    `status` and `body` carry the same answer in a form a caller can
+    branch on: the HTTP status, and the decoded JSON body when the
+    server sent one (the raw text otherwise). Reading a refusal's
+    `code` beats matching on the message, which is prose and will be
+    rewritten. Both are None for a failure that never reached a server.
+    """
+
+    def __init__(self, message: str, *, status: int | None = None,
+                 body: Any = None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.body = body
+
+    def code(self) -> str | None:
+        """The refusal's machine-readable code, when it carries one."""
+        return (self.body or {}).get("code") if isinstance(self.body, dict) else None
 
 
 class BenchTransportError(BenchError):
@@ -230,11 +247,17 @@ def _request(method: str, url: str, key: str, body: bytes | None = None,
             break
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:500]
+            try:
+                parsed: Any = json.loads(detail)
+            except ValueError:
+                parsed = detail
             if e.code not in _RETRY_STATUS:
                 raise BenchError(
-                    f"{method} {url} -> {e.code}: {detail}") from None
+                    f"{method} {url} -> {e.code}: {detail}",
+                    status=e.code, body=parsed) from None
             last = BenchTransportError(
-                f"{method} {url} -> {e.code}: {detail}")
+                f"{method} {url} -> {e.code}: {detail}",
+                status=e.code, body=parsed)
         except urllib.error.URLError as e:
             # Includes socket.timeout on read/write, which is how the
             # 014 loss surfaced: "The write operation timed out".

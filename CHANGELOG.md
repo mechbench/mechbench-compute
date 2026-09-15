@@ -13,6 +13,27 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **`platform_kinds.register_all` registers a NEW VERSION of a kind
+  whose declared fields have changed**, instead of printing "pinned"
+  and leaving the registry describing the fields the kind used to have
+  (API task 000508). The registry refuses a changed manifest at a
+  registered version and names the version it holds; `register_all`
+  re-registers at the next number, and the manifest it replaces stays
+  readable at `GET /kinds/<path>?version=N`. Needs an API from
+  2026-09-16 or later; against an older one the refusal carries no
+  version and is raised as before.
+- **`BenchError` carries `status` and `body`.** A refusal's `code` is
+  readable without matching on prose: `e.code() == "MANIFEST_PINNED"`.
+  The message is unchanged.
+
 ## 0.81.0 — 2026-09-16
 
 ### Changes that raise
