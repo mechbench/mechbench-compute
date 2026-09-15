@@ -23,7 +23,6 @@ Entries are grouped by family in the sibling modules and assembled here.
 from __future__ import annotations
 
 import re
-import warnings
 
 from mechbench_compute.lexicon import (
     direction,
@@ -75,10 +74,18 @@ OPS: tuple[Op, ...] = tuple(
 
 BY_NAME: dict[str, Op] = {op.name: op for op in OPS}
 
-#: The names retired on 2026-09-14 (task 000495), old bare name -> new.
-#: Each resolves with a deprecation warning until the release named in
-#: `ALIASES_REMOVED_IN`, then refuses. `grid` was an alias already.
-ALIASES: dict[str, str] = {
+#: Names that are no longer operations, old -> what replaced it.
+#:
+#: These DO NOT RESOLVE (task 000512, compute 0.82.0). The table is kept
+#: for one purpose: so a protocol that still spells one of them is
+#: refused with the name to write instead, rather than with "unknown
+#: block" and a shrug. The first table was introduced in 0.75.0 with a
+#: removal scheduled for 0.77.0, moved twice — to 0.80.0, then to 0.82.0
+#: so that one release would drop the 2026-09-14 family renames and the
+#: 2026-09-16 verbs together, after the protocols stored on the bench
+#: had been migrated (they were, on 2026-09-16; a dry run on 2026-09-16
+#: found nothing left to rewrite).
+RETIRED: dict[str, str] = {
     "factor-cross": "records/cross",
     "grid": "records/cross",
     "template": "records/fill",
@@ -154,25 +161,12 @@ ALIASES: dict[str, str] = {
     "direction/vocab": "direction/unembed",
 }
 
-#: The compute release that drops the aliases — both tables, the
-#: 2026-09-14 family renames and the 2026-09-16 verbs. Named 0.77.0
-#: when the first table was introduced (0.75.0); moved to 0.80.0 in
-#: 0.77.0 because the protocols stored on the bench still spell the old
-#: names and their migration is a scheduled task; moved to 0.82.0 in
-#: 0.80.0 so one release removes both.
+#: The release the aliases were dropped in. Kept as a fact, not a
+#: schedule: a message that says when a spelling stopped working is
+#: worth more than one that says it stopped.
 ALIASES_REMOVED_IN = "0.82.0"
 
 _VERSION_TAIL = re.compile(r"/\d+$")
-_warned: set[str] = set()
-
-
-class RetiredOpName(DeprecationWarning):
-    """A protocol spelled an op by a name that has been renamed."""
-
-
-class RetiredParam(DeprecationWarning):
-    """A protocol gave an input under `params` — where it lived before
-    ports were typed — rather than under the node's `inputs`."""
 
 
 def canonical_path(name: str) -> str:
@@ -193,42 +187,51 @@ def is_canonical(block: str) -> bool:
 def resolve(block: str, *, warn: bool = True) -> str:
     """The bare name of the op a protocol's block string means.
 
-    Accepts the bare name, the stored path, either with the retired
-    version segment, and any name from `ALIASES`. Returns the bare name.
-    A retired spelling warns once per process (`RetiredOpName`), naming
-    the replacement and the release that will refuse it.
+    Accepts the bare name and the stored path (`~canonical/ops/<name>`).
+    Returns the bare name.
 
-    A string that is none of these — a user op `owner/project/ops/x`,
-    or a typo — raises `KeyError` with the string, so the executor can
-    say "unknown block" and an extension resolver can try next.
+    A string that is neither — a user op `owner/project/ops/x`, a name
+    retired before 0.82.0, or a typo — raises `KeyError` with the
+    string, so the executor can refuse it by name and an extension
+    resolver can try next. `explain_unknown` turns that into a sentence
+    that names the current spelling where there is one.
+
+    `warn` is accepted and ignored: nothing resolves with a warning any
+    more, and a caller that passed `warn=False` to silence one should
+    not have to change.
     """
     s = block.strip()
-    stored = s.startswith(ROOT)
-    if stored:
+    if s.startswith(ROOT):
         s = s[len(ROOT):]
-    versioned = bool(_VERSION_TAIL.search(s))
-    if versioned:
-        s = _VERSION_TAIL.sub("", s)
-    retired = ALIASES.get(s)
-    if retired is not None:
-        target = retired
-    elif s in BY_NAME:
-        target = s
-    else:
-        raise KeyError(block)
-    if warn and (retired is not None or versioned) and block not in _warned:
-        _warned.add(block)
-        warnings.warn(
-            f"{block!r} is a retired spelling of the operation {target!r}; "
-            f"write {target!r}. Retired names resolve until mechbench-compute "
-            f"{ALIASES_REMOVED_IN}, then refuse.",
-            RetiredOpName, stacklevel=2)
-    return target
+    if s in BY_NAME:
+        return s
+    raise KeyError(block)
+
+
+def explain_unknown(block: str) -> str:
+    """Why this block string names no operation — as a sentence.
+
+    A retired spelling, a version segment (`…/1`, which stored protocols
+    carried until the 2026-09-16 migration), or something else entirely;
+    each gets the answer that helps, and the first two name what to
+    write instead.
+    """
+    s = block.strip()
+    if s.startswith(ROOT):
+        s = s[len(ROOT):]
+    bare = _VERSION_TAIL.sub("", s)
+    target = RETIRED.get(bare) or (bare if bare in BY_NAME else None)
+    if target is not None:
+        return (f"unknown block {block!r}: that spelling was retired in "
+                f"mechbench-compute {ALIASES_REMOVED_IN}. Write {target!r}.")
+    return (f"unknown block {block!r}: no operation has that name. "
+            f"Operations are listed at https://docs.mechbench.ai/ops/.")
 
 
 __all__ = [
-    "ALIASES", "ALIASES_REMOVED_IN", "BY_FAMILY", "BY_NAME", "BY_VALUE", "COMMON",
-    "FAMILIES", "OPS", "REQUIRED", "ROOT", "VALUES", "WILDCARD", "Family", "In", "Op",
-    "P", "Param", "Port", "RetiredKindName", "RetiredOpName", "Value", "ancestry",
-    "canonical_path", "is_canonical", "resolve", "satisfies",
+    "ALIASES_REMOVED_IN", "BY_FAMILY", "BY_NAME", "BY_VALUE", "COMMON",
+    "FAMILIES", "OPS", "REQUIRED", "RETIRED", "ROOT", "VALUES", "WILDCARD",
+    "Family", "In", "Op", "P", "Param", "Port", "RetiredKindName", "Value",
+    "ancestry", "canonical_path", "explain_unknown", "is_canonical", "resolve",
+    "satisfies",
 ]

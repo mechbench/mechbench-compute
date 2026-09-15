@@ -204,10 +204,13 @@ class TestTheOps:
         assert [it["group"] for it in sim["items"]] == ["layer=3", "layer=7"]
         assert all(len(it["ids"]) == 3 for it in sim["items"])
 
-    def test_the_retired_direction_similarity_lands_on_the_new_op(self):
+    def test_the_retired_direction_similarity_is_refused_by_name(self):
         from mechbench_compute import lexicon
         from mechbench_compute.block_params import check_inputs
 
-        assert lexicon.resolve("direction/similarity", warn=False) == "geometry/compare"
+        # Retired in 0.82.0; the refusal names what to write instead.
+        with pytest.raises(KeyError):
+            lexicon.resolve("direction/similarity")
+        assert "geometry/compare" in lexicon.explain_unknown("direction/similarity")
         with pytest.raises(ValueError, match="no input port 'a'.*items"):
-            check_inputs("direction/similarity", {"a": direction("a", [1, 0, 0])})
+            check_inputs("geometry/compare", {"a": direction("a", [1, 0, 0])})

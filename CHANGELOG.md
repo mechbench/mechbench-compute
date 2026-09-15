@@ -13,6 +13,88 @@ nothing said so.
 
 ---
 
+## 0.82.0 — 2026-09-16
+
+The release the alias tables named. Both of them — the 2026-09-14 family
+renames and the 2026-09-16 verbs — are gone, along with the lift that
+accepted an input under `params`. Everything below has been resolving
+with a `RetiredOpName` warning that named this version; the protocols
+stored on the bench were migrated on 2026-09-16 and a dry run the same
+evening found nothing left to rewrite.
+
+### Changes that raise
+
+- **Sixty-six retired spellings are refused.** Not silently: the
+  refusal names the current spelling, so a protocol carried forward from
+  an old one is a one-line fix rather than a search.
+
+| Refused | Write |
+|---|---|
+| `activations/vectors`, `residuals/vectors` | `activations/capture` |
+| `activations/attention`, `attention/patterns` | `activations/capture-attention` |
+| `activations/divergence`, `residuals/divergence` | `activations/contrast` |
+| `merge` | `adapter/merge` |
+| `hf/push-adapter` | `adapter/publish` |
+| `finetune/lora` | `adapter/train` |
+| `direction/from-pca` | `direction/decompose` |
+| `direction/from-vectors` | `direction/fit` |
+| `direction/vocab` | `direction/unembed` |
+| `eval/suite` | `eval/benchmark` |
+| `eval/expectation` | `eval/expect` |
+| `judge` | `eval/judge` |
+| `eval/hf-metric`, `eval/metric` | `eval/score` |
+| `direction/similarity`, `geometry/similarity`, `vectors/similarity` | `geometry/compare` |
+| `geometry/mst`, `vectors/mst` | `geometry/span` |
+| `ablate/heads`, `intervene/heads` | `intervene/ablate-heads` |
+| `ablate/layers`, `intervene/layers` | `intervene/ablate-layers` |
+| `intervene` | `intervene/apply` |
+| `intervene/trace`, `patch/trace` | `intervene/patch` |
+| `steer/inject` | `intervene/steer` |
+| `attribution/logits`, `logits/attribution` | `logits/attribute` |
+| `decision-read`, `logits/decision` | `logits/read` |
+| `lens-trajectory`, `logits/funnel` | `logits/read-layers` |
+| `lens/positions`, `logits/lens` | `logits/scan` |
+| `records/histogram`, `reduce/histogram` | `records/bin` |
+| `factor-cross`, `grid` | `records/cross` |
+| `records/template`, `template` | `records/fill` |
+| `records/chart`, `viz/spec` | `records/plot` |
+| `records/top-k`, `reduce/top-k` | `records/rank` |
+| `select` | `records/select` |
+| `paired-delta`, `records/delta` | `records/subtract` |
+| `group-stats`, `records/stats` | `records/summarize` |
+| `records/table`, `table/from-records` | `records/tabulate` |
+| `records/sum`, `reduce/sum` | `records/total` |
+| `union` | `records/union` |
+| `chat` | `text/chat` |
+| `conversation`, `text/conversation` | `text/converse` |
+| `generate` | `text/generate` |
+| `text/stats` | `text/measure` |
+| `score` | `text/score` |
+| `tokenize/stats` | `text/tokenize` |
+| `tools/bench-lookup` | `tools/lookup` |
+
+  The `/1` version segment stored protocols carried is refused the same
+  way (`records/select/1` → write `records/select`), and so is the
+  stored path with a retired leaf. `lexicon.ALIASES` is now
+  `lexicon.RETIRED`, read by `lexicon.explain_unknown` and by nothing
+  else — no lookup resolves through it.
+
+- **An input given under `params` is refused as an unknown param**, as
+  the 0.78.0 notes promised. `records: {"$fetch": …}` belongs under
+  the node's `inputs`; `check_params` names the port.
+
+- **A graph is checked before it runs.** Every node's operation is
+  resolved at load and ALL the bad ones are reported together, rather
+  than each being discovered when execution reached it. A protocol whose
+  last node is misspelled now fails in the first second instead of
+  after everything upstream of it has been computed — which is how one
+  014 trace spent five resumes and most of a day. (Params follow in the
+  next release, task 000513.)
+
+### Changes that alter results without raising
+
+- _None._
+
 ## 0.81.2 — 2026-09-16
 
 A patch again, for the same reason 0.81.1 was one: **0.82.0 is spoken

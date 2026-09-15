@@ -483,6 +483,12 @@ class ProtocolExecutor:
 
         from mechbench_compute import resume as resume_mod
 
+        # Before anything runs: does every node name an operation? A
+        # graph that cannot run should say so in the first second, not
+        # after the four nodes upstream of the typo have been computed
+        # (task 000512; 000513 extends this to params).
+        _preflight_blocks(nodes, order)
+
         resume = resume or {}
         # A consumer may require a minimum resume level of an upstream
         # node (`require_resume: {port: level}`). A requirement the
@@ -588,18 +594,11 @@ class ProtocolExecutor:
                     input_paths[port] = str(resolve_value(raw["$fetch"]))
                 inline_hashes.append(
                     f"{port}:{resume_mod.content_hash(inputs[port])}")
-            # A protocol written before inputs left params may still
-            # carry one there; it is lifted onto its port, with a
-            # warning, until the release that refuses it.
-            params, lifted = _lift_port_params(block, params)
-            for port, value in lifted.items():
-                if port in inputs:
-                    raise ValueError(
-                        f"{nid}: port {port!r} is wired by an edge and also "
-                        f"given under `params` — remove the param")
-                inputs[port] = value
-                inline_hashes.append(
-                    f"{port}:{resume_mod.content_hash(value)}")
+            # An input under `params` — where ports lived before 0.78 —
+            # was lifted onto its port with a warning until 0.82.0. It
+            # is now an unknown param, and `check_params` below refuses
+            # it by name, as the 0.78.0 notes promised.
+            #
             # Process identity for this node (epic 000320): what it
             # computes is fixed by the block, its wire params, its
             # inputs' content, and the compute version. A partial from a
@@ -2196,33 +2195,32 @@ def _spend_total(by_node: dict[str, Any]) -> dict[str, Any]:
             "dry_run": all(bool(v.get("dry_run")) for v in by_node.values())}
 
 
-def _lift_port_params(block, params):
-    """A protocol written before inputs left params (mechbench-compute
-    0.78) may still give a port's value under `params` — `records:
-    {"$fetch": …}`. Until the release that refuses it, the value is
-    lifted onto the port it names, with a warning naming the move.
-    Only a named port lifts: a wildcard op's unknown param is a typo,
-    and `check_params` says so."""
-    import warnings
+def _preflight_blocks(nodes, order) -> None:
+    """Every node names an operation, or the graph refuses before the
+    first one runs (task 000512).
 
-    from mechbench_compute.block_params import COMMON
-
-    op = lexicon.BY_NAME.get(block)
-    if op is None:
-        return params, {}
-    kept, lifted = {}, {}
-    for k, v in params.items():
-        if (k in op.port_names and k not in op.param_names and k not in COMMON
-                and v is not None):
-            warnings.warn(
-                f"{block}: {k!r} is an input port, not a param — give it "
-                f"under the node's `inputs`. Accepted under `params` until "
-                f"mechbench-compute {lexicon.ALIASES_REMOVED_IN}, then refused.",
-                lexicon.RetiredParam, stacklevel=2)
-            lifted[k] = v
-        else:
-            kept[k] = v
-    return kept, lifted
+    Resolution used to happen node by node, in execution order, so a
+    graph whose last node was misspelled spent everything upstream of it
+    proving so — a 014 trace burned most of a day that way. Every node's
+    name is checked here, and ALL the bad ones are reported: a protocol
+    being carried forward from a retired spelling usually has several,
+    and one-at-a-time is the expensive way to find that out.
+    """
+    bad: list[str] = []
+    for nid in order:
+        block = nodes[nid].get("block")
+        if not isinstance(block, str):
+            bad.append(f"  {nid}: no block")
+            continue
+        try:
+            lexicon.resolve(block)
+        except KeyError:
+            bad.append(f"  {nid}: {lexicon.explain_unknown(block)}")
+    if bad:
+        raise ValueError(
+            f"this protocol names {len(bad)} operation"
+            f"{'s' if len(bad) > 1 else ''} that do not exist:\n"
+            + "\n".join(bad))
 
 
 def _wire_params(params):

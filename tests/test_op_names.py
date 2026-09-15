@@ -1,10 +1,12 @@
-"""How an op is named and resolved (docs/LEXICON.md §1; task 000495).
+"""How an op is named and resolved (docs/LEXICON.md §1; tasks 000495,
+000512).
 
-A protocol may spell an op bare (`records/select`), stored
-(`~canonical/ops/records/select`), with the retired `/1`, or by a name
-from before the 2026-09 renames. All resolve to the bare name; the
-retired spellings warn once, naming the replacement and the release
-that will refuse them. Every table the executor consults is keyed by
+A protocol spells an op bare (`records/select`) or stored
+(`~canonical/ops/records/select`). Nothing else resolves: the names
+retired in the 2026-09 renames, and the `/1` version segment stored
+protocols carried before their migration, were accepted with a warning
+until **0.82.0** and are refused now — by name, and with the current
+spelling in the message. Every table the executor consults is keyed by
 the bare name and nothing else.
 """
 
@@ -16,26 +18,16 @@ import warnings
 
 import pytest
 
-from mechbench_compute import lexicon
 from mechbench_compute.lexicon import (
-    ALIASES,
     ALIASES_REMOVED_IN,
     BY_NAME,
+    RETIRED,
     ROOT,
-    RetiredOpName,
     canonical_path,
+    explain_unknown,
     is_canonical,
     resolve,
 )
-
-
-@pytest.fixture(autouse=True)
-def _forget_warnings():
-    # `resolve` warns once per process per spelling; each test wants a
-    # fresh slate so it can assert on the warning it expects.
-    lexicon._warned.clear()
-    yield
-    lexicon._warned.clear()
 
 
 class TestResolve:
@@ -53,39 +45,39 @@ class TestResolve:
             assert canonical_path(name) == f"{ROOT}{name}"
             assert canonical_path(f"{ROOT}{name}") == f"{ROOT}{name}"
 
-    @pytest.mark.parametrize("old,new", sorted(ALIASES.items()))
-    def test_a_retired_name_resolves_and_warns_once(self, old, new):
-        assert new in BY_NAME, f"alias target {new!r} is not an op"
-        assert old not in BY_NAME, f"alias key {old!r} is still an op name"
-        for spelling in (old, f"{ROOT}{old}/1", f"{old}/1"):
-            lexicon._warned.clear()
-            with pytest.warns(RetiredOpName) as w:
-                assert resolve(spelling) == new
-            msg = str(w[0].message)
+    @pytest.mark.parametrize("old,new", sorted(RETIRED.items()))
+    def test_a_retired_name_is_refused_and_names_its_replacement(self, old, new):
+        assert new in BY_NAME, f"{new!r} is not an op"
+        assert old not in BY_NAME, f"{old!r} is still an op name"
+        for spelling in (old, f"{ROOT}{old}", f"{ROOT}{old}/1", f"{old}/1"):
+            with pytest.raises(KeyError):
+                resolve(spelling)
+            assert not is_canonical(spelling)
+            msg = explain_unknown(spelling)
             assert new in msg and ALIASES_REMOVED_IN in msg
-            # Once per process per spelling: the second call is silent.
-            with warnings.catch_warnings():
-                warnings.simplefilter("error")
-                assert resolve(spelling) == new
 
-    def test_the_retired_version_segment_warns_on_a_new_name(self):
-        with pytest.warns(RetiredOpName):
-            assert resolve("records/select/1") == "records/select"
-        lexicon._warned.clear()
-        with pytest.warns(RetiredOpName):
-            assert resolve(f"{ROOT}records/select/1") == "records/select"
+    def test_the_version_segment_is_refused_on_a_current_name_too(self):
+        # Stored protocols carried `…/1` until the 2026-09-16 migration.
+        for spelling in ("records/select/1", f"{ROOT}records/select/1"):
+            with pytest.raises(KeyError):
+                resolve(spelling)
+            assert "records/select" in explain_unknown(spelling)
 
-    def test_warn_false_is_silent(self):
+    def test_warn_false_is_still_accepted_and_still_resolves(self):
+        # Callers that silenced the old warning must not have to change.
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            assert resolve("decision-read", warn=False) == "logits/read"
+            assert resolve("logits/read", warn=False) == "logits/read"
 
     def test_an_unknown_or_user_op_is_refused_by_name(self):
-        for s in ("benji/eval-creativity/ops/marcus-zoo-stats-v1", "records/selekt", "", "records"):
+        for s in ("benji/eval-creativity/ops/marcus-zoo-stats-v1",
+                  "records/selekt", "", "records"):
             with pytest.raises(KeyError):
                 resolve(s)
             assert not is_canonical(s)
-        assert is_canonical("records/select") and is_canonical("grid")
+            assert s in explain_unknown(s) or explain_unknown(s)
+        assert is_canonical("records/select")
+        assert "docs.mechbench.ai" in explain_unknown("records/selekt")
 
 
 class TestEveryTableIsKeyedByBareNames:
@@ -124,8 +116,8 @@ class TestEveryTableIsKeyedByBareNames:
         assert not re.search(r'block == "~canonical', src)
 
     def test_no_source_spells_the_stored_root_except_the_lexicon(self):
-        """`~canonical/ops/` appears where the root is DEFINED and where
-        aliases are listed, and in prose — never as a table key."""
+        """`~canonical/ops/` appears where the root is DEFINED and in
+        prose — never as a table key."""
         import mechbench_compute
         pkg = pathlib.Path(mechbench_compute.__file__).parent
         offenders = []
@@ -136,18 +128,28 @@ class TestEveryTableIsKeyedByBareNames:
         assert offenders == [], offenders
 
 
-class TestTheResumeAndReduceLookupsAcceptAnySpelling:
-    def test_resume_level_by_old_name(self):
+class TestTheLookupsAroundIt:
+    """Everything that asks a block a question falls through on a name
+    it cannot resolve rather than raising: the executor has already
+    refused the graph by then, and these are advisory."""
+
+    def test_resume_level_falls_through_on_a_retired_name(self):
         from mechbench_compute.resume import item_resumable, resume_level
-        assert resume_level("~canonical/ops/generate/1") == resume_level("text/generate")
-        assert item_resumable("decision-read") == item_resumable("logits/read") is True
+        assert resume_level("~canonical/ops/text/generate") == \
+            resume_level("text/generate")
+        assert item_resumable("logits/read") is True
+        # A name that no longer exists offers nothing, rather than
+        # claiming the promise of the op it used to mean.
+        assert resume_level("decision-read") == "restart"
+        assert item_resumable("decision-read") is False
 
-    def test_reduce_algebra_by_old_name(self):
+    def test_reduce_algebra_falls_through(self):
         from mechbench_compute.reduce import algebra
-        assert algebra("group-stats") == algebra("records/summarize") == "monoid"
+        assert algebra("records/summarize") == "monoid"
+        assert algebra("group-stats") != "monoid"
 
-    def test_check_params_by_old_name(self):
+    def test_check_params_refuses_a_retired_block_by_name(self):
         from mechbench_compute.block_params import check_params
-        check_params("~canonical/ops/decision-read/1", {"tracked": {"a": "a"}})
+        check_params("~canonical/ops/logits/read", {"tracked": {"a": "a"}})
         with pytest.raises(ValueError, match="logits/read"):
-            check_params("~canonical/ops/decision-read/1", {"nope": 1})
+            check_params("logits/read", {"nope": 1})

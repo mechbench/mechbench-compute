@@ -445,23 +445,19 @@ def test_the_prompt_objects_the_experiments_stored_are_record_collections():
     assert K.items_of(stored) == [{"id": "p", "user": "u"}]
 
 
-def test_a_port_given_as_a_param_is_lifted_with_a_warning_until_it_is_refused():
-    """A protocol stored before inputs left params still runs: the value
-    moves onto its port, and the warning names the move and the release
-    that will refuse it. A wildcard op's unknown param is not lifted —
-    that is a typo for `check_params` to name."""
-    from mechbench_compute.lexicon import ALIASES_REMOVED_IN, RetiredParam
-    from mechbench_compute.protocol import _lift_port_params
+def test_a_port_given_as_a_param_is_refused_by_name():
+    """A protocol stored before inputs left ports (0.78.0) put a port's
+    value under `params`. That was lifted onto the port with a warning
+    until 0.82.0, and is refused now — by name, saying it is a port."""
+    from mechbench_compute import protocol
 
-    with pytest.warns(RetiredParam, match=f"until mechbench-compute {ALIASES_REMOVED_IN}"):
-        kept, lifted = _lift_port_params(
-            "logits/read", {"model": "m", "conditions": [{"id": "c", "user": "u"}], "top_k": 3})
-    assert kept == {"model": "m", "top_k": 3}
-    assert lifted == {"conditions": [{"id": "c", "user": "u"}]}
-    kept, lifted = _lift_port_params("records/union", {"batch_axs": "x"})
-    assert kept == {"batch_axs": "x"} and lifted == {}
+    assert not hasattr(protocol, "_lift_port_params"), \
+        "the lift was removed in 0.82.0"
     with pytest.raises(ValueError, match="input port"):
         check_params("logits/read", {"conditions": []})
+    with pytest.raises(ValueError, match="input port"):
+        check_params("logits/read",
+                     {"model": "m", "conditions": [{"id": "c"}], "top_k": 3})
 
 
 # --- check_params behaviour ---------------------------------------------------

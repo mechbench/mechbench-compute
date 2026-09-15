@@ -712,8 +712,9 @@ def text_stats(inputs: Mapping[str, Any],
 
 
 PURE_BLOCKS: dict[str, Callable[..., Any]] = {
-    # `grid`, the pre-rename alias of factor-cross, resolves through
-    # `lexicon.ALIASES` like every other retired name.
+    # Keyed by the one current name. `grid` and `factor-cross`, the
+    # spellings this op had before, are refused since 0.82.0 —
+    # `lexicon.explain_unknown` names the replacement.
     "records/cross":
         lambda inputs, params: _coll(factor_cross(params)),
     "records/fill":
