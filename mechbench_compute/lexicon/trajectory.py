@@ -53,7 +53,7 @@ width), so there are three ways to keep it an object:
 
 Every item carries the record's `coords`, which is what
 `trajectory/aggregate` groups on. A measurement a record carries as a
-field (what `text/stats` writes) becomes a coordinate through
+field (what `text/measure` writes) becomes a coordinate through
 `records/rename` — `{"opening": "coords.opening"}` — before the capture.
 
 **Replay.** A record generated at trace fidelity carries the exact token ids
@@ -199,7 +199,7 @@ AGGREGATE = Op(
     summary=(
         "Group a trajectory's rows and reduce them — a mean trajectory with "
         "spread per step, one value per group over a window, or per-group "
-        "mean vectors that `direction/from-vectors` can read directly."
+        "mean vectors that `direction/fit` can read directly."
     ),
     description="""\
 Items are grouped `by` a coordinate (`label` by default — which also reads
@@ -215,7 +215,7 @@ reduced `as`:
   `by: "id"`); with vectors, the mean vector.
 * `"vectors"` — one `activations/vector` per group, the mean over its
   members and steps in the window, with the group as its coordinate on the
-  `by` axis. This is the shape `direction/from-vectors` reads, so an
+  `by` axis. This is the shape `direction/fit` reads, so an
   outcome axis — "the lighthouse-story mean minus the other-story mean over
   tokens 5 … 30" — is this block followed by that one (with `axis` set to
   the same `by`).

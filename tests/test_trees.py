@@ -65,7 +65,7 @@ class TestTheMeasure:
     """The three shapes, and why variance is never reported alone."""
 
     def stats(self, kind, **params):
-        out = PURE_BLOCKS["geometry/mst"](
+        out = PURE_BLOCKS["geometry/span"](
             {"similarity": similarity_of(corpus(kind))}, params)
         return out["items"][0]
 
@@ -91,12 +91,12 @@ class TestTheMeasure:
         # multiplied — corpora embedded at different layers stay
         # comparable.
         base = similarity_of(corpus("clustered"))
-        cv1 = PURE_BLOCKS["geometry/mst"](
+        cv1 = PURE_BLOCKS["geometry/span"](
             {"similarity": base}, {})["items"][0]["cv"]
         scaled = {**base, "items": [{**base["items"][0], "matrix": [
             [1 - (1 - v) * 0.5 for v in row]
             for row in base["items"][0]["matrix"]]}]}
-        cv2 = PURE_BLOCKS["geometry/mst"](
+        cv2 = PURE_BLOCKS["geometry/span"](
             {"similarity": scaled}, {})["items"][0]["cv"]
         assert cv1 == pytest.approx(cv2, abs=0.02)
 
@@ -105,27 +105,27 @@ class TestTheBlock:
     def test_it_follows_a_similarity_over_vectors(self):
         rows = [{"id": f"r{i}", "layer": 3, "head": None, "label": None,
                  "vector": v.tolist()} for i, v in enumerate(corpus("clustered"))]
-        sim = PURE_BLOCKS["geometry/similarity"](
+        sim = PURE_BLOCKS["geometry/compare"](
             {"items": {"kind": "residual_vectors", "rows": rows}}, {})
-        out = PURE_BLOCKS["geometry/mst"]({"similarity": sim}, {})
+        out = PURE_BLOCKS["geometry/span"]({"similarity": sim}, {})
         assert out["items"][0]["layer"] == 3 and out["items"][0]["group"] == "layer=3"
         assert out["items"][0]["n"] == len(rows)
         assert out["metric"] == "cosine" and out["over"] == "activations/vector"
 
     def test_a_table_reads_the_items_directly(self):
-        # One item per group, and `records/table` reads them as rows: the
+        # One item per group, and `records/tabulate` reads them as rows: the
         # flat duplicate the old shape carried is gone.
-        out = PURE_BLOCKS["geometry/mst"](
+        out = PURE_BLOCKS["geometry/span"](
             {"similarity": similarity_of(corpus("even"))}, {})
         item = out["items"][0]
         assert {"layer", "n", "mean", "variance", "cv", "bridges"} <= set(item)
-        table = PURE_BLOCKS["records/table"]({"records": out}, {})
+        table = PURE_BLOCKS["records/tabulate"]({"records": out}, {})
         assert table["kind"] == "records/table"
         assert [r["n"] for r in table["rows"]] == [item["n"]]
 
     def test_a_wrong_input_says_what_it_wanted(self):
         with pytest.raises(ValueError, match="geometry/similarity"):
-            PURE_BLOCKS["geometry/mst"]({"similarity": [1, 2]}, {})
+            PURE_BLOCKS["geometry/span"]({"similarity": [1, 2]}, {})
 
 
 class TestCentering:
@@ -141,7 +141,7 @@ class TestCentering:
         return common + rng.normal(0, spread, size=(n, d)).astype(np.float32)
 
     def _mean_edge(self, rows, **options):
-        sim = PURE_BLOCKS["geometry/similarity"](
+        sim = PURE_BLOCKS["geometry/compare"](
             {"items": {"kind": "residual_vectors", "rows": rows}},
             {"metric": "cosine", "options": options})
         out = trees.mst({"similarity": sim}, {})
@@ -190,34 +190,34 @@ class TestParamChecking:
     def test_an_unknown_param_is_refused_by_name(self):
         from mechbench_compute.block_params import check_params
         with pytest.raises(ValueError, match="does not accept 'centre'"):
-            check_params("geometry/mst",
+            check_params("geometry/span",
                          {"bridge_sigma": 2.0, "centre": True})
 
     def test_the_message_points_at_the_runner(self):
         from mechbench_compute.block_params import check_params
         with pytest.raises(ValueError, match="predates the parameter"):
-            check_params("geometry/mst", {"center_rows": True})
+            check_params("geometry/span", {"center_rows": True})
 
     def test_accepted_params_pass(self):
         from mechbench_compute.block_params import check_params
-        check_params("geometry/mst",
+        check_params("geometry/span",
                      {"bridge_sigma": 2.0, "name": "v", "keep_edges": False})
 
     def test_a_port_given_as_a_param_is_refused_with_directions(self):
         from mechbench_compute.block_params import check_params
         with pytest.raises(ValueError, match="input port"):
-            check_params("geometry/mst", {"similarity": {}})
+            check_params("geometry/span", {"similarity": {}})
 
     def test_an_unregistered_block_is_unchecked(self):
         # Every CANONICAL op is declared now (000478), so the unchecked
         # case is a block this runner does not know — an extension's op
         # (000410), which is the api's business and not ours. This test
-        # used to name `text/stats`, which was merely undeclared.
+        # used to name `text/measure`, which was merely undeclared.
         from mechbench_compute.block_params import check_params
         check_params("~someone/ops/custom/1", {"anything": 1})
 
     def test_pooling_params_are_accepted_on_residual_vectors(self):
         from mechbench_compute.block_params import check_params
-        check_params("activations/vectors",
+        check_params("activations/capture",
                      {"layers": [23], "pool": {"reduce": "mean", "over": {"after": 1}},
                       "skip_empty": True})

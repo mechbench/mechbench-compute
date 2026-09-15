@@ -4,7 +4,7 @@ A direction is a unit vector in a model's activation space at one
 (layer, point), carrying its own derivation: how it was made, from what,
 on which model. One object flows everywhere a direction is used — into
 `intervene/apply` (add, project out, clamp, rotate), `direction/project`,
-`direction/vocab` — so a direction found one way can be tried every
+`direction/unembed` — so a direction found one way can be tried every
 other way without conversion.
 
 The record is an `activations/vector` with a derivation: `{"kind":
@@ -53,7 +53,7 @@ def _source() -> P:
 
 
 FROM_VECTORS = Op(
-    name="direction/from-vectors",
+    name="direction/fit",
     summary=(
         "Make a direction from labelled residual vectors as the difference of "
         "two label centroids — the axis along which one group differs from "
@@ -97,7 +97,7 @@ to find a concept direction, and the one most steering results are built on.
 )
 
 FROM_PCA = Op(
-    name="direction/from-pca",
+    name="direction/decompose",
     summary=(
         "Make a direction from the principal component of a set of residual "
         "vectors — the axis along which they vary most."
@@ -260,7 +260,7 @@ groups it was built from — or ones it was not.
 )
 
 VOCAB = Op(
-    name="direction/vocab",
+    name="direction/unembed",
     summary=(
         "Read a direction through the model's unembedding: the tokens it "
         "promotes and the tokens its negative promotes — what the axis "

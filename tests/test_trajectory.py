@@ -144,7 +144,7 @@ class TestCapturePositionsAxis:
         assert [r["position"] for r in out["items"]] == [1, 2, 3]
 
     def test_a_measurement_groups_once_it_is_a_coordinate(self):
-        # `text/stats` writes a hit as a field; `records/rename` moves it
+        # `text/measure` writes a hit as a field; `records/rename` moves it
         # into coords, and from there every item carries it.
         from mechbench_compute.blocks import rename
 
@@ -339,7 +339,7 @@ class TestWiring:
 
     def test_union_of_vector_records_stays_a_vector_record(self):
         # base and adapted captures come from two model nodes; their
-        # union must still be what direction/from-vectors reads.
+        # union must still be what direction/fit reads.
         def vec(label_rows):
             return {"kind": "residual_vectors", "point": "post", "source": "resid",
                     "position": "final", "layers": [12], "d_model": D,

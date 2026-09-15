@@ -37,14 +37,14 @@ LEVELS: tuple[str, ...] = (
 #: reproducible and still not worth spooling item by item.
 BLOCK_RESUME: dict[str, dict[str, Any]] = {
     "text/generate": {"level": "reproducible", "items": True},
-    "logits/decision": {"level": "reproducible", "items": True},
-    "text/stats": {"level": "reproducible", "items": False},
-    "eval/expectation": {"level": "reproducible", "items": False},
+    "logits/read": {"level": "reproducible", "items": True},
+    "text/measure": {"level": "reproducible", "items": False},
+    "eval/expect": {"level": "reproducible", "items": False},
     "adapter/train": {"level": "state-restorable", "items": False},
     "intervene/apply": {"level": "reproducible", "items": True},
-    "direction/vocab": {"level": "reproducible", "items": False},
-    "direction/from-vectors": {"level": "reproducible", "items": False},
-    "direction/from-pca": {"level": "reproducible", "items": False},
+    "direction/unembed": {"level": "reproducible", "items": False},
+    "direction/fit": {"level": "reproducible", "items": False},
+    "direction/decompose": {"level": "reproducible", "items": False},
     "direction/add": {"level": "reproducible", "items": False},
     "direction/average": {"level": "reproducible", "items": False},
     "direction/orthogonalize": {"level": "reproducible", "items": False},
@@ -96,11 +96,11 @@ def _judge_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = N
 
 
 DYNAMIC_LEVEL = {"text/chat": _chat_level,
-                 "text/conversation": _conversation_level,
+                 "text/converse": _conversation_level,
                  "eval/judge": _judge_level}
 
 BLOCK_RESUME["text/chat"] = {"level": "exchangeable", "items": True}
-BLOCK_RESUME["text/conversation"] = {
+BLOCK_RESUME["text/converse"] = {
     "level": "exchangeable", "items": True}
 # A judge is a chat node wearing a rubric: same promise, same items.
 BLOCK_RESUME["eval/judge"] = {"level": "exchangeable", "items": True}

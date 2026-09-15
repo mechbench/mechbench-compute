@@ -655,7 +655,7 @@ class ProtocolExecutor:
                 (lambda st, _n=nid: self._on_checkpoint(_n, st))
                 if self._on_checkpoint is not None else None
             )
-            if block == "records/chart":
+            if block == "records/plot":
                 # A viz references its upstream by LABEL when the
                 # executor knows it (lineage-true, renders live).
                 from mechbench_compute.blocks import viz_spec
@@ -665,7 +665,7 @@ class ProtocolExecutor:
                     source_label=input_paths.get("records") or None)
             elif block in PURE_BLOCKS:
                 results[nid] = PURE_BLOCKS[block](inputs, params)
-            elif block == "logits/decision":
+            elif block == "logits/read":
                 results[nid] = self._run_model_block(
                     self._block_decision_read, inputs, params,
                     on_item=on_item, on_start=expand, **resume_kwargs)
@@ -677,7 +677,7 @@ class ProtocolExecutor:
                 results[nid] = self._block_judge(
                     inputs, params, secrets=secrets, on_item=on_item,
                     on_start=expand, **resume_kwargs)
-            elif block == "text/conversation":
+            elif block == "text/converse":
                 results[nid] = self._block_conversation(
                     inputs, params, secrets=secrets, on_item=on_item,
                     on_start=expand, **resume_kwargs)
@@ -685,7 +685,7 @@ class ProtocolExecutor:
                 results[nid] = self._block_chat(
                     inputs, params, secrets=secrets, on_item=on_item,
                     on_start=expand, **resume_kwargs)
-            elif block == "logits/funnel":
+            elif block == "logits/read-layers":
                 results[nid] = self._run_model_block(
                     self._block_lens, inputs, params,
                     on_item=on_item, on_start=expand)
@@ -694,11 +694,11 @@ class ProtocolExecutor:
                     inputs, params, on_item=on_item, on_start=expand,
                     on_checkpoint=on_checkpoint,
                     resume_state=resume_kwargs.get("resume_state"))
-            elif block == "eval/suite":
+            elif block == "eval/benchmark":
                 results[nid] = self._run_model_block(
                     self._block_eval_suite, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "intervene/layers":
+            elif block == "intervene/ablate-layers":
                 results[nid] = self._run_model_block(
                     self._block_ablate_layers, inputs, params,
                     on_item=on_item, on_start=expand)
@@ -710,26 +710,26 @@ class ProtocolExecutor:
                 results[nid] = self._run_model_block(
                     self._block_intervene, inputs, params,
                     on_item=on_item, on_start=expand, **resume_kwargs)
-            elif block == "direction/vocab":
+            elif block == "direction/unembed":
                 results[nid] = self._run_model_block(
                     self._block_direction_vocab, inputs, params)
-            elif block == "logits/attribution":
+            elif block == "logits/attribute":
                 results[nid] = self._run_model_block(
                     self._block_logit_attribution, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "intervene/trace":
+            elif block == "intervene/patch":
                 results[nid] = self._run_model_block(
                     self._block_patch_trace, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "activations/attention":
+            elif block == "activations/capture-attention":
                 results[nid] = self._run_model_block(
                     self._block_attention_patterns, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "intervene/heads":
+            elif block == "intervene/ablate-heads":
                 results[nid] = self._run_model_block(
                     self._block_ablate_heads, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "logits/lens":
+            elif block == "logits/scan":
                 results[nid] = self._run_model_block(
                     self._block_lens_positions, inputs, params,
                     on_item=on_item, on_start=expand)
@@ -741,15 +741,15 @@ class ProtocolExecutor:
                 # The tokenizer is the model's; an adapter does not
                 # change it, so this block takes no adapter port.
                 results[nid] = self._block_tokenize_stats(inputs, params)
-            elif block == "activations/vectors":
+            elif block == "activations/capture":
                 results[nid] = self._run_model_block(
                     self._block_residual_vectors, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "activations/divergence":
+            elif block == "activations/contrast":
                 results[nid] = self._run_model_block(
                     self._block_residual_divergence, inputs, params,
                     on_item=on_item, on_start=expand)
-            elif block == "eval/metric":
+            elif block == "eval/score":
                 results[nid] = self._block_eval_hf_metric(inputs, params)
             elif block == "adapter/merge":
                 results[nid] = self._block_merge(
@@ -976,7 +976,7 @@ class ProtocolExecutor:
         `decision-read` available AS A TOOL — a model that can consult
         another model, or the bench, mid-turn."""
         def run_block(ref, inputs, params):
-            if ref == "logits/decision":
+            if ref == "logits/read":
                 return self._run_model_block(self._block_decision_read,
                                              inputs, params)
             if ref == "text/generate":
@@ -1107,7 +1107,7 @@ class ProtocolExecutor:
 
     def _block_conversation(self, inputs, params, secrets=None, on_item=None,
                             on_start=None, resume_items=None):
-        """text/conversation (task 000339): participants,
+        """text/converse (task 000339): participants,
         a perspective map and a turn policy, as data. Remote
         participants go through the transport; local ones sample here,
         through the same chat template the chat block uses — so a
@@ -1204,7 +1204,7 @@ class ProtocolExecutor:
         return out
 
     def _block_direction_vocab(self, inputs, params):
-        """direction/vocab (task 000367): a direction
+        """direction/unembed (task 000367): a direction
         through the unembedding — its top tokens in both signs."""
         from mechbench_compute import directions as dirs
 
@@ -1262,7 +1262,7 @@ class ProtocolExecutor:
 
     def _block_attention_patterns(self, inputs, params, on_item=None,
                                   on_start=None):
-        """activations/attention — steps 05/06."""
+        """activations/capture-attention — steps 05/06."""
         from mechbench_compute import interp
 
         model = self._model_loaded(params.get("model"))
@@ -1306,7 +1306,7 @@ class ProtocolExecutor:
 
     def _block_residual_vectors(self, inputs, params, on_item=None,
                                 on_start=None):
-        """activations/vectors — residual vectors at
+        """activations/capture — residual vectors at
         (layers × position) per condition, as data downstream blocks
         (vectors/similarity, future probes) consume."""
         from mechbench_compute import interp
@@ -1421,7 +1421,7 @@ class ProtocolExecutor:
 
     def _block_eval_suite(self, inputs, params, on_item=None,
                           on_start=None):
-        """eval/suite — the lm-eval-harness bridge
+        """eval/benchmark — the lm-eval-harness bridge
         (task 000256): run standard benchmark tasks against the bound
         model THROUGH OUR OWN Model (lm_bridge.MechbenchLM), so
         revision pinning, VLM-shaped checkpoints, and adapter fusion
@@ -1441,7 +1441,7 @@ class ProtocolExecutor:
 
         tasks = list(params.get("tasks") or [])
         if not tasks:
-            raise ValueError("eval/suite needs params.tasks (list of "
+            raise ValueError("eval/benchmark needs params.tasks (list of "
                              "lm-eval task names)")
         limit = params.get("limit")
         num_fewshot = params.get("num_fewshot")
@@ -1766,7 +1766,7 @@ class ProtocolExecutor:
                     "hf_adapter_ref": {"repo": repo, "revision": commit}}
 
     def _block_eval_hf_metric(self, inputs, params):
-        """eval/metric — the HuggingFace
+        """eval/score — the HuggingFace
         `evaluate` metric layer (task 000256): score prediction/
         reference fields on a record stream with any hub metric
         (accuracy, exact_match, f1, bleu, ...) instead of
@@ -1775,7 +1775,7 @@ class ProtocolExecutor:
 
         metric_name = params.get("metric")
         if not metric_name:
-            raise ValueError("eval/metric needs params.metric")
+            raise ValueError("eval/score needs params.metric")
         pf = "prediction"
         rf = "reference"
         variant = str(params.get("variant", "base"))
@@ -2006,7 +2006,7 @@ class ProtocolExecutor:
         records = lexicon.items_of(inputs.get("records") or [])
         if not records:
             raise ValueError(
-                "logits/funnel: no records to run over — wire records to "
+                "logits/read-layers: no records to run over — wire records to "
                 "the `records` port")
         n_layers = len(model.lm.model.layers)
         top_k = int(params.get("top_k", 5))
@@ -2123,7 +2123,7 @@ class ProtocolExecutor:
             # did not arrive, and a silent empty collection would be read
             # as a finding.
             raise ValueError(
-                "logits/decision: no conditions to read — wire records to "
+                "logits/read: no conditions to read — wire records to "
                 "the `conditions` port")
         if on_start:
             on_start(len(conditions))

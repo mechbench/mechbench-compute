@@ -348,8 +348,8 @@ def block_project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[
 
 
 PURE_DIRECTION_BLOCKS = {
-    "direction/from-vectors": block_from_vectors,
-    "direction/from-pca": block_from_pca,
+    "direction/fit": block_from_vectors,
+    "direction/decompose": block_from_pca,
     "direction/add": block_add,
     "direction/average": block_average,
     "direction/orthogonalize": block_orthogonalize,

@@ -65,7 +65,7 @@ class TestTheToolbox:
 
     def test_a_non_pure_handler_says_it_needs_the_executor(self):
         box = T.Toolbox([{"name": "read", "handler": {
-            "block": "logits/decision"}}])
+            "block": "logits/read"}}])
         out = box.call(call("read"))
         assert out.is_error and "executor's runner" in out.content
 
@@ -77,11 +77,11 @@ class TestTheToolbox:
             return {"conditions": [{"id": "a"}]}
 
         box = T.Toolbox([{"name": "read", "handler": {
-            "block": "logits/decision", "params": {"model": "$model"}}}],
+            "block": "logits/read", "params": {"model": "$model"}}}],
             block_runner=runner)
         out = box.call(call("read", prompt="hi"))
         assert not out.is_error
-        assert seen["ref"] == "logits/decision"
+        assert seen["ref"] == "logits/read"
         # The arguments arrive on their own port AND as one record, so
         # an ordinary record block works as a tool unmodified.
         assert seen["inputs"]["arguments"] == {"prompt": "hi"}
@@ -207,7 +207,7 @@ class TestThroughTheExecutor:
 
         monkeypatch.setattr(ex, "_run_model_block", fake_model_block)
         runner = ex._tool_block_runner()
-        out = runner("logits/decision",
+        out = runner("logits/read",
                      {"arguments": {"prompt": "left or right?"},
                       "records": [{"prompt": "left or right?"}]},
                      {"model": "google/gemma-3-4b-it"})

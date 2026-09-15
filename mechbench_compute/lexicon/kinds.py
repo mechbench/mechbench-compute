@@ -79,8 +79,8 @@ CONDITION = Kind(
     renderer=_TABLE_RENDERER,
     doc="Every model-running op renders a condition the same way: `system` and `user` through the model's chat "
         "template as one user turn, the assistant's turn begun with `prefill`, so the decision point — where "
-        "`logits/decision` reads — is the first token after the prefill, and every capture, sweep and lens can "
-        "read there too. `records/template` writes conditions from a design; a record carrying only `text` or "
+        "`logits/read` reads — is the first token after the prefill, and every capture, sweep and lens can "
+        "read there too. `records/fill` writes conditions from a design; a record carrying only `text` or "
         "`prompt` is tokenized raw instead, as is one that says `template: false`.",
 )
 
@@ -109,8 +109,8 @@ TABLE = Kind(
     required=("columns", "rows"),
     renderer={"primitive": "table", "field_map": {"rows": "rows"}},
     doc="A table is for reading, not for further computation: its rows are plain objects typed by `columns`, "
-        "not items of a kind, so nothing downstream reads a table but a chart and a person. `records/table` "
-        "makes one from any collection (coordinates become the leading columns), and `records/stats` emits one "
+        "not items of a kind, so nothing downstream reads a table but a chart and a person. `records/tabulate` "
+        "makes one from any collection (coordinates become the leading columns), and `records/summarize` emits one "
         "directly.",
 )
 
@@ -171,7 +171,7 @@ DOCUMENT = Kind(
     doc="What `text/generate` and `text/chat` write, one per completion. The collection's `fidelity` says how "
         "much was kept: `text` alone, `segments` (which spans are prompt and which are body), or `trace` (the "
         "token ids and offsets, which `text/score` and a positions trajectory need). A document is a record, so a "
-        "corpus flows into `text/stats`, `records/select` and `activations/vectors` unchanged.",
+        "corpus flows into `text/measure`, `records/select` and `activations/capture` unchanged.",
 )
 
 TRANSCRIPT = Kind(
@@ -189,7 +189,7 @@ TRANSCRIPT = Kind(
     header={"name": "A label for the collection.", "description": "Free text beside the name.",
             "spend": "What the run bought from providers."},
     renderer={"primitive": "chat", "field_map": {"messages": "messages"}},
-    doc="What `text/conversation` writes: every message in order, each naming the participant who said it and "
+    doc="What `text/converse` writes: every message in order, each naming the participant who said it and "
         "the role each side saw it as, with any tool calls it made. `stopped` records why the conversation ended "
         "— the turn cap, or a stop phrase — so a transcript that ended early says so itself.",
 )
@@ -281,7 +281,7 @@ DECISION = Kind(
     key=("id",),
     header={"model": "The model read.", "top_k": "How many tokens `top` holds."},
     renderer=_TABLE_RENDERER,
-    doc="What `logits/decision` emits, one per condition, and what `eval/expectation` judges. `tracked` holds "
+    doc="What `logits/read` emits, one per condition, and what `eval/expect` judges. `tracked` holds "
         "each named token by the name the protocol gave it — the op's `tracked` param, or the record's own, "
         "which takes precedence — and the first is the target. `rollout`, when asked for, expands the most "
         "likely complete outcomes past the first token.",
@@ -496,7 +496,7 @@ ABLATION = Kind(
             "conditions": "Per record: `{id, target, baseline_logp}` — the untouched read each delta is against.",
             "aggregates": "`{mean_delta, median_delta}` per layer across records."},
     renderer=_TABLE_RENDERER,
-    doc="What `intervene/layers` emits: one item per (record, layer), the drop in the target's log-probability "
+    doc="What `intervene/ablate-layers` emits: one item per (record, layer), the drop in the target's log-probability "
         "when that layer's sub-layer outputs are zeroed. The baseline each delta is measured against is on the "
         "header, per record, so a delta is never read without the number it is a difference from; a layer the "
         "answer runs through shows as a large negative delta.",
@@ -546,7 +546,7 @@ VOCAB = Kind(
     fields={"space": SPACE, "top_k": F("integer", "How many tokens per sign."),
             "positive": DIST, "negative": DIST},
     required=("space", "positive", "negative"),
-    doc="What `direction/vocab` emits: the direction pushed through the unembedding as if it were a final "
+    doc="What `direction/unembed` emits: the direction pushed through the unembedding as if it were a final "
         "residual, and its negative likewise, each read as a next-token distribution. The tokens the positive "
         "side promotes are what the axis 'says'; the negative side is what it says when reversed. Two "
         "distributions, so the distribution metrics compare a direction's vocabulary with another's.",
@@ -604,7 +604,7 @@ SUMMARY = Kind(
     doc="What `trajectory/aggregate` emits, in one of three shapes the header's `as` names: per step, the mean "
         "coordinate and its standard deviation across the group; over a window, one value per group; or as "
         "vectors, the group's mean vector with the spread of its members around it — the shape "
-        "`direction/from-vectors` reads directly.",
+        "`direction/fit` reads directly.",
 )
 
 # --- adapter ---------------------------------------------------------------------------

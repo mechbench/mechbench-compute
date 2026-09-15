@@ -1,4 +1,4 @@
-"""`text/conversation` — topologies as data (task 000339,
+"""`text/converse` — topologies as data (task 000339,
 epic 000334).
 
 Two models talking to each other is not a special mode of the chat
@@ -546,7 +546,7 @@ def _transcript_item(cid: str, rec: Mapping[str, Any], participants,
                      default_perspective: str,
                      overrides: Mapping[str, Any]) -> dict[str, Any]:
     """One conversation as a document item: `turns` for the chat
-    renderer, `text` so text/stats works unchanged, and the full
+    renderer, `text` so text/measure works unchanged, and the full
     transcript (with per-message provenance) in metadata."""
     visible = [m for m in history if m.channel == MAIN]
     return {

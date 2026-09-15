@@ -1,5 +1,5 @@
 """Metrics on kinds: a kind declares how its items compare, and
-`geometry/similarity` + `geometry/mst` stand over anything that does."""
+`geometry/compare` + `geometry/span` stand over anything that does."""
 
 from __future__ import annotations
 
@@ -132,12 +132,12 @@ class TestTheOps:
         design = PURE_BLOCKS["records/cross"]({}, {"factors": [
             {"name": "genre", "levels": [{"key": "noir"}, {"key": "fable"}]},
             {"name": "seed", "levels": [{"key": "1"}, {"key": "2"}, {"key": "3"}]}]})
-        sim = PURE_BLOCKS["geometry/similarity"]({"items": design}, {"axis": "genre"})
+        sim = PURE_BLOCKS["geometry/compare"]({"items": design}, {"axis": "genre"})
         assert sim["metric"] == "hamming" and sim["metric_kind"] == "distance"
         item = sim["items"][0]
         assert item["group"] == "all" and len(item["ids"]) == 6
         assert item["separation"]["intra"] == 1.0 and item["separation"]["inter"] > 1.0
-        tree = PURE_BLOCKS["geometry/mst"]({"similarity": sim}, {"bridge_sigma": 0.5})
+        tree = PURE_BLOCKS["geometry/span"]({"similarity": sim}, {"bridge_sigma": 0.5})
         t = tree["items"][0]
         assert tree["metric"] == "hamming" and tree["over"] == "records/record"
         assert t["n"] == 6 and t["max"] == 1.0
@@ -157,14 +157,14 @@ class TestTheOps:
         union = PURE_BLOCKS["records/union"](ports, {})
         assert union["item_kind"] == "activations/vector"
         assert sorted(it["id"] for it in union["items"]) == sorted(ports)
-        sim = PURE_BLOCKS["geometry/similarity"]({"items": union}, {"axis": "batch"})
+        sim = PURE_BLOCKS["geometry/compare"]({"items": union}, {"axis": "batch"})
         item = sim["items"][0]
         assert item["group"] == "layer=12" and len(item["ids"]) == 8
         by = {(p["a"], p["b"]): p["value"] for p in item["pairs"]}
         assert by[("die", "letters")] > 0.99
         assert by[("die", "joint4")] < 0.1
         assert item["pairs"][0]["value"] >= item["pairs"][-1]["value"]
-        tree = PURE_BLOCKS["geometry/mst"]({"similarity": sim}, {})["items"][0]
+        tree = PURE_BLOCKS["geometry/span"]({"similarity": sim}, {})["items"][0]
         # Six near-identical axes and two strangers: the longest edges
         # are the bridges to the joints.
         assert tree["n"] == 8 and tree["bridges"] >= 1
@@ -175,20 +175,20 @@ class TestTheOps:
         reads = [read(f"a{i}", {"x": 0.8 - i * 0.02, "y": 0.2 + i * 0.02}, family="a") for i in range(4)]
         reads += [read(f"b{i}", {"x": 0.2 + i * 0.02, "y": 0.8 - i * 0.02}, family="b") for i in range(4)]
         coll = K.collection("logits/decision", reads, top_k=2)
-        sim = PURE_BLOCKS["geometry/similarity"]({"items": coll}, {"axis": "family", "by": None})
+        sim = PURE_BLOCKS["geometry/compare"]({"items": coll}, {"axis": "family", "by": None})
         assert sim["metric"] == "jensen-shannon" and sim["over"] == "logits/decision"
         item = sim["items"][0]
         assert item["nn_purity"] == 1.0 and item["separation"]["gap"] > 0
-        tree = PURE_BLOCKS["geometry/mst"]({"similarity": sim}, {"bridge_sigma": 1.0})["items"][0]
+        tree = PURE_BLOCKS["geometry/span"]({"similarity": sim}, {"bridge_sigma": 1.0})["items"][0]
         assert tree["components_after_cut"] == 2
 
     def test_a_kl_tree_is_refused_naming_the_asymmetry(self):
         reads = [read("a", {"x": 0.7, "y": 0.3}), read("b", {"x": 0.3, "y": 0.7})]
-        sim = PURE_BLOCKS["geometry/similarity"](
+        sim = PURE_BLOCKS["geometry/compare"](
             {"items": K.collection("logits/decision", reads)}, {"metric": "kl", "by": None})
         assert sim["symmetric"] is False
         with pytest.raises(ValueError, match="symmetric"):
-            PURE_BLOCKS["geometry/mst"]({"similarity": sim}, {})
+            PURE_BLOCKS["geometry/span"]({"similarity": sim}, {})
 
     def test_grouping_by_a_coordinate(self):
         # A funnel's items are one read per (record, layer): compare the
@@ -200,7 +200,7 @@ class TestTheOps:
                 r["layer"] = layer
                 items.append(r)
         coll = K.collection("logits/funnel", items)
-        sim = PURE_BLOCKS["geometry/similarity"]({"items": coll}, {"by": "layer"})
+        sim = PURE_BLOCKS["geometry/compare"]({"items": coll}, {"by": "layer"})
         assert [it["group"] for it in sim["items"]] == ["layer=3", "layer=7"]
         assert all(len(it["ids"]) == 3 for it in sim["items"])
 
@@ -208,6 +208,6 @@ class TestTheOps:
         from mechbench_compute import lexicon
         from mechbench_compute.block_params import check_inputs
 
-        assert lexicon.resolve("direction/similarity", warn=False) == "geometry/similarity"
+        assert lexicon.resolve("direction/similarity", warn=False) == "geometry/compare"
         with pytest.raises(ValueError, match="no input port 'a'.*items"):
             check_inputs("direction/similarity", {"a": direction("a", [1, 0, 0])})

@@ -9,7 +9,7 @@ the network answers:
 
 That is the point of the endpoint ModelRef. A protocol that compares a
 local fine-tune against a frontier model is one graph with two chat
-nodes, not two systems, and everything downstream — text/stats,
+nodes, not two systems, and everything downstream — text/measure,
 group-stats, eval — reads the same document collection either way.
 
 What differs is what the run can promise. Local sampling is

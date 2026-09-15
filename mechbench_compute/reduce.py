@@ -34,14 +34,14 @@ ALGEBRAS = ("collect", "monoid", "ordered")
 #: whole record lists today). Generators (factor-cross, grid, template)
 #: are not reduces and are listed for completeness.
 REDUCE_ALGEBRA: dict[str, str] = {
-    "records/stats": "monoid",
+    "records/summarize": "monoid",
     "records/union": "collect",
     "records/select": "collect",
-    "records/delta": "collect",
-    "records/table": "collect",
-    "text/stats": "collect",
-    "eval/expectation": "collect",
-    "geometry/similarity": "collect",
+    "records/subtract": "collect",
+    "records/tabulate": "collect",
+    "text/measure": "collect",
+    "eval/expect": "collect",
+    "geometry/compare": "collect",
 }
 
 
@@ -219,10 +219,10 @@ class GroupStats(Monoid):
 
 
 MONOIDS: dict[str, Callable[[], Monoid]] = {
-    "records/stats": GroupStats,
-    "records/sum": FloatSum,
-    "records/top-k": TopK,
-    "records/histogram": Histogram,
+    "records/summarize": GroupStats,
+    "records/total": FloatSum,
+    "records/rank": TopK,
+    "records/bin": Histogram,
 }
 
 
@@ -275,9 +275,9 @@ def _block_of(name: str):
 
 
 PURE_REDUCE_BLOCKS = {
-    "records/sum": _block_of("records/sum"),
-    "records/top-k": _block_of("records/top-k"),
-    "records/histogram": _block_of("records/histogram"),
+    "records/total": _block_of("records/total"),
+    "records/rank": _block_of("records/rank"),
+    "records/bin": _block_of("records/bin"),
 }
 for _b in PURE_REDUCE_BLOCKS:
     REDUCE_ALGEBRA[_b] = "monoid"

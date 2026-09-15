@@ -78,7 +78,7 @@ class TestResolve:
     def test_warn_false_is_silent(self):
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            assert resolve("decision-read", warn=False) == "logits/decision"
+            assert resolve("decision-read", warn=False) == "logits/read"
 
     def test_an_unknown_or_user_op_is_refused_by_name(self):
         for s in ("benji/eval-creativity/ops/marcus-zoo-stats-v1", "records/selekt", "", "records"):
@@ -140,14 +140,14 @@ class TestTheResumeAndReduceLookupsAcceptAnySpelling:
     def test_resume_level_by_old_name(self):
         from mechbench_compute.resume import item_resumable, resume_level
         assert resume_level("~canonical/ops/generate/1") == resume_level("text/generate")
-        assert item_resumable("decision-read") == item_resumable("logits/decision") is True
+        assert item_resumable("decision-read") == item_resumable("logits/read") is True
 
     def test_reduce_algebra_by_old_name(self):
         from mechbench_compute.reduce import algebra
-        assert algebra("group-stats") == algebra("records/stats") == "monoid"
+        assert algebra("group-stats") == algebra("records/summarize") == "monoid"
 
     def test_check_params_by_old_name(self):
         from mechbench_compute.block_params import check_params
         check_params("~canonical/ops/decision-read/1", {"tracked": {"a": "a"}})
-        with pytest.raises(ValueError, match="logits/decision"):
+        with pytest.raises(ValueError, match="logits/read"):
             check_params("~canonical/ops/decision-read/1", {"nope": 1})

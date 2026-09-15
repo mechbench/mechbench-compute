@@ -81,53 +81,86 @@ BY_NAME: dict[str, Op] = {op.name: op for op in OPS}
 ALIASES: dict[str, str] = {
     "factor-cross": "records/cross",
     "grid": "records/cross",
-    "template": "records/template",
+    "template": "records/fill",
     "select": "records/select",
     "union": "records/union",
-    "paired-delta": "records/delta",
-    "group-stats": "records/stats",
-    "reduce/sum": "records/sum",
-    "reduce/top-k": "records/top-k",
-    "reduce/histogram": "records/histogram",
-    "table/from-records": "records/table",
-    "viz/spec": "records/chart",
+    "paired-delta": "records/subtract",
+    "group-stats": "records/summarize",
+    "reduce/sum": "records/total",
+    "reduce/top-k": "records/rank",
+    "reduce/histogram": "records/bin",
+    "table/from-records": "records/tabulate",
+    "viz/spec": "records/plot",
     "generate": "text/generate",
     "chat": "text/chat",
-    "conversation": "text/conversation",
+    "conversation": "text/converse",
     "score": "text/score",
     "tokenize/stats": "text/tokenize",
     "judge": "eval/judge",
-    "eval/hf-metric": "eval/metric",
-    "decision-read": "logits/decision",
-    "lens/positions": "logits/lens",
-    "lens-trajectory": "logits/funnel",
-    "attribution/logits": "logits/attribution",
-    "residuals/vectors": "activations/vectors",
-    "residuals/divergence": "activations/divergence",
-    "attention/patterns": "activations/attention",
-    "vectors/similarity": "geometry/similarity",
-    "vectors/mst": "geometry/mst",
+    "eval/hf-metric": "eval/score",
+    "decision-read": "logits/read",
+    "lens/positions": "logits/scan",
+    "lens-trajectory": "logits/read-layers",
+    "attribution/logits": "logits/attribute",
+    "residuals/vectors": "activations/capture",
+    "residuals/divergence": "activations/contrast",
+    "attention/patterns": "activations/capture-attention",
+    "vectors/similarity": "geometry/compare",
+    "vectors/mst": "geometry/span",
     "intervene": "intervene/apply",
-    "ablate/layers": "intervene/layers",
-    "ablate/heads": "intervene/heads",
+    "ablate/layers": "intervene/ablate-layers",
+    "ablate/heads": "intervene/ablate-heads",
     "steer/inject": "intervene/steer",
-    "patch/trace": "intervene/trace",
+    "patch/trace": "intervene/patch",
     "finetune/lora": "adapter/train",
     "merge": "adapter/merge",
     "hf/push-adapter": "adapter/publish",
     "tools/bench-lookup": "tools/lookup",
     # Retired 2026-09-15 (metrics on kinds): a cosine between directions
-    # is `geometry/similarity` over a collection of them — `records/union`
+    # is `geometry/compare` over a collection of them — `records/union`
     # the directions first. The alias lands the protocol on the new op,
     # whose port check then names the port to wire.
-    "direction/similarity": "geometry/similarity",
+    "direction/similarity": "geometry/compare",
+    # Retired 2026-09-16: operations are verbs. The twenty-eight names
+    # below — fifteen of them the names of the kinds they emit — became
+    # imperatives; the kinds keep the nouns.
+    "records/template": "records/fill",
+    "records/delta": "records/subtract",
+    "records/stats": "records/summarize",
+    "records/top-k": "records/rank",
+    "records/histogram": "records/bin",
+    "records/table": "records/tabulate",
+    "records/sum": "records/total",
+    "records/chart": "records/plot",
+    "text/conversation": "text/converse",
+    "text/stats": "text/measure",
+    "eval/expectation": "eval/expect",
+    "eval/metric": "eval/score",
+    "eval/suite": "eval/benchmark",
+    "logits/decision": "logits/read",
+    "logits/funnel": "logits/read-layers",
+    "logits/lens": "logits/scan",
+    "logits/attribution": "logits/attribute",
+    "activations/vectors": "activations/capture",
+    "activations/divergence": "activations/contrast",
+    "activations/attention": "activations/capture-attention",
+    "geometry/similarity": "geometry/compare",
+    "geometry/mst": "geometry/span",
+    "intervene/layers": "intervene/ablate-layers",
+    "intervene/heads": "intervene/ablate-heads",
+    "intervene/trace": "intervene/patch",
+    "direction/from-vectors": "direction/fit",
+    "direction/from-pca": "direction/decompose",
+    "direction/vocab": "direction/unembed",
 }
 
-#: The compute release that drops the aliases. Named 0.77.0 when they
-#: were introduced (0.75.0); moved to 0.80.0 in 0.77.0 because the
-#: protocols stored on the bench still spell the old names and their
-#: migration is a scheduled task, not a side effect of a release.
-ALIASES_REMOVED_IN = "0.80.0"
+#: The compute release that drops the aliases — both tables, the
+#: 2026-09-14 family renames and the 2026-09-16 verbs. Named 0.77.0
+#: when the first table was introduced (0.75.0); moved to 0.80.0 in
+#: 0.77.0 because the protocols stored on the bench still spell the old
+#: names and their migration is a scheduled task; moved to 0.82.0 in
+#: 0.80.0 so one release removes both.
+ALIASES_REMOVED_IN = "0.82.0"
 
 _VERSION_TAIL = re.compile(r"/\d+$")
 _warned: set[str] = set()

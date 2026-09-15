@@ -25,10 +25,10 @@ def _leaves(n=60, seed=0):
 
 class TestMonoidLaws:
     @pytest.mark.parametrize("block,params", [
-        ("records/stats", {"by": ["g"], "value": "delta"}),
-        ("records/sum", {"value": "delta"}),
-        ("records/top-k", {"value": "score", "k": 5}),
-        ("records/histogram", {"value": "delta", "lo": -5, "hi": 5, "bins": 10}),
+        ("records/summarize", {"by": ["g"], "value": "delta"}),
+        ("records/total", {"value": "delta"}),
+        ("records/rank", {"value": "score", "k": 5}),
+        ("records/bin", {"value": "delta", "lo": -5, "hi": 5, "bins": 10}),
     ])
     def test_identity_and_associativity(self, block, params):
         m = rd.monoid_for(block, params)
@@ -41,9 +41,9 @@ class TestMonoidLaws:
     def test_group_stats_monoid_equals_the_flat_block_exactly(self):
         leaves = _leaves(200, seed=3)
         params = {"by": ["g"], "value": "delta"}
-        flat = PURE_BLOCKS["records/stats"]({"records": leaves}, params)
+        flat = PURE_BLOCKS["records/summarize"]({"records": leaves}, params)
         chunks = [leaves[i:i + 37] for i in range(0, len(leaves), 37)]
-        chunked = rd.reduce_chunks("records/stats", chunks, params)
+        chunked = rd.reduce_chunks("records/summarize", chunks, params)
         # rows compare as sets (the flat block's group order is insertion order)
         def key(r):
             return r["g"]
@@ -67,12 +67,12 @@ class TestMonoidLaws:
 
 class TestHarness:
     @pytest.mark.parametrize("block,params", [
-        ("records/stats", {"by": ["g"], "value": "delta"}),
-        ("records/sum", {"value": "delta"}),
-        ("records/top-k", {"value": "score", "k": 7}),
-        ("records/histogram", {"value": "delta", "lo": -5, "hi": 5, "bins": 8}),
+        ("records/summarize", {"by": ["g"], "value": "delta"}),
+        ("records/total", {"value": "delta"}),
+        ("records/rank", {"value": "score", "k": 7}),
+        ("records/bin", {"value": "delta", "lo": -5, "hi": 5, "bins": 8}),
         ("records/select", {"where": {"g": "a"}}),
-        ("records/table", {"columns": ["id", "delta"]}),
+        ("records/tabulate", {"columns": ["id", "delta"]}),
     ])
     def test_random_nested_partitions_reduce_to_the_flat_result(self, block, params):
         report = iso.check(block, _leaves(120, seed=5), params, trials=25, seed=11)
@@ -88,13 +88,13 @@ class TestHarness:
             def merge(self, a, b):  # drops a value: not a monoid
                 return tuple(sorted((a + b)[:-1])) if len(a + b) > 3 else tuple(sorted(a + b))
 
-        monkeypatch.setitem(rd.MONOIDS, "records/sum", Bad)
+        monkeypatch.setitem(rd.MONOIDS, "records/total", Bad)
         with pytest.raises(AssertionError):
-            iso.check("records/sum", _leaves(40), {"value": "delta"}, trials=10)
+            iso.check("records/total", _leaves(40), {"value": "delta"}, trials=10)
 
     def test_fsum_makes_float_sums_partition_independent(self):
         leaves = [{"id": str(i), "v": (0.1 * i) ** 3 * (-1) ** i} for i in range(500)]
-        report = iso.check("records/sum", leaves, {"value": "v"}, trials=30)
+        report = iso.check("records/total", leaves, {"value": "v"}, trials=30)
         assert report["exact"] is True
 
 
@@ -139,29 +139,29 @@ def _template_leaves(n=25, seed=8):
 #: `test_every_pure_block_is_classified` fails: the catalog stays
 #: covered by construction (task 000407, "CI over the whole catalog").
 CATALOG: dict[str, dict] = {
-    "records/stats": {
+    "records/summarize": {
         "leaves": _leaves(120, seed=5), "params": {"by": ["g"], "value": "delta"}},
-    "records/sum": {
+    "records/total": {
         "leaves": _leaves(120, seed=5), "params": {"value": "delta"}},
-    "records/top-k": {
+    "records/rank": {
         "leaves": _leaves(120, seed=5), "params": {"value": "score", "k": 7}},
-    "records/histogram": {
+    "records/bin": {
         "leaves": _leaves(120, seed=5),
         "params": {"value": "delta", "lo": -5, "hi": 5, "bins": 8}},
     "records/select": {
         "leaves": _leaves(120, seed=5), "params": {"where": {"g": ["a", "b"]}}},
     "records/rename": {
         "leaves": _leaves(120, seed=5), "params": {"fields": {"v": "value"}}},
-    "records/table": {
+    "records/tabulate": {
         "leaves": _leaves(120, seed=5), "params": {"name": "leaves"}},
-    "records/template": {
+    "records/fill": {
         "leaves": _template_leaves(),
         "params": {"templates": {"prompt": "a {g} of {n}"}}},
-    "records/delta": {
+    "records/subtract": {
         "leaves": _paired_leaves(),
         "params": {"match_on": ["item"], "baseline_where": {"arm": "base"},
                    "value": "delta"}},
-    "text/stats": {
+    "text/measure": {
         "leaves": _text_leaves(),
         "params": {"field": "text", "mode": "corpus", "measures": [
             {"kind": "lexical", "name": "lex"},
@@ -169,7 +169,7 @@ CATALOG: dict[str, dict] = {
     "records/union": {
         "leaves": _leaves(60, seed=9), "port": "a",
         "inputs": {"b": _leaves(20, seed=10)}, "params": {}},
-    "eval/expectation": {
+    "eval/expect": {
         "leaves": _decision_leaves(), "port": "results",
         "inputs": {"expectations": [
             {"id": f"d{i}", "expect": {"kind": "answer", "value": "left",
@@ -183,9 +183,9 @@ CATALOG: dict[str, dict] = {
 NOT_LEAF_STREAM: dict[str, str] = {
     "records/cross": "generator: builds leaves from params, consumes none",
     "records/cross": "generator (factor-cross alias)",
-    "geometry/similarity":
+    "geometry/compare":
         "one collection compared under a metric; its items are not bench leaves",
-    "geometry/mst":
+    "geometry/span":
         "one similarity collection, not a leaf stream",
     "tools/calc":
         "a tool handler: its input is one call's arguments, not a leaf stream",
@@ -193,7 +193,7 @@ NOT_LEAF_STREAM: dict[str, str] = {
         "a tool handler: its input is one call's arguments, not a leaf stream",
     **{f"direction/{n}":
        "residual_vectors / direction records, not a leaf stream"
-       for n in ("from-vectors", "from-pca", "add", "average", "orthogonalize",
+       for n in ("fit", "decompose", "add", "average", "orthogonalize",
                  "normalize", "project")},
     # Trajectory readouts (task 000368) read ONE trajectory record —
     # rows are (item, step) points along an axis, not bench leaves —

@@ -73,7 +73,7 @@ def _gen_spec(n=3):
                  {"id": "flash", "user": "Write a story."},
                  {"id": "neutral", "user": "Write another."},
              ]}},
-            {"id": "stats", "block": "text/stats",
+            {"id": "stats", "block": "text/measure",
              "params": {"measures": [{"kind": "lexical", "name": "lex"}],
                         "mode": "annotate"}},
         ],
@@ -401,7 +401,7 @@ class TestLevels:
         assert rm.resume_level("adapter/train") == "state-restorable"
         assert rm.resume_level("nothing/here") == "restart"
         assert rm.item_resumable("text/generate")
-        assert not rm.item_resumable("text/stats")
+        assert not rm.item_resumable("text/measure")
 
     def test_satisfies(self):
         assert rm.satisfies("reproducible", "reproducible")

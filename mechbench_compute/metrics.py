@@ -4,8 +4,8 @@ one function that applies one to a collection.
 A metric is declared on the kind it compares — `cosine` on
 `activations/vector`, `jensen-shannon` on `logits/distribution`,
 `hamming` on `records/record` — and a subtype inherits its ancestor's.
-`geometry/similarity` asks this module for the pairwise matrix of a
-collection under a named metric; `geometry/mst` turns that matrix into
+`geometry/compare` asks this module for the pairwise matrix of a
+collection under a named metric; `geometry/span` turns that matrix into
 a tree. So "mst over anything comparable" is one op over any kind that
 declares how its items compare.
 

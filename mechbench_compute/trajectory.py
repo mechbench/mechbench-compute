@@ -23,7 +23,7 @@ A trajectory is a collection of `trajectory/point` — vector items
                           norm ratio, and the divergence step.
     trajectory/aggregate  group rows and reduce: mean trajectory + spread
                           per step; or a windowed mean per group emitted
-                          as `residual_vectors`, so `direction/from-vectors`
+                          as `residual_vectors`, so `direction/fit`
                           reads it unchanged (014's outcome axis is
                           "lighthouse-story mean minus other-story mean
                           over tokens 5..30" — exactly that).
@@ -444,7 +444,7 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                  story, with by: "id"); vectors → mean vector.
              "vectors": one `residual_vectors` row per group (mean over
                  items and steps in the window), labelled by the group —
-                 what `direction/from-vectors` reads, so an outcome axis
+                 what `direction/fit` reads, so an outcome axis
                  is this block followed by that one.
     """
     traj = _trajectory_of(inputs.get("trajectory"),
@@ -522,8 +522,8 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
         else:
             m = np.mean(np.stack(vals), axis=0)
             # The group goes out as a string coordinate on the `by` axis:
-            # `direction/from-vectors` names its groups as strings, and a
-            # text/stats hit arrives as the integer 1/0.
+            # `direction/fit` names its groups as strings, and a
+            # text/measure hit arrives as the integer 1/0.
             out_rows.append(S.vector(m, first_space, id=str(g), coords={by: str(g)},
                                      n_pooled=len(vals)))
     from mechbench_compute.lexicon import kinds as K

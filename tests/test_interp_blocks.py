@@ -188,7 +188,7 @@ class TestAblateLayers:
     def test_a_sweep_at_a_prefilled_decision_point_reads_where_a_decision_read_does(self):
         """One rendering, two ops, one number: the sweep's baseline log-prob
         for a prefilled condition is the last-position log-prob of the same
-        rendering — what `logits/decision` reports for that condition."""
+        rendering — what `logits/read` reports for that condition."""
         from mechbench_compute.distill import render
         from mechbench_compute.interp import _last_logp
 

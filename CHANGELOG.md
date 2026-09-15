@@ -13,6 +13,66 @@ nothing said so.
 
 ---
 
+## 0.80.0 — 2026-09-16
+
+### Changes that raise
+
+Nothing new raises in this release: every retired spelling below
+resolves with a `RetiredOpName` warning, as the family renames did.
+**The removal of both alias tables moves to 0.82.0** (it was 0.80.0 for
+the first), so one release drops the 2026-09-14 family names and the
+2026-09-16 nouns together, after the protocols stored on the bench have
+been migrated.
+
+### Changes that alter results without raising
+
+- **Twenty-eight operations are renamed; every node fingerprint of
+  theirs changes.** The fingerprint hashes the stored identity, so a
+  protocol that names any of these starts its cached and resumed work
+  over on the next run. Numbers do not change; provenance `operation`
+  fields do.
+
+### Other
+
+- **Operations are verbs.** An operation's leaf is now an imperative
+  and a kind's a noun, so the two vocabularies never meet on a name:
+  `logits/read` emits a `logits/decision`, `records/tabulate` a
+  `records/table`, `geometry/compare` a `geometry/similarity`. Before
+  this, fifteen operations carried the name of the kind they emitted and
+  the documentation site listed `activations/attention` twice. A test
+  holds the rule (no operation name is a kind name). The renames, old →
+  new — the kinds keep every noun:
+
+  | records | text | eval |
+  |---|---|---|
+  | `template` → `fill` | `conversation` → `converse` | `expectation` → `expect` |
+  | `delta` → `subtract` | `stats` → `measure` | `metric` → `score` |
+  | `stats` → `summarize` | | `suite` → `benchmark` |
+  | `top-k` → `rank` | | |
+  | `histogram` → `bin` | | |
+  | `table` → `tabulate` | | |
+  | `sum` → `total` | | |
+  | `chart` → `plot` | | |
+
+  | logits | activations | geometry |
+  |---|---|---|
+  | `decision` → `read` | `vectors` → `capture` | `similarity` → `compare` |
+  | `funnel` → `read-layers` | `divergence` → `contrast` | `mst` → `span` |
+  | `lens` → `scan` | `attention` → `capture-attention` | |
+  | `attribution` → `attribute` | | |
+
+  | intervene | direction |
+  |---|---|
+  | `layers` → `ablate-layers` | `from-vectors` → `fit` |
+  | `heads` → `ablate-heads` | `from-pca` → `decompose` |
+  | `trace` → `patch` | `vocab` → `unembed` |
+
+  `sum`, `chart` and `trace` were verbs already but the names of the
+  kinds they emit; the other twenty-five were verbs and stay
+  (`generate`, `select`, `train`, `steer`, `capture`, `project`, …).
+  The earlier alias table's targets point at the new names, so
+  `decision-read` resolves to `logits/read` in one step.
+
 ## 0.79.0 — 2026-09-15
 
 ### Changes that raise

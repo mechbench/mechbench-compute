@@ -13,7 +13,7 @@ A selector names token positions of a rendered sequence:
     "generated"             from where generation began — the trace's span,
                             else the end of the rendered prompt
 
-A single-position parameter (`position` on `activations/vectors`,
+A single-position parameter (`position` on `activations/capture`,
 `intervene/steer`, a capture readout) takes the same selector and must
 resolve to exactly one position.
 

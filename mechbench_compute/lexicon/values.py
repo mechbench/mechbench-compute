@@ -222,7 +222,7 @@ A selector names positions of a rendered sequence:
 | `"subject"` | the last token of the record's `subject` string |
 | `"generated"` | from where generation began — the trace's span, or the end of the rendered prompt |
 
-A parameter that reads one position (`position` on `activations/vectors`,
+A parameter that reads one position (`position` on `activations/capture`,
 on `intervene/steer`, on a capture readout) takes the same selector and
 must resolve to exactly one; a selector that names several there is
 refused with the count. A selector that names nothing — a token text the
@@ -294,9 +294,9 @@ points inside a block are read per head where the tensor has heads
 `attn.per_head_out`) and a `space` read there carries the head. The three
 whole-model points occur once per pass and take no `layers`.
 
-An op that reads a residual stream (`activations/vectors`, `trajectory/
-capture`, `activations/divergence`) takes only the two residual points.
-`intervene/layers` zeroes sub-layer outputs — `attn_out`, `mlp_out`,
+An op that reads a residual stream (`activations/capture`, `trajectory/
+capture`, `activations/contrast`) takes only the two residual points.
+`intervene/ablate-layers` zeroes sub-layer outputs — `attn_out`, `mlp_out`,
 `gate_out`, both of the first two by default, which removes the whole
 layer's contribution. `intervene/apply` edits at any point.
 """,

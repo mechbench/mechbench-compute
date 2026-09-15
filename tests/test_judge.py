@@ -158,7 +158,7 @@ class TestTheBlock:
         from mechbench_compute.blocks import PURE_BLOCKS
 
         out = judged('{"score": 3}')
-        stats = PURE_BLOCKS["records/stats"](
+        stats = PURE_BLOCKS["records/summarize"](
             {"records": out}, {"by": ["arm"], "value": "score"})
         assert stats["kind"] == "records/table"
         assert {r["arm"] for r in stats["rows"]} == {"base", "tuned"}

@@ -1,4 +1,4 @@
-"""`text/conversation` (task 000339): the perspective map,
+"""`text/converse` (task 000339): the perspective map,
 turn policies, windows, and the two acceptance topologies — a
 cross-wired pair and a three-model group chat.
 
@@ -111,10 +111,10 @@ class TestTheCrossWiredPair:
         from mechbench_compute.blocks import PURE_BLOCKS
 
         out = run()
-        stats = PURE_BLOCKS["text/stats"](
+        stats = PURE_BLOCKS["text/measure"](
             {"records": out},
             {"field": "text", "measures": [{"kind": "lexical", "name": "lex"}]})
-        # text/stats works unchanged on transcripts (task 000339).
+        # text/measure works unchanged on transcripts (task 000339).
         assert stats["items"][0]["lex_words"] > 0
 
     def test_one_conversation_per_input_record(self):
@@ -270,17 +270,17 @@ class TestBudgetAndResume:
         # The participants are the node's inline inputs; by edge, the
         # level cannot be known before the run and the weakest is assumed.
         assert resume_mod.resume_level(
-            "text/conversation", {}, remote) == "exchangeable"
+            "text/converse", {}, remote) == "exchangeable"
         assert resume_mod.resume_level(
-            "text/conversation", {}, local) == "state-restorable"
+            "text/converse", {}, local) == "state-restorable"
         assert resume_mod.resume_level(
-            "text/conversation", {}, {}) == "exchangeable"
+            "text/converse", {}, {}) == "exchangeable"
 
 
 class TestThroughTheExecutor:
     def test_a_conversation_node_runs_end_to_end(self):
         graph = {"nodes": [{
-            "id": "talk", "block": "text/conversation",
+            "id": "talk", "block": "text/converse",
             "params": {
                 "opening": ["Hello."],
                 "turns": {"policy": "round_robin", "max_turns": 4},
@@ -315,7 +315,7 @@ class TestThroughTheExecutor:
         ex = ProtocolExecutor()
         monkeypatch.setattr(ex, "_model_loaded", lambda *_a, **_k: FakeModel())
         graph = {"nodes": [{
-            "id": "talk", "block": "text/conversation",
+            "id": "talk", "block": "text/converse",
             "params": {
                 "opening": ["Hello."],
                 "turns": {"policy": "round_robin", "max_turns": 2},

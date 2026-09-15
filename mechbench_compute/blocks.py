@@ -211,7 +211,7 @@ def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Filter records by equality; optionally project fields.
     where: {key: value | [values]} — a key is read from `coords` when it
     is a coord, and from the record itself otherwise, so a field that
-    `text/stats` `annotate` wrote (a pattern hit is a field, not a
+    `text/measure` `annotate` wrote (a pattern hit is a field, not a
     coord) filters too (task 000368). fields: [names] keeps id+coords
     plus the named fields."""
     recs = _items(records)
@@ -334,7 +334,7 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
 
     A union of vector collections stays a vector collection (task
     000368): a base capture and an adapted capture come from two model
-    nodes, and `direction/from-vectors` reads ONE collection whose items
+    nodes, and `direction/fit` reads ONE collection whose items
     are grouped on a coordinate — the port name, on the `batch_axis`
     coordinate, is that grouping. Every item carries its own `space`, so
     the header carries no union of layers. Cross-model comparison is a
@@ -347,7 +347,7 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
 
     def _as_collection(port: str, value: Any) -> Any:
         # A single kinded object on a port — a direction from
-        # `direction/from-vectors`, say — is a collection of one; it
+        # `direction/fit`, say — is a collection of one; it
         # takes the port's name as its id when it carries none, so the
         # union's items stay distinguishable by key.
         if isinstance(value, Mapping) and K.item_kind_of(value) is None \
@@ -540,7 +540,7 @@ def _words_of(text: str, lowercase: bool, min_length: int) -> list[str]:
 
 def text_stats(inputs: Mapping[str, Any],
                params: Mapping[str, Any]) -> Any:
-    """text/stats — configurable per-text measurements
+    """text/measure — configurable per-text measurements
     over a corpus of records or a document_collection (the generate
     block's output). The measurement layer the story-corpus readouts
     need (meta-leak counts, opening-phrase counts, lexical spread,
@@ -580,7 +580,7 @@ def text_stats(inputs: Mapping[str, Any],
         raw = inputs.get("documents")
     if raw is None:
         raise ValueError(
-            "text/stats needs texts on its `records` or `documents` port")
+            "text/measure needs texts on its `records` or `documents` port")
     recs = _items(raw)
     field = "text"
     measures = params.get("measures") or []
@@ -622,7 +622,7 @@ def text_stats(inputs: Mapping[str, Any],
             table = m.get("frequencies") or freq_input
             if not isinstance(table, Mapping) or not table:
                 raise ValueError(
-                    f"text/stats measure {name!r}: no frequency table "
+                    f"text/measure measure {name!r}: no frequency table "
                     "(inline `frequencies` or a wired frequencies input)")
             lower = bool(m.get("lowercase", True))
             tbl = {str(k).lower() if lower else str(k): float(v)
@@ -633,7 +633,7 @@ def text_stats(inputs: Mapping[str, Any],
                               "lowercase": lower,
                               "min_length": int(m.get("min_length", 1))}))
         else:
-            raise ValueError(f"text/stats: unknown measure kind {kind!r}")
+            raise ValueError(f"text/measure: unknown measure kind {kind!r}")
 
     out = []
     corpus_words: list[str] = []
@@ -698,27 +698,27 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     # `lexicon.ALIASES` like every other retired name.
     "records/cross":
         lambda inputs, params: _coll(factor_cross(params)),
-    "records/template":
+    "records/fill":
         lambda inputs, params: _coll(template(_items(inputs["records"]), params)),
     "records/rename":
         lambda inputs, params: _coll(rename(inputs["records"], params)),
     "records/select":
         lambda inputs, params: _coll(select(inputs["records"], params)),
-    "records/delta":
+    "records/subtract":
         lambda inputs, params: _coll(paired_delta(inputs["records"], params)),
-    "records/stats":
+    "records/summarize":
         lambda inputs, params: group_stats(inputs["records"], params),
-    "records/table":
+    "records/tabulate":
         lambda inputs, params: table_from_records(inputs["records"], params),
     "records/union":
         lambda inputs, params: union(inputs, params),
-    "text/stats":
+    "text/measure":
         lambda inputs, params: _coll(text_stats(inputs, params)),
-    "eval/expectation":
+    "eval/expect":
         lambda inputs, params: eval_expectation(inputs, params),
     # Interp readouts (the mechbench-experiments port): pure numpy over
     # residual_vectors records — no model, no weights.
-    "geometry/similarity":
+    "geometry/compare":
         lambda inputs, params: _geometry_similarity(inputs, params),
 }
 

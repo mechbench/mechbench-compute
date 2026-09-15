@@ -152,7 +152,7 @@ def _distance_of(entry: Mapping[str, Any], header: Mapping[str, Any]) -> np.ndar
 
 
 def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`geometry/mst`: a tree per group of a `geometry/similarity`
+    """`geometry/span`: a tree per group of a `geometry/similarity`
     collection, whatever metric produced it — the metric and its
     options ride along from the similarity's header."""
     bridge_sigma = float(params.get("bridge_sigma", DEFAULT_BRIDGE_SIGMA))
@@ -162,11 +162,11 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     src = inputs.get("similarity")
     if not (isinstance(src, Mapping) and K.item_kind_of(src) == "geometry/similarity"):
         raise ValueError(
-            "geometry/mst needs a collection of geometry/similarity on its "
+            "geometry/span needs a collection of geometry/similarity on its "
             f"`similarity` port — got {type(src).__name__}")
     if src.get("symmetric") is False:
         raise ValueError(
-            f"geometry/mst needs a symmetric metric; {src.get('metric')!r} is not "
+            f"geometry/span needs a symmetric metric; {src.get('metric')!r} is not "
             "(m(a, b) ≠ m(b, a)) — compare by a symmetric one, such as "
             "jensen-shannon")
 
@@ -187,7 +187,7 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
 
     metric = src.get("metric", "cosine")
     options = dict(src.get("options") or {})
-    # One item per group; `records/table` reads the items directly.
+    # One item per group; `records/tabulate` reads the items directly.
     return K.collection(
         "geometry/mst", out_groups,
         name=params.get("name", "mst"),
@@ -205,4 +205,4 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
-PURE_TREE_BLOCKS = {"geometry/mst": mst}
+PURE_TREE_BLOCKS = {"geometry/span": mst}

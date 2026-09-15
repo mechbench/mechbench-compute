@@ -164,7 +164,7 @@ without contacting the provider at all.
 )
 
 CONVERSATION = Op(
-    name="text/conversation",
+    name="text/converse",
     summary=(
         "Run a multi-party conversation between model participants — each "
         "seeing the shared transcript from its own side — under a declared "
@@ -327,7 +327,7 @@ resumability and per-call provenance; a local model is the cheap first test.
 )
 
 EVAL_HF_METRIC = Op(
-    name="eval/metric",
+    name="eval/score",
     summary=(
         "Score prediction and reference fields on a record stream with any "
         "metric from the Hugging Face `evaluate` hub — accuracy, exact "
@@ -337,7 +337,7 @@ EVAL_HF_METRIC = Op(
 The named metric is loaded from the hub and computed over every record's
 `prediction` against its `reference`. Each numeric value the metric
 returns becomes one row, stamped with `variant` so that a base run and an
-adapter run union into one table for `records/delta`. The metric library's
+adapter run union into one table for `records/subtract`. The metric library's
 version is recorded on the table, because metric definitions change across
 releases.
 """,
@@ -364,7 +364,7 @@ releases.
 )
 
 EVAL_SUITE = Op(
-    name="eval/suite",
+    name="eval/benchmark",
     summary=(
         "Run standard benchmark tasks from the lm-evaluation-harness against "
         "the model — through mechbench's own model, so pinned revisions and "
@@ -375,7 +375,7 @@ Each named task is evaluated by the harness with the bound model wrapped as
 its backend, so anything the platform knows how to load — a pinned
 revision, a stacked adapter, a merged checkpoint — is what gets measured.
 Every (task, metric) the harness reports becomes one row, stamped with
-`variant`, ready for `records/union` and `records/delta` against another run.
+`variant`, ready for `records/union` and `records/subtract` against another run.
 
 The harness version is recorded on the table: prompt templates change
 between its releases, so the version is part of the measurement.
@@ -569,7 +569,7 @@ TOOLS_CALC = Op(
     description="""\
 The expression is parsed and refused if it contains anything but numeric
 literals and `+ - * / // % **` (and parentheses): a tool a model can steer
-must not be an evaluator. Offered to a `chat` or `conversation` node by
+must not be an evaluator. Offered to a `chat` or `converse` node by
 naming `"calc"` in its `tools`; the model's call supplies `arguments:
 {expression}`. A tool has no input ports — its arguments come from the
 call.
@@ -593,7 +593,7 @@ TOOLS_BENCH_LOOKUP = Op(
     ),
     description="""\
 Returns the object's payload, or one field of it when the call names a
-`field`. Offered to a `chat` or `conversation` node as `"bench.lookup"`;
+`field`. Offered to a `chat` or `converse` node as `"bench.lookup"`;
 the model's call supplies `arguments: {path, field?}`. Every fetch is
 recorded on the item that made it. A tool has no input ports — its
 arguments come from the call.

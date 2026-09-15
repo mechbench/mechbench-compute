@@ -92,7 +92,7 @@ class TestProducers:
             assert axes[name]["space"]["model"] is None
             assert axes[name]["derivation"]["models"] == [f"fake/{name}", "fake/base"]
         union = PURE_BLOCKS["records/union"](axes, {})
-        sim = PURE_BLOCKS["geometry/similarity"]({"items": union}, {"axis": "batch"})
+        sim = PURE_BLOCKS["geometry/compare"]({"items": union}, {"axis": "batch"})
         assert sim["items"][0]["ids"] == ["die", "letters"]
         assert -1.0 <= sim["items"][0]["matrix"][0][1] <= 1.0
 
@@ -138,11 +138,11 @@ class TestBlocks:
         from mechbench_compute.blocks import PURE_BLOCKS
 
         v = _vectors()
-        fn = PURE_BLOCKS["direction/from-vectors"]
+        fn = PURE_BLOCKS["direction/fit"]
         x = fn({"vectors": v}, {"layer": 3, "positive": "pos", "negative": "neg"})
         assert x["kind"] == "direction/vector"
         pair = PURE_BLOCKS["records/union"]({"a": x, "b": dict(x)}, {})
-        sim = PURE_BLOCKS["geometry/similarity"]({"items": pair}, {})
+        sim = PURE_BLOCKS["geometry/compare"]({"items": pair}, {})
         assert abs(sim["items"][0]["matrix"][0][1] - 1.0) < 1e-6
         avg = PURE_BLOCKS["direction/average"]({"d1": x, "d2": x}, {})
         assert avg["derivation"]["method"] == "average"

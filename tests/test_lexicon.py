@@ -161,6 +161,24 @@ def test_names_are_two_level_bare_and_unique() -> None:
     }
 
 
+def test_operations_are_verbs_and_never_share_a_kinds_name() -> None:
+    """docs/LEXICON.md §1: an operation's leaf is an imperative verb and
+    a kind's is a noun, so the two vocabularies never meet on a name —
+    `logits/read` emits `logits/decision`, `records/tabulate` a
+    `records/table`. The grammar itself is not machine-checkable; its
+    consequence is, and this holds it."""
+    from mechbench_compute.lexicon import kinds as K
+
+    shared = sorted(op.name for op in OPS if op.name in K.BY_KIND)
+    assert shared == [], f"an operation shares a kind's name: {shared}"
+    # The retired noun spellings resolve to the verbs.
+    assert lexicon.resolve("logits/read", warn=False) == "logits/read"
+    assert lexicon.resolve("records/tabulate", warn=False) == "records/tabulate"
+    assert lexicon.resolve("geometry/compare", warn=False) == "geometry/compare"
+    # …and a kind of the same name is untouched.
+    assert "logits/decision" in K.BY_KIND and "records/table" in K.BY_KIND
+
+
 def test_to_dict_is_json_shaped() -> None:
     import json
 

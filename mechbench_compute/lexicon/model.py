@@ -153,7 +153,7 @@ The ops:
 | `project_out` | Remove its component along `direction`. | `direction` |
 | `rotate` | Rotate it by `strength` radians in the plane of `direction` and `direction2`. | `direction`, `direction2` |
 
-The older `intervene/layers` and `intervene/heads` and `intervene/steer` operations are special cases of this
+The older `intervene/ablate-layers` and `intervene/ablate-heads` and `intervene/steer` operations are special cases of this
 grammar.
 """,
     inputs=(
@@ -223,7 +223,7 @@ grammar.
 )
 
 ABLATE_LAYERS = Op(
-    name="intervene/layers",
+    name="intervene/ablate-layers",
     summary=(
         "Remove one layer's contribution at a time and measure how much the "
         "target token's log-probability drops — which layers the answer "
@@ -239,7 +239,7 @@ Zeroing a sub-layer's output leaves the residual stream unchanged by it;
 zeroing both `attn_out` and `mlp_out` — the default — removes the whole
 layer's contribution. Because records render the chat-shaped way, the
 sweep can be taken at a decision point inside an assistant turn (a record
-with a `prefill`), where `logits/decision` reads.
+with a `prefill`), where `logits/read` reads.
 """,
     inputs=(_PROMPTS, ADAPTER),
     emits=Emits('intervene/ablation', collection=True, doc="Per record, one item per layer: `id`, `layer`, `delta_logp`. The header's `conditions` carry each record's untouched read (`{id, target, baseline_logp}`), and `aggregates.mean_delta` / `aggregates.median_delta` are per-layer across all records, in `layers` order."),
@@ -264,14 +264,14 @@ with a `prefill`), where `logits/decision` reads.
 )
 
 ABLATE_HEADS = Op(
-    name="intervene/heads",
+    name="intervene/ablate-heads",
     summary=(
         "Zero one attention head at a time across the chosen layers and "
         "measure the drop in the target token's log-probability — a "
         "layer × head map of which heads the answer runs through."
     ),
     description="""\
-The head-level version of `intervene/layers`. For each record the baseline
+The head-level version of `intervene/ablate-layers`. For each record the baseline
 log-probability of the target is taken once; then every (layer, head) pair in
 turn has that head's output zeroed and the target re-read. The differences
 are averaged over records into one matrix.
@@ -295,7 +295,7 @@ about rather than all of them when the prompt set is large.
 )
 
 ATTENTION_PATTERNS = Op(
-    name="activations/attention",
+    name="activations/capture-attention",
     summary=(
         "Record the attention weights of every head at the named layers — "
         "which earlier tokens each position attends to."
@@ -331,7 +331,7 @@ million values.
 )
 
 ATTRIBUTION_LOGITS = Op(
-    name="logits/attribution",
+    name="logits/attribute",
     summary=(
         "Split the target token's final logit into the additive contribution "
         "of the embedding and of every layer — direct logit attribution, with "
@@ -388,7 +388,7 @@ Because additivity only holds over the whole stream, `layers` must be
 )
 
 PATCH_TRACE = Op(
-    name="intervene/trace",
+    name="intervene/patch",
     summary=(
         "Causal tracing: run a clean and a corrupted prompt, patch the clean "
         "activations into the corrupted run one (layer, position) at a time, "
@@ -440,7 +440,7 @@ reported as errors rather than silently shifted.
 )
 
 RESIDUALS_DIVERGENCE = Op(
-    name="activations/divergence",
+    name="activations/contrast",
     summary=(
         "Run two prompts that differ in one place and measure, at every "
         "(layer, position), how far their residual streams have drifted "
@@ -469,7 +469,7 @@ Unequal-length pairs are reported as errors, not aligned by guesswork.
 )
 
 RESIDUALS_VECTORS = Op(
-    name="activations/vectors",
+    name="activations/capture",
     summary=(
         "Capture the residual-stream vector of each prompt at chosen layers "
         "and a chosen position (or pooled over the sequence) — the raw "
@@ -490,7 +490,7 @@ vector. Where in the sequence the vector is read is the important choice:
   and identical middles would look varied.
 
 Every item carries its `space` (`{model, layer, point, head?, d}`) and the
-record's `coords`, which is what `geometry/similarity`, `geometry/mst` and
+record's `coords`, which is what `geometry/compare`, `geometry/span` and
 `direction/*` group on (their `axis` names the coordinate).
 
 With `source: "queries"` or `"keys"` the block captures attention Q or K
@@ -540,7 +540,7 @@ layers or records.
 )
 
 LENS_POSITIONS = Op(
-    name="logits/lens",
+    name="logits/scan",
     summary=(
         "Logit lens over the whole prompt: at every (layer, position), how "
         "probable and how highly ranked the target token is when that "
@@ -570,7 +570,7 @@ become visible?
 )
 
 LENS_TRAJECTORY = Op(
-    name="logits/funnel",
+    name="logits/read-layers",
     summary=(
         "Logit lens at the decision point: for each chat-shaped record, the "
         "top-1 token, its probability and the entropy at every layer — the "
@@ -736,7 +736,7 @@ annotate it token by token.
 )
 
 DECISION_READ = Op(
-    name="logits/decision",
+    name="logits/read",
     summary=(
         "Read the model's exact next-token distribution at a decision point "
         "— entropy, the top tokens, and the probability mass on each named "

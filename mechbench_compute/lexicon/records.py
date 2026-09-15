@@ -32,7 +32,7 @@ The output is one record per combination: `id` joins the level keys
 (`noir-seed-2`), `coords` maps each factor name to its level key (plus any
 `coords` the level or generator attached — generators stamp
 `<name>_kind`), and `values` maps each factor name to its level's text,
-ready for `records/template`.
+ready for `records/fill`.
 """
 
 FACTOR_CROSS = Op(
@@ -66,7 +66,7 @@ FACTOR_CROSS = Op(
 )
 
 TEMPLATE = Op(
-    name="records/template",
+    name="records/fill",
     summary=(
         "Fill named string templates from each record's factor values — "
         "turn a design into prompts."
@@ -111,8 +111,8 @@ RENAME = Op(
     ),
     description="""\
 Every op reads the fields it names: the chat-shaped ops read `system`,
-`user` and `prefill`; `eval/metric` reads `prediction` and `reference`;
-`text/stats` and `eval/judge` read `text`. When a record carries the right
+`user` and `prefill`; `eval/score` reads `prediction` and `reference`;
+`text/measure` and `eval/judge` read `text`. When a record carries the right
 value under another name, this op moves it, and the graph shows the move
 rather than hiding it in a parameter.
 
@@ -142,7 +142,7 @@ SELECT = Op(
     description="""\
 `where` is a map of field → value (or list of acceptable values). A key is
 read from the record's `coords` when it is a coordinate, and from the
-record itself otherwise — so a field written by `text/stats` (a pattern hit)
+record itself otherwise — so a field written by `text/measure` (a pattern hit)
 filters as easily as a design coordinate. A record passes when every key
 matches.
 
@@ -179,7 +179,7 @@ visible downstream. `segments` records how many came from each port.
 A union of vector collections stays a vector collection: items from a base
 capture and an adapted capture become one collection whose items carry the
 port they came from on the `batch_axis` coordinate — the grouping
-`direction/from-vectors` reads with `axis` set to it. Cross-model comparison
+`direction/fit` reads with `axis` set to it. Cross-model comparison
 is a union followed by the direction algebra.
 """,
     inputs=(
@@ -202,7 +202,7 @@ is a union followed by the direction algebra.
 )
 
 PAIRED_DELTA = Op(
-    name="records/delta",
+    name="records/subtract",
     summary=(
         "Subtract a matched baseline from every record — the treatment "
         "effect per condition, ready to summarise."
@@ -213,7 +213,7 @@ record finds the baseline that agrees with it on the `match_on` coordinates
 and reports its `value` field, the baseline's, and the difference. A record
 with no matching baseline is an error, not a silent omission.
 
-The output keeps `coords`, so it feeds `records/stats` directly.
+The output keeps `coords`, so it feeds `records/summarize` directly.
 """,
     inputs=(_RECORDS,),
     emits=Emits('records/record', collection=True, doc='One record per non-baseline record: `{id, coords, value, baseline, delta}`.'),
@@ -234,7 +234,7 @@ The output keeps `coords`, so it feeds `records/stats` directly.
 )
 
 GROUP_STATS = Op(
-    name="records/stats",
+    name="records/summarize",
     summary=(
         "Group records by coordinates and summarise a numeric field — count, "
         "median, mean, min, max and the share below zero — as a table."
@@ -271,7 +271,7 @@ skipped records is reported on the table as `n_missing`.
 )
 
 TABLE_FROM_RECORDS = Op(
-    name="records/table",
+    name="records/tabulate",
     summary=(
         "Present a record list as a table — coordinates become the leading "
         "columns, scalar fields follow."
@@ -294,7 +294,7 @@ type is inferred from its values. Nested fields are left out.
 )
 
 TEXT_STATS = Op(
-    name="text/stats",
+    name="text/measure",
     summary=(
         "Measure each text in a corpus — pattern hits, word and distinct-word "
         "counts, vocabulary rarity against a frequency table — and either "
@@ -310,7 +310,7 @@ Each entry of `measures` is applied to every record's `text`:
 | `corpus_frequency` | `<name>`: the statistic over the reference frequency of the text's words; `<name>_coverage`: the fraction of words found in the table | `frequencies` (word → count, or wire a `frequencies` input), `stat`: `"mean_log10"` (rarer vocabulary ⇒ lower), `"mean"` or `"coverage"`, `lowercase`, `min_length` |
 
 In `annotate` mode the output is the records with those fields added —
-ready for `records/select`, `records/stats` or `trajectory/capture`. To
+ready for `records/select`, `records/summarize` or `trajectory/capture`. To
 group on a measure downstream, `records/rename` it into `coords`. In
 `corpus` mode it is one summary record: per pattern a count and rate,
 corpus-wide word and distinct-word counts and duplication, and the mean of
@@ -358,7 +358,7 @@ each frequency statistic.
 )
 
 REDUCE_SUM = Op(
-    name="records/sum",
+    name="records/total",
     summary="The exact sum of a numeric field over all records, with the count.",
     description="""\
 An exact reduce: values are kept as a multiset and summed with a correctly
@@ -373,7 +373,7 @@ records arrived in. Safe to run over partial results and merge.
 )
 
 REDUCE_TOP_K = Op(
-    name="records/top-k",
+    name="records/rank",
     summary="The k records with the largest value of a field.",
     description="""\
 Sorted by the field descending, ties broken by `id`, so the result is
@@ -391,7 +391,7 @@ top-ks, so partial results merge without loss.
 )
 
 REDUCE_HISTOGRAM = Op(
-    name="records/histogram",
+    name="records/bin",
     summary="Count a numeric field into fixed, equal-width bins.",
     description="""\
 `bins` equal-width bins span `[lo, hi)`; values below `lo` and at or above
@@ -411,14 +411,14 @@ the number of records. An exact reduce: counts add.
 )
 
 EVAL_EXPECTATION = Op(
-    name="eval/expectation",
+    name="eval/expect",
     summary=(
         "Judge each decision read against an expectation carried as data — "
         "uniform over the outcomes, a required answer, a minimum entropy, or "
         "a target distribution — and report pass/fail with the rate."
     ),
     description="""\
-Results (from `logits/decision`) and expectations are joined on `id`. Each
+Results (from `logits/read`) and expectations are joined on `id`. Each
 expectation record has an `expect` object:
 
 | `type` | Passes when | Fields |
@@ -459,7 +459,7 @@ The header's `summary` carries the pass rate: the number a write-up cites.
 )
 
 VIZ_SPEC = Op(
-    name="records/chart",
+    name="records/plot",
     summary=(
         "Describe a chart of an upstream table as a stored object — what to "
         "plot on which axes — so it renders beside the data and re-renders "
@@ -496,7 +496,7 @@ be encoded directly.
 )
 
 VECTORS_SIMILARITY = Op(
-    name="geometry/similarity",
+    name="geometry/compare",
     summary=(
         "The pairwise matrix of a collection's items under a metric their "
         "kind declares — cosine over vectors, Jensen–Shannon over decision "
@@ -528,7 +528,7 @@ Two vectors compare only within one space; two decision reads compare over
 the union of the tokens they carry, the mass neither names counted as one
 last bucket. Raw cosine between transformer activations is dominated by a
 shared direction they all lean toward; for a variety measure use `cosine`
-with `options: {"center": true}`, which subtracts it, and `geometry/mst`
+with `options: {"center": true}`, which subtracts it, and `geometry/span`
 downstream.
 """,
     inputs=(
@@ -564,7 +564,7 @@ downstream.
 )
 
 VECTORS_MST = Op(
-    name="geometry/mst",
+    name="geometry/span",
     summary=(
         "Measure how varied a set of items is with a minimum spanning tree "
         "over their pairwise distances — the spread, its clumpiness, and how "
@@ -593,7 +593,7 @@ reproduces its numbers reproduces its tree.
 """,
     inputs=(
         In("similarity", "geometry/similarity",
-           "The pairwise matrices, one per group, from `geometry/similarity`.",
+           "The pairwise matrices, one per group, from `geometry/compare`.",
            many=True),
     ),
     emits=Emits('geometry/mst', collection=True, doc='One item per group: `group`, `layer`/`head` when the group is a space, `n`, `n_edges`, `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`, `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels`, and `edges` as `[i, j, weight]` when kept. The header carries `metric`, `options`, `over` (the kind compared), `bridge_sigma` and `axis`. `records/table` reads the items as its rows.'),

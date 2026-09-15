@@ -198,7 +198,7 @@ class TestRename:
 def test_every_records_block_reads_a_collection_on_its_port():
     """The executor hands a block the upstream node's output — a
     `collection` — never a bare list. Every records block must read it
-    through the one reader; `records/template` iterated the container
+    through the one reader; `records/fill` iterated the container
     itself once and read its keys as records."""
     from mechbench_compute.blocks import PURE_BLOCKS
     from mechbench_compute.lexicon import kinds as K
@@ -206,15 +206,15 @@ def test_every_records_block_reads_a_collection_on_its_port():
     design = K.collection("records/record", [
         {"id": "a", "coords": {"g": "x"}, "values": {"g": "noir"}, "v": 1.0},
     ])
-    out = PURE_BLOCKS["records/template"]({"records": design}, {"templates": {"user": "a {g} story"}})
+    out = PURE_BLOCKS["records/fill"]({"records": design}, {"templates": {"user": "a {g} story"}})
     assert out["items"] == [{"id": "a", "coords": {"g": "x"}, "user": "a noir story"}]
     for ref, params in (("records/select", {"where": {"g": "x"}}),
                         ("records/rename", {"fields": {"v": "value"}}),
-                        ("records/table", {}),
-                        ("records/sum", {"value": "v"}),
-                        ("records/top-k", {"value": "v", "k": 1}),
-                        ("records/histogram", {"value": "v", "lo": 0, "hi": 2, "bins": 2}),
-                        ("records/stats", {"value": "v", "by": ["g"]})):
+                        ("records/tabulate", {}),
+                        ("records/total", {"value": "v"}),
+                        ("records/rank", {"value": "v", "k": 1}),
+                        ("records/bin", {"value": "v", "lo": 0, "hi": 2, "bins": 2}),
+                        ("records/summarize", {"value": "v", "by": ["g"]})):
         PURE_BLOCKS[ref]({"records": design}, params)
 
 

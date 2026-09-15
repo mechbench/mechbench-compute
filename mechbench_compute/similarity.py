@@ -1,10 +1,10 @@
-"""`geometry/similarity`: the pairwise matrix of a collection under a
+"""`geometry/compare`: the pairwise matrix of a collection under a
 metric its kind declares — vectors by cosine, decision reads by
 Jensen–Shannon, records by how many coordinates differ — with the
 metric and its options recorded on the result, and, when the items
 are grouped on an axis, how well the groups separate.
 
-One op over any comparable kind (`metrics.py`); `geometry/mst` reads
+One op over any comparable kind (`metrics.py`); `geometry/span` reads
 what it emits.
 """
 
@@ -88,10 +88,10 @@ def geometry_similarity(inputs: Mapping[str, Any], params: Mapping[str, Any]) ->
     coordinate the separation reads."""
     src = inputs.get("items")
     if not isinstance(src, Mapping):
-        raise ValueError("geometry/similarity needs a collection on its `items` port")
+        raise ValueError("geometry/compare needs a collection on its `items` port")
     item_kind = K.item_kind_of(src)
     if item_kind is None:
-        raise ValueError("geometry/similarity needs a collection of a kind that declares metrics")
+        raise ValueError("geometry/compare needs a collection of a kind that declares metrics")
     items = K.items_of(src)
     metric_name = params.get("metric")
     _, metric, _fn = M.resolve(item_kind, metric_name)
@@ -124,7 +124,7 @@ def geometry_similarity(inputs: Mapping[str, Any], params: Mapping[str, Any]) ->
             entry.update(separation(mat, labels, distance=distance))
         out.append(entry)
     if not out:
-        raise ValueError("geometry/similarity: no group has two items to compare")
+        raise ValueError("geometry/compare: no group has two items to compare")
 
     header: dict[str, Any] = {
         "metric": metric.name, "metric_kind": metric.kind, "symmetric": metric.symmetric,

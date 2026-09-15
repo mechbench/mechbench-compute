@@ -24,7 +24,7 @@ Every op renders its records one way (`distill.render`): a condition
 (`user`, optional `system` and `prefill`) through the model's chat
 template, a bare `text`/`prompt` record raw. So an ablation sweep can
 read at a decision point inside an assistant turn, exactly where
-`logits/decision` reads.
+`logits/read` reads.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ from mechbench_compute.interventions import Ablate, Capture
 #: must not emit a gigabyte of CBOR. ~16 MB of float64 at the cap.
 MAX_VECTOR_FLOATS = 2_000_000
 
-#: The points `intervene/layers` can zero at a layer, by the point's
+#: The points `intervene/ablate-layers` can zero at a layer, by the point's
 #: name. On a non-MatFormer model `gate_out` has no hook and the run
 #: refuses with the arch's own error.
 _ABLATE_AT: dict[str, Callable[[int], Any]] = {
@@ -56,7 +56,7 @@ _ABLATE_AT: dict[str, Callable[[int], Any]] = {
 
 
 def _ablation_points(spec: Any) -> list[str]:
-    """The `point` param of `intervene/layers`: one name or a list of
+    """The `point` param of `intervene/ablate-layers`: one name or a list of
     them, each a sub-layer output; the default is both, the whole
     layer's contribution."""
     if spec is None:
@@ -66,7 +66,7 @@ def _ablation_points(spec: Any) -> list[str]:
     bad = [n for n in out if n not in _ABLATE_AT]
     if bad or not out:
         raise ValueError(
-            f"intervene/layers zeroes a sub-layer output — one or more of "
+            f"intervene/ablate-layers zeroes a sub-layer output — one or more of "
             f"{sorted(_ABLATE_AT)} — not {bad or spec!r}")
     return out
 
@@ -886,7 +886,7 @@ def steer_inject(
         raise ValueError(
             f"the vectors collection has no items at layer {layer} with "
             f"{axis}={pos_label!r}/{neg_label!r} — capture that layer "
-            "in activations/vectors first")
+            "in activations/capture first")
     dvec = pos.mean(axis=0) - neg.mean(axis=0)
     dnorm = float(np.linalg.norm(dvec))
 

@@ -44,64 +44,64 @@ P = "protocol.py"
 #: unioned — a wrapper plus what it delegates to.
 SITES: dict[str, list[tuple[str, str | None]]] = {
     # --- model blocks implemented inline in the executor ---
-    "logits/decision": [(P, "_block_decision_read")],
+    "logits/read": [(P, "_block_decision_read")],
     "text/generate": [(P, "_block_generate")],
     "adapter/train": [(P, "_block_finetune_lora")],
-    "eval/suite": [(P, "_block_eval_suite")],
-    "eval/metric": [(P, "_block_eval_hf_metric")],
-    "logits/funnel": [(P, "_block_lens")],
+    "eval/benchmark": [(P, "_block_eval_suite")],
+    "eval/score": [(P, "_block_eval_hf_metric")],
+    "logits/read-layers": [(P, "_block_lens")],
     "text/score": [(P, "_block_score")],
     "adapter/merge": [(P, "_block_merge")],
     "adapter/publish": [(P, "_block_hf_push_adapter")],
-    "records/chart": [("blocks.py", "viz_spec")],
+    "records/plot": [("blocks.py", "viz_spec")],
     # --- model blocks that delegate to a module ---
     "text/chat": [(P, "_block_chat"), (P, "_block_chat_local"),
                               ("chat.py", "run_remote"), ("chat.py", "run_local")],
     "eval/judge": [(P, "_block_judge"), ("judge.py", "run")],
-    "text/conversation": [(P, "_block_conversation"),
+    "text/converse": [(P, "_block_conversation"),
                                       ("conversation.py", "run")],
     "intervene/apply": [(P, "_block_intervene"), ("intervene.py", "run")],
-    "direction/vocab": [(P, "_block_direction_vocab"),
+    "direction/unembed": [(P, "_block_direction_vocab"),
                                          ("directions.py", "vocab_projection")],
     "trajectory/capture": [(P, "_block_trajectory_capture"),
                                             ("trajectory.py", "capture")],
     "text/tokenize": [(P, "_block_tokenize_stats"),
                                         ("tokenizer_stats.py", "block")],
-    "intervene/layers": [(P, "_block_ablate_layers"),
+    "intervene/ablate-layers": [(P, "_block_ablate_layers"),
                                        ("interp.py", "ablate_layers")],
-    "intervene/heads": [(P, "_block_ablate_heads"),
+    "intervene/ablate-heads": [(P, "_block_ablate_heads"),
                                       ("interp.py", "ablate_heads")],
     "intervene/steer": [(P, "_block_steer_inject"),
                                       ("interp.py", "steer_inject")],
-    "logits/attribution": [(P, "_block_logit_attribution"),
+    "logits/attribute": [(P, "_block_logit_attribution"),
                                             ("interp.py", "logit_attribution")],
-    "intervene/trace": [(P, "_block_patch_trace"),
+    "intervene/patch": [(P, "_block_patch_trace"),
                                      ("interp.py", "patch_trace")],
-    "activations/attention": [(P, "_block_attention_patterns"),
+    "activations/capture-attention": [(P, "_block_attention_patterns"),
                                             ("interp.py", "attention_patterns")],
-    "logits/lens": [(P, "_block_lens_positions"),
+    "logits/scan": [(P, "_block_lens_positions"),
                                         ("interp.py", "lens_positions")],
-    "activations/vectors": [(P, "_block_residual_vectors"),
+    "activations/capture": [(P, "_block_residual_vectors"),
                                            ("interp.py", "residual_vectors")],
-    "activations/divergence": [(P, "_block_residual_divergence"),
+    "activations/contrast": [(P, "_block_residual_divergence"),
                                               ("interp.py", "residual_divergence")],
     # --- pure blocks ---
     "records/cross": [("blocks.py", "factor_cross")],
-    "records/template": [("blocks.py", "template")],
+    "records/fill": [("blocks.py", "template")],
     "records/rename": [("blocks.py", "rename")],
     "records/select": [("blocks.py", "select")],
-    "records/delta": [("blocks.py", "paired_delta")],
-    "records/stats": [("blocks.py", "group_stats")],
-    "records/table": [("blocks.py", "table_from_records")],
+    "records/subtract": [("blocks.py", "paired_delta")],
+    "records/summarize": [("blocks.py", "group_stats")],
+    "records/tabulate": [("blocks.py", "table_from_records")],
     "records/union": [("blocks.py", "union")],
-    "text/stats": [("blocks.py", "text_stats")],
-    "eval/expectation": [("blocks.py", "eval_expectation")],
-    "geometry/similarity": [("similarity.py", "geometry_similarity")],
-    "geometry/mst": [("trees.py", "mst")],
+    "text/measure": [("blocks.py", "text_stats")],
+    "eval/expect": [("blocks.py", "eval_expectation")],
+    "geometry/compare": [("similarity.py", "geometry_similarity")],
+    "geometry/span": [("trees.py", "mst")],
     "direction/add": [("directions.py", "block_add")],
     "direction/average": [("directions.py", "block_average")],
-    "direction/from-pca": [("directions.py", "block_from_pca")],
-    "direction/from-vectors": [("directions.py", "block_from_vectors")],
+    "direction/decompose": [("directions.py", "block_from_pca")],
+    "direction/fit": [("directions.py", "block_from_vectors")],
     "direction/normalize": [("directions.py", "block_normalize")],
     "direction/orthogonalize": [("directions.py", "block_orthogonalize")],
     "direction/project": [("directions.py", "block_project")],
@@ -111,9 +111,9 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     # The reduce ops share one closure; the MONOID is what differs, and
     # each one's params are its own.
     # `_block_of` is the closure that reads the records port for all three.
-    "records/sum": [("reduce.py", "FloatSum"), ("reduce.py", "_block_of")],
-    "records/top-k": [("reduce.py", "TopK"), ("reduce.py", "_block_of")],
-    "records/histogram": [("reduce.py", "Histogram"), ("reduce.py", "_block_of")],
+    "records/total": [("reduce.py", "FloatSum"), ("reduce.py", "_block_of")],
+    "records/rank": [("reduce.py", "TopK"), ("reduce.py", "_block_of")],
+    "records/bin": [("reduce.py", "Histogram"), ("reduce.py", "_block_of")],
     "tools/calc": [("tools.py", "calc")],
     "tools/lookup": [("tools.py", "bench_lookup")],
 }
@@ -380,9 +380,9 @@ def test_exemptions_carry_a_reason():
 
 def test_an_unknown_port_is_refused_by_name():
     with pytest.raises(ValueError) as caught:
-        check_inputs("geometry/mst", {"matrix": {"kind": "collection", "item_kind": "geometry/similarity", "key": [], "items": []}})
+        check_inputs("geometry/span", {"matrix": {"kind": "collection", "item_kind": "geometry/similarity", "key": [], "items": []}})
     msg = str(caught.value)
-    assert "'matrix'" in msg and "geometry/mst" in msg and "similarity" in msg
+    assert "'matrix'" in msg and "geometry/span" in msg and "similarity" in msg
 
 
 def test_an_unwired_required_port_is_refused_before_anything_runs():
@@ -395,26 +395,26 @@ def test_an_unwired_required_port_is_refused_before_anything_runs():
 def test_a_kind_that_does_not_satisfy_the_port_is_refused_with_both_names():
     verdicts = {"kind": "collection", "item_kind": "eval/verdict", "key": ["id"], "items": []}
     with pytest.raises(ValueError) as caught:
-        check_inputs("geometry/similarity", {"items": verdicts})
+        check_inputs("geometry/compare", {"items": verdicts})
     msg = str(caught.value)
-    assert "geometry/similarity" in msg and "activations/vector" in msg and "eval/verdict" in msg
+    assert "geometry/compare" in msg and "activations/vector" in msg and "eval/verdict" in msg
 
 
 def test_a_kind_that_extends_the_port_kind_satisfies_it():
     reads = {"kind": "collection", "item_kind": "logits/decision", "key": ["id"], "items": []}
-    out = check_inputs("eval/expectation", {"results": reads, "expectations": [{"id": "x", "expect": {}}]})
+    out = check_inputs("eval/expect", {"results": reads, "expectations": [{"id": "x", "expect": {}}]})
     assert out["results"] is reads
     # A bare list on a collection port is wrapped as the collection it stands for.
     assert out["expectations"]["kind"] == "collection"
     assert out["expectations"]["item_kind"] == "records/record"
     # A retired spelling resolves before it is compared.
     old = {"kind": "decision_read", "conditions": []}
-    check_inputs("eval/expectation", {"results": old, "expectations": []})
+    check_inputs("eval/expect", {"results": old, "expectations": []})
 
 
 def test_a_document_collection_is_a_record_collection():
     docs = {"kind": "collection", "item_kind": "text/document", "key": ["id"], "items": []}
-    check_inputs("text/stats", {"records": docs})
+    check_inputs("text/measure", {"records": docs})
     check_inputs("eval/judge", {"records": docs})
 
 
@@ -430,14 +430,14 @@ def test_a_value_with_no_kind_is_not_second_guessed():
     check_inputs("text/tokenize", {"vocabulary": ["red", "blue"]})
     # Nor does a kind the registry does not know — an extension's, or a
     # string an author wrote before kinds were named.
-    check_inputs("activations/vectors", {"records": {"kind": "owner/x", "items": [{"id": "a"}]}})
+    check_inputs("activations/capture", {"records": {"kind": "owner/x", "items": [{"id": "a"}]}})
 
 
 def test_the_prompt_objects_the_experiments_stored_are_record_collections():
     # `{"kind": "records", "records": [...]}` is what every experiment
     # author emitted for a prompt set; it is a collection of records.
     stored = {"kind": "records", "records": [{"id": "p", "user": "u"}]}
-    out = check_inputs("activations/vectors", {"records": stored})
+    out = check_inputs("activations/capture", {"records": stored})
     assert out["records"] is stored
     from mechbench_compute.lexicon import kinds as K
     assert K.item_kind_of(stored) == "records/record"
@@ -454,13 +454,13 @@ def test_a_port_given_as_a_param_is_lifted_with_a_warning_until_it_is_refused():
 
     with pytest.warns(RetiredParam, match=f"until mechbench-compute {ALIASES_REMOVED_IN}"):
         kept, lifted = _lift_port_params(
-            "logits/decision", {"model": "m", "conditions": [{"id": "c", "user": "u"}], "top_k": 3})
+            "logits/read", {"model": "m", "conditions": [{"id": "c", "user": "u"}], "top_k": 3})
     assert kept == {"model": "m", "top_k": 3}
     assert lifted == {"conditions": [{"id": "c", "user": "u"}]}
     kept, lifted = _lift_port_params("records/union", {"batch_axs": "x"})
     assert kept == {"batch_axs": "x"} and lifted == {}
     with pytest.raises(ValueError, match="input port"):
-        check_params("logits/decision", {"conditions": []})
+        check_params("logits/read", {"conditions": []})
 
 
 # --- check_params behaviour ---------------------------------------------------
@@ -468,14 +468,14 @@ def test_a_port_given_as_a_param_is_lifted_with_a_warning_until_it_is_refused():
 def test_an_executor_injection_is_not_refused():
     # `_block_runner` and friends are added by the executor, never
     # declared by a protocol.
-    check_params("geometry/mst", {"_block_runner": object()})
+    check_params("geometry/span", {"_block_runner": object()})
 
 
 def test_an_unknown_param_is_refused_by_name():
     with pytest.raises(ValueError) as caught:
-        check_params("geometry/mst", {"centre": True})
+        check_params("geometry/span", {"centre": True})
     msg = str(caught.value)
-    assert "centre" in msg and "geometry/mst" in msg
+    assert "centre" in msg and "geometry/span" in msg
     assert "compute version" in msg
 
 
