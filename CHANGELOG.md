@@ -13,6 +13,54 @@ nothing said so.
 
 ---
 
+## 0.85.0 — 2026-09-17
+
+### Changes that raise
+
+- **Two edges into one port are refused** (task 000397). A port that
+  takes one input and was wired twice kept whichever edge came LAST in
+  the graph's edge list — silently, and which one that was depended on
+  the order the author happened to write the lines in. The graph now
+  says so at load, naming the node and the port, and says what used to
+  happen.
+
+### Changes that alter results without raising
+
+- **A node's in-edges are read in a canonical order**: by port, then by
+  the edge's own `index`, then by the source node's id. Its inputs, its
+  lineage and its fingerprint all read that order, so **moving an edge
+  in the protocol's JSON no longer changes a fingerprint** — before
+  this, reordering the edge list restarted every cached and resumed
+  thing downstream of it. The one-time cost is that a node with more
+  than one in-edge whose list was not already in this order gets a new
+  fingerprint, and its cached work starts over. No number changes.
+
+### Other
+
+- **Variadic ports** (task 000397): a port may declare that it collects
+  SEVERAL edges rather than one — `In(…, variadic=True, min_edges=2)` —
+  and the block receives them in order as `[{node, value}, …]`, so it
+  knows which branch each came from. `many` and `variadic` are
+  different and compose: `many` is one value that is a collection,
+  `variadic` is several edges.
+
+  `records/union` keeps its wildcard port rather than gaining a
+  variadic form: its port NAMES are load-bearing (they become the batch
+  coordinate every union-then-compare protocol groups on), and two ways
+  to say the same thing would be one too many.
+
+- **`records/zip`** (task 000398): align several branches' records into
+  one record per key — record 7 of each branch together — keeping which
+  branch each came from. `union` concatenates and marks the source;
+  this pairs. Key on `id` or on named coordinates (`by: ["prompt",
+  "seed"]`) for branches that number their records differently but
+  share a design. A key missing from some branch fails by default,
+  because a silently shorter output is a silently different experiment;
+  `drop` keeps what every branch has, `placeholder` keeps them all and
+  marks what is absent. Branches are named by their source node unless
+  `names` says otherwise, and `flatten` lifts each branch's fields under
+  a `<branch>_` prefix.
+
 ## 0.84.0 — 2026-09-17
 
 ### Changes that raise

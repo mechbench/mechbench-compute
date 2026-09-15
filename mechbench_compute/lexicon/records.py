@@ -201,6 +201,63 @@ is a union followed by the direction algebra.
     example_inputs={"base": {"$fetch": "$base_vectors"}, "adapted": {"$fetch": "$adapted_vectors"}},
 )
 
+ZIP = Op(
+    name="records/zip",
+    summary=(
+        "Align several branches' records into one record per key — record "
+        "7 of each branch together — keeping which branch each came from."
+    ),
+    description="""\
+Two branches over the same prompts produce two streams, and a node that
+compares them needs their records paired, not concatenated. `union` puts
+both streams in one collection and marks where each came from; this puts
+each branch's record for a key IN one record.
+
+The **key** is `id` by default, or a list of coordinate names — `by:
+["prompt", "seed"]` — which is what to use when two branches number their
+records differently but share a design. Two records with the same key in
+one branch are refused: zip needs one per key, and the fix is usually to
+key on more coordinates.
+
+Branches arrive on the **variadic `branches` port**: one edge per branch,
+each named by the node it came from unless `names` says otherwise. The
+port is ordered, so `names` lines up with the edges as the graph declares
+them.
+
+A key that is not in every branch is an error by default, because a
+silently shorter output is a silently different experiment. `drop` keeps
+the keys every branch has; `placeholder` keeps them all and marks what is
+absent, for a readout that can report a missing arm.
+""",
+    inputs=(
+        In("branches", "collection",
+           "One edge per branch, each a collection of records. Ordered: the "
+           "first edge is the first branch.",
+           many=True, variadic=True, min_edges=2),
+    ),
+    emits=Emits('records/record', collection=True, doc="One record per key: `id`, `coords` from the first branch that has it, and `branches` — a map of branch name to that branch's record (or `{missing: true}` under `placeholder`). With `flatten`, each branch's fields are copied up under a `<branch>_` prefix instead. The header carries `branches` (name, source node, count) and `zipped` (the key, how many came out, the policy, and what was dropped)."),
+    params=(
+        P("by", "\"id\" | list[string]",
+          "What to align on: record ids, or the named coordinates.",
+          "id"),
+        P("on_mismatch", "string",
+          "A key missing from some branch: `\"fail\"`, `\"drop\"` (keep only "
+          "the keys every branch has) or `\"placeholder\"` (keep them all, "
+          "marking what is absent).",
+          "fail"),
+        P("names", "list[string]",
+          "What to call each branch, in edge order. Defaults to the source "
+          "node ids.",
+          None),
+        P("flatten", "bool",
+          "Copy each branch's fields up under a `<branch>_` prefix instead "
+          "of nesting them under `branches`.",
+          False),
+    ),
+    example={"by": ["prompt"], "names": ["base", "adapted"]},
+    example_inputs={"branches": {"$fetch": "$base_reads"}},
+)
+
 PAIRED_DELTA = Op(
     name="records/subtract",
     summary=(
@@ -612,7 +669,7 @@ reproduces its numbers reproduces its tree.
 )
 
 OPS: tuple[Op, ...] = (
-    FACTOR_CROSS, TEMPLATE, RENAME, SELECT, UNION, PAIRED_DELTA, GROUP_STATS,
+    FACTOR_CROSS, TEMPLATE, RENAME, SELECT, UNION, ZIP, PAIRED_DELTA, GROUP_STATS,
     TABLE_FROM_RECORDS, TEXT_STATS, REDUCE_SUM, REDUCE_TOP_K, REDUCE_HISTOGRAM,
     EVAL_EXPECTATION, VIZ_SPEC, VECTORS_SIMILARITY, VECTORS_MST,
 )

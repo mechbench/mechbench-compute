@@ -569,15 +569,33 @@ class ProtocolExecutor:
                         record_model(ref.base)
                 else:
                     record_model(mval)
-            in_edges = [e for e in edges if e["to"]["node"] == nid]
-            inputs = {
-                e["to"]["port"]: results[e["from"]["node"]]
-                for e in in_edges
-            }
-            input_paths = {
-                e["to"]["port"]: node_paths.get(e["from"]["node"], "")
-                for e in in_edges
-            }
+            # Edges in a canonical order (task 000397): by port, then by
+            # the edge's own `index` when it has one, then by source node
+            # id. Two consequences. A VARIADIC port receives them as an
+            # ordered list, so a node over several branches knows which
+            # branch is which. And a node's fingerprint no longer depends
+            # on the order its author happened to write the edges in —
+            # before this, moving an edge in the JSON restarted every
+            # cached and resumed thing downstream of it.
+            in_edges = _ordered_edges(edges, nid)
+            by_port: dict[str, list[Any]] = {}
+            for e in in_edges:
+                by_port.setdefault(e["to"]["port"], []).append(e)
+            op_here = lexicon.BY_NAME.get(block)
+            inputs, input_paths = {}, {}
+            for port, es in by_port.items():
+                decl = op_here.port(port) if op_here else None
+                if decl is not None and decl.variadic:
+                    inputs[port] = [
+                        {"node": e["from"]["node"],
+                         "value": results[e["from"]["node"]]} for e in es]
+                    input_paths[port] = [
+                        node_paths.get(e["from"]["node"], "") for e in es]
+                else:
+                    # One edge, as every port but a variadic one takes;
+                    # more than one is refused at load by `_preflight`.
+                    inputs[port] = results[es[-1]["from"]["node"]]
+                    input_paths[port] = node_paths.get(es[-1]["from"]["node"], "")
             # An input given inline under the node's `inputs` — a
             # literal, or `{"$fetch": …}` of a stored object — fills a
             # port the way an edge does, and its content hash joins the
@@ -2226,6 +2244,18 @@ def _spend_total(by_node: dict[str, Any]) -> dict[str, Any]:
             "dry_run": all(bool(v.get("dry_run")) for v in by_node.values())}
 
 
+def _ordered_edges(edges, nid: str) -> list[Any]:
+    """The edges into a node, in the one order the platform reads them:
+    port, then the edge's declared `index`, then the source node's id
+    (task 000397). Every use of a node's in-edges — its inputs, its
+    lineage, its fingerprint — reads this order, so none of them depends
+    on where in the graph's edge list an author put a line."""
+    into = [e for e in edges if (e.get("to") or {}).get("node") == nid]
+    return sorted(into, key=lambda e: (str(e["to"].get("port", "")),
+                                       int(e.get("index", 0)),
+                                       str((e.get("from") or {}).get("node", ""))))
+
+
 def _preflight(nodes, edges, order) -> None:
     """Everything about a graph that is decidable before it runs, decided
     before it runs (tasks 000512, 000513).
@@ -2254,10 +2284,13 @@ def _preflight(nodes, edges, order) -> None:
 
     problems: list[str] = []
     into: dict[str, set[str]] = {}
+    edge_counts: dict[str, dict[str, int]] = {}
     for e in edges:
         to = e.get("to") or {}
         if isinstance(to.get("node"), str) and isinstance(to.get("port"), str):
             into.setdefault(to["node"], set()).add(to["port"])
+            counts = edge_counts.setdefault(to["node"], {})
+            counts[to["port"]] = counts.get(to["port"], 0) + 1
 
     for nid in order:
         node = nodes[nid]
@@ -2283,6 +2316,17 @@ def _preflight(nodes, edges, order) -> None:
                 problems.append(
                     f"  {nid} ({name}): no input port {port_name!r}. "
                     f"Its ports: {known}.")
+        # How MANY edges reach each port (task 000397). A port that takes
+        # one and is wired twice used to keep whichever edge came last in
+        # the list — silently, and the winner depended on the order the
+        # author wrote them in.
+        for port_name, n in sorted(edge_counts.get(nid, {}).items()):
+            decl = op.port(port_name)
+            if decl is None:
+                continue          # already reported above
+            bad = decl.arity_error(n)
+            if bad:
+                problems.append(f"  {nid} ({name}): port {port_name!r} {bad}.")
         for port in op.inputs:
             if not port.required:
                 continue

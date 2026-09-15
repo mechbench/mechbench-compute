@@ -222,6 +222,20 @@ class Port:
     literal or a stored object — under the node's `inputs` map, as a
     list, an object, or `{"$fetch": …}`. Never under `params`: what a
     node computes on is an input, what it computes with is a param.
+
+    `many` and `variadic` are different things, and a port may be
+    either, both or neither (task 000397):
+
+    * **`many`** — ONE value that is a collection of the kind. A capture
+      node's `records` port takes one collection of records.
+    * **`variadic`** — SEVERAL EDGES, each its own value, in a declared
+      order. A `zip` node's `branches` port takes one edge per branch,
+      and which branch is which is the point. The block receives
+      `[{node, value}, …]`, so it knows where each came from.
+
+    A port that is neither takes exactly one edge. Two edges into one
+    used to keep whichever came last in the edge list, silently; that is
+    refused at load now.
     """
 
     name: str
@@ -229,6 +243,10 @@ class Port:
     doc: str
     required: bool = True
     many: bool = False
+    variadic: bool = False
+    #: Bounds on how many edges a variadic port accepts, when it has any.
+    min_edges: int | None = None
+    max_edges: int | None = None
 
     @property
     def kinds(self) -> tuple[str, ...]:
@@ -238,9 +256,30 @@ class Port:
     def wildcard(self) -> bool:
         return self.name == WILDCARD
 
+    def arity_error(self, n: int) -> str | None:
+        """Why `n` edges is the wrong number for this port, or None."""
+        if not self.variadic:
+            if n > 1:
+                return (f"takes one edge; {n} arrive. Either the op's port "
+                        f"should be variadic, or one of these edges belongs "
+                        f"elsewhere — before this was refused, the last one "
+                        f"in the list silently won")
+            return None
+        if self.min_edges is not None and n < self.min_edges:
+            return f"takes at least {self.min_edges} edges; {n} arrive"
+        if self.max_edges is not None and n > self.max_edges:
+            return f"takes at most {self.max_edges} edges; {n} arrive"
+        return None
+
     def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "kind": self.kind, "kinds": list(self.kinds),
-                "doc": self.doc, "required": self.required, "many": self.many}
+        out = {"name": self.name, "kind": self.kind, "kinds": list(self.kinds),
+               "doc": self.doc, "required": self.required, "many": self.many,
+               "variadic": self.variadic}
+        if self.min_edges is not None:
+            out["min_edges"] = self.min_edges
+        if self.max_edges is not None:
+            out["max_edges"] = self.max_edges
+        return out
 
 
 @dataclass(frozen=True)
@@ -319,7 +358,9 @@ def P(name: str, type: str, doc: str, default: Any = REQUIRED) -> Param:
     return Param(name, type, doc, default)
 
 
-def In(name: str, kind: str, doc: str, *, required: bool = True, many: bool = False) -> Port:
+def In(name: str, kind: str, doc: str, *, required: bool = True,
+       many: bool = False, variadic: bool = False,
+       min_edges: int | None = None, max_edges: int | None = None) -> Port:
     """Shorthand for a declaration file: `In("records", "records/record",
     "…", many=True)`."""
-    return Port(name, kind, doc, required, many)
+    return Port(name, kind, doc, required, many, variadic, min_edges, max_edges)
