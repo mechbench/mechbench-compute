@@ -959,6 +959,16 @@ emits from activations — so everything that family does applies:
 direction and an activation's direction are comparable when they share a
 space, which is what makes this the bridge between the two halves.
 
+**What a principal direction is not.** σ₁ of a full weight matrix is the
+dominant direction of the whole map — everything that module does to
+everything it sees — and it is rarely a feature. Read through the
+unembedding it usually names tokens in no order a person recognises.
+The directions worth reading that way come from a matrix that was
+trained to do ONE thing: an adapter's delta (`adapter/measure` with
+`vectors`), or a difference between two checkpoints. Use this block for
+what a module's geometry IS — rank, spread, how much of the map is one
+direction — and for comparing modules across layers or models.
+
 `points` is required: an SVD per tensor is not something to do to a
 whole model by accident.
 """,
