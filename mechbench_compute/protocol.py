@@ -1917,7 +1917,12 @@ class ProtocolExecutor:
             batch = params.get("batch") or {"target": 3, "anchor": 1,
                                          "continuation": 2}
 
-        n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules)
+        # One seed for the whole run (000507): the adapters' initial A
+        # matrices AND the sampling order. The init used to come from the
+        # global generator, so two runs of the same protocol with the
+        # same seed trained different adapters.
+        n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules,
+                            seed=seed)
         if on_start:
             on_start(steps)
         # Training resume (epic 000320, state-restorable): checkpoint

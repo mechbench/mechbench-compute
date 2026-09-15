@@ -53,14 +53,25 @@ class LoRALinear(nn.Module):
     """A frozen linear layer plus a trainable low-rank residual:
     ``y = base(x) + (alpha/r) · (x @ Aᵀ) @ Bᵀ``, computed in fp32.
     ``B`` starts at zero so the wrapped model is exactly the base model
-    at step 0."""
+    at step 0.
 
-    def __init__(self, base: nn.Module, r: int, alpha: float):
+    ``A`` is drawn from ``key`` when one is given, and from MLX's global
+    generator otherwise. A key is how a training run becomes repeatable
+    (task 000507): with ``B`` at zero the draw changes no output at step
+    0, but it changes every gradient after it, so two runs of the same
+    protocol with the same seed used to produce different adapters — by
+    up to 0.19 bits of KL on 002's eval battery, an envelope wider than
+    the drift the experiments compare releases by."""
+
+    def __init__(self, base: nn.Module, r: int, alpha: float,
+                 key: mx.array | None = None):
         super().__init__()
         self.base = base
         out_dim, in_dim = base.weight.shape
         self.scale = alpha / r
-        self.lora_a = mx.random.normal((r, in_dim)) * (1.0 / math.sqrt(in_dim))
+        draw = (mx.random.normal((r, in_dim), key=key) if key is not None
+                else mx.random.normal((r, in_dim)))
+        self.lora_a = draw * (1.0 / math.sqrt(in_dim))
         self.lora_b = mx.zeros((out_dim, r))
 
     def __call__(self, x):
@@ -70,10 +81,19 @@ class LoRALinear(nn.Module):
 
 
 def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
-               targets: tuple[str, ...] = ("q_proj", "v_proj")) -> int:
+               targets: tuple[str, ...] = ("q_proj", "v_proj"),
+               *, seed: int | None = None) -> int:
     """Freeze ``lm`` and wrap each named attention projection with a
     ``LoRALinear``, WHERE IT EXISTS. Returns the trainable parameter
     count.
+
+    ``seed`` fixes the adapters' initial ``A`` matrices: each wrapped
+    projection draws from its own subkey of ``mx.random.key(seed)``, in
+    layer order, so the same model and targets give the same starting
+    point every time and nothing else in the process is disturbed (the
+    global generator is left alone). Without it the draw comes from the
+    global generator and a training run is not repeatable — see
+    ``LoRALinear`` and task 000507.
 
     "Where it exists" is not defensiveness — it is the architecture.
     gemma4's projections are conditional per layer: KV-shared tail
@@ -90,6 +110,7 @@ def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
     never have."""
     lm.freeze()
     n = 0
+    key = mx.random.key(seed) if seed is not None else None
     wrapped_per_target = dict.fromkeys(targets, 0)
     for layer in lm.model.layers:
         for name in targets:
@@ -101,7 +122,10 @@ def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
             base = getattr(holder, name, None)
             if base is None:
                 continue
-            wrapped = LoRALinear(base, rank, alpha)
+            sub = None
+            if key is not None:
+                key, sub = mx.random.split(key)
+            wrapped = LoRALinear(base, rank, alpha, key=sub)
             setattr(holder, name, wrapped)
             wrapped_per_target[name] += 1
             n += wrapped.lora_a.size + wrapped.lora_b.size

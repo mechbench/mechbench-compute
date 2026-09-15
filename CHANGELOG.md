@@ -13,6 +13,36 @@ nothing said so.
 
 ---
 
+## 0.81.0 — 2026-09-16
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **`adapter/train` is repeatable: the same seed now trains a
+  byte-identical adapter** (task 000507). The adapters' initial `A`
+  matrices were drawn from MLX's global generator at `apply_lora` time,
+  before the loop seeded anything. `B` starts at zero, so that draw
+  changes nothing at step 0 and every gradient after it: two runs of the
+  same protocol, same seed, same machine, same data produced different
+  adapters — on experiment 002's eval battery, KL differing by up to
+  0.19 bits and male-name entropy by 0.21, an envelope wider than the
+  0.01-bit changes the experiments call drift when they compare
+  releases. Each wrapped projection now draws from its own subkey of
+  `mx.random.key(seed)`, in layer order, and the process's global
+  generator is left alone. `apply_lora(..., seed=None)` keeps the old
+  behaviour for a caller that wants an unrepeatable draw; the block
+  always passes its `seed`.
+
+  **An adapter trained before this release cannot be reproduced by
+  re-running its protocol** — its initial draw is not recorded anywhere.
+  Adapters already trained are unaffected as objects; only a re-run
+  differs, and from here two re-runs agree with each other. The
+  block's resume level is unchanged (`state-restorable`): that level
+  describes how a partial is reused, not whether two runs agree.
+
 ## 0.80.0 — 2026-09-16
 
 ### Changes that raise

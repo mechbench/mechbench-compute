@@ -436,6 +436,11 @@ so the adapter learns the distribution without forgetting how to answer.
 If the model reference already carries adapters, training happens on the
 fused stack — the new round learns a delta on top. Long runs checkpoint
 every `checkpoint_every` steps and resume from the same trajectory.
+
+`seed` fixes the whole run: the adapter's initial weights as well as the
+sampling order, so two runs of the same node on the same machine produce
+a byte-identical adapter. Change the seed to see the spread a different
+draw gives.
 """,
     inputs=(
         In("records", "records/record",

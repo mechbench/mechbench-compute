@@ -6,6 +6,8 @@ must follow the architecture, and a target that matches nowhere must
 refuse rather than silently train nothing.
 """
 
+import mlx.core as mx
+import numpy as np
 import pytest
 from mlx import nn
 
@@ -64,3 +66,58 @@ class TestConditionalProjections:
         lm = FakeLM([True])
         with pytest.raises(ValueError, match="known"):
             lora.apply_lora(lm, rank=2, alpha=4, targets=("frobnicate",))
+
+
+class TestSeededInitialization:
+    """Task 000507. `B` starts at zero, so the `A` draw changes nothing
+    at step 0 and everything after it: two runs of the same protocol
+    with the same seed trained different adapters, by up to 0.19 bits of
+    KL on 002's battery — wider than the drift the experiments compare
+    releases by."""
+
+    def _a_matrices(self, lm):
+        return [np.array(layer.self_attn.q_proj.lora_a.astype(mx.float32))
+                for layer in lm.model.layers]
+
+    def test_the_same_seed_starts_from_the_same_adapter(self):
+        first, second = FakeLM([True, True]), FakeLM([True, True])
+        lora.apply_lora(first, rank=2, alpha=4, seed=7)
+        lora.apply_lora(second, rank=2, alpha=4, seed=7)
+        for a, b in zip(self._a_matrices(first), self._a_matrices(second)):
+            assert np.array_equal(a, b)
+
+    def test_a_different_seed_starts_somewhere_else(self):
+        first, second = FakeLM([True, True]), FakeLM([True, True])
+        lora.apply_lora(first, rank=2, alpha=4, seed=7)
+        lora.apply_lora(second, rank=2, alpha=4, seed=8)
+        assert not np.array_equal(self._a_matrices(first)[0],
+                                  self._a_matrices(second)[0])
+
+    def test_each_projection_draws_its_own(self):
+        # One key reused across layers would start every layer from the
+        # same matrix — a symmetry the gradients would never break.
+        lm = FakeLM([True, True, True])
+        lora.apply_lora(lm, rank=2, alpha=4, seed=7)
+        mats = self._a_matrices(lm)
+        assert not np.array_equal(mats[0], mats[1])
+        assert not np.array_equal(mats[1], mats[2])
+
+    def test_without_a_seed_the_global_generator_still_answers(self):
+        # The bare call keeps its old behaviour for a caller that wants
+        # an unrepeatable draw; the block always passes a seed.
+        first, second = FakeLM([True]), FakeLM([True])
+        lora.apply_lora(first, rank=2, alpha=4)
+        lora.apply_lora(second, rank=2, alpha=4)
+        assert not np.array_equal(self._a_matrices(first)[0],
+                                  self._a_matrices(second)[0])
+
+    def test_the_seed_leaves_the_global_generator_alone(self):
+        # Seeding by key rather than by `mx.random.seed` — a block that
+        # seeds its own init must not silently re-seed the process.
+        lm = FakeLM([True])  # built first: nn.Linear draws from the global one
+        mx.random.seed(11)
+        expected = mx.random.normal((4,))
+        mx.random.seed(11)
+        lora.apply_lora(lm, rank=2, alpha=4, seed=7)
+        assert np.array_equal(np.array(mx.random.normal((4,))),
+                              np.array(expected))

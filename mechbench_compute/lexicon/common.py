@@ -35,9 +35,10 @@ COMMON: tuple[Param, ...] = (
       "measurement.",
       False),
     P("seed", "int",
-      "The random seed for anything the block samples — generation "
-      "temperature, resampled activations, data shuffles. The same seed "
-      "on the same hardware class reproduces the same result.",
+      "The random seed for anything the block draws — generation "
+      "temperature, resampled activations, data shuffles, and a training "
+      "block's initial adapter weights. The same seed on the same "
+      "hardware class reproduces the same result.",
       0),
     P("name", "string",
       "A label stamped on the record the block emits, so a person browsing "
