@@ -259,31 +259,6 @@ groups it was built from — or ones it was not.
     example_inputs={"vectors": {"$fetch": "$vectors"}, "direction": {"$fetch": "$axis"}},
 )
 
-SIMILARITY = Op(
-    name="direction/similarity",
-    summary=(
-        "The cosine between two directions, or the full pairwise cosine "
-        "matrix over many — are these axes the same axis?"
-    ),
-    description="""\
-Given exactly `a` and `b`, one cosine. Given any other set of directions
-(on ports of your naming, and/or the `directions` list), the pairwise
-matrix — the question "are these eight adapters' axes aligned?" in one node
-instead of twenty-eight. Directions are named by their port (or `d0`, `d1`,
-… from the list), and each one's original `norm` rides along. All must
-share a space.
-""",
-    inputs=(
-        In("a", "direction/vector", "The first of exactly two directions.", required=False),
-        In("b", "direction/vector", "The second of exactly two directions.", required=False),
-        *_NAMED_DIRECTIONS,
-    ),
-    emits=Emits('geometry/similarity', collection=False, doc='For two directions: `cosine`. For many: `names`, `cosines` (the matrix), `norms` and `pairs` (every pair with its cosine, most similar first). `metric` is `cosine` and `space` the shared space either way.'),
-    params=(),
-    example={},
-    example_inputs={"a": {"$fetch": "$axis_run1"}, "b": {"$fetch": "$axis_run2"}},
-)
-
 VOCAB = Op(
     name="direction/vocab",
     summary=(
@@ -314,5 +289,5 @@ reads.
 
 OPS: tuple[Op, ...] = (
     FROM_VECTORS, FROM_PCA, ADD, AVERAGE, ORTHOGONALIZE, NORMALIZE, PROJECT,
-    SIMILARITY, VOCAB,
+    VOCAB,
 )

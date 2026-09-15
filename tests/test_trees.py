@@ -25,7 +25,8 @@ def similarity_of(points: np.ndarray) -> dict:
     return K.collection("geometry/similarity", [{
         "layer": 0, "ids": [f"i{i}" for i in range(len(points))],
         "labels": [None] * len(points),
-        "matrix": geometry.cosine_matrix(unit.astype(np.float32)).tolist()}])
+        "matrix": geometry.cosine_matrix(unit.astype(np.float32)).tolist()}],
+        metric="cosine", metric_kind="similarity", symmetric=True, options={})
 
 
 def corpus(kind: str, n: int = 30, seed: int = 0) -> np.ndarray:
@@ -65,7 +66,7 @@ class TestTheMeasure:
 
     def stats(self, kind, **params):
         out = PURE_BLOCKS["geometry/mst"](
-            {"matrix": similarity_of(corpus(kind))}, params)
+            {"similarity": similarity_of(corpus(kind))}, params)
         return out["items"][0]
 
     def test_collapse_and_evenness_both_have_low_variance(self):
@@ -91,29 +92,31 @@ class TestTheMeasure:
         # comparable.
         base = similarity_of(corpus("clustered"))
         cv1 = PURE_BLOCKS["geometry/mst"](
-            {"matrix": base}, {})["items"][0]["cv"]
+            {"similarity": base}, {})["items"][0]["cv"]
         scaled = {**base, "items": [{**base["items"][0], "matrix": [
             [1 - (1 - v) * 0.5 for v in row]
             for row in base["items"][0]["matrix"]]}]}
         cv2 = PURE_BLOCKS["geometry/mst"](
-            {"matrix": scaled}, {})["items"][0]["cv"]
+            {"similarity": scaled}, {})["items"][0]["cv"]
         assert cv1 == pytest.approx(cv2, abs=0.02)
 
 
 class TestTheBlock:
-    def test_it_takes_vectors_directly_too(self):
+    def test_it_follows_a_similarity_over_vectors(self):
         rows = [{"id": f"r{i}", "layer": 3, "head": None, "label": None,
                  "vector": v.tolist()} for i, v in enumerate(corpus("clustered"))]
-        out = PURE_BLOCKS["geometry/mst"](
-            {"vectors": {"kind": "residual_vectors", "rows": rows}}, {})
-        assert out["items"][0]["layer"] == 3
+        sim = PURE_BLOCKS["geometry/similarity"](
+            {"items": {"kind": "residual_vectors", "rows": rows}}, {})
+        out = PURE_BLOCKS["geometry/mst"]({"similarity": sim}, {})
+        assert out["items"][0]["layer"] == 3 and out["items"][0]["group"] == "layer=3"
         assert out["items"][0]["n"] == len(rows)
+        assert out["metric"] == "cosine" and out["over"] == "activations/vector"
 
     def test_a_table_reads_the_items_directly(self):
         # One item per group, and `records/table` reads them as rows: the
         # flat duplicate the old shape carried is gone.
         out = PURE_BLOCKS["geometry/mst"](
-            {"matrix": similarity_of(corpus("even"))}, {})
+            {"similarity": similarity_of(corpus("even"))}, {})
         item = out["items"][0]
         assert {"layer", "n", "mean", "variance", "cv", "bridges"} <= set(item)
         table = PURE_BLOCKS["records/table"]({"records": out}, {})
@@ -122,7 +125,7 @@ class TestTheBlock:
 
     def test_a_wrong_input_says_what_it_wanted(self):
         with pytest.raises(ValueError, match="geometry/similarity"):
-            PURE_BLOCKS["geometry/mst"]({"matrix": [1, 2]}, {})
+            PURE_BLOCKS["geometry/mst"]({"similarity": [1, 2]}, {})
 
 
 class TestCentering:
@@ -137,9 +140,11 @@ class TestCentering:
         common = np.ones(d, dtype=np.float32) * 10.0
         return common + rng.normal(0, spread, size=(n, d)).astype(np.float32)
 
-    def _mean_edge(self, rows, **params):
-        out = trees.mst({"vectors": {"kind": "residual_vectors", "rows": rows}},
-                        params)
+    def _mean_edge(self, rows, **options):
+        sim = PURE_BLOCKS["geometry/similarity"](
+            {"items": {"kind": "residual_vectors", "rows": rows}},
+            {"metric": "cosine", "options": options})
+        out = trees.mst({"similarity": sim}, {})
         return out["items"][0]["mean"], out
 
     def _rows(self, V):
@@ -156,22 +161,27 @@ class TestCentering:
 
     def test_the_record_says_it_was_centered(self):
         _, out = self._mean_edge(self._rows(self._cone()), center=True)
-        assert out["centered"] is True
-        assert out["metric"] == "centered_cosine_distance"
+        assert out["metric"] == "cosine" and out["options"] == {"center": True}
 
     def test_uncentered_is_unchanged(self):
         _, out = self._mean_edge(self._rows(self._cone()))
-        assert out["centered"] is False
-        assert out["metric"] == "cosine_distance"
+        assert out["metric"] == "cosine" and out["options"] == {"center": False}
 
-    def test_centering_a_similarity_matrix_refuses(self):
-        # The vectors are gone by then; silently not centering would be
-        # the worst outcome.
-        matrix = {"kind": "similarity_matrix",
-                  "layers": [{"layer": 23, "ids": ["a", "b"], "labels": [None, None],
-                              "matrix": [[1.0, 0.9], [0.9, 1.0]]}]}
-        with pytest.raises(ValueError, match="cannot center"):
-            trees.mst({"matrix": matrix}, {"center": True})
+    def test_centering_reproduces_the_direct_path_bit_for_bit(self):
+        # The variety numbers published from the vectors-straight-to-mst
+        # path (float32 cosine over centred rows, 1 − s) must come back
+        # exactly from the similarity-then-mst path.
+        from mechbench_compute import geometry
+
+        V = self._cone()
+        rows = self._rows(V)
+        centred = trees.center_rows(np.array(V, dtype=np.float32))
+        direct = trees._distance_from_similarity(geometry.cosine_matrix(centred))
+        edges = trees.minimum_spanning_tree(direct)
+        want = trees.tree_stats(edges)
+        _, out = self._mean_edge(rows, center=True)
+        got = {k: out["items"][0][k] for k in want}
+        assert got == want
 
 
 class TestParamChecking:
@@ -191,13 +201,12 @@ class TestParamChecking:
     def test_accepted_params_pass(self):
         from mechbench_compute.block_params import check_params
         check_params("geometry/mst",
-                     {"center": True, "bridge_sigma": 2.0, "name": "v",
-                      "keep_edges": False})
+                     {"bridge_sigma": 2.0, "name": "v", "keep_edges": False})
 
     def test_a_port_given_as_a_param_is_refused_with_directions(self):
         from mechbench_compute.block_params import check_params
         with pytest.raises(ValueError, match="input port"):
-            check_params("geometry/mst", {"vectors": {}})
+            check_params("geometry/mst", {"similarity": {}})
 
     def test_an_unregistered_block_is_unchecked(self):
         # Every CANONICAL op is declared now (000478), so the unchecked

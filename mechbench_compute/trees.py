@@ -135,93 +135,69 @@ def _vectors_to_distance(rows: Sequence[Mapping[str, Any]], *,
     return _distance_from_similarity(geometry.cosine_matrix(vectors))
 
 
-def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`geometry/mst`.
+def _distance_of(entry: Mapping[str, Any], header: Mapping[str, Any]) -> np.ndarray:
+    """The distance matrix a similarity item stands for: a distance
+    metric as it is; cosine as 1 − s (what the tree has always been
+    built on); any other similarity as max − s."""
+    m = np.array(entry["matrix"], dtype=float)
+    kind = header.get("metric_kind") or ("similarity" if header.get("metric") in (None, "cosine") else "distance")
+    if kind == "distance":
+        dist = m.copy()
+    elif header.get("metric", "cosine") == "cosine":
+        dist = 1.0 - m
+    else:
+        dist = float(m.max()) - m
+    np.fill_diagonal(dist, 0.0)
+    return dist
 
-    Takes either a `similarity_matrix` (the output of
-    `vectors/similarity`) on the `matrix` port, or a
-    `residual_vectors` record on the `vectors` port — so the block
-    composes with or without the intermediate similarity node.
-    """
+
+def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    """`geometry/mst`: a tree per group of a `geometry/similarity`
+    collection, whatever metric produced it — the metric and its
+    options ride along from the similarity's header."""
     bridge_sigma = float(params.get("bridge_sigma", DEFAULT_BRIDGE_SIGMA))
     keep_edges = bool(params.get("keep_edges", True))
-    # Off by default so stored results keep their numbers; every new
-    # protocol should turn it on. See `center_rows`.
-    center = bool(params.get("center", False))
-    # The coordinate items are grouped on; the retired `label` field is
-    # read as the `label` coordinate.
-    axis = str(params.get("axis") or "label")
     from mechbench_compute.lexicon import kinds as K
 
-    src = inputs.get("matrix")
-    vectors = inputs.get("vectors")
-
-    def _is(obj: Any, item_kind: str) -> bool:
-        return isinstance(obj, Mapping) and K.item_kind_of(obj) == item_kind
-
-    groups: list[dict[str, Any]] = []
-    if center and _is(src, "geometry/similarity"):
-        raise ValueError(
-            "geometry/mst cannot center a similarity matrix — the vectors "
-            "are already gone. Feed it `vectors` instead, or center "
-            "upstream in geometry/similarity.")
-    if _is(src, "geometry/similarity"):
-        for entry in K.items_of(src):
-            groups.append({
-                "layer": entry.get("layer"),
-                **({"head": entry["head"]} if entry.get("head") is not None else {}),
-                "ids": entry.get("ids", []),
-                "labels": entry.get("labels", []),
-                "distance": _distance_from_similarity(entry["matrix"]),
-            })
-    elif _is(vectors, "activations/vector"):
-        rows = K.items_of(vectors)
-        keys = sorted({(S.layer_of(r), S.head_of(r)) for r in rows},
-                      key=lambda t: (t[0] if t[0] is not None else -1,
-                                     t[1] if t[1] is not None else -1))
-        for layer, head in keys:
-            sub = [r for r in rows
-                   if S.layer_of(r) == layer and S.head_of(r) == head]
-            if len(sub) < 2:
-                continue
-            groups.append({
-                "layer": layer,
-                **({"head": head} if head is not None else {}),
-                "ids": [r.get("id") for r in sub],
-                "labels": [S.label_of(r, axis) for r in sub],
-                "distance": _vectors_to_distance(sub, center=center),
-            })
-    else:
+    src = inputs.get("similarity")
+    if not (isinstance(src, Mapping) and K.item_kind_of(src) == "geometry/similarity"):
         raise ValueError(
             "geometry/mst needs a collection of geometry/similarity on its "
-            "`matrix` port or of activations/vector on `vectors` — got "
-            f"{type(src or vectors).__name__}")
+            f"`similarity` port — got {type(src).__name__}")
+    if src.get("symmetric") is False:
+        raise ValueError(
+            f"geometry/mst needs a symmetric metric; {src.get('metric')!r} is not "
+            "(m(a, b) ≠ m(b, a)) — compare by a symmetric one, such as "
+            "jensen-shannon")
 
-    out_layers = []
-    for g in groups:
-        edges = minimum_spanning_tree(g["distance"])
+    out_groups = []
+    for entry in K.items_of(src):
+        distance = _distance_of(entry, src)
+        edges = minimum_spanning_tree(distance)
         stats = tree_stats(edges, bridge_sigma=bridge_sigma)
-        entry: dict[str, Any] = {
-            "layer": g["layer"], "n": len(g["ids"]), **stats,
-            "ids": g["ids"], "labels": g["labels"],
-        }
-        if "head" in g:
-            entry["head"] = g["head"]
+        ids = list(entry.get("ids", []))
+        item: dict[str, Any] = {"n": len(ids), **stats, "ids": ids,
+                                "labels": list(entry.get("labels", []))}
+        for k in ("group", "layer", "head"):
+            if entry.get(k) is not None:
+                item[k] = entry[k]
         if keep_edges:
-            entry["edges"] = [[i, j, round(w, 6)] for i, j, w in edges]
-        out_layers.append(entry)
+            item["edges"] = [[i, j, round(w, 6)] for i, j, w in edges]
+        out_groups.append(item)
 
-    # One item per group; `records/table` reads the items directly, so
-    # the flat duplicate the old shape carried is gone.
+    metric = src.get("metric", "cosine")
+    options = dict(src.get("options") or {})
+    # One item per group; `records/table` reads the items directly.
     return K.collection(
-        "geometry/mst", out_layers,
+        "geometry/mst", out_groups,
         name=params.get("name", "mst"),
-        metric="centered_cosine_distance" if center else "cosine_distance",
-        centered=center,
+        metric=metric,
+        options=options,
+        over=src.get("over"),
         bridge_sigma=bridge_sigma,
-        axis=axis,
+        axis=src.get("axis"),
         description=(
-            "Minimum spanning tree over pairwise cosine distance. `mean` is "
+            f"Minimum spanning tree over pairwise {metric} distance. `mean` is "
             "the scale of the spread and `variance` its clumpiness; they are "
             "read together, because a collapsed corpus and an evenly varied "
             "one both have low variance for opposite reasons."

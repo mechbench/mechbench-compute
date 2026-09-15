@@ -184,9 +184,9 @@ NOT_LEAF_STREAM: dict[str, str] = {
     "records/cross": "generator: builds leaves from params, consumes none",
     "records/cross": "generator (factor-cross alias)",
     "geometry/similarity":
-        "one residual_vectors record; its rows are not bench leaves",
+        "one collection compared under a metric; its items are not bench leaves",
     "geometry/mst":
-        "one similarity matrix or vector set, not a leaf stream",
+        "one similarity collection, not a leaf stream",
     "tools/calc":
         "a tool handler: its input is one call's arguments, not a leaf stream",
     "tools/lookup":
@@ -194,7 +194,7 @@ NOT_LEAF_STREAM: dict[str, str] = {
     **{f"direction/{n}":
        "residual_vectors / direction records, not a leaf stream"
        for n in ("from-vectors", "from-pca", "add", "average", "orthogonalize",
-                 "normalize", "similarity", "project")},
+                 "normalize", "project")},
     # Trajectory readouts (task 000368) read ONE trajectory record —
     # rows are (item, step) points along an axis, not bench leaves —
     # the same footing as the direction algebra above.

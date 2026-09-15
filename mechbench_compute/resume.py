@@ -49,7 +49,6 @@ BLOCK_RESUME: dict[str, dict[str, Any]] = {
     "direction/average": {"level": "reproducible", "items": False},
     "direction/orthogonalize": {"level": "reproducible", "items": False},
     "direction/normalize": {"level": "reproducible", "items": False},
-    "direction/similarity": {"level": "reproducible", "items": False},
     "direction/project": {"level": "reproducible", "items": False},
 }
 

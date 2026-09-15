@@ -368,10 +368,13 @@ class TestVectorSimilarity:
                             position="final", point="post")
 
     def test_matrix_and_separation(self):
-        out = interp.vector_similarity({"vectors": self._vectors_record()}, {})
+        from mechbench_compute.similarity import geometry_similarity
+
+        out = geometry_similarity({"items": self._vectors_record()}, {})
         assert out["item_kind"] == "geometry/similarity"
+        assert out["metric"] == "cosine" and out["metric_kind"] == "similarity"
         layer = out["items"][0]
-        assert layer["layer"] == 5
+        assert layer["layer"] == 5 and layer["group"] == "layer=5"
         m = np.array(layer["matrix"])
         assert m.shape == (4, 4)
         assert m[0, 1] > m[0, 2]  # same-label closer than cross-label
@@ -379,15 +382,19 @@ class TestVectorSimilarity:
         assert layer["nn_purity"] == pytest.approx(1.0)
 
     def test_unlabeled_vectors_still_get_a_matrix(self):
+        from mechbench_compute.similarity import geometry_similarity
+
         rec = self._vectors_record()
         for r in rec["items"]:
             r["label"] = None
-        out = interp.vector_similarity({"vectors": rec}, {})
+        out = geometry_similarity({"items": rec}, {})
         assert "separation" not in out["items"][0]
 
     def test_wrong_input_kind_refuses(self):
-        with pytest.raises(ValueError, match="activations/vector"):
-            interp.vector_similarity({"vectors": {"kind": "word_list"}}, {})
+        from mechbench_compute.similarity import geometry_similarity
+
+        with pytest.raises(ValueError, match="declares metrics"):
+            geometry_similarity({"items": {"kind": "word_list"}}, {})
 
 
 class TestGateComponent:
@@ -711,11 +718,14 @@ class TestQKSources:
                 v[(0 if label == "a" else 2) + head % 2] = 1.0
                 rows.append({"id": f"h{head}r{i}", "label": label,
                              "layer": 7, "head": head, "vector": v})
-        out = interp.vector_similarity(
-            {"vectors": {"kind": "residual_vectors", "rows": rows}}, {})
+        from mechbench_compute.similarity import geometry_similarity
+
+        out = geometry_similarity(
+            {"items": {"kind": "residual_vectors", "rows": rows}}, {})
         entries = out["items"]
         assert len(entries) == 2
         assert {e["head"] for e in entries} == {0, 1}
+        assert {e["group"] for e in entries} == {"layer=7,head=0", "layer=7,head=1"}
         assert all(e["layer"] == 7 for e in entries)
         assert all(len(e["ids"]) == 4 for e in entries)
 

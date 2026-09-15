@@ -496,49 +496,83 @@ be encoded directly.
 VECTORS_SIMILARITY = Op(
     name="geometry/similarity",
     summary=(
-        "The pairwise cosine similarity of residual vectors at each layer, "
-        "with how well the labels separate — intra- vs inter-label "
-        "similarity, nearest-neighbour purity, silhouette."
+        "The pairwise matrix of a collection's items under a metric their "
+        "kind declares — cosine over vectors, Jensen–Shannon over decision "
+        "reads, hamming over records — with how well the groups separate."
     ),
     description="""\
-For each layer (and head, for Q/K vectors) in the collection, the full
-cosine matrix over its items. When every item has a value on the `axis`
-coordinate and there is more than one value, the block also reports the mean
-cosine within groups, between groups, their gap, the fraction of items whose
-nearest neighbour shares their group, and the silhouette score.
+A kind declares how its items compare, the way it declares how they are
+drawn: `activations/vector` (and so directions and trajectory points) by
+`cosine` (option `center`), `euclidean` or `dot`; `logits/distribution`
+(and so decision reads, funnels and readouts) by `jensen-shannon`,
+`hellinger`, `total-variation` or `kl`; `records/record` (and every record
+kind) by `hamming` over `coords`. The op takes any such collection on
+`items`, applies the named `metric` — the kind's first when none is named —
+and emits the matrix with the metric, its `options`, and whether it is
+symmetric recorded on the header.
 
-Raw cosine between transformer activations is dominated by a shared
-direction they all lean toward; for a variety measure prefer `geometry/mst`
-with `center: true`, which subtracts it.
+Items are grouped `by` a header axis before comparing: `"space"` (the
+default for vectors) compares only items from one layer and head; a
+coordinate name (`"layer"` for a funnel, `"factor"` for a readout) compares
+within each of its values; `null` compares everything at once. One item per
+group, with every pair listed for groups of at most thirty-two.
+
+When every item in a group has a value on the `axis` coordinate and there is
+more than one value, the item also reports the mean value within groups,
+between groups, their gap, the fraction of items whose nearest neighbour
+shares their value, and the silhouette score.
+
+Two vectors compare only within one space; two decision reads compare over
+the union of the tokens they carry, the mass neither names counted as one
+last bucket. Raw cosine between transformer activations is dominated by a
+shared direction they all lean toward; for a variety measure use `cosine`
+with `options: {"center": true}`, which subtracts it, and `geometry/mst`
+downstream.
 """,
     inputs=(
-        In("vectors", "activations/vector", "The vectors to compare.", many=True),
+        In("items", "activations/vector | logits/distribution | records/record",
+           "The items to compare: any collection whose kind declares metrics.",
+           many=True),
     ),
     emits=(
-        Emits('geometry/similarity', collection=True, doc='One item per group: `{layer, head?, space, ids, labels, matrix, separation?, nn_purity?, silhouette?}`, `labels` being the items\' values on the `axis` coordinate. The header carries `position`, `point`, `metric` and `axis`.')
+        Emits('geometry/similarity', collection=True, doc='One item per group: `{group, layer?, head?, space?, ids, labels, matrix, pairs?, separation?, nn_purity?, silhouette?}`, `labels` being the items\' values on the `axis` coordinate. The header carries `metric`, `metric_kind`, `symmetric`, `options`, `over` (the kind compared), `by`, `axis`, and `position`/`point` for vectors.')
     ),
     params=(
+        P("metric", "string",
+          "Which of the kind's metrics to apply. By default the kind's first: "
+          "`cosine` for vectors, `jensen-shannon` for distributions, "
+          "`hamming` for records.",
+          None),
+        P("options", "object",
+          "The metric's options, as it declares them — `{\"center\": true}` "
+          "for `cosine`.",
+          None),
+        P("by", "string | null",
+          "The header axis to group on before comparing: `\"space\"` (per "
+          "layer and head), a coordinate name, or `null` for one group. "
+          "Defaults to `\"space\"` when the items carry one.",
+          None),
         P("axis", "string",
-          "The coordinate the separation metrics group on. `label` reads the "
-          "older `label` field as well.",
+          "The coordinate the separation reads. `label` reads the older "
+          "`label` field as well.",
           "label"),
     ),
-    example={"axis": "genre"},
-    example_inputs={"vectors": {"$fetch": "$vectors"}},
+    example={"metric": "cosine", "options": {"center": True}, "axis": "genre"},
+    example_inputs={"items": {"$fetch": "$vectors"}},
 )
 
 VECTORS_MST = Op(
     name="geometry/mst",
     summary=(
-        "Measure how varied a set of vectors is with a minimum spanning tree "
-        "over their distances — the spread, its clumpiness, and how many "
-        "clusters the bridges imply."
+        "Measure how varied a set of items is with a minimum spanning tree "
+        "over their pairwise distances — the spread, its clumpiness, and how "
+        "many clusters the bridges imply — for anything a metric compares."
     ),
     description="""\
 Average pairwise distance cannot tell three tight clumps from an even
 spread; a minimum spanning tree can. Its edges are the cheapest set that
 still connects every point, so within a clump edges are short and between
-clumps there is one long **bridge**. Per layer the block reports the mean
+clumps there is one long **bridge**. Per group the block reports the mean
 edge (the scale of the spread — small means collapsed), the variance and
 coefficient of variation (clumpiness), and the number of bridges — edges
 more than `bridge_sigma` standard deviations above the mean — which is
@@ -546,36 +580,22 @@ roughly the cluster count minus one. Read `mean` and `variance` together:
 a collapsed corpus and an evenly varied one both have low variance, for
 opposite reasons.
 
-`center: true` subtracts the mean vector before measuring. Transformer
-activations occupy a narrow cone around one dominant direction, and raw
-cosine between two of them mostly measures that shared direction; centering
-removes it, and the rankings it produces agree across layers and pooling
-choices where the uncentered ones do not. It is off by default only so
-stored results keep their numbers; new protocols should turn it on. It
-needs vectors, not a similarity matrix.
-
-The tree is built deterministically (ties break toward the lower index), so
-a run that reproduces its numbers reproduces its tree.
+The tree is built on a `geometry/similarity` collection, so it stands over
+whatever that op compared: a corpus of vectors by centred cosine, the
+adapters' axes, a grid of decision reads by Jensen–Shannon, the design's
+records by how many factors differ. A distance metric is used as it is; a
+cosine as `1 − cosine`; any other similarity as `max − value`. A metric
+that is not symmetric (`kl`) is refused by name. The tree is built
+deterministically (ties break toward the lower index), so a run that
+reproduces its numbers reproduces its tree.
 """,
     inputs=(
-        In("vectors", "activations/vector",
-           "The vectors to measure. One of `vectors` and `matrix` is required.",
-           many=True, required=False),
-        In("matrix", "geometry/similarity",
-           "Already-computed similarities, from `geometry/similarity`, when "
-           "the vectors themselves are not needed (`center` is).",
-           many=True, required=False),
+        In("similarity", "geometry/similarity",
+           "The pairwise matrices, one per group, from `geometry/similarity`.",
+           many=True),
     ),
-    emits=Emits('geometry/mst', collection=True, doc='One item per group (a layer, or a layer and head): `n`, `n_edges`, `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`, `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels` (the items\' values on the `axis` coordinate), and `edges` as `[i, j, weight]` when kept. The header carries `metric`, `centered`, `bridge_sigma` and `axis`. `records/table` reads the items as its rows.'),
+    emits=Emits('geometry/mst', collection=True, doc='One item per group: `group`, `layer`/`head` when the group is a space, `n`, `n_edges`, `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`, `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels`, and `edges` as `[i, j, weight]` when kept. The header carries `metric`, `options`, `over` (the kind compared), `bridge_sigma` and `axis`. `records/table` reads the items as its rows.'),
     params=(
-        P("axis", "string",
-          "The coordinate reported as each item's label. `label` reads the "
-          "older `label` field as well.",
-          "label"),
-        P("center", "bool",
-          "Subtract the mean vector before measuring distance. Recommended "
-          "on; requires `vectors` rather than a similarity matrix.",
-          False),
         P("bridge_sigma", "float",
           "How many standard deviations above the mean edge an edge must be "
           "to count as a bridge between clusters.",
@@ -585,8 +605,8 @@ a run that reproduces its numbers reproduces its tree.
           "only the statistics.",
           True),
     ),
-    example={"center": True},
-    example_inputs={"vectors": {"$fetch": "$vectors"}},
+    example={"bridge_sigma": 2.0},
+    example_inputs={"similarity": {"$fetch": "$similarity"}},
 )
 
 OPS: tuple[Op, ...] = (

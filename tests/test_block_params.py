@@ -96,7 +96,7 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "records/union": [("blocks.py", "union")],
     "text/stats": [("blocks.py", "text_stats")],
     "eval/expectation": [("blocks.py", "eval_expectation")],
-    "geometry/similarity": [("blocks.py", "_vector_similarity")],
+    "geometry/similarity": [("similarity.py", "geometry_similarity")],
     "geometry/mst": [("trees.py", "mst")],
     "direction/add": [("directions.py", "block_add")],
     "direction/average": [("directions.py", "block_average")],
@@ -105,7 +105,6 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "direction/normalize": [("directions.py", "block_normalize")],
     "direction/orthogonalize": [("directions.py", "block_orthogonalize")],
     "direction/project": [("directions.py", "block_project")],
-    "direction/similarity": [("directions.py", "block_similarity")],
     "trajectory/project": [("trajectory.py", "project")],
     "trajectory/compare": [("trajectory.py", "compare")],
     "trajectory/aggregate": [("trajectory.py", "aggregate")],
@@ -381,9 +380,9 @@ def test_exemptions_carry_a_reason():
 
 def test_an_unknown_port_is_refused_by_name():
     with pytest.raises(ValueError) as caught:
-        check_inputs("geometry/mst", {"similarity": {"kind": "collection", "item_kind": "geometry/similarity", "key": [], "items": []}})
+        check_inputs("geometry/mst", {"matrix": {"kind": "collection", "item_kind": "geometry/similarity", "key": [], "items": []}})
     msg = str(caught.value)
-    assert "similarity" in msg and "geometry/mst" in msg and "matrix" in msg
+    assert "'matrix'" in msg and "geometry/mst" in msg and "similarity" in msg
 
 
 def test_an_unwired_required_port_is_refused_before_anything_runs():
@@ -396,7 +395,7 @@ def test_an_unwired_required_port_is_refused_before_anything_runs():
 def test_a_kind_that_does_not_satisfy_the_port_is_refused_with_both_names():
     verdicts = {"kind": "collection", "item_kind": "eval/verdict", "key": ["id"], "items": []}
     with pytest.raises(ValueError) as caught:
-        check_inputs("geometry/similarity", {"vectors": verdicts})
+        check_inputs("geometry/similarity", {"items": verdicts})
     msg = str(caught.value)
     assert "geometry/similarity" in msg and "activations/vector" in msg and "eval/verdict" in msg
 

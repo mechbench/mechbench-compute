@@ -112,6 +112,11 @@ ALIASES: dict[str, str] = {
     "merge": "adapter/merge",
     "hf/push-adapter": "adapter/publish",
     "tools/bench-lookup": "tools/lookup",
+    # Retired 2026-09-15 (metrics on kinds): a cosine between directions
+    # is `geometry/similarity` over a collection of them — `records/union`
+    # the directions first. The alias lands the protocol on the new op,
+    # whose port check then names the port to wire.
+    "direction/similarity": "geometry/similarity",
 }
 
 #: The compute release that drops the aliases. Named 0.77.0 when they

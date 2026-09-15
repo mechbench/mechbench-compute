@@ -60,6 +60,28 @@ nothing said so.
   `point`, the sub-layer output(s) zeroed — `attn_out`, `mlp_out`,
   `gate_out`, one or several, both by default (the whole layer, on the
   path that always computed it). `space.point` uses the same names.
+- **Metrics live on kinds; two geometry ops stand over any of them.** A
+  kind declares how its items compare the way it declares how they are
+  drawn: `activations/vector` (and so directions and trajectory points)
+  by `cosine` (option `center`), `euclidean` or `dot`; `logits/
+  distribution` (and so decision reads, funnels, readouts) by
+  `jensen-shannon`, `hellinger`, `total-variation` or `kl`; every record
+  kind by `hamming` over `coords`. **`geometry/similarity`** takes any
+  such collection on one `items` port (was `vectors`, vectors only) and
+  emits the pairwise matrix per group under the named `metric` — the
+  kind's first by default — with `metric`, `metric_kind`, `symmetric`,
+  `options` and `over` (the kind compared) on its header; `center` is
+  now `options: {"center": true}` and is refused as a param.
+  **`geometry/mst`** reads only a `geometry/similarity` collection on
+  its `similarity` port (was `matrix`; the `vectors` port and `center`
+  param are gone) and builds the tree under whatever metric that
+  carried, refusing an asymmetric one by name. **`direction/similarity` is retired**: a union of directions
+  is a vector collection (`records/union` wraps a single direction as a
+  collection of one, named by its port), and `geometry/similarity`
+  compares them; the retired name resolves to the new op with a
+  warning until 0.80.0, its `a`/`b` ports refused by name.
+  `interp.vector_similarity`, `directions.similarity`,
+  `similarity_matrix` and `block_similarity` are gone.
 
 ### Changes that alter results without raising
 

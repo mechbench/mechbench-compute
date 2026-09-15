@@ -344,9 +344,33 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
 
     batch_axis = params.get("batch_axis", "batch")
     ports = sorted(inputs.keys())
+
+    def _as_collection(port: str, value: Any) -> Any:
+        # A single kinded object on a port — a direction from
+        # `direction/from-vectors`, say — is a collection of one; it
+        # takes the port's name as its id when it carries none, so the
+        # union's items stay distinguishable by key.
+        if isinstance(value, Mapping) and K.item_kind_of(value) is None \
+                and isinstance(value.get("kind"), str):
+            try:
+                name, plural = K.resolve_kind(str(value["kind"]), warn=False)
+            except KeyError:
+                return value
+            if not plural and name in K.BY_KIND:
+                item = dict(value)
+                if item.get("id") is None:
+                    item["id"] = port
+                return K.collection(name, [item])
+        return value
+
+    inputs = {p: _as_collection(p, inputs[p]) for p in ports}
     vector_inputs = [inputs[p] for p in ports]
-    if ports and all(isinstance(v, Mapping) and K.item_kind_of(v) == "activations/vector"
-                     for v in vector_inputs):
+
+    def _vectors(v: Any) -> bool:
+        ik = K.item_kind_of(v) if isinstance(v, Mapping) else None
+        return ik is not None and K.satisfies(ik, "activations/vector")
+
+    if ports and all(_vectors(v) for v in vector_inputs):
         first = vector_inputs[0]
         rows: list[dict[str, Any]] = []
         segments = []
@@ -695,7 +719,7 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     # Interp readouts (the mechbench-experiments port): pure numpy over
     # residual_vectors records — no model, no weights.
     "geometry/similarity":
-        lambda inputs, params: _vector_similarity(inputs, params),
+        lambda inputs, params: _geometry_similarity(inputs, params),
 }
 
 # Trajectory readouts (task 000368): pure numpy over trajectory records.
@@ -704,10 +728,10 @@ from mechbench_compute.trajectory import PURE as _TRAJECTORY_PURE
 PURE_BLOCKS.update(_TRAJECTORY_PURE)
 
 
-def _vector_similarity(inputs, params):
-    from mechbench_compute.interp import vector_similarity
+def _geometry_similarity(inputs, params):
+    from mechbench_compute.similarity import geometry_similarity
 
-    return vector_similarity(inputs, params)
+    return geometry_similarity(inputs, params)
 
 
 def eval_expectation(inputs: Mapping[str, Any],

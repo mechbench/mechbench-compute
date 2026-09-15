@@ -22,7 +22,7 @@ import warnings
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind
+from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind, Metric, P
 
 # --- field shorthands ---------------------------------------------------------------
 
@@ -64,6 +64,10 @@ RECORD = Kind(
     key=("id",),
     header={"segments": "When the collection was made by `records/union`: the ports it came from and how many records each contributed."},
     renderer=_TABLE_RENDERER,
+    metrics=(
+        Metric("hamming", "distance", True,
+               "How many coordinate axes two records differ on; an axis one of them lacks counts as a difference. The design's own factor structure, as a distance."),
+    ),
 )
 
 CONDITION = Kind(
@@ -238,7 +242,17 @@ DISTRIBUTION = Kind(
             "top": TOP, "tracked": TRACKED},
     required=("entropy_bits", "top"),
     doc="Every op that reads a next-token distribution emits this shape or a kind that extends it: "
-        "the same `top` and `tracked`, spelled once.",
+        "the same `top` and `tracked`, spelled once. Two reads compare over the union of the tokens "
+        "they carry, the mass neither names counted as one last bucket.",
+    metrics=(
+        Metric("jensen-shannon", "distance", True,
+               "The Jensen–Shannon distance: the square root of the divergence in bits, in [0, 1]."),
+        Metric("hellinger", "distance", True, "The Hellinger distance, in [0, 1]."),
+        Metric("total-variation", "distance", True,
+               "Half the L1 distance between the two: the largest difference in the probability of any event."),
+        Metric("kl", "distance", False,
+               "KL(p ‖ q) in bits, the row against the column. Not symmetric, so a tree refuses it."),
+    ),
 )
 
 DECISION = Kind(
@@ -311,7 +325,17 @@ VECTOR = Kind(
             "skipped_empty": "Records dropped for having no text, when any.",
             "segments": "When made by `records/union`: the ports and how many each contributed."},
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
-    doc="A grouping is a coordinate (`coords.genre`), never a `label` field; the ops that group take an `axis`.",
+    doc="A grouping is a coordinate (`coords.genre`), never a `label` field; the ops that group take an `axis`. "
+        "Two vectors compare only within one space; a metric refuses two that differ, naming both spaces.",
+    metrics=(
+        Metric("cosine", "similarity", True,
+               "The cosine of the angle between the two, in [−1, 1]. With `center`, the collection's mean vector is "
+               "subtracted first: transformer activations occupy a narrow cone around one dominant direction, and raw "
+               "cosine measures that cone before it measures the items.",
+               options=(P("center", "bool", "Subtract the collection's mean vector before comparing.", False),)),
+        Metric("euclidean", "distance", True, "The straight-line distance between the two."),
+        Metric("dot", "similarity", True, "The dot product, unnormalised; a tree over it uses max − dot as the distance."),
+    ),
 )
 
 COORDINATE = Kind(
@@ -367,30 +391,33 @@ ATTENTION = Kind(
 
 SIMILARITY = Kind(
     "geometry/similarity",
-    "A symmetric similarity matrix over the items of a collection, with the metric that produced it and, when the items are grouped on an axis, how well the groups separate.",
-    fields={"layer": F("integer", "The layer the vectors came from, for a per-layer group."),
+    "The pairwise matrix of a collection's items under one of their kind's metrics — cosine over vectors, Jensen–Shannon over distributions, hamming over records — one item per group, with the metric and its options recorded and, when the items carry a value on the grouping axis, how well the groups separate.",
+    fields={"group": F("string", "The group's name: `layer=12`, `layer=3,head=1`, `genre=noir`, or `all`."),
+            "layer": F("integer", "The layer, for a group of vectors from one space."),
             "head": F("integer", "The head, for a per-head group."),
             "space": SPACE,
             "ids": F("array", "The item ids, in matrix order.", items={}),
             "labels": F("array", "The items' values on the grouping `axis`, in matrix order.", items={}),
-            "names": F("array", "For directions: their names, in matrix order.", items={"type": "string"}),
-            "matrix": F("array", "The similarity, `[i][j]`.", items={"type": "array"}),
-            "cosines": F("array", "The same, for a direction matrix.", items={"type": "array"}),
-            "cosine": F("number", "For exactly two directions: their cosine."),
-            "norms": F("object", "For directions: name → norm before normalisation."),
-            "pairs": F("array", "Every pair with its cosine, most similar first.", items={"type": "object"}),
-            "separation": F("object", "`{intra_cosine, inter_cosine, gap}` when grouped."),
+            "matrix": F("array", "The metric's value, `[i][j]`, at full precision.", items={"type": "array"}),
+            "pairs": F("array", "Every pair `{a, b, value}`, most alike first, for a group of at most thirty-two items.", items={"type": "object"}),
+            "separation": F("object", "`{intra, inter, gap}`: the mean value within groups, between groups, and how much the groups stand apart."),
             "nn_purity": F("number", "Share of items whose nearest neighbour shares their group."),
             "silhouette": F("number", "The silhouette score, when computable.")},
-    key=("layer", "head"),
-    header={"position": "Which position the vectors were read at.", "point": "The hook point.",
-            "metric": "The metric and its options.", "axis": "The coordinate the items were grouped on."},
+    key=("group",),
+    header={"metric": "The metric's name.", "metric_kind": "`similarity` or `distance`: which way larger means.",
+            "symmetric": "Whether m(a, b) = m(b, a).", "options": "The metric's options as applied.",
+            "over": "The kind of the items compared.", "by": "The header axis the groups were formed on.",
+            "axis": "The coordinate the separation reads.",
+            "position": "Which position the vectors were read at, when vectors.", "point": "The hook point, when vectors."},
+    doc="Written before 2026-09-15 by `direction/similarity` as `{cosine}` or `{names, cosines, norms, pairs}`; "
+        "those objects stay as stored and are read by the same fields.",
 )
 
 MST = Kind(
     "geometry/mst",
-    "The minimum spanning tree over a group's pairwise distances: the spread's scale and clumpiness, the bridges between clusters, and the edges.",
-    fields={"layer": F("integer", "The layer, for a per-layer group."), "head": F("integer", "The head, for a per-head group."),
+    "The minimum spanning tree over a group's pairwise distances, whatever metric produced them: the spread's scale and clumpiness, the bridges between clusters, and the edges.",
+    fields={"group": F("string", "The group's name, from the similarity it was built on."),
+            "layer": F("integer", "The layer, for a per-layer group."), "head": F("integer", "The head, for a per-head group."),
             "n": F("integer", "Items in the group."), "n_edges": F("integer", "Edges in the tree."),
             "mean": F("number", "Mean edge: the scale of the spread."), "variance": F("number", "Edge variance: the clumpiness."),
             "stdev": F("number", "Edge standard deviation."), "cv": F("number", "stdev / mean, scale-free."),
@@ -400,9 +427,10 @@ MST = Kind(
             "ids": F("array", "The item ids, in edge-index order.", items={}), "labels": F("array", "Their labels.", items={}),
             "edges": F("array", "`[i, j, weight]` per edge, in the order the tree grew.", items={"type": "array"})},
     required=("n", "n_edges"),
-    key=("layer", "head"),
-    header={"name": "A label for the summary.", "metric": "The distance metric and its options.",
-            "centered": "Whether the vectors were centered first.", "bridge_sigma": "The bridge threshold in standard deviations."},
+    key=("group",),
+    header={"name": "A label for the summary.", "metric": "The metric the distances came from.",
+            "options": "The metric's options as applied.", "over": "The kind of the items compared.",
+            "bridge_sigma": "The bridge threshold in standard deviations.", "axis": "The coordinate the labels read."},
 )
 
 # --- intervene -------------------------------------------------------------------------

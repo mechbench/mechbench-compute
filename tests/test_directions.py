@@ -25,33 +25,11 @@ def _vectors(layer=3, point="post", n=4, dim=8, seed=1):
     return {"kind": "residual_vectors", "point": point, "model": "fake/m@r", "rows": rows}
 
 
-class TestSimilarityMatrix:
-    """Many directions at once (experiment 018's axis geometry): the
-    pairwise matrix named by port, norms riding along."""
+def _cos(a, b):
+    """The cosine of two directions, through the metric their kind declares."""
+    from mechbench_compute import metrics as M
 
-    def _dir(self, vec, norm_scale=1.0):
-        return d.make([x * norm_scale for x in vec], _space(12, len(vec)), method="t")
-
-    def test_pairwise_cosines_named_by_port(self):
-        out = d.block_similarity(
-            {"die": self._dir([1, 0, 0], 2.0), "n1000": self._dir([1, 0, 0], 3.0),
-             "joint": self._dir([0, 1, 0])}, {})
-        assert out["kind"] == "geometry/similarity"
-        assert out["names"] == ["die", "joint", "n1000"]  # sorted ports
-        i, j = out["names"].index("die"), out["names"].index("n1000")
-        assert out["cosines"][i][j] == 1.0
-        assert out["cosines"][i][out["names"].index("joint")] == 0.0
-        assert out["norms"] == {"die": 2.0, "joint": 1.0, "n1000": 3.0}
-        assert out["pairs"][0] == {"a": "die", "b": "n1000", "cosine": 1.0}
-
-    def test_two_named_ports_still_give_one_cosine(self):
-        out = d.block_similarity({"a": self._dir([1, 0, 0]),
-                                  "b": self._dir([0, 1, 0])}, {})
-        assert out["kind"] == "geometry/similarity" and out["cosine"] == 0.0
-
-    def test_one_direction_is_refused(self):
-        with pytest.raises(ValueError, match="at least two"):
-            d.block_similarity({"only": self._dir([1, 0, 0])}, {})
+    return float(M.matrix("activations/vector", [a, b], "cosine")[0][0, 1])
 
 
 class TestMake:
@@ -85,7 +63,7 @@ class TestProducers:
         v = _vectors()
         x = d.from_pca(v, layer=3)
         m = d.from_vectors(v, layer=3, positive="pos", negative="neg")
-        assert abs(d.similarity(x, m)["cosine"]) > 0.95
+        assert abs(_cos(x, m)) > 0.95
         assert 0.5 < x["derivation"]["explained"] <= 1.0
 
     def test_missing_layer_refused(self):
@@ -98,7 +76,7 @@ class TestArithmetic:
         a = d.make([1.0, 0.0, 0.0], _space(1), method="t")
         b = d.make([1.0, 1.0, 0.0], _space(1), method="t")
         o = d.orthogonalize(b, [a])
-        assert abs(d.similarity(o, a)["cosine"]) < 1e-6
+        assert abs(_cos(o, a)) < 1e-6
         assert o["derivation"]["method"] == "orthogonalize"
 
     def test_add_and_average(self):
@@ -137,8 +115,9 @@ class TestBlocks:
         fn = PURE_BLOCKS["direction/from-vectors"]
         x = fn({"vectors": v}, {"layer": 3, "positive": "pos", "negative": "neg"})
         assert x["kind"] == "direction/vector"
-        sim = PURE_BLOCKS["direction/similarity"]({"a": x, "b": x}, {})
-        assert abs(sim["cosine"] - 1.0) < 1e-6
+        pair = PURE_BLOCKS["records/union"]({"a": x, "b": dict(x)}, {})
+        sim = PURE_BLOCKS["geometry/similarity"]({"items": pair}, {})
+        assert abs(sim["items"][0]["matrix"][0][1] - 1.0) < 1e-6
         avg = PURE_BLOCKS["direction/average"]({"d1": x, "d2": x}, {})
         assert avg["derivation"]["method"] == "average"
 

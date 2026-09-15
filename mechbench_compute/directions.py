@@ -229,14 +229,6 @@ def normalize(d: Mapping[str, Any]) -> dict[str, Any]:
     return make(as_array(d), space_of(d), method="normalize")
 
 
-def similarity(a: Mapping[str, Any], b: Mapping[str, Any]) -> dict[str, Any]:
-    same_space(a, b)
-    va, vb = as_array(a), as_array(b)
-    cos = float(va @ vb / max(float(np.linalg.norm(va) * np.linalg.norm(vb)), 1e-12))
-    return {"kind": "geometry/similarity", "metric": "cosine", "cosine": round(cos, 6),
-            "space": space_of(a)}
-
-
 def project_rows(vectors: Mapping[str, Any], d: Mapping[str, Any]) -> dict[str, Any]:
     """Each item of a vector collection at the direction's layer,
     projected onto the direction: the scalar coordinate along it."""
@@ -327,50 +319,6 @@ def block_normalize(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dic
     return normalize(inputs.get("direction"))
 
 
-def similarity_matrix(named: Sequence[tuple[str, Mapping[str, Any]]]) -> dict[str, Any]:
-    """Pairwise cosines over MANY directions at once — the pressure-axis
-    geometry question (experiment 018: are eight adapters' axes
-    aligned?) in one node rather than twenty-eight. Norms ride along
-    from each direction (the magnitude before it was made unit)."""
-    if len(named) < 2:
-        raise ValueError("a similarity matrix needs at least two directions")
-    names = [n for n, _ in named]
-    vecs = [as_array(d) for _, d in named]
-    for _, d in named[1:]:
-        same_space(named[0][1], d)
-    M = np.stack([v / (np.linalg.norm(v) or 1.0) for v in vecs])
-    C = M @ M.T
-    pairs = [{"a": names[i], "b": names[j], "cosine": round(float(C[i, j]), 6)}
-             for i in range(len(names)) for j in range(i + 1, len(names))]
-    return {
-        "kind": "geometry/similarity",
-        "metric": "cosine",
-        "names": names,
-        "space": space_of(named[0][1]),
-        "cosines": [[round(float(x), 6) for x in row] for row in C],
-        "norms": {n: d.get("norm") for n, d in named},
-        "pairs": sorted(pairs, key=lambda p: -p["cosine"]),
-    }
-
-
-def block_similarity(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`a` and `b` → one cosine (unchanged). Any other set of direction
-    ports (or params.directions) → the pairwise matrix, named by port."""
-    a = inputs.get("a")
-    b = inputs.get("b")
-    if a is not None and b is not None:
-        return similarity(a, b)
-    named: list[tuple[str, Mapping[str, Any]]] = []
-    listed = inputs.get("directions")
-    if isinstance(listed, list):
-        named.extend((f"d{i}", d) for i, d in enumerate(listed))
-    for k in sorted(inputs):
-        v = inputs[k]
-        if _is_direction(v) and k != "directions":
-            named.append((k, v))
-    return similarity_matrix(named)
-
-
 def block_project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     return project_rows(inputs.get("vectors"),
                         inputs.get("direction"))
@@ -383,6 +331,5 @@ PURE_DIRECTION_BLOCKS = {
     "direction/average": block_average,
     "direction/orthogonalize": block_orthogonalize,
     "direction/normalize": block_normalize,
-    "direction/similarity": block_similarity,
     "direction/project": block_project,
 }

@@ -32,6 +32,27 @@ COLLECTION = "collection"
 
 
 @dataclass(frozen=True)
+class Metric:
+    """A way two items of a kind compare, bound to the kind the way a
+    renderer is: `name` is what a protocol writes (`cosine`,
+    `jensen-shannon`, `hamming`); `kind` says whether a larger number
+    means more alike (`similarity`) or further apart (`distance`);
+    `symmetric` is whether m(a, b) = m(b, a) — a tree refuses a metric
+    that is not; `options` are the parameters the metric takes, each a
+    `Param`. A subtype inherits its ancestor's metrics."""
+
+    name: str
+    kind: str
+    symmetric: bool
+    doc: str
+    options: tuple[Any, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "kind": self.kind, "symmetric": self.symmetric,
+                "doc": self.doc, "options": [o.to_dict() for o in self.options]}
+
+
+@dataclass(frozen=True)
 class Kind:
     """One data kind, declared for the person who will read it.
 
@@ -43,9 +64,10 @@ class Kind:
     collected — empty for a kind that is singular by nature (a reduction
     over a set, or one object). `header` is the collection-level fields a
     collection of this kind carries, with one line each. `renderer` and
-    `collection_renderer` are the UI bindings, in the registry's shape.
-    `platform` marks a kind produced by the platform rather than by an
-    op.
+    `collection_renderer` are the UI bindings, in the registry's shape;
+    `metrics` are the comparison bindings (`Metric`), inherited by
+    subtypes. `platform` marks a kind produced by the platform rather
+    than by an op.
     """
 
     name: str
@@ -58,6 +80,7 @@ class Kind:
     header: dict[str, str] = field(default_factory=dict)
     renderer: dict[str, Any] | None = None
     collection_renderer: dict[str, Any] | None = None
+    metrics: tuple[Metric, ...] = ()
     platform: bool = False
 
     @property
@@ -79,6 +102,7 @@ class Kind:
             "fields": self.fields, "required": list(self.required),
             "extends": self.extends, "key": list(self.key), "header": self.header,
             "renderer": self.renderer, "collection_renderer": self.collection_renderer,
+            "metrics": [m.to_dict() for m in self.metrics],
             "platform": self.platform,
         }
 
