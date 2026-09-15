@@ -139,6 +139,40 @@ def dot(items, options):
     return (x @ x.T).astype(np.float64)
 
 
+# --- adapter/delta ---------------------------------------------------------------------
+
+
+@_implements("adapter/delta", "cosine")
+def delta_cosine(items, options):
+    """Two adapters' writes at one module, compared through the
+    principal direction of each (task 000458).
+
+    Not `activations/vector`'s cosine: these live in a module's OUTPUT
+    space, not a layer's residual, so there is no `space` to agree on —
+    what must agree is the module, and a comparison across modules is
+    refused here rather than producing a number for two different
+    spaces. A sign-free reading is deliberate: `u` and `−u` are the same
+    principal axis, so the magnitude is what carries the alignment.
+    """
+    missing = [it.get("id") for it in items if not it.get("vector")]
+    if missing:
+        raise ValueError(
+            f"{len(missing)} of {len(items)} deltas carry no vector "
+            f"(first: {missing[0]!r}) — `adapter/measure` records the "
+            "principal direction only with `vectors: true`")
+    modules = {(it.get("basis") or {}).get("module") or
+               (it.get("coords") or {}).get("module") for it in items}
+    if len(modules) > 1:
+        raise ValueError(
+            f"these deltas span {len(modules)} modules "
+            f"({', '.join(sorted(str(m) for m in modules))}) and each module's "
+            "output is its own space — group by module (`by: \"module\"`) "
+            "before comparing")
+    x = np.array([it["vector"] for it in items], dtype=np.float32)
+    normed = x / np.clip(np.linalg.norm(x, axis=1, keepdims=True), 1e-12, None)
+    return (normed @ normed.T).astype(np.float64)
+
+
 # --- logits/distribution --------------------------------------------------------------
 
 

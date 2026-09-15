@@ -25,7 +25,7 @@ Design rules these implement:
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 # The original ai-randomness noise charset, reproduced exactly.
@@ -398,7 +398,25 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
         for r in recs:
             records.append({**r, "coords": {**r.get("coords", {}),
                                             batch_axis: port}})
-    return _coll(records, segments=segments)
+    # A union of ONE kind stays that kind. The items are unchanged but
+    # for a coordinate, so a collection of adapter deltas unioned with
+    # another is still a collection of adapter deltas — and the metrics
+    # its kind declares still apply to it. Mixed inputs fall back to the
+    # root, which is the only thing they have in common.
+    return K.collection(_shared_item_kind(inputs, ports), records,
+                        segments=segments)
+
+
+def _shared_item_kind(inputs: Mapping[str, Any], ports: Sequence[str]) -> str:
+    from mechbench_compute.lexicon import kinds as K
+
+    kinds = {K.item_kind_of(inputs[p]) if isinstance(inputs[p], Mapping) else None
+             for p in ports}
+    if len(kinds) == 1:
+        only = kinds.pop()
+        if isinstance(only, str) and only in K.BY_KIND:
+            return only
+    return "records/record"
 
 
 # --- registry ---------------------------------------------------------------
@@ -703,7 +721,7 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     "records/rename":
         lambda inputs, params: _coll(rename(inputs["records"], params)),
     "records/select":
-        lambda inputs, params: _coll(select(inputs["records"], params)),
+        lambda inputs, params: _selected(inputs["records"], params),
     "records/subtract":
         lambda inputs, params: _coll(paired_delta(inputs["records"], params)),
     "records/summarize":
@@ -720,7 +738,33 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
     # residual_vectors records — no model, no weights.
     "geometry/compare":
         lambda inputs, params: _geometry_similarity(inputs, params),
+    # Weight space (task 000458): an adapter's own low-rank factors,
+    # read with no model and no forward pass.
+    "adapter/measure":
+        lambda inputs, params: _measure_adapter(inputs["adapter"], params),
 }
+
+
+def _selected(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
+    """A filter keeps the kind; a projection does not. Selecting some of
+    a collection's items leaves each item exactly as it was, so a subset
+    of adapter deltas is still adapter deltas and still compares by what
+    that kind declares. `fields` rewrites the items, and what is left
+    may no longer satisfy the kind — that lands as a plain record."""
+    from mechbench_compute.lexicon import kinds as K
+
+    items = select(records, params)
+    if params.get("fields"):
+        return _coll(items)
+    kind = K.item_kind_of(records) if isinstance(records, Mapping) else None
+    return K.collection(kind if kind in K.BY_KIND else "records/record", items)
+
+
+def _measure_adapter(adapter: Any, params: Mapping[str, Any]) -> dict[str, Any]:
+    from mechbench_compute.weights import measure_adapter
+
+    payload = adapter.get("payload", adapter) if isinstance(adapter, Mapping) else adapter
+    return measure_adapter(payload, params)
 
 # Trajectory readouts (task 000368): pure numpy over trajectory records.
 from mechbench_compute.trajectory import PURE as _TRAJECTORY_PURE

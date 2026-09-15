@@ -187,6 +187,9 @@ NOT_LEAF_STREAM: dict[str, str] = {
         "one collection compared under a metric; its items are not bench leaves",
     "geometry/span":
         "one similarity collection, not a leaf stream",
+    "adapter/measure":
+        "one adapter object, read module by module; its input is a set of "
+        "weights, not a stream of leaves that could be chunked",
     "tools/calc":
         "a tool handler: its input is one call's arguments, not a leaf stream",
     "tools/lookup":

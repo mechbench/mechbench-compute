@@ -13,6 +13,43 @@ nothing said so.
 
 ---
 
+## 0.81.2 — 2026-09-16
+
+A patch again, for the same reason 0.81.1 was one: **0.82.0 is spoken
+for** by the removal of both alias tables. Nothing here changes an
+existing number; it adds a readout and makes two collections keep the
+kind they already were.
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **`records/union` and `records/select` keep the item kind.** A union
+  of collections that share one item kind was labelled
+  `records/record`, and so was a filtered selection — so a collection
+  of adapter deltas or verdicts lost, at the first reshaping node, the
+  kind whose metrics make it comparable. Both now carry the kind
+  through when it is unambiguous (a union of different kinds, or a
+  selection that projects `fields`, still lands on the root). **A
+  stored union or selection changes `item_kind` and `key`, so its
+  content hash moves**; the items and their numbers do not.
+
+### Other
+
+- **`adapter/measure`: what training wrote, read from the adapter**
+  (task 000458). One `adapter/delta` item per (layer, module) — the
+  Frobenius norm, the spectrum, the effective rank and the share of the
+  adapter's mass — computed from the low-rank factors themselves, with
+  no model, no prompt and no forward pass. The spectrum is exact rather
+  than estimated: `ΔW = scale · B · A` has at most `rank` non-zero
+  directions, so its singular values are those of an r×r matrix and the
+  delta is never formed. With `vectors: true` each item carries its
+  principal direction, so `geometry/compare` with `by: "module"`
+  answers whether two training runs moved the model the same way — the
+  weight-space form of an activation-space question.
+
 ## 0.81.1 — 2026-09-16
 
 A patch, not a minor, only because **0.82.0 is spoken for**: the 0.80.0

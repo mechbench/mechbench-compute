@@ -512,6 +512,71 @@ draw gives.
     example_inputs={"records": {"$fetch": "$prompts"}, "anchors": {"$fetch": "$anchors"}},
 )
 
+MEASURE_ADAPTER = Op(
+    name="adapter/measure",
+    summary=(
+        "Measure what training wrote, from the adapter itself: per layer and "
+        "module, the norm, spectrum and effective rank of the delta, and its "
+        "share of the adapter's mass — no model, no prompt, no forward pass."
+    ),
+    description="""\
+An adapter IS a set of low-rank deltas, one per (layer, projection), and it
+is already an object. Reading it answers a different question from any
+capture: not what the model did on an input, but **what training changed**
+— per module rather than per prompt, and in seconds rather than a forward
+pass per condition.
+
+Each item carries `frobenius` (how much was written there at all),
+`spectral` and `singular_values` (how much of it is one direction),
+`effective_rank` — exp(H(p)) over the normalised spectrum, so 1.0 means the
+write is a line and `rank` means it fills the subspace it was given — and
+`mass_share`, whose sum over the measured modules is 1: the "where did
+training write" map.
+
+The spectrum is **exact, not estimated**: `ΔW = scale · B · A` has at most
+`rank` non-zero directions, so its singular values are those of an r×r
+matrix built from the factors, and the delta itself is never formed.
+
+With `vectors: true` each item also carries the principal left-singular
+direction, unit length, in the module's output space. Two adapters
+measured into one collection (`records/union`) are then compared by
+`geometry/compare` with `by: "module"`: whether two training runs moved
+the model the same way, answered in weight space rather than by capturing
+what each does to a prompt.
+""",
+    inputs=(
+        In("adapter", "adapter/lora",
+           "The adapter to measure — from an `adapter/train` node or a stored "
+           "one. Its bytes are read; the model it was trained on is not "
+           "loaded."),
+    ),
+    emits=Emits('adapter/delta', collection=True, doc="One item per module, id and `coords.module` the module's own name in the model tree (`layers.12.self_attn.q_proj`) — two layers' `q_proj` are two modules, and `coords.projection` is what groups them: `frobenius`, `spectral`, `singular_values`, `effective_rank`, `mass_share`, `rank`, `shape`, and `vector`/`basis` when asked for. `coords` carry `layer`, `module`, `projection`, `container` and, when `source` is given, `adapter`. The header carries the adapter's `base_model`, `trained_on` and `lora` shape, and `measured` — the modules, layers and total norm the shares are shares of."),
+    params=(
+        P("layers", "list[int] | \"all\"",
+          "Which layers to measure.",
+          "all"),
+        P("modules", "list[string] | \"all\"",
+          "Which projections: `\"v_proj\"`, or `\"self_attn.v_proj\"` to "
+          "disambiguate a name two containers share.",
+          "all"),
+        P("top_k", "int",
+          "How many singular values to record per module, largest first.",
+          4),
+        P("vectors", "bool",
+          "Also record each delta's principal direction, so two adapters can "
+          "be compared at a module. One vector per module, the width of the "
+          "module's output; a module training never wrote to has none, and "
+          "carries no vector.",
+          False),
+        P("source", "string",
+          "What to call this adapter, stamped on every item's "
+          "`coords.adapter` — how a union of several stays readable.",
+          None),
+    ),
+    example={"layers": [8, 12, 16], "vectors": True, "source": "zoo-cats"},
+    example_inputs={"adapter": {"$fetch": "$adapter"}},
+)
+
 HF_PUSH_ADAPTER = Op(
     name="adapter/publish",
     summary=(
@@ -634,5 +699,5 @@ arguments come from the call.
 
 OPS: tuple[Op, ...] = (
     CHAT, CONVERSATION, JUDGE, EVAL_HF_METRIC, EVAL_SUITE, FINETUNE_LORA,
-    HF_PUSH_ADAPTER, MERGE, TOOLS_CALC, TOOLS_BENCH_LOOKUP,
+    MEASURE_ADAPTER, HF_PUSH_ADAPTER, MERGE, TOOLS_CALC, TOOLS_BENCH_LOOKUP,
 )

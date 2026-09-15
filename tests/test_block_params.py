@@ -114,6 +114,7 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "records/total": [("reduce.py", "FloatSum"), ("reduce.py", "_block_of")],
     "records/rank": [("reduce.py", "TopK"), ("reduce.py", "_block_of")],
     "records/bin": [("reduce.py", "Histogram"), ("reduce.py", "_block_of")],
+    "adapter/measure": [("weights.py", "measure_adapter")],
     "tools/calc": [("tools.py", "calc")],
     "tools/lookup": [("tools.py", "bench_lookup")],
 }
