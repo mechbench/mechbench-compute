@@ -13,6 +13,30 @@ nothing said so.
 
 ---
 
+## 0.90.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._ This releases a graph that used to raise and should not have.
+
+### Changes that alter results without raising
+
+- **A placeholder join no longer fails the run it was keeping alive.**
+  Every node's result is emitted with its upstreams' object paths as
+  lineage; a node running under `on_missing: "skip"` or `"placeholder"`
+  (000399) has an upstream that produced nothing and therefore stored
+  nothing, and citing that absence as a path raised `KeyError` — so the
+  whole join policy worked in-process and died the moment a real job
+  stored its results. Lineage now names the inputs that exist;
+  `nodes_missing` on the manifest is where the absence is recorded.
+  Found by the first STORED run of one (task 000515); the tests that
+  covered the policy all handed the graph straight to the executor,
+  which stores nothing, and one of them does not any more.
+
+### Other
+
+- _None._
+
 ## 0.89.0 — 2026-09-17
 
 ### Changes that raise

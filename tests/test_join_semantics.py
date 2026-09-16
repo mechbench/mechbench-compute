@@ -109,6 +109,50 @@ class TestPlaceholder:
         assert payload["nodes_missing"]["bad"]["reason"].startswith("RuntimeError")
 
 
+class TestWithResultsStored:
+    """Every other test here hands the graph straight to the executor,
+    which stores nothing. A real job emits each node's result to the
+    bench and cites its upstreams as lineage — and an upstream that
+    produced nothing has no path to cite. That gap failed the first
+    stored run of a placeholder join with a bare `KeyError: 'down'`,
+    which is to say: the policy that exists to keep a run alive killed
+    it, and only where nobody was looking."""
+
+    def test_a_placeholder_join_still_emits(self, monkeypatch):
+        from mechbench_compute import bench
+
+        emitted: list[str] = []
+        lineage: dict[str, list[str]] = {}
+
+        def emit(path, payload, **kw):
+            emitted.append(path)
+            lineage[path] = list(kw.get("inputs") or [])
+            return {"path": path}
+
+        monkeypatch.setattr(bench, "emit", emit)
+        spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None,
+                            extra={"graph": _graph("placeholder"),
+                                   "resultPath": "u/p/results/j_1"})
+        from mechbench_compute import blocks as blocks_mod
+
+        real = blocks_mod.PURE_BLOCKS["records/fill"]
+
+        def flaky(inputs, params):
+            if params.get("templates", {}).get("user", "").startswith("{x}"):
+                raise RuntimeError("this branch died")
+            return real(inputs, params)
+
+        monkeypatch.setitem(blocks_mod.PURE_BLOCKS, "records/fill", flaky)
+        out = ProtocolExecutor().run(spec).payload
+
+        assert "u/p/results/j_1/pairs" in emitted
+        assert "u/p/results/j_1/bad" not in emitted   # it never ran
+        # Lineage names the input that exists and says nothing about the
+        # one that does not; `nodes_missing` is where the absence lives.
+        assert lineage["u/p/results/j_1/pairs"] == ["u/p/results/j_1/good"]
+        assert out["nodes_missing"]["bad"]["reason"].startswith("RuntimeError")
+
+
 class TestTheWholePathWithoutAMonkeypatch:
     """What the docs example rehearses: two provider branches, one of
     them down, zipped and judged. Nothing here is patched — the mock

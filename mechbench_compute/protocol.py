@@ -940,8 +940,16 @@ class ProtocolExecutor:
                 out = bench.emit(
                     f"{result_base}/{nid}",
                     results[nid],
+                    # Lineage names the inputs that EXIST. A node run
+                    # under `on_missing` (000399) has an upstream that
+                    # produced nothing and so stored nothing — there is
+                    # no path to cite, and citing the absence as a path
+                    # was a KeyError that failed the very run the policy
+                    # was keeping alive. `nodes_missing` on the manifest
+                    # is where the absence is recorded.
                     inputs=[node_paths[e["from"]["node"]]
-                            for e in in_edges],
+                            for e in in_edges
+                            if e["from"]["node"] in node_paths],
                     # Provenance records the stored identity.
                     operation=lexicon.canonical_path(block),
                     params=_wire_params(params),
