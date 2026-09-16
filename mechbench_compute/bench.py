@@ -582,7 +582,10 @@ def list_prefix_hashes(prefix: str, *, api_url: str | None = None,
 # 000448) are thin wrappers over these; there is one implementation.
 
 #: A job is finished — successfully or not — in exactly these states.
-TERMINAL = ("done", "failed", "cancelled", "interrupted")
+#: `done_with_missing` (000515) is finished: the run completed and part
+#: of the graph did not, which is a result to read rather than a job to
+#: keep waiting on.
+TERMINAL = ("done", "done_with_missing", "failed", "cancelled", "interrupted")
 
 
 def launch(protocol: str, bindings: dict[str, Any] | None = None, *,

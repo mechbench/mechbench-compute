@@ -13,6 +13,23 @@ nothing said so.
 
 ---
 
+## 0.89.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- **`bench.watch` stops on `done_with_missing`** (task 000515). A run
+  that finished having lost a branch is finished; without this the
+  watcher polls it forever, which is the shape of every bug a new
+  terminal status causes.
+
 ## 0.88.0 — 2026-09-17
 
 One bug, found by reading the votes behind a verdict the demonstration
