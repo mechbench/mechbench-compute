@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """Write the operation lexicon for a TypeScript consumer.
 
-The protocol composer renders every node's editor from the declaration:
+The protocol composer renders every node's editor from the declaration —
 each op's ports, and each parameter's type, default, closed set and
-fields. The lexicon (`mechbench_compute/lexicon/`) is the one place those
-are declared, so this script writes them as a TypeScript module the UI
-commits verbatim, and `tests/test_lexicon_ts.py` fails when the committed
-copy no longer matches.
+fields — and the API plans a job's routing from each op's `requires`.
+The lexicon (`mechbench_compute/lexicon/`) is the one place those are
+declared, so this script writes them as a TypeScript module that
+mechbench-models commits verbatim for both, and `tests/test_lexicon_ts.py`
+fails when the committed copy no longer matches.
 
 Only what an editor reads is written: an op's long description and its
 emitted record's prose live on the documentation site, which a parameter's
 help links to.
 
 Usage:
-    python scripts/dump_lexicon_ts.py > ../mechbench-ui/src/lib/lexicon.generated.ts
+    python scripts/dump_lexicon_ts.py > ../mechbench-models/src/lexicon.generated.ts
 """
 
 from __future__ import annotations
