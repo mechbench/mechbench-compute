@@ -135,6 +135,53 @@ class TestCreateProtocol:
         assert bench.create_protocol("o", "p", "n", graph={})["id"] == "prt_2"
 
 
+class TestRunningAnAuthorTwice:
+    """Task 000519. The second run is the protocol's second VERSION, not
+    a second protocol — which is what the bench has forty-two duplicate
+    rows because nobody did."""
+
+    @staticmethod
+    def _taken(pid="prt_1", version=1):
+        return bench.BenchError(
+            "a protocol called 'x' already exists", status=409,
+            body={"code": "NAME_TAKEN", "protocolId": pid, "version": version})
+
+    def test_a_taken_name_becomes_a_patch(self, fake):
+        fake.add("POST", "/protocols", self._taken())
+        fake.add("PATCH", "/protocols/prt_1",
+                 {"protocol": {"id": "prt_1", "version": 2, "name": "018-axes"}})
+        out = bench.create_protocol("benji", "lab", "018-axes",
+                                    graph={"nodes": [{"id": "n"}], "edges": []},
+                                    signature={"inputs": [], "outputs": []})
+        assert out == {"id": "prt_1", "version": 2, "name": "018-axes"}
+        patch = fake.calls[-1]
+        assert patch["method"] == "PATCH"
+        assert patch["url"].endswith("/protocols/prt_1")
+        import json
+        sent = json.loads(patch["body"])
+        # The graph and the signature travel; the name and the project
+        # do not — they are what identified it.
+        assert sent["graph"] == {"nodes": [{"id": "n"}], "edges": []}
+        assert sent["signature"] == {"inputs": [], "outputs": []}
+        assert "name" not in sent and "projectSlug" not in sent
+
+    def test_exists_error_raises_instead(self, fake):
+        fake.add("POST", "/protocols", self._taken())
+        with pytest.raises(bench.BenchError, match="already exists"):
+            bench.create_protocol("o", "p", "n", graph={}, exists="error")
+
+    def test_any_other_refusal_still_raises(self, fake):
+        fake.add("POST", "/protocols", bench.BenchError(
+            "project does not exist", status=404,
+            body={"code": "PROJECT_NOT_FOUND"}))
+        with pytest.raises(bench.BenchError, match="project does not exist"):
+            bench.create_protocol("o", "p", "n", graph={})
+
+    def test_an_unknown_policy_is_refused(self, fake):
+        with pytest.raises(ValueError, match="exists is"):
+            bench.create_protocol("o", "p", "n", graph={}, exists="overwrite")
+
+
 class TestCancel:
     def test_it_posts_the_reason_and_returns_the_new_state(self, fake):
         fake.add("POST", "/jobs/j1/cancel",

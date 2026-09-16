@@ -13,6 +13,29 @@ nothing said so.
 
 ---
 
+## 0.93.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **Running an author twice makes a VERSION, not a duplicate** (task
+  000519). `bench.create_protocol` POSTed unconditionally, so nine
+  experiment authors minted a new protocol at v1 on every run — 42
+  duplicate rows on the bench, seven called `018-axes`, five called
+  `dataflow-two-models-judged`. When the name is taken it now PATCHes
+  the protocol that holds it, which bumps its version and snapshots the
+  old one, so a run that pinned it still replays. `exists="error"`
+  raises instead. Nothing recomputes differently; what changes is which
+  protocol id a re-run lands on — the existing one rather than a new
+  one.
+
+### Other
+
+- _None._
+
 ## 0.92.0 — 2026-09-17
 
 ### Changes that raise

@@ -608,15 +608,31 @@ def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
 
 def create_protocol(owner: str, project: str, name: str, *, graph: dict,
                     description: str = "", signature: dict | None = None,
-                    owner_kind: str = "user", api_url: str | None = None,
+                    owner_kind: str = "user", exists: str = "version",
+                    api_url: str | None = None,
                     api_key: str | None = None) -> dict:
     """Register a protocol: `POST /protocols` with its graph and
     signature. Returns the bare protocol (id, version, name, ...).
+
+    **Running an author twice makes a second VERSION, not a second
+    protocol** (task 000519). A project holds one protocol per name;
+    when the name is taken, this PATCHes the one that exists, which
+    bumps its version and snapshots the old one so a run that pinned it
+    still replays. `exists="error"` raises instead, for a caller that
+    means a name to be new.
+
+    It did not, until 2026-09-17, and the bench has the scar: forty-two
+    duplicate rows in one project, seven protocols called `018-axes`,
+    five called `dataflow-two-models-judged` — every one of them a v1,
+    because each re-run POSTed. The versioning model was there all
+    along and nothing used it.
 
     The authoring half of an experiment used to carry its own `api()`
     for exactly this call; it belongs beside `launch`, which runs what
     this registers.
     """
+    if exists not in ("version", "error"):
+        raise ValueError(f"exists is 'version' or 'error', not {exists!r}")
     url, key = _config(api_url, api_key)
     body: dict[str, Any] = {
         "ownerKind": owner_kind, "ownerHandle": owner, "projectSlug": project,
@@ -624,14 +640,40 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
     }
     if signature is not None:
         body["signature"] = signature
-    out = _request(
-        "POST", f"{url}/protocols", key,
-        body=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, timeout=90)
+    try:
+        out = _request(
+            "POST", f"{url}/protocols", key,
+            body=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, timeout=90)
+    except BenchError as e:
+        taken = _name_taken(e)
+        if taken is None or exists == "error":
+            raise
+        # The name is this protocol's; give it the new graph. The server
+        # bumps the version, snapshots the last one, and the runs that
+        # pinned it still replay.
+        patch: dict[str, Any] = {"graph": graph, "description": description}
+        if signature is not None:
+            patch["signature"] = signature
+        out = _request(
+            "PATCH", f"{url}/protocols/{taken}", key,
+            body=json.dumps(patch).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, timeout=90)
     # The protocols routes still answer `{protocol: …}` — the one wrapper
     # 000451 left behind (task 000456). Unwrapped here, once, so no
     # caller has to; drop this line when the route goes bare.
     return out.get("protocol", out) if isinstance(out, dict) else out
+
+
+def _name_taken(e: BenchError) -> str | None:
+    """The id in a `NAME_TAKEN` refusal, or None for any other error.
+    Read by CODE rather than by matching the message, which is prose;
+    the server names the protocol holding the name so a caller need not
+    go looking for it."""
+    if e.code() != "NAME_TAKEN":
+        return None
+    got = e.body.get("protocolId") if isinstance(e.body, dict) else None
+    return str(got) if got else None
 
 
 def cancel(job_id: str, *, reason: str = "", api_url: str | None = None,
