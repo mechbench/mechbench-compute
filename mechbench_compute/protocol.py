@@ -1000,6 +1000,11 @@ class ProtocolExecutor:
                          for nid in terminals},
             "nodes_executed": [nid for nid in order if nid not in missing],
             "node_paths": node_paths,
+            # What each node produced, small enough to read beside the
+            # node in the composer without fetching its object (task
+            # 000525): the kind, and how many items or rows.
+            "node_summaries": {nid: node_summary(results[nid], spend_by_node.get(nid))
+                               for nid in order if nid in results and nid not in missing},
             # What did not run, and why (000399). A reader of this result
             # must never have to infer an absence from a shorter list.
             **({"nodes_missing": {nid: missing[nid] for nid in order
@@ -2575,6 +2580,33 @@ class ProtocolExecutor:
                 on_item(key, entry)
         return lexicon.collection("logits/decision", out, top_k=top_k)
 
+
+
+def node_summary(value: Any, spend: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """What a node produced, in the terms a reader asks first: which kind,
+    and how many. `{kind, collection, items}` for a collection (however it
+    is spelled — a retired plural object, a bare list); `{kind,
+    collection: false}` for one object, with `rows` when it is a table of
+    them; `{}` for a value that carries no kind. `spend_usd` when the node
+    called a provider."""
+    out: dict[str, Any] = {}
+    if isinstance(value, list):
+        out = {"kind": lexicon.COLLECTION, "collection": True, "items": len(value)}
+    elif isinstance(value, Mapping):
+        item_kind = lexicon.item_kind_of(value)
+        if item_kind is not None:
+            out = {"kind": item_kind, "collection": True, "items": len(lexicon.items_of(value))}
+        elif isinstance(value.get("kind"), str):
+            try:
+                name, _plural = lexicon.resolve_kind(value["kind"], warn=False)
+            except KeyError:
+                name = value["kind"]
+            out = {"kind": name, "collection": False}
+            if isinstance(value.get("rows"), list):
+                out["rows"] = len(value["rows"])
+    if spend and spend.get("cost_usd") is not None:
+        out["spend_usd"] = round(float(spend["cost_usd"]), 8)
+    return out
 
 
 def _spend_total(by_node: dict[str, Any]) -> dict[str, Any]:

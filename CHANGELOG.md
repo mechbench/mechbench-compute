@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## 0.96.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ The run manifest (`run/result`) gains a field, so a run's
+  manifest object is not byte-identical to the same run's under 0.95.0;
+  no node's object, fingerprint or number changes.
+
+### Other
+
+- **A run's manifest says what each node produced** — `node_summaries`:
+  per executed node, its kind, whether a collection, how many items (or
+  a table's rows), and `spend_usd` when it called a provider
+  (`protocol.node_summary`). The protocol composer shows it beside the
+  selected node as what the last run made there, in place of a
+  simulation that could model only a handful of record-shaping
+  operations and guessed at the rest.
+
 ## 0.95.0 — 2026-09-17
 
 ### Changes that raise
