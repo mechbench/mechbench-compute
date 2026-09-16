@@ -13,6 +13,25 @@ nothing said so.
 
 ---
 
+## 0.94.1 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- `scripts/dump_kinds_ts.py` writes each kind's `extends`, so the
+  protocol composer can decide which port an edge lands on by the
+  executor's own rule (`satisfies`: the kind or one that extends it)
+  rather than by a hand-written table of accepted kinds.
+- `direction/project`'s summary no longer names the retired
+  `residual-vectors` record.
+
 ## 0.94.0 — 2026-09-17
 
 ### Changes that raise

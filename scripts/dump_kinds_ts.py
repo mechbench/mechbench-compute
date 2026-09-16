@@ -27,11 +27,13 @@ def main() -> None:
     print(f"export const COLLECTION = {json.dumps(COLLECTION)};")
     print(f"export const KIND_ROOT = {json.dumps(KIND_ROOT)};")
     print()
-    print("/** Every declared kind, by bare name, with its key and whether a collection of it exists. */")
-    print("export const KINDS: Record<string, { key: string[]; collectable: boolean; platform: boolean; summary: string }> = {")
+    print("/** Every declared kind, by bare name: its key, whether a collection of it exists, and the kind it")
+    print(" * extends — which is what lets an object fill a port declared as its ancestor. */")
+    print("export const KINDS: Record<string, { key: string[]; collectable: boolean; platform: boolean; "
+          "extends: string | null; summary: string }> = {")
     for k in K.KINDS:
         print(f"  {json.dumps(k.name)}: {{ key: {json.dumps(list(k.key))}, collectable: {json.dumps(k.collectable)}, "
-              f"platform: {json.dumps(k.platform)}, summary: {json.dumps(k.summary)} }},")
+              f"platform: {json.dumps(k.platform)}, extends: {json.dumps(k.extends)}, summary: {json.dumps(k.summary)} }},")
     print("};")
     print()
     print("/** Retired spelling → [bare kind name, was it a collection]. */")

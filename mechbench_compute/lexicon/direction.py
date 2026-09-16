@@ -235,8 +235,8 @@ visible step in the graph rather than an assumption.
 PROJECT = Op(
     name="direction/project",
     summary=(
-        "Project every row of a residual-vectors record onto a direction — "
-        "each prompt's scalar coordinate along that axis."
+        "Project every vector of a collection onto a direction — each "
+        "prompt's scalar coordinate along that axis."
     ),
     description="""\
 For each item of the collection at the direction's layer, the dot product
