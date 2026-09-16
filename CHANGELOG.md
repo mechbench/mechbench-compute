@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## 0.95.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- **What an op emits instead is declared** (`Emits.otherwise`,
+  `lexicon.Otherwise`): the kind, and the param value or filled input
+  port that decides it. `trajectory/aggregate` with `as: "vectors"`
+  emits `activations/vector`; `trajectory/capture` with `project` emits
+  `activations/coordinate`. Both were prose only, so the protocol
+  composer — which now wires by declared kind — refused to connect an
+  aggregate to `direction/fit`, the wiring 014 runs. A test holds each
+  condition to a param or port the op has and to the emitted record's
+  prose.
+
 ## 0.94.1 — 2026-09-17
 
 ### Changes that raise

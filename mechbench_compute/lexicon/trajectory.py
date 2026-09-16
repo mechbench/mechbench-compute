@@ -20,7 +20,7 @@ corpus-scale trace small enough to store.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Emits, In, Op, P
+from mechbench_compute.lexicon._base import Emits, In, Op, Otherwise, P
 from mechbench_compute.lexicon.model import _POSITIONS_DOC, _RESIDUAL_POINT, ADAPTER
 
 _TRAJECTORY = In("trajectory", "trajectory/point",
@@ -75,7 +75,8 @@ the model saw.
            required=False),
         ADAPTER,
     ),
-    emits=Emits('trajectory/point', collection=True, doc='One item per record per step: `{id, coords, space, step, position, token, norm, vector}`, with `vocab` (a distribution) when asked for, and `n_pooled` plus `steps` when reduced. With `project`, a collection of `activations/coordinate` instead: `coord` and the direction\'s identity in place of the vector, `projected: true` in the header. The header carries `axis`, `point`, `layers`, `position`/`positions`, `d_model` and `replay` (`"trace"`, `"text"` or `"mixed"`).'),
+    emits=Emits('trajectory/point', collection=True, doc='One item per record per step: `{id, coords, space, step, position, token, norm, vector}`, with `vocab` (a distribution) when asked for, and `n_pooled` plus `steps` when reduced. With `project`, a collection of `activations/coordinate` instead: `coord` and the direction\'s identity in place of the vector, `projected: true` in the header. The header carries `axis`, `point`, `layers`, `position`/`positions`, `d_model` and `replay` (`"trace"`, `"text"` or `"mixed"`).',
+                 otherwise=(Otherwise("activations/coordinate", collection=True, port="project"),)),
     params=(
         P("axis", "string",
           "`\"layers\"`: one position through every layer. `\"positions\"`: "
@@ -226,7 +227,8 @@ reduced `as`:
            "A trajectory of points, or a projected one of coordinates, read "
            "the same way.", many=True),
     ),
-    emits=Emits('trajectory/summary', collection=True, doc="For `per_step` and `window`: one item per group (and per step), with a mean `vector` or a mean `coord` as the input had; the header repeats the input's and adds `aggregated: {by, as, steps}`. For `vectors`: a collection of `activations/vector` instead, one item per group with the group on the `by` coordinate."),
+    emits=Emits('trajectory/summary', collection=True, doc="For `per_step` and `window`: one item per group (and per step), with a mean `vector` or a mean `coord` as the input had; the header repeats the input's and adds `aggregated: {by, as, steps}`. For `vectors`: a collection of `activations/vector` instead, one item per group with the group on the `by` coordinate.",
+                 otherwise=(Otherwise("activations/vector", collection=True, param="as", equals="vectors"),)),
     params=(
         P("by", "string",
           "What to group on: a coordinate (`\"label\"`, `\"genre\"`), "

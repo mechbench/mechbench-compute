@@ -209,16 +209,44 @@ class Kind:
 
 
 @dataclass(frozen=True)
+class Otherwise:
+    """What an op emits in place of its usual kind, and the one thing
+    about the node that decides it: a param's value, or an input port
+    being filled. `trajectory/aggregate` with `as: "vectors"` emits
+    `activations/vector`, not `trajectory/summary`; a composer that knew
+    only the usual kind would refuse to wire it into `direction/fit`,
+    which is exactly where it goes."""
+
+    kind: str
+    collection: bool = False
+    #: The param whose value decides it, and the value.
+    param: str | None = None
+    equals: Any = None
+    #: The input port whose being filled decides it.
+    port: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        when: dict[str, Any] = (
+            {"port": self.port} if self.port is not None else {"param": self.param, "equals": self.equals})
+        return {"kind": self.kind, "collection": self.collection, "when": when}
+
+
+@dataclass(frozen=True)
 class Emits:
     """What an op produces: a kind, singly or as a collection of it, and
-    the prose that says which fields matter."""
+    the prose that says which fields matter. `otherwise` are the kinds it
+    produces instead under a condition the node states."""
 
     kind: str
     collection: bool = False
     doc: str = ""
+    otherwise: tuple[Otherwise, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return {"kind": self.kind, "collection": self.collection, "doc": self.doc}
+        d: dict[str, Any] = {"kind": self.kind, "collection": self.collection, "doc": self.doc}
+        if self.otherwise:
+            d["otherwise"] = [o.to_dict() for o in self.otherwise]
+        return d
 
 
 class _Required:

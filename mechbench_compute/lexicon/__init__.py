@@ -42,6 +42,7 @@ from mechbench_compute.lexicon._base import (
     In,
     Kind,
     Op,
+    Otherwise,
     P,
     Param,
     Port,
@@ -234,7 +235,7 @@ def explain_unknown(block: str) -> str:
 __all__ = [
     "ALIASES_REMOVED_IN", "BY_FAMILY", "BY_NAME", "BY_VALUE", "COMMON",
     "FAMILIES", "OPS", "REQUIRED", "RETIRED", "ROOT", "VALUES", "WILDCARD",
-    "Family", "In", "Op", "P", "Param", "Port", "RetiredKindName", "Value",
+    "Family", "In", "Op", "Otherwise", "P", "Param", "Port", "RetiredKindName", "Value",
     "ancestry", "canonical_path", "explain_unknown", "is_canonical",
     "display_name", "name_of_title", "resolve", "satisfies", "title",
 ]

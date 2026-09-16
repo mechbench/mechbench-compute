@@ -70,7 +70,13 @@ export interface LexiconOp {
   requires: "pure" | "mlx-local" | "remote" | "by-model";
   summary: string;
   inputs: LexiconPort[];
-  emits: { kind: string; collection: boolean } | null;
+  /** What it emits, and — under `otherwise` — what it emits instead when
+   * a param has a value or an input port is filled. */
+  emits: {
+    kind: string;
+    collection: boolean;
+    otherwise?: { kind: string; collection: boolean; when: { param: string; equals: unknown } | { port: string } }[];
+  } | null;
   params: LexiconParam[];
   example: Record<string, unknown> | null;
   example_inputs: Record<string, unknown> | null;
@@ -105,7 +111,7 @@ def _op(op: Any) -> dict[str, Any]:
     for gone in ("description",):
         d.pop(gone)
     if d["emits"]:
-        d["emits"] = {"kind": d["emits"]["kind"], "collection": d["emits"]["collection"]}
+        d["emits"] = {k: v for k, v in d["emits"].items() if k != "doc"}
     return d
 
 

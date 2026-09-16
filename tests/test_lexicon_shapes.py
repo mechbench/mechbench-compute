@@ -304,3 +304,26 @@ def test_shapes_reach_the_published_dict() -> None:
     lora = {p["name"]: p for p in lexicon.BY_NAME["adapter/train"].to_dict()["params"]}["lora"]
     assert [f["name"] for f in lora["fields"]][:2] == ["rank", "alpha"]
     json.dumps([op.to_dict() for op in OPS])
+
+
+@pytest.mark.parametrize("op", [op for op in OPS if op.emits and op.emits.otherwise], ids=lambda op: op.name)
+def test_what_an_op_emits_instead_is_declared_against_the_node(op: Op) -> None:
+    """An `otherwise` names a declared kind and a condition on the node a
+    composer can read — a param it has, with a value that param takes,
+    or a port it has — and the emitted record's prose says so, so the
+    page and the declaration cannot disagree."""
+    from mechbench_compute.lexicon.kinds import BY_KIND
+
+    assert op.emits is not None
+    for o in op.emits.otherwise:
+        assert o.kind in BY_KIND, f"{op.name}: {o.kind} is not a declared kind"
+        assert (o.param is None) != (o.port is None), f"{op.name}: name a param or a port, not both"
+        if o.param is not None:
+            p = next((p for p in op.params if p.name == o.param), None)
+            assert p is not None, f"{op.name}: no param {o.param!r}"
+            if p.choices:
+                assert o.equals in p.choices, f"{op.name}: {o.equals!r} is not a {o.param} choice"
+        else:
+            assert op.port(o.port or "") is not None and o.port in op.port_names, (
+                f"{op.name}: no port {o.port!r}")
+        assert f"`{o.kind}`" in op.emits.doc, f"{op.name}: the emits prose does not name `{o.kind}`"
