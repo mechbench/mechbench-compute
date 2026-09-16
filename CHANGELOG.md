@@ -13,6 +13,29 @@ nothing said so.
 
 ---
 
+## 0.91.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ `title` is a rendering of a name; nothing computes with it.
+
+### Other
+
+- **A name, set for reading** (`lexicon.title`): `records/cross` ->
+  `Records :: Cross`, `activations/capture-attention` ->
+  `Activations :: Capture Attention`. `Op.title` and `Kind.title` carry
+  it into `to_dict()`, so the docs site renders it rather than inventing
+  its own. `name_of_title` is the inverse and the suite holds every name
+  in both vocabularies to the round trip — a rendering you cannot
+  reverse is a second name, which is what the composer's hand-written
+  `FactorCross` labels were before they drifted out of the lexicon.
+  `display_name` gives the bare name inside a stored path or a
+  pre-rename version tail.
+
 ## 0.90.0 — 2026-09-17
 
 ### Changes that raise

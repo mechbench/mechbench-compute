@@ -14,6 +14,7 @@ it.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -29,6 +30,52 @@ KIND_ROOT = "~canonical/kinds/"
 #: The one container kind (docs/LEXICON.md §4): `{kind: "collection",
 #: item_kind, key, items, ...header}`. Every plural is this.
 COLLECTION = "collection"
+
+#: A stored path may carry a version tail from before the 2026-09
+#: renames (`~canonical/ops/factor-cross/1`); the name is what is inside.
+_VERSION_TAIL = re.compile(r"/\d+$")
+
+
+def display_name(name: str) -> str:
+    """The bare name inside whatever form arrived: the name itself, or a
+    stored path with its root and any version tail."""
+    for root in (ROOT, KIND_ROOT):
+        if name.startswith(root):
+            return _VERSION_TAIL.sub("", name[len(root):])
+    return _VERSION_TAIL.sub("", name)
+
+
+def title(name: str) -> str:
+    """The same name, set for reading: `records/cross` -> `Records ::
+    Cross`, `activations/capture-attention` -> `Activations :: Capture
+    Attention`.
+
+    A rendering, not a second name, which is a distinction this codebase
+    has paid for: the composer used to carry a hand-written PascalCase
+    label per operation — `FactorCross` for `records/cross` — and it
+    drifted out of the lexicon unnoticed until one graph rendered a
+    label beside four bare names. So this is MECHANICAL (no table maps
+    an operation to a prettier word), TOTAL (a name nobody has declared
+    yet renders the same way), and REVERSIBLE (`name_of_title` is the
+    inverse, and the tests hold the pair to it).
+
+    Which form goes where is written down on the platform's Names page.
+    The short version: a surface a person READS is set this way, and
+    anything a person would TYPE — a block string in a graph, a field in
+    `ops.json`, provenance — is the name itself."""
+    return " :: ".join(
+        " ".join(w[:1].upper() + w[1:] for w in segment.split("-"))
+        for segment in display_name(name).split("/")
+    )
+
+
+def name_of_title(shown: str) -> str:
+    """The name behind a rendered one: `Records :: Cross` ->
+    `records/cross`. The inverse of `title`, so the rendering can be
+    PROVEN lossless rather than assumed to be."""
+    return "/".join(
+        segment.lower().replace(" ", "-") for segment in shown.split(" :: ")
+    )
 
 
 @dataclass(frozen=True)
@@ -129,6 +176,12 @@ class Kind:
         return self.name if self.name == COLLECTION else f"{KIND_ROOT}{self.name}"
 
     @property
+    def title(self) -> str:
+        """The name set for reading: `Records :: Record`. A rendering,
+        derived by rule — see `lexicon.title`."""
+        return title(self.name)
+
+    @property
     def family(self) -> str:
         return self.name.split("/", 1)[0]
 
@@ -138,7 +191,8 @@ class Kind:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "name": self.name, "path": self.path, "family": self.family,
+            "name": self.name, "path": self.path, "title": self.title,
+            "family": self.family,
             "summary": self.summary, "doc": self.doc,
             "fields": self.fields, "required": list(self.required),
             "extends": self.extends, "key": list(self.key), "header": self.header,
@@ -328,6 +382,12 @@ class Op:
         return f"{ROOT}{self.name}"
 
     @property
+    def title(self) -> str:
+        """The name set for reading: `Records :: Cross`. A rendering,
+        derived by rule — see `lexicon.title`."""
+        return title(self.name)
+
+    @property
     def family(self) -> str:
         return self.name.split("/", 1)[0]
 
@@ -355,6 +415,7 @@ class Op:
         return {
             "name": self.name,
             "path": self.path,
+            "title": self.title,
             "family": self.family,
             "summary": self.summary,
             "description": self.description,

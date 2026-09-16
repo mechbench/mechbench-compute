@@ -46,6 +46,9 @@ from mechbench_compute.lexicon._base import (
     Param,
     Port,
     Value,
+    display_name,
+    name_of_title,
+    title,
 )
 from mechbench_compute.lexicon.common import COMMON
 from mechbench_compute.lexicon.families import BY_FAMILY, FAMILIES
@@ -232,6 +235,6 @@ __all__ = [
     "ALIASES_REMOVED_IN", "BY_FAMILY", "BY_NAME", "BY_VALUE", "COMMON",
     "FAMILIES", "OPS", "REQUIRED", "RETIRED", "ROOT", "VALUES", "WILDCARD",
     "Family", "In", "Op", "P", "Param", "Port", "RetiredKindName", "Value",
-    "ancestry", "canonical_path", "explain_unknown", "is_canonical", "resolve",
-    "satisfies",
+    "ancestry", "canonical_path", "explain_unknown", "is_canonical",
+    "display_name", "name_of_title", "resolve", "satisfies", "title",
 ]

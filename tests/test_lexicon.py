@@ -238,3 +238,47 @@ def test_every_value_type_is_described() -> None:
     for name in points.POINTS:
         assert f"`{name}`" in V.BY_VALUE["point"].doc, f"point {name} is not on the page"
     assert {v.name for v in lexicon.VALUES if v.grammar} == {"position", "pool", "point"}
+
+
+class TestTheNameAndItsRendering:
+    """One name, set two ways (2026-09-17).
+
+    A surface that shows an operation to a person shows
+    `Records :: Cross`; a surface that shows it to a machine — a stored
+    graph, `ops.json`, provenance — shows `records/cross`, or its full
+    identity `~canonical/ops/records/cross`. The rendering is derived
+    from the name by rule, which is what keeps it from BEING a second
+    name: the composer used to carry a hand-written `FactorCross` per
+    operation, and it drifted out of the lexicon without anyone noticing
+    until a graph rendered one label beside four bare refs.
+    """
+
+    def test_it_reads_as_a_family_and_a_verb(self) -> None:
+        assert lexicon.title("records/cross") == "Records :: Cross"
+        assert lexicon.title("logits/read-layers") == "Logits :: Read Layers"
+        assert (lexicon.title("activations/capture-attention")
+                == "Activations :: Capture Attention")
+
+    def test_every_name_in_the_lexicon_reads_back(self) -> None:
+        """The line between typography and a new name: a rendering you
+        cannot reverse is a name in a different font."""
+        for name in (*lexicon.BY_NAME, *(k.name for k in lexicon.KINDS)):
+            assert lexicon.name_of_title(lexicon.title(name)) == name, name
+
+    def test_it_takes_a_stored_path_as_readily_as_a_name(self) -> None:
+        assert lexicon.title("~canonical/ops/records/cross") == "Records :: Cross"
+        assert lexicon.title("~canonical/ops/records/cross/1") == "Records :: Cross"
+
+    def test_the_identity_is_the_path_and_the_name_is_bare(self) -> None:
+        # Three forms, and this is all of them: the name a graph stores,
+        # the identity provenance records, and the rendering a person
+        # reads. Nothing else may name an operation.
+        assert lexicon.canonical_path("records/cross") == "~canonical/ops/records/cross"
+        assert lexicon.display_name("~canonical/ops/records/cross") == "records/cross"
+        assert lexicon.title("records/cross") == "Records :: Cross"
+
+    def test_it_needs_no_table_of_its_own(self) -> None:
+        """An operation nobody has declared yet renders like any other,
+        which is the property a lookup table cannot have."""
+        assert lexicon.title("weights/decompose") == "Weights :: Decompose"
+        assert lexicon.title("nothing/here-yet") == "Nothing :: Here Yet"
