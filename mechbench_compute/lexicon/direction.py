@@ -261,6 +261,7 @@ groups it was built from — or ones it was not.
 
 VOCAB = Op(
     name="direction/unembed",
+    requires="mlx-local",
     summary=(
         "Read a direction through the model's unembedding: the tokens it "
         "promotes and the tokens its negative promotes — what the axis "

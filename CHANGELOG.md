@@ -13,6 +13,31 @@ nothing said so.
 
 ---
 
+## 0.92.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._ `requires` defaults to `pure`, so an operation declared
+  before this release keeps the value the composer already gave it.
+
+### Changes that alter results without raising
+
+- _None._ Nothing computes with it; it decides where a node may run.
+
+### Other
+
+- **What an operation needs is declared here** (task 000516):
+  `Op.requires` is `pure`, `mlx-local`, `remote`, or `by-model` —
+  whichever the `model` it is given needs, which is what chat, converse
+  and judge genuinely are. It lived in a hand-written table in the UI,
+  where it decides which runner may claim a job (`/jobs/next` filters
+  on it) and had already drifted: `adapter/merge` was marked as needing
+  local weights, and its own docstring says the merge never loads a
+  model. The suite proves the declaration against the executor's
+  dispatch — a `pure` operation may not reach `_model_loaded`, and one
+  that does must say `mlx-local` — so this is a declaration held to the
+  code, like the parameters are.
+
 ## 0.91.0 — 2026-09-17
 
 ### Changes that raise

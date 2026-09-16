@@ -28,6 +28,7 @@ _TRAJECTORY = In("trajectory", "trajectory/point",
 
 CAPTURE = Op(
     name="trajectory/capture",
+    requires="mlx-local",
     summary=(
         "Follow the residual stream along an axis — one position through "
         "every layer, or one layer along every position of a text — and "

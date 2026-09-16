@@ -373,6 +373,25 @@ class Op:
     #: The kind produced, or None for an op whose result is not a bench
     #: object (a tool handler's).
     emits: Emits | None = None
+    #: What a machine must have to run this operation (task 000516).
+    #: Declared here and nowhere else: the composer used to carry it per
+    #: block in a hand-written table, and that table decides which
+    #: runner may claim a job (`/jobs/next` filters on it), so a wrong
+    #: entry routes work to a machine that cannot do it. It also drifted
+    #: — `adapter/merge` was marked as needing local weights, and it
+    #: never loads a model; its docstring says so.
+    #:
+    #: * `pure` — arithmetic over records and objects. No model, no
+    #:   network; runnable anywhere, eventually API-side.
+    #: * `mlx-local` — needs the weights resident on the machine.
+    #: * `remote` — needs the network and the owner's credentials, but
+    #:   no model: `adapter/publish` pushing to a hub.
+    #: * `by-model` — whichever the `model` it is given needs: an
+    #:   endpoint makes it remote, a repo makes it local. Chat, converse
+    #:   and judge are the same operation either way, which is the point
+    #:   of them, and a single declared class would have to lie about
+    #:   one of the two.
+    requires: str = "pure"
     example: dict[str, Any] | None = None
     example_inputs: dict[str, Any] | None = None
 
@@ -417,6 +436,7 @@ class Op:
             "path": self.path,
             "title": self.title,
             "family": self.family,
+            "requires": self.requires,
             "summary": self.summary,
             "description": self.description,
             "inputs": [p.to_dict() for p in self.inputs],

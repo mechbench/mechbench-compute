@@ -22,6 +22,7 @@ _BUDGET = P("budget_usd", "float",
 
 CHAT = Op(
     name="text/chat",
+    requires="by-model",
     summary=(
         "Send each record's prompt to a model as a chat — local weights or a "
         "hosted endpoint, the same node either way — and collect the "
@@ -179,6 +180,7 @@ without contacting the provider at all.
 
 CONVERSATION = Op(
     name="text/converse",
+    requires="by-model",
     summary=(
         "Run a multi-party conversation between model participants — each "
         "seeing the shared transcript from its own side — under a declared "
@@ -272,6 +274,7 @@ One conversation runs per input record, or one in all when there are none;
 
 JUDGE = Op(
     name="eval/judge",
+    requires="by-model",
     summary=(
         "Have a model grade each record against a rubric — a score, a label "
         "or an A/B preference — with repeated votes, the spread between "
@@ -396,6 +399,7 @@ releases.
 
 EVAL_SUITE = Op(
     name="eval/benchmark",
+    requires="mlx-local",
     summary=(
         "Run standard benchmark tasks from the lm-evaluation-harness against "
         "the model — through mechbench's own model, so pinned revisions and "
@@ -436,6 +440,7 @@ between its releases, so the version is part of the measurement.
 
 FINETUNE_LORA = Op(
     name="adapter/train",
+    requires="mlx-local",
     summary=(
         "Train a LoRA adapter that shapes what the model says at a decision "
         "point toward a target distribution over outcomes — and emit the "
@@ -596,6 +601,7 @@ what each does to a prompt.
 
 HF_PUSH_ADAPTER = Op(
     name="adapter/publish",
+    requires="remote",
     summary=(
         "Publish an adapter object to the Hugging Face hub as a PEFT LoRA "
         "repository, with a model card carrying its bench provenance."

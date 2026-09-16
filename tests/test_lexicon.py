@@ -282,3 +282,84 @@ class TestTheNameAndItsRendering:
         which is the property a lookup table cannot have."""
         assert lexicon.title("weights/decompose") == "Weights :: Decompose"
         assert lexicon.title("nothing/here-yet") == "Nothing :: Here Yet"
+
+
+class TestWhatAnOperationNeeds:
+    """`requires` is declared in the lexicon and proved against the code
+    (task 000516).
+
+    It decides which machine may run a node: the composer copies it onto
+    every node and `/jobs/next` filters claims by it, so a wrong value
+    routes work to a machine that cannot do it. It lived in a
+    hand-written table in the UI until 2026-09-17, where it had already
+    drifted — `adapter/merge` was marked as needing local weights, and
+    its own docstring says the merge never loads a model.
+    """
+
+    @staticmethod
+    def _loads_model(block: str) -> bool:
+        """Does running this block put the model in memory? Asked of the
+        executor, not of a list: the dispatch arm, and any handler it
+        calls, reaching `_model_loaded` (which `_run_model_block` wraps)."""
+        import inspect
+        import pathlib
+        import re
+
+        from mechbench_compute import protocol
+
+        src = pathlib.Path(inspect.getfile(protocol)).read_text()
+        bodies = dict(re.findall(
+            r'\n    def (_block_[a-z_]+)\(.*?\n(.*?)(?=\n    def |\Z)', src, re.S))
+        arms = dict(re.findall(
+            r'block == "([a-z0-9-]+/[a-z0-9-]+)":\s*\n(.*?)(?=\n\s*elif block ==|\n\s*else:)',
+            src, re.S))
+        body = arms.get(block, "")
+        if "_run_model_block" in body:
+            return True
+        return any(
+            "_model_loaded" in bodies.get(h, "") or "_run_model_block" in bodies.get(h, "")
+            for h in re.findall(r"self\.(_block_[a-z_]+)", body)
+        )
+
+    def test_every_operation_declares_one_of_the_four(self) -> None:
+        for op in lexicon.OPS:
+            assert op.requires in ("pure", "mlx-local", "remote", "by-model"), op.name
+
+    def test_a_pure_operation_never_touches_the_model(self) -> None:
+        """The direction that matters for routing: a node declared pure
+        may be claimed by a machine with no weights at all."""
+        for op in lexicon.OPS:
+            if op.requires == "pure":
+                assert not self._loads_model(op.name), (
+                    f"{op.name} is declared pure and loads the model")
+
+    def test_an_operation_that_loads_the_model_says_so(self) -> None:
+        from mechbench_compute.protocol import REMOTE_BLOCKS
+
+        for op in lexicon.OPS:
+            if self._loads_model(op.name):
+                expect = "by-model" if op.name in REMOTE_BLOCKS else "mlx-local"
+                assert op.requires == expect, (
+                    f"{op.name} loads the model; declared {op.requires!r}")
+
+    def test_the_operations_that_run_either_side_are_the_remote_blocks(self) -> None:
+        """`by-model` and the executor's own idea of what may be remote
+        are one fact. Chat, converse and judge are the same operation
+        whichever side answers, which is the point of them."""
+        from mechbench_compute.protocol import REMOTE_BLOCKS
+
+        assert {op.name for op in lexicon.OPS if op.requires == "by-model"} == set(REMOTE_BLOCKS)
+
+    def test_the_pure_registry_is_pure(self) -> None:
+        from mechbench_compute.blocks import PURE_BLOCKS
+
+        for name in PURE_BLOCKS:
+            if name in lexicon.BY_NAME:
+                assert lexicon.BY_NAME[name].requires == "pure", name
+
+    def test_only_publishing_needs_the_network_without_a_model(self) -> None:
+        """One op is `remote` for a reason that is not a model: it pushes
+        an adapter to a hub, which needs the network and the owner's
+        credentials. If a second one appears, this line is where someone
+        decides whether the value still means what it says."""
+        assert {op.name for op in lexicon.OPS if op.requires == "remote"} == {"adapter/publish"}

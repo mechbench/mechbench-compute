@@ -91,6 +91,7 @@ _CHAT_RECORDS = In("records", "records/record",
 
 INTERVENE = Op(
     name="intervene/apply",
+    requires="mlx-local",
     summary=(
         "Edit a model's activations at chosen points during the forward "
         "pass — zero them, patch them from another run, add or remove a "
@@ -250,6 +251,7 @@ one item can zero every layer's `o_proj`.
 
 ABLATE_LAYERS = Op(
     name="intervene/ablate-layers",
+    requires="mlx-local",
     summary=(
         "Remove one layer's contribution at a time and measure how much the "
         "target token's log-probability drops — which layers the answer "
@@ -291,6 +293,7 @@ with a `prefill`), where `logits/read` reads.
 
 ABLATE_HEADS = Op(
     name="intervene/ablate-heads",
+    requires="mlx-local",
     summary=(
         "Zero one attention head at a time across the chosen layers and "
         "measure the drop in the target token's log-probability — a "
@@ -322,6 +325,7 @@ about rather than all of them when the prompt set is large.
 
 ATTENTION_PATTERNS = Op(
     name="activations/capture-attention",
+    requires="mlx-local",
     summary=(
         "Record the attention weights of every head at the named layers — "
         "which earlier tokens each position attends to."
@@ -358,6 +362,7 @@ million values.
 
 ATTRIBUTION_LOGITS = Op(
     name="logits/attribute",
+    requires="mlx-local",
     summary=(
         "Split the target token's final logit into the additive contribution "
         "of the embedding and of every layer — direct logit attribution, with "
@@ -415,6 +420,7 @@ Because additivity only holds over the whole stream, `layers` must be
 
 PATCH_TRACE = Op(
     name="intervene/patch",
+    requires="mlx-local",
     summary=(
         "Causal tracing: run a clean and a corrupted prompt, patch the clean "
         "activations into the corrupted run one (layer, position) at a time, "
@@ -467,6 +473,7 @@ reported as errors rather than silently shifted.
 
 RESIDUALS_DIVERGENCE = Op(
     name="activations/contrast",
+    requires="mlx-local",
     summary=(
         "Run two prompts that differ in one place and measure, at every "
         "(layer, position), how far their residual streams have drifted "
@@ -496,6 +503,7 @@ Unequal-length pairs are reported as errors, not aligned by guesswork.
 
 RESIDUALS_VECTORS = Op(
     name="activations/capture",
+    requires="mlx-local",
     summary=(
         "Capture the residual-stream vector of each prompt at chosen layers "
         "and a chosen position (or pooled over the sequence) — the raw "
@@ -567,6 +575,7 @@ layers or records.
 
 LENS_POSITIONS = Op(
     name="logits/scan",
+    requires="mlx-local",
     summary=(
         "Logit lens over the whole prompt: at every (layer, position), how "
         "probable and how highly ranked the target token is when that "
@@ -597,6 +606,7 @@ become visible?
 
 LENS_TRAJECTORY = Op(
     name="logits/read-layers",
+    requires="mlx-local",
     summary=(
         "Logit lens at the decision point: for each chat-shaped record, the "
         "top-1 token, its probability and the entropy at every layer — the "
@@ -634,6 +644,7 @@ decides. A set of records renders as overlaid curves.
 
 STEER_INJECT = Op(
     name="intervene/steer",
+    requires="mlx-local",
     summary=(
         "Build a steering direction from labelled residual vectors (one "
         "label's centroid minus another's), add it to the residual stream "
@@ -705,6 +716,7 @@ For anything beyond one direction at one layer and position, use
 
 GENERATE = Op(
     name="text/generate",
+    requires="mlx-local",
     summary=(
         "Sample completions from the model for each chat-shaped record — n "
         "per record, reproducibly seeded — into a document collection."
@@ -763,6 +775,7 @@ annotate it token by token.
 
 DECISION_READ = Op(
     name="logits/read",
+    requires="mlx-local",
     summary=(
         "Read the model's exact next-token distribution at a decision point "
         "— entropy, the top tokens, and the probability mass on each named "
@@ -818,6 +831,7 @@ readings.
 
 SCORE = Op(
     name="text/score",
+    requires="mlx-local",
     summary=(
         "Annotate every token of a trace-fidelity collection with its "
         "surprisal in bits under the model — how unexpected each token was."
@@ -845,6 +859,7 @@ item has no token ids to replay and the block refuses it.
 
 TOKENIZE_STATS = Op(
     name="text/tokenize",
+    requires="mlx-local",
     summary=(
         "Measure how a tokenizer splits a set of items — as continuations of "
         "a prefix — with a depth histogram, fragmentation, script "
@@ -905,6 +920,7 @@ to exactly that depth.
 
 CAPTURE_WEIGHTS = Op(
     name="weights/capture",
+    requires="mlx-local",
     summary=(
         "Read the model's own learned tensors — their shape, norm, "
         "sparsity and, on request, their spectrum and their values — with "
@@ -961,6 +977,7 @@ the adapter's own deltas and needs no model at all.
 
 DECOMPOSE_WEIGHTS = Op(
     name="weights/decompose",
+    requires="mlx-local",
     summary=(
         "A parameter's principal directions in the residual stream — what "
         "a projection reads, or what it writes — as directions the rest of "
