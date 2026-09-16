@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 from collections import namedtuple
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC
 from typing import Any
@@ -470,16 +471,25 @@ class ProtocolExecutor:
 
         current = {"nid": ""}
 
-        def on_item(key=None, item=None, reused=False):
-            # Blocks that know nothing of resume call this bare; an
-            # item-resumable block names the item so the runner can
-            # spool it. A reused item counts as progress and is not
-            # spooled again.
-            node_view["done"] += 1
-            bump(1)
-            if (self._on_spool_item is not None and key is not None
-                    and not reused):
-                self._on_spool_item(current["nid"], key, item)
+        def item_reporter(nid: str):
+            """One node's item callback. Bound to the node rather than
+            reading a shared `current`, because two nodes can be in
+            flight at once (task 000396) and an item spooled under the
+            wrong node's id is a resumed job reusing another node's
+            work."""
+
+            def on_item(key=None, item=None, reused=False):
+                # Blocks that know nothing of resume call this bare; an
+                # item-resumable block names the item so the runner can
+                # spool it. A reused item counts as progress and is not
+                # spooled again.
+                node_view["done"] += 1
+                bump(1)
+                if (self._on_spool_item is not None and key is not None
+                        and not reused):
+                    self._on_spool_item(nid, key, item)
+
+            return on_item
 
         from mechbench_compute import resume as resume_mod
 
@@ -510,6 +520,18 @@ class ProtocolExecutor:
                 if not resume_mod.satisfies(offered, str(level)):
                     forced_restart.add(src)
         node_hashes: dict[str, str] = {}
+        # Remote nodes run ahead of their turn, alongside a sibling
+        # (task 000396); their results wait here for the loop to
+        # reach them and do the bookkeeping in topological order.
+        ahead: dict[str, Any] = {}
+        # Nodes that produced nothing, and why (task 000399). A node
+        # lands here by failing, or by being skipped because something
+        # upstream of it did. `tolerated` records the ones some consumer
+        # answered for; a failure nothing answered for is raised when
+        # the run is otherwise over, so sibling branches still finish.
+        missing: dict[str, dict[str, Any]] = {}
+        failures: dict[str, BaseException] = {}
+        tolerated: set[str] = set()
 
         # Per-node emission (arc B second half): every node's output
         # becomes a bench object under the job's result namespace, with
@@ -538,7 +560,17 @@ class ProtocolExecutor:
             node_view.update(index=pos + 1, id=nid, done=0, total=0)
             expanded = False
             report()
-            params = resolve_params(node.get("params"))
+            raw_params = node.get("params") or {}
+            if block == "records/map" and isinstance(raw_params.get("body"), Mapping):
+                # A map's body is the CHILD run's graph, holes and all:
+                # `$topic` is bound per record by `bind`, not by this run
+                # (task 000400). Resolving it here would refuse a hole
+                # that is not this protocol's to fill.
+                params = resolve_params(
+                    {k: v for k, v in raw_params.items() if k != "body"})
+                params["body"] = raw_params["body"]
+            else:
+                params = resolve_params(raw_params)
             if "model" in params:
                 # The model algebra (000312 Arc A): a binding may be a
                 # structured ModelRef. Normalize it HERE — adapters are
@@ -582,8 +614,47 @@ class ProtocolExecutor:
             for e in in_edges:
                 by_port.setdefault(e["to"]["port"], []).append(e)
             op_here = lexicon.BY_NAME.get(block)
+            # An upstream that produced nothing — it failed, or was
+            # itself skipped — is answered by the port it was wired to
+            # (task 000399). `fail` is the default and is what every
+            # graph did before: the run stops here, with the original
+            # error. `skip` passes the absence on. `placeholder` hands
+            # the block an empty collection that says it is one.
+            absent = {
+                port: [e for e in es if e["from"]["node"] in missing]
+                for port, es in by_port.items()
+            }
+            absent = {p: es for p, es in absent.items() if es}
+            if absent:
+                policy_skip = False
+                for port, es in sorted(absent.items()):
+                    decl = op_here.port(port) if op_here else None
+                    policy = _missing_policy(decl, es)
+                    source = es[0]["from"]["node"]
+                    why = missing[source]
+                    if policy == "fail":
+                        raise _MissingUpstream(nid, port, source, why) from None
+                    if policy == "skip":
+                        policy_skip = True
+                    tolerated.update(e["from"]["node"] for e in es)
+                if policy_skip:
+                    src = sorted({e["from"]["node"]
+                                  for es in absent.values() for e in es})
+                    missing[nid] = {"reason": "an upstream is missing",
+                                    "source": src}
+                    print(f"[graph] {nid}: skipped ({', '.join(src)} missing)")
+                    bump()
+                    continue
+                # Only placeholders left: drop those edges and fill below.
+                by_port = {
+                    p: [e for e in es if e["from"]["node"] not in missing]
+                    for p, es in by_port.items()
+                }
+                placeholders = {p: es for p, es in absent.items()}
+            else:
+                placeholders = {}
             inputs, input_paths = {}, {}
-            for port, es in by_port.items():
+            for port, es in {p: es for p, es in by_port.items() if es}.items():
                 decl = op_here.port(port) if op_here else None
                 if decl is not None and decl.variadic:
                     inputs[port] = [
@@ -596,6 +667,20 @@ class ProtocolExecutor:
                     # more than one is refused at load by `_preflight`.
                     inputs[port] = results[es[-1]["from"]["node"]]
                     input_paths[port] = node_paths.get(es[-1]["from"]["node"], "")
+            for port, es in sorted(placeholders.items()):
+                decl = op_here.port(port) if op_here else None
+                kind = (decl.kinds[0] if decl is not None else "records/record")
+                if kind == lexicon.COLLECTION:
+                    kind = "records/record"
+                stand_in = lexicon.collection(kind, [], missing={
+                    "reason": "the upstream produced nothing",
+                    "source": sorted({e["from"]["node"] for e in es})})
+                if port in inputs and isinstance(inputs[port], list):
+                    inputs[port] = [*inputs[port],
+                                    *({"node": e["from"]["node"],
+                                       "value": stand_in} for e in es)]
+                else:
+                    inputs[port] = stand_in
             # An input given inline under the node's `inputs` — a
             # literal, or `{"$fetch": …}` of a stored object — fills a
             # port the way an edge does, and its content hash joins the
@@ -623,6 +708,7 @@ class ProtocolExecutor:
             # inputs' content, and the compute version. A partial from a
             # previous attempt is reused only under an equal fingerprint.
             current["nid"] = nid
+            on_item = item_reporter(nid)
             self._current = current
             # Before anything runs: does this block actually read what
             # the protocol asked for, and take what was wired to it?
@@ -673,125 +759,173 @@ class ProtocolExecutor:
                 (lambda st, _n=nid: self._on_checkpoint(_n, st))
                 if self._on_checkpoint is not None else None
             )
-            if block == "records/plot":
-                # A viz references its upstream by LABEL when the
-                # executor knows it (lineage-true, renders live).
-                from mechbench_compute.blocks import viz_spec
+            # A node's failure is caught rather than thrown (task
+            # 000399): each consumer's port decides what an absent
+            # input means, and sibling branches finish either way. A
+            # failure nothing tolerates is raised at the end of the
+            # run, which is what every graph did before.
+            try:
+                if nid in ahead:
+                    # Already run, alongside its siblings (000396). The
+                    # bookkeeping below is this node's own and stays here,
+                    # in topological order, so the manifest, the hashes
+                    # and the emitted objects do not depend on which
+                    # branch finished first.
+                    done_ahead = ahead.pop(nid)
+                    if isinstance(done_ahead, BaseException):
+                        raise done_ahead
+                    results[nid] = done_ahead
+                elif _is_remote(block, params):
+                    # This node waits on somebody else's machine, so
+                    # every other remote node that is ready waits with
+                    # it rather than after it.
+                    ahead.update(self._run_remote_wave(
+                        nid, block, inputs, params, secrets,
+                        nodes=nodes, edges=edges, order=order,
+                        results=results, missing=missing,
+                        resolve_params=resolve_params,
+                        resolve_value=resolve_value,
+                        item_reporter=item_reporter, expand=expand,
+                        node_view=node_view, report=report,
+                        resume=resume, resume_kwargs=resume_kwargs))
+                    done_ahead = ahead.pop(nid)
+                    if isinstance(done_ahead, BaseException):
+                        raise done_ahead
+                    results[nid] = done_ahead
+                elif block == "records/plot":
+                    # A viz references its upstream by LABEL when the
+                    # executor knows it (lineage-true, renders live).
+                    from mechbench_compute.blocks import viz_spec
 
-                results[nid] = viz_spec(
-                    inputs.get("records"), params,
-                    source_label=input_paths.get("records") or None)
-            elif block in PURE_BLOCKS:
-                results[nid] = PURE_BLOCKS[block](inputs, params)
-            elif block == "logits/read":
-                results[nid] = self._run_model_block(
-                    self._block_decision_read, inputs, params,
-                    on_item=on_item, on_start=expand, **resume_kwargs)
-            elif block == "text/generate":
-                results[nid] = self._run_model_block(
-                    self._block_generate, inputs, params,
-                    on_item=on_item, on_start=expand, **resume_kwargs)
-            elif block == "eval/judge":
-                results[nid] = self._block_judge(
-                    inputs, params, secrets=secrets, on_item=on_item,
-                    on_start=expand, **resume_kwargs)
-            elif block == "text/converse":
-                results[nid] = self._block_conversation(
-                    inputs, params, secrets=secrets, on_item=on_item,
-                    on_start=expand, **resume_kwargs)
-            elif block == "text/chat":
-                results[nid] = self._block_chat(
-                    inputs, params, secrets=secrets, on_item=on_item,
-                    on_start=expand, **resume_kwargs)
-            elif block == "logits/read-layers":
-                results[nid] = self._run_model_block(
-                    self._block_lens, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "adapter/train":
-                results[nid] = self._block_finetune_lora(
-                    inputs, params, on_item=on_item, on_start=expand,
-                    on_checkpoint=on_checkpoint,
-                    resume_state=resume_kwargs.get("resume_state"))
-            elif block == "eval/benchmark":
-                results[nid] = self._run_model_block(
-                    self._block_eval_suite, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "intervene/ablate-layers":
-                results[nid] = self._run_model_block(
-                    self._block_ablate_layers, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "intervene/steer":
-                results[nid] = self._run_model_block(
-                    self._block_steer_inject, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "intervene/apply":
-                results[nid] = self._run_model_block(
-                    self._block_intervene, inputs, params,
-                    on_item=on_item, on_start=expand, **resume_kwargs)
-            elif block == "direction/unembed":
-                results[nid] = self._run_model_block(
-                    self._block_direction_vocab, inputs, params)
-            elif block == "logits/attribute":
-                results[nid] = self._run_model_block(
-                    self._block_logit_attribution, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "intervene/patch":
-                results[nid] = self._run_model_block(
-                    self._block_patch_trace, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "activations/capture-attention":
-                results[nid] = self._run_model_block(
-                    self._block_attention_patterns, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "intervene/ablate-heads":
-                results[nid] = self._run_model_block(
-                    self._block_ablate_heads, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "logits/scan":
-                results[nid] = self._run_model_block(
-                    self._block_lens_positions, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "trajectory/capture":
-                results[nid] = self._run_model_block(
-                    self._block_trajectory_capture, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "weights/capture":
-                results[nid] = self._run_model_block(
-                    self._block_capture_weights, inputs, params)
-            elif block == "weights/decompose":
-                results[nid] = self._run_model_block(
-                    self._block_decompose_weights, inputs, params)
-            elif block == "text/tokenize":
-                # The tokenizer is the model's; an adapter does not
-                # change it, so this block takes no adapter port.
-                results[nid] = self._block_tokenize_stats(inputs, params)
-            elif block == "activations/capture":
-                results[nid] = self._run_model_block(
-                    self._block_residual_vectors, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "activations/contrast":
-                results[nid] = self._run_model_block(
-                    self._block_residual_divergence, inputs, params,
-                    on_item=on_item, on_start=expand)
-            elif block == "eval/score":
-                results[nid] = self._block_eval_hf_metric(inputs, params)
-            elif block == "adapter/merge":
-                results[nid] = self._block_merge(
-                    inputs, params, secrets=secrets,
-                    result_base=extra.get("resultPath"),
-                    on_item=on_item, on_start=expand)
-            elif block == "adapter/publish":
-                # HF as destination (task 000262). The write token is
-                # passed explicitly from the claim-delivered secrets —
-                # never env, never the spec, never the output.
-                results[nid] = self._block_hf_push_adapter(
-                    inputs, params, secrets=secrets)
-            elif block == "text/score":
-                results[nid] = self._run_model_block(
-                    self._block_score, inputs, params, input_paths,
-                    on_item=on_item, on_start=expand)
-            else:
-                raise ValueError(f"unknown block: {block!r}")
+                    results[nid] = viz_spec(
+                        inputs.get("records"), params,
+                        source_label=input_paths.get("records") or None)
+                elif block in PURE_BLOCKS:
+                    results[nid] = PURE_BLOCKS[block](inputs, params)
+                elif block == "logits/read":
+                    results[nid] = self._run_model_block(
+                        self._block_decision_read, inputs, params,
+                        on_item=on_item, on_start=expand, **resume_kwargs)
+                elif block == "text/generate":
+                    results[nid] = self._run_model_block(
+                        self._block_generate, inputs, params,
+                        on_item=on_item, on_start=expand, **resume_kwargs)
+                elif block == "eval/judge":
+                    results[nid] = self._block_judge(
+                        inputs, params, secrets=secrets, on_item=on_item,
+                        on_start=expand, **resume_kwargs)
+                elif block == "text/converse":
+                    results[nid] = self._block_conversation(
+                        inputs, params, secrets=secrets, on_item=on_item,
+                        on_start=expand, **resume_kwargs)
+                elif block == "text/chat":
+                    results[nid] = self._block_chat(
+                        inputs, params, secrets=secrets, on_item=on_item,
+                        on_start=expand, **resume_kwargs)
+                elif block == "logits/read-layers":
+                    results[nid] = self._run_model_block(
+                        self._block_lens, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "adapter/train":
+                    results[nid] = self._block_finetune_lora(
+                        inputs, params, on_item=on_item, on_start=expand,
+                        on_checkpoint=on_checkpoint,
+                        resume_state=resume_kwargs.get("resume_state"))
+                elif block == "eval/benchmark":
+                    results[nid] = self._run_model_block(
+                        self._block_eval_suite, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "intervene/ablate-layers":
+                    results[nid] = self._run_model_block(
+                        self._block_ablate_layers, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "intervene/steer":
+                    results[nid] = self._run_model_block(
+                        self._block_steer_inject, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "intervene/apply":
+                    results[nid] = self._run_model_block(
+                        self._block_intervene, inputs, params,
+                        on_item=on_item, on_start=expand, **resume_kwargs)
+                elif block == "direction/unembed":
+                    results[nid] = self._run_model_block(
+                        self._block_direction_vocab, inputs, params)
+                elif block == "logits/attribute":
+                    results[nid] = self._run_model_block(
+                        self._block_logit_attribution, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "intervene/patch":
+                    results[nid] = self._run_model_block(
+                        self._block_patch_trace, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "activations/capture-attention":
+                    results[nid] = self._run_model_block(
+                        self._block_attention_patterns, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "intervene/ablate-heads":
+                    results[nid] = self._run_model_block(
+                        self._block_ablate_heads, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "logits/scan":
+                    results[nid] = self._run_model_block(
+                        self._block_lens_positions, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "trajectory/capture":
+                    results[nid] = self._run_model_block(
+                        self._block_trajectory_capture, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "records/map":
+                    results[nid] = self._block_map(
+                        inputs, params, secrets=secrets, on_item=on_item,
+                        on_start=expand, **resume_kwargs)
+                elif block == "weights/capture":
+                    results[nid] = self._run_model_block(
+                        self._block_capture_weights, inputs, params)
+                elif block == "weights/decompose":
+                    results[nid] = self._run_model_block(
+                        self._block_decompose_weights, inputs, params)
+                elif block == "text/tokenize":
+                    # The tokenizer is the model's; an adapter does not
+                    # change it, so this block takes no adapter port.
+                    results[nid] = self._block_tokenize_stats(inputs, params)
+                elif block == "activations/capture":
+                    results[nid] = self._run_model_block(
+                        self._block_residual_vectors, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "activations/contrast":
+                    results[nid] = self._run_model_block(
+                        self._block_residual_divergence, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "eval/score":
+                    results[nid] = self._block_eval_hf_metric(inputs, params)
+                elif block == "adapter/merge":
+                    results[nid] = self._block_merge(
+                        inputs, params, secrets=secrets,
+                        result_base=extra.get("resultPath"),
+                        on_item=on_item, on_start=expand)
+                elif block == "adapter/publish":
+                    # HF as destination (task 000262). The write token is
+                    # passed explicitly from the claim-delivered secrets —
+                    # never env, never the spec, never the output.
+                    results[nid] = self._block_hf_push_adapter(
+                        inputs, params, secrets=secrets)
+                elif block == "text/score":
+                    results[nid] = self._run_model_block(
+                        self._block_score, inputs, params, input_paths,
+                        on_item=on_item, on_start=expand)
+                else:
+                    raise ValueError(f"unknown block: {block!r}")
+            except _MissingUpstream:
+                raise
+            except Exception as exc:  # noqa: BLE001 — recorded, then decided on
+                failures[nid] = exc
+                missing[nid] = {"reason": f"{type(exc).__name__}: {exc}",
+                                "source": [nid]}
+                print(f"[graph] {nid} failed: {exc}")
+                if self._on_node_done is not None:
+                    self._on_node_done(nid, None, fingerprint)
+                bump()
+                continue
             # Hash BEFORE emitting (000488). The hash canonical-encodes
             # the result, so a result carrying a live object fails here,
             # locally and by name — instead of being serialized by the
@@ -823,8 +957,22 @@ class ProtocolExecutor:
             if not expanded:
                 bump()
 
+        # A failure nobody answered for fails the run — which is every
+        # failure in a graph that declares no `on_missing` policy, so a
+        # protocol written before this behaves exactly as it did. What
+        # changed is WHEN: the sibling branches have finished by now.
+        orphaned = [nid for nid in order if nid in failures
+                    and nid not in tolerated]
+        if orphaned:
+            first = orphaned[0]
+            if len(orphaned) > 1:
+                print(f"[graph] {len(orphaned)} nodes failed: "
+                      f"{', '.join(orphaned)}")
+            raise failures[first]
+
         terminals = [nid for nid in nodes
-                     if not any(e["from"]["node"] == nid for e in edges)]
+                     if not any(e["from"]["node"] == nid for e in edges)
+                     and nid not in missing]
 
         def sanitize(v, at):
             """Manifests reference binary, never embed it: bytes are
@@ -842,8 +990,12 @@ class ProtocolExecutor:
             "kind": "run/result",
             "outputs": {nid: sanitize(results[nid], node_paths.get(nid, ""))
                          for nid in terminals},
-            "nodes_executed": order,
+            "nodes_executed": [nid for nid in order if nid not in missing],
             "node_paths": node_paths,
+            # What did not run, and why (000399). A reader of this result
+            # must never have to infer an absence from a shorter list.
+            **({"nodes_missing": {nid: missing[nid] for nid in order
+                                  if nid in missing}} if missing else {}),
             "resolved": resolved,
             # Where this ran (000402). Recorded, never fingerprinted:
             # bit-identity is promised within a hardware class.
@@ -1226,6 +1378,194 @@ class ProtocolExecutor:
             # Reproducible: a spooled row IS the row this loop produced.
             out["items"] = [reuse.get(f"{r['id']}:{r['factor']}", r) for r in out["items"]]
         return out
+
+    def _block_map(self, inputs, params, *, secrets=None, on_item=None,
+                   on_start=None, resume_items=None):
+        """`records/map` (task 000400): run a sub-protocol once per record.
+
+        Run sets fan out over whole runs and a node fans out over the
+        items inside it; between those two there was nothing. This is
+        that: a body — a graph — applied to every record of a stream,
+        each invocation an item keyed by the record's id, so the spool
+        and the resume machinery treat it exactly as they treat a chat
+        node's items.
+
+        `bind` maps a record's fields into the body's holes, so the body
+        is written once with `$holes` and the stream supplies them.
+
+        The isomorphism the chunking law wants (000407) is structural
+        here: the body sees ONE record at a time and nothing else, so
+        map over chunks is map over records by construction.
+        """
+        from mechbench_compute.lexicon import kinds as K
+
+        records = K.items_of(inputs.get("records") or [])
+        body = params.get("body")
+        if not isinstance(body, Mapping) or not body.get("nodes"):
+            raise ValueError(
+                "records/map needs a `body`: a graph, with `nodes` and "
+                "`edges`, run once per record. A stored protocol by "
+                "reference is task 000393's; an inline body works now.")
+        bind = dict(params.get("bind") or {})
+        collect = str(params.get("collect", "stream"))
+        if collect not in ("stream", "first", "all"):
+            raise ValueError(
+                f"collect is 'stream', 'first' or 'all', not {collect!r}")
+        want = params.get("output")
+        if on_start:
+            on_start(len(records))
+
+        child = ProtocolExecutor(
+            on_download=self._on_download,
+            on_download_bytes=self._on_download_bytes,
+            limiter=self._limiter, budget=self._budget)
+        # The loaded model is shared, not reloaded per record: weights
+        # are gigabytes and the body may well run against them.
+        child._model, child._model_id = self._model, self._model_id
+
+        items: list[dict[str, Any]] = []
+        for rec in records:
+            key = str(rec.get("id"))
+            if resume_items and key in resume_items:
+                items.append(resume_items[key])
+                if on_item:
+                    on_item(key, resume_items[key], True)
+                continue
+            bindings = {hole: rec.get(field) for hole, field in bind.items()}
+            missing_fields = [f for h, f in bind.items() if rec.get(f) is None]
+            if missing_fields:
+                raise ValueError(
+                    f"record {key!r} has no {', '.join(missing_fields)} to "
+                    f"bind into the body's holes")
+            out = child.run(ProtocolSpec(
+                kind="pipeline", prompt="", model_id=None,
+                extra={"graph": body, "bindings": bindings}), secrets=secrets)
+            outputs = out.payload.get("outputs") or {}
+            if want:
+                chosen = outputs.get(str(want))
+                if chosen is None:
+                    raise ValueError(
+                        f"the body has no output {want!r}; it ends at "
+                        f"{', '.join(sorted(outputs)) or 'nothing'}")
+            elif len(outputs) == 1:
+                chosen = next(iter(outputs.values()))
+            else:
+                raise ValueError(
+                    f"the body ends at {len(outputs)} nodes "
+                    f"({', '.join(sorted(outputs))}); name one with `output`")
+            if collect == "stream":
+                for sub in K.items_of(chosen):
+                    item = dict(sub)
+                    item["id"] = f"{key}:{sub.get('id')}"
+                    item["coords"] = {**(rec.get("coords") or {}),
+                                      **(sub.get("coords") or {}), "mapped": key}
+                    items.append(item)
+            else:
+                rows = K.items_of(chosen)
+                item = {"id": key, "coords": dict(rec.get("coords") or {}),
+                        **(dict(rows[0]) if (collect == "first" and rows)
+                           else {"items": [dict(r) for r in rows]})}
+                item["id"] = key
+                items.append(item)
+            if on_item:
+                on_item(key, items[-1], False)
+        # The model may have been swapped by the body; take it back, so
+        # the parent's next node does not reload what is already resident.
+        self._model, self._model_id = child._model, child._model_id
+        return K.collection(
+            "records/record", items,
+            mapped={"records": len(records), "collect": collect,
+                    "body_nodes": [n.get("id") for n in body.get("nodes", [])]},
+            name=params.get("name"), description=params.get("description"))
+
+    def _run_remote_wave(self, nid, block, inputs, params, secrets, *,
+                         nodes, edges, order, results, missing,
+                         resolve_params, resolve_value, item_reporter, expand,
+                         node_view, report, resume, resume_kwargs):
+        """Run this remote node and every remote node ready beside it.
+
+        "Ready beside it" is the whole of the scheduling: a node later in
+        the topological order whose inputs are ALL computed already does
+        not depend on this one, so waiting for this one buys nothing but
+        latency. Two prompts to two providers, then a judge, is the shape
+        this exists for — it used to take the sum of the two calls.
+
+        What stays on the calling thread, deliberately: every result is
+        returned and the caller does the hashing, the emitting and the
+        progress accounting in topological order, so the manifest and
+        the stored objects are identical to a serial run. A node with
+        resume state is left out of the wave entirely — partial work is
+        the one thing not worth racing.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        ready: list[tuple[str, str, dict, dict]] = [(nid, block, inputs, params)]
+        if not resume_kwargs:
+            for other in order:
+                if (other == nid or other in results or other in missing
+                        or len(ready) >= MAX_PARALLEL_NODES):
+                    continue
+                node = nodes[other]
+                try:
+                    peer_block = lexicon.resolve(str(node.get("block")))
+                except KeyError:
+                    continue
+                peer_params = resolve_params(node.get("params"))
+                if not _is_remote(peer_block, peer_params):
+                    continue
+                if resume.get(other) if isinstance(resume, dict) else None:
+                    continue
+                sources = {e["from"]["node"] for e in _ordered_edges(edges, other)}
+                if not sources <= set(results):
+                    continue        # it is waiting for something, not for us
+                peer_inputs = {
+                    e["to"]["port"]: results[e["from"]["node"]]
+                    for e in _ordered_edges(edges, other)}
+                for port, raw in (node.get("inputs") or {}).items():
+                    if raw is not None and port not in peer_inputs:
+                        peer_inputs[port] = resolve_value(raw)
+                ready.append((other, peer_block, peer_inputs, peer_params))
+
+        if len(ready) == 1:
+            return {nid: self._dispatch_remote(
+                block, inputs, params, secrets,
+                on_item=item_reporter(nid), on_start=expand, **resume_kwargs)}
+
+        node_view["parallel"] = [n for n, _b, _i, _p in ready]
+        report()
+        print(f"[graph] {len(ready)} remote nodes in flight: "
+              f"{', '.join(n for n, _b, _i, _p in ready)}")
+        out: dict[str, Any] = {}
+        with ThreadPoolExecutor(max_workers=len(ready)) as pool:
+            futures = {
+                pool.submit(self._dispatch_remote, b, i, p, secrets,
+                            on_item=item_reporter(n),
+                            on_start=(expand if n == nid else None)): n
+                for n, b, i, p in ready}
+            for fut, name in futures.items():
+                try:
+                    out[name] = fut.result()
+                except Exception as exc:  # noqa: BLE001 — the caller decides
+                    out[name] = exc
+        node_view.pop("parallel", None)
+        return out
+
+    def _dispatch_remote(self, block, inputs, params, secrets, *,
+                         on_item=None, on_start=None, **resume_kwargs):
+        """The three blocks whose work is a provider's. Separate from the
+        executor's big dispatch so a thread runs exactly this and nothing
+        that touches the loop's bookkeeping."""
+        if block == "text/chat":
+            return self._block_chat(inputs, params, secrets=secrets,
+                                    on_item=on_item, on_start=on_start,
+                                    **resume_kwargs)
+        if block == "eval/judge":
+            return self._block_judge(inputs, params, secrets=secrets,
+                                     on_item=on_item, on_start=on_start,
+                                     **resume_kwargs)
+        return self._block_conversation(inputs, params, secrets=secrets,
+                                        on_item=on_item, on_start=on_start,
+                                        **resume_kwargs)
 
     def _block_capture_weights(self, inputs, params):
         """weights/capture (task 000457): the model's own parameters as
@@ -2244,6 +2584,70 @@ def _spend_total(by_node: dict[str, Any]) -> dict[str, Any]:
             "dry_run": all(bool(v.get("dry_run")) for v in by_node.values())}
 
 
+#: What a port may do when its upstream produced nothing (task 000399).
+MISSING_POLICIES = ("fail", "skip", "placeholder")
+
+#: The blocks whose work is somebody else's network, not this machine's
+#: (task 000396). Two of these that do not depend on each other have no
+#: reason to wait for each other: the time is latency, and the provider
+#: is answering other people's requests anyway. Everything else stays
+#: serial — a local model node MUST (one model in memory, one fused
+#: adapter at a time), and a pure block takes microseconds, where a
+#: thread would be pure risk for no gain.
+REMOTE_BLOCKS = ("text/chat", "eval/judge", "text/converse")
+
+#: How many remote nodes may be in flight at once. The provider's own
+#: rate limiter (000344) bounds the requests WITHIN a node; this bounds
+#: the nodes, so a twenty-branch fan-out does not open twenty
+#: connections' worth of concurrency on top of it.
+MAX_PARALLEL_NODES = 8
+
+
+def _is_remote(block: str, params: Mapping[str, Any]) -> bool:
+    """Whether this node's work happens on somebody else's machine: a
+    chat-shaped block whose model reference names a provider."""
+    if block not in REMOTE_BLOCKS:
+        return False
+    model = params.get("model") or params.get("judge") or {}
+    if isinstance(model, Mapping):
+        return bool(model.get("provider"))
+    return bool(getattr(model, "is_endpoint", False))
+
+
+def _missing_policy(decl, edges) -> str:
+    """What to do about an absent input on this port.
+
+    The OP declares what its port can meaningfully do without the input;
+    an EDGE may override, because whether a partial result is worth
+    having is a question about the experiment, not about the operation.
+    An edge that says nothing inherits the port's declaration, and a
+    port that says nothing fails — silence never buys tolerance.
+    """
+    chosen = [e.get("on_missing") for e in edges if e.get("on_missing")]
+    if chosen:
+        return str(chosen[0])
+    return decl.on_missing if decl is not None else "fail"
+
+
+class _MissingUpstream(RuntimeError):
+    """A node needed an input its upstream never produced, and the port
+    it was wired to says that is fatal (task 000399).
+
+    Carries the chain, because the useful question is never "what
+    raised" but "what was this waiting for": the node, its port, the
+    upstream that produced nothing, and why THAT happened.
+    """
+
+    def __init__(self, nid: str, port: str, source: str, why: Mapping[str, Any]):
+        self.nid, self.port, self.source = nid, port, source
+        super().__init__(
+            f"{nid} needs its {port!r} port, and {source} produced nothing: "
+            f"{why.get('reason')}. That port's `on_missing` is 'fail' — the "
+            f"default. A port declared `skip` passes the absence on; one "
+            f"declared `placeholder` runs with an empty collection that says "
+            f"it is one.")
+
+
 def _ordered_edges(edges, nid: str) -> list[Any]:
     """The edges into a node, in the one order the platform reads them:
     port, then the edge's declared `index`, then the source node's id
@@ -2327,6 +2731,24 @@ def _preflight(nodes, edges, order) -> None:
             bad = decl.arity_error(n)
             if bad:
                 problems.append(f"  {nid} ({name}): port {port_name!r} {bad}.")
+        # What each port does when its upstream produces nothing (000399):
+        # the policy must be one of the three, and `placeholder` needs a
+        # kind with an empty value — an empty collection is a real value,
+        # an empty `direction/vector` is not.
+        for e in edges:
+            if (e.get("to") or {}).get("node") != nid or not e.get("on_missing"):
+                continue
+            policy, port_name = str(e["on_missing"]), e["to"].get("port")
+            decl = op.port(str(port_name))
+            if policy not in MISSING_POLICIES:
+                problems.append(
+                    f"  {nid} ({name}): on_missing is "
+                    f"{', '.join(MISSING_POLICIES)}, not {policy!r}.")
+            elif policy == "placeholder" and decl is not None and not decl.many:
+                problems.append(
+                    f"  {nid} ({name}): port {port_name!r} takes one "
+                    f"`{decl.kind}`, which has no empty value to stand in "
+                    f"for a missing upstream. Use `skip`, or `fail`.")
         for port in op.inputs:
             if not port.required:
                 continue

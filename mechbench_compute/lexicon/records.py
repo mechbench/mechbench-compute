@@ -258,6 +258,69 @@ absent, for a readout that can report a missing arm.
     example_inputs={"branches": {"$fetch": "$base_reads"}},
 )
 
+MAP = Op(
+    name="records/map",
+    summary=(
+        "Run a whole sub-protocol once per record — the fan-out between a "
+        "node that loops over its own items and a run set that loops over "
+        "whole runs."
+    ),
+    description="""\
+A run set fans out over runs; a node fans out over the items inside it.
+Between the two there was nothing — so a graph that wanted to do several
+things to each record had to be written once per record, or flattened
+into one node that knew how to do all of them.
+
+`body` is a graph, run once per record with that record's fields bound
+into its holes by `bind`: `{"topic": "user"}` puts each record's `user`
+field in the body's `$topic`. The body is written once, against one
+record, and reads as what it is.
+
+Each invocation is an **item keyed by the record's id**, so an
+interrupted map resumes exactly as an interrupted chat node does: the
+records already done are reused, the rest are run. The body sees one
+record and nothing else, which is also why chunking a map is the same
+map: there is no state between records to lose.
+
+`collect` says what comes back. `stream` (the default) flattens every
+invocation's output into one collection, each item's id prefixed with
+its record's and carrying a `mapped` coordinate; `first` keeps one item
+per record; `all` keeps each invocation's items nested under its record.
+When the body ends at more than one node, `output` names the one to
+collect.
+""",
+    inputs=(
+        In("records", "records/record",
+           "The stream to map over: one invocation of the body per record.",
+           many=True),
+    ),
+    emits=Emits('records/record', collection=True, doc="Under `stream`, every invocation's items in one collection, each id prefixed `<record>:<item>` and carrying `coords.mapped`; under `first` or `all`, one item per record. The header's `mapped` says how many records ran, under which policy, and what the body's nodes were."),
+    params=(
+        P("body", "object",
+          "The graph to run per record — `{nodes, edges}`, the same shape a "
+          "protocol's graph has. Its holes are filled by `bind`."),
+        P("bind", "object",
+          "Hole name → the record field that fills it, per record.",
+          None),
+        P("collect", "string",
+          "`\"stream\"` (flatten every invocation's items), `\"first\"` "
+          "(one item per record) or `\"all\"` (nest each invocation's items "
+          "under its record).",
+          "stream"),
+        P("output", "string",
+          "Which of the body's terminal nodes to collect, when it has more "
+          "than one.",
+          None),
+    ),
+    example={"bind": {"topic": "user"}, "collect": "stream",
+             "body": {"nodes": [{"id": "write", "block": "text/generate",
+                                 "params": {"model": "$model", "n": 3,
+                                            "messages": [{"role": "user",
+                                                          "content": "$topic"}]}}],
+                      "edges": []}},
+    example_inputs={"records": {"$fetch": "$topics"}},
+)
+
 PAIRED_DELTA = Op(
     name="records/subtract",
     summary=(
@@ -669,7 +732,8 @@ reproduces its numbers reproduces its tree.
 )
 
 OPS: tuple[Op, ...] = (
-    FACTOR_CROSS, TEMPLATE, RENAME, SELECT, UNION, ZIP, PAIRED_DELTA, GROUP_STATS,
+    FACTOR_CROSS, TEMPLATE, RENAME, SELECT, UNION, ZIP, MAP, PAIRED_DELTA,
+    GROUP_STATS,
     TABLE_FROM_RECORDS, TEXT_STATS, REDUCE_SUM, REDUCE_TOP_K, REDUCE_HISTOGRAM,
     EVAL_EXPECTATION, VIZ_SPEC, VECTORS_SIMILARITY, VECTORS_MST,
 )

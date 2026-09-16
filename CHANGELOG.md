@@ -13,6 +13,61 @@ nothing said so.
 
 ---
 
+## 0.86.0 — 2026-09-17
+
+The rest of the dataflow set: what happens when a branch fails, when two
+branches could run at once, and when a whole sub-protocol should run per
+record.
+
+### Changes that raise
+
+- _None._ A graph that declares no `on_missing` policy fails exactly as
+  it did, and a graph with no independent remote nodes runs exactly as
+  it did.
+
+### Changes that alter results without raising
+
+- **A failed node's siblings finish before the run fails** (task
+  000399). The failure is raised when the run is otherwise over rather
+  than at the moment it happens, so a branch that was going to succeed
+  still does — which is also what makes the scheduler below safe. The
+  error a job fails with is unchanged.
+
+### Other
+
+- **`on_missing` on a port** (000399): `fail` (the default, and what
+  every graph did), `skip` (this node is skipped too, and its own
+  consumers see it missing in turn) or `placeholder` (the port gets its
+  kind's empty value carrying a `missing` marker). The OP declares what
+  its port can meaningfully do without the input; an EDGE may override,
+  because whether a partial result is worth having is a question about
+  the experiment. `placeholder` on a port that takes one object is
+  refused at load — an empty collection is a real value, an empty
+  `direction/vector` is not. The result's `nodes_missing` says what did
+  not run and why, so an absence is never inferred from a shorter list.
+
+- **Independent remote nodes run at once** (task 000396). When the
+  executor reaches a node whose work is a provider's, every other such
+  node whose inputs are already computed goes with it — two prompts to
+  two providers, then a judge, now takes one call's latency instead of
+  two. Deliberately narrow: a local model node must serialize (one model
+  in memory, one fused adapter at a time) and a pure block takes
+  microseconds, where a thread would be risk without a gain. At most
+  eight nodes in flight, under the provider limiter that already bounds
+  the requests within each. Every result is hashed, emitted and counted
+  on the calling thread in topological order, so the manifest and the
+  stored objects are identical to a serial run; item spooling is bound
+  to its own node, so a resumed job cannot reuse another node's work.
+
+- **`records/map`** (task 000400): run a whole sub-protocol once per
+  record. A run set fans out over runs and a node fans out over its own
+  items; between them there was nothing. `body` is a graph, run per
+  record with that record's fields bound into its holes by `bind`; each
+  invocation is an item keyed by the record's id, so an interrupted map
+  resumes the way an interrupted chat node does. `collect` is `stream`
+  (flatten every invocation), `first` or `all`. A body by REFERENCE to a
+  stored protocol waits on task 000393; an inline body works now.
+
 ## 0.85.0 — 2026-09-17
 
 ### Changes that raise

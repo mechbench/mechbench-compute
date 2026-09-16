@@ -247,6 +247,19 @@ class Port:
     #: Bounds on how many edges a variadic port accepts, when it has any.
     min_edges: int | None = None
     max_edges: int | None = None
+    #: What this port does when its upstream produced nothing — it failed,
+    #: or was itself skipped (task 000399):
+    #:
+    #: * `fail` (the default) — the run fails, as it always did. A node
+    #:   that cannot have this input cannot be trusted to mean anything
+    #:   without it.
+    #: * `skip` — this node is skipped too, and its own consumers see it
+    #:   as missing in turn.
+    #: * `placeholder` — the port gets its kind's empty value carrying a
+    #:   `missing` marker, and the block decides what to do. Only a port
+    #:   that takes a collection can have one: an empty collection is a
+    #:   real value, where an empty `direction/vector` is not.
+    on_missing: str = "fail"
 
     @property
     def kinds(self) -> tuple[str, ...]:
@@ -274,7 +287,7 @@ class Port:
     def to_dict(self) -> dict[str, Any]:
         out = {"name": self.name, "kind": self.kind, "kinds": list(self.kinds),
                "doc": self.doc, "required": self.required, "many": self.many,
-               "variadic": self.variadic}
+               "variadic": self.variadic, "on_missing": self.on_missing}
         if self.min_edges is not None:
             out["min_edges"] = self.min_edges
         if self.max_edges is not None:
@@ -360,7 +373,9 @@ def P(name: str, type: str, doc: str, default: Any = REQUIRED) -> Param:
 
 def In(name: str, kind: str, doc: str, *, required: bool = True,
        many: bool = False, variadic: bool = False,
-       min_edges: int | None = None, max_edges: int | None = None) -> Port:
+       min_edges: int | None = None, max_edges: int | None = None,
+       on_missing: str = "fail") -> Port:
     """Shorthand for a declaration file: `In("records", "records/record",
     "…", many=True)`."""
-    return Port(name, kind, doc, required, many, variadic, min_edges, max_edges)
+    return Port(name, kind, doc, required, many, variadic, min_edges,
+                max_edges, on_missing)
