@@ -176,6 +176,61 @@ class TestTheBlock:
         with pytest.raises(ValueError, match="judge: \\{model, system\\}"):
             J.run({"scale": {"kind": "numeric"}}, inputs={"records": STORIES})
 
+    def test_no_temperature_is_sent_unless_the_author_named_one(self):
+        """A default the provider may REFUSE is not a safe default:
+        claude-sonnet-5 answers HTTP 400 to `temperature` at all, which
+        made it unusable as a judge while this block sent 0.0 for
+        everyone. Steadiness is bought with `n_votes`."""
+        import mechbench_compute.judge as judge_mod
+
+        sent = []
+        real = judge_mod.chat_mod.run_remote
+
+        def spy(ref, prompts, params, **kw):
+            sent.append(params.get("temperature"))
+            return real(ref, prompts, params, **kw)
+
+        old, judge_mod.chat_mod.run_remote = real, spy
+        try:
+            judged('{"score": 4}')
+            judged('{"score": 4}', judge={
+                "model": {"provider": "mock", "model": "judge-1"},
+                "system": "Grade the story for cliché.", "temperature": 0.0,
+                "provider_options": {"mock": {"text": '{"score": 4}'}}})
+        finally:
+            judge_mod.chat_mod.run_remote = old
+        assert sent == [None, 0.0]
+
+    def test_a_subject_with_nothing_to_judge_is_refused_by_name(self):
+        """Reachable from `records/zip` with `on_missing: "placeholder"`:
+        a branch failed, its key survived, and its side is absent. A
+        winner over an empty string reads exactly like a real one."""
+        with pytest.raises(ValueError, match="no text to judge") as exc:
+            judged('{"score": 4}',
+                   records=[STORIES[0], {"id": "s2", "coords": {}, "text": " "}])
+        assert "'s2'" in str(exc.value) and "'s1'" not in str(exc.value)
+
+    def test_skip_grades_the_rest_and_keeps_the_gap_visible(self):
+        out = judged('{"score": 4}', on_missing="skip",
+                     records=[STORIES[0], {"id": "s2", "coords": {}}])
+        rows = {r["id"]: r for r in out["items"]}
+        assert rows["s1"]["score"] == 4.0
+        assert rows["s2"]["unjudged"] and rows["s2"]["missing"] == ["text"]
+        # The mean is of what was actually judged, and says so.
+        assert out["summary"]["mean"] == 4.0
+        assert out["summary"]["n_unjudged"] == 1
+        assert out["summary"]["unjudged"] == ["s2"]
+
+    def test_a_pairwise_subject_needs_both_sides(self):
+        with pytest.raises(ValueError, match="text_a and text_b"):
+            judged('{"winner": "A"}', scale={"kind": "pairwise"},
+                   records=[{"id": "p1", "coords": {}, "text_a": "a story",
+                             "text_b": ""}])
+
+    def test_an_unknown_on_missing_is_refused(self):
+        with pytest.raises(ValueError, match="on_missing is"):
+            judged('{"score": 4}', on_missing="placeholder")
+
     def test_a_remote_judge_needs_a_cap(self):
         with pytest.raises(ValueError, match="budget_usd"):
             J.run({"judge": {"model": {"provider": "mock", "model": "m"},

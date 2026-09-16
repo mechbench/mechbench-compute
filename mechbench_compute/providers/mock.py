@@ -42,7 +42,11 @@ class MockTransport(Transport):
     exception instance is raised, a mapping overrides that call's
     response, None takes the default. When it runs out, the default
     resumes — so `script=[RateLimited(retry_after=2)]` tests one 429
-    followed by success."""
+    followed by success.
+
+    From inside a graph, where the transport is not yours to construct,
+    `provider_options: {"mock": {...}}` does the smaller version:
+    `text` fixes the reply, `fail` refuses the call."""
 
     name = "mock"
 
@@ -103,6 +107,14 @@ class MockTransport(Transport):
             if isinstance(step, Mapping):
                 override = step
         opts = {**req.options_for("mock"), **req.options_for(self.name)}
+        # `script` can only be set by a caller that constructs the
+        # transport; a GRAPH reaches the mock through provider options
+        # alone. `fail` is how a protocol author rehearses the branch
+        # that goes down — the placeholder path is worth checking
+        # BEFORE a real provider proves it at an awkward moment.
+        refuse = override.get("fail", opts.get("fail"))
+        if refuse:
+            raise RuntimeError(f"mock provider refused: {refuse}")
         rng = self._rng(req)
 
         parts: list[msg.Part] = []

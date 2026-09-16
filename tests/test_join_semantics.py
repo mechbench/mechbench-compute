@@ -109,6 +109,66 @@ class TestPlaceholder:
         assert payload["nodes_missing"]["bad"]["reason"].startswith("RuntimeError")
 
 
+class TestTheWholePathWithoutAMonkeypatch:
+    """What the docs example rehearses: two provider branches, one of
+    them down, zipped and judged. Nothing here is patched — the mock
+    refuses because the graph asked it to — so this is the shape a
+    protocol author can write and check before spending anything."""
+
+    ENDPOINT = {"provider": "mock", "model": "mock-large"}
+
+    def _graph(self, judge_policy):
+        def chat(nid, **options):
+            return {"id": nid, "block": "text/chat",
+                    "params": {"model": self.ENDPOINT, "budget_usd": 1.0,
+                               "max_tokens": 32,
+                               "provider_options": {"mock": options}},
+                    "inputs": {"records": [
+                        {"id": "r1", "coords": {"prompt": "p1"}, "user": "hi"}]}}
+        return {"nodes": [
+            chat("up", text="a real answer"),
+            chat("down", fail="the provider is down"),
+            {"id": "pairs", "block": "records/zip",
+             "params": {"by": ["prompt"], "flatten": True,
+                        "on_mismatch": "placeholder"}},
+            {"id": "sides", "block": "records/rename",
+             "params": {"fields": {"up_text": "text_a", "down_text": "text_b"}}},
+            {"id": "verdicts", "block": "eval/judge",
+             "params": {"judge": {"model": self.ENDPOINT},
+                        "rubric": "which is better written",
+                        "scale": {"type": "pairwise"}, "budget_usd": 1.0,
+                        "on_missing": judge_policy}},
+        ], "edges": [
+            {"from": {"node": "up", "port": "documents"},
+             "to": {"node": "pairs", "port": "branches"},
+             "kind": "text/document", "index": 0, "on_missing": "placeholder"},
+            {"from": {"node": "down", "port": "documents"},
+             "to": {"node": "pairs", "port": "branches"},
+             "kind": "text/document", "index": 1, "on_missing": "placeholder"},
+            {"from": {"node": "pairs", "port": "records"},
+             "to": {"node": "sides", "port": "records"},
+             "kind": "records/record"},
+            {"from": {"node": "sides", "port": "records"},
+             "to": {"node": "verdicts", "port": "records"},
+             "kind": "records/record"},
+        ]}
+
+    def test_the_missing_side_is_never_quietly_judged(self):
+        with pytest.raises(ValueError, match="no text_a and text_b to judge"):
+            ProtocolExecutor().run(ProtocolSpec(
+                kind="pipeline", prompt="", model_id=None,
+                extra={"graph": self._graph("error")}))
+
+    def test_skip_lands_a_result_that_names_the_arm_that_went_down(self):
+        out = ProtocolExecutor().run(ProtocolSpec(
+            kind="pipeline", prompt="", model_id=None,
+            extra={"graph": self._graph("skip")})).payload
+        assert out["nodes_missing"]["down"]["reason"].startswith("RuntimeError")
+        verdicts = out["outputs"]["verdicts"]
+        assert verdicts["summary"]["n_unjudged"] == 1
+        assert verdicts["items"][0]["missing"] == ["text_b"]
+
+
 class TestValidation:
     def test_an_unknown_policy_is_refused_at_load(self):
         g = _graph("shrug")

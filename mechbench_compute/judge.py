@@ -234,12 +234,19 @@ def summarize(rows: Sequence[Mapping[str, Any]], *, scale: Scale,
               votes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """The aggregate a publication cites, plus the diagnostics that say
     whether to trust it."""
-    scored = [r for r in rows if not r.get("unparsed")]
+    scored = [r for r in rows
+              if not r.get("unparsed") and not r.get("unjudged")]
     out: dict[str, Any] = {
         "scale": scale.kind,
         "n_subjects": len(rows),
         "n_unparsed": sum(1 for r in rows if r.get("unparsed")),
     }
+    unjudged = [r for r in rows if r.get("unjudged")]
+    if unjudged:
+        # Named, not just counted: which subjects went ungraded is the
+        # question a reader of the number will ask next.
+        out["n_unjudged"] = len(unjudged)
+        out["unjudged"] = [str(r.get("id")) for r in unjudged][:50]
     if scale.kind == "numeric" and scored:
         values = [float(r["score"]) for r in scored]
         out["mean"] = round(statistics.fmean(values), 4)
@@ -298,7 +305,31 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
     from mechbench_compute.lexicon import kinds as K
 
     subjects = K.items_of(inputs.get("records") or [])
-    prompts = build_prompts(subjects, scale=scale, rubric=rubric, fields=fields,
+    # A subject with nothing to read is not a hard subject; it is not a
+    # subject. Judging it would produce a winner over an empty string —
+    # a number that looks like every other number in the column. This is
+    # reachable: a `records/zip` with `on_missing: "placeholder"` keeps
+    # the key of a branch that failed, and the missing side arrives here
+    # as an absent field.
+    want = list(pairwise_fields if scale.kind == "pairwise" else fields)
+    on_missing = str(params.get("on_missing", "error"))
+    if on_missing not in ("error", "skip"):
+        raise ValueError(
+            f"on_missing is 'error' or 'skip', not {on_missing!r}")
+    def absent(rec):
+        return [f for f in want if not str(rec.get(f, "")).strip()]
+
+    empty = {id(s): absent(s) for s in subjects if absent(s)}
+    if empty and on_missing == "error":
+        names = ", ".join(repr(str(s.get("id"))) for s in subjects
+                          if id(s) in empty)
+        raise ValueError(
+            f"{len(empty)} record(s) have no {' and '.join(want)} to judge "
+            f"({names[:120]}). An empty side would be scored against a real "
+            f"one. `on_missing: \"skip\"` records them as unjudged and "
+            f"grades the rest.")
+    judged = [s for s in subjects if id(s) not in empty]
+    prompts = build_prompts(judged, scale=scale, rubric=rubric, fields=fields,
                             n_votes=n_votes, seed=seed,
                             pairwise_fields=pairwise_fields)
 
@@ -306,7 +337,13 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
     chat_params = {
         "model": judge["model"],
         "max_tokens": int(judge.get("max_tokens", 512)),
-        "temperature": judge.get("temperature", 0.0),
+        # Sent only when the author asks for one. A judge's steadiness
+        # is bought with `n_votes` and reported as `agreement`, not
+        # assumed from a sampling parameter — and a parameter some
+        # models now REFUSE outright (claude-sonnet-5 answers HTTP 400,
+        # "`temperature` is deprecated for this model") cannot be a
+        # silent default: it made those models unusable as judges.
+        "temperature": judge.get("temperature"),
         "seed": seed,
         "budget_usd": params.get("budget_usd") or judge.get("budget_usd"),
         "provider_options": dict(judge.get("provider_options") or {}),
@@ -349,7 +386,13 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
         by_subject.setdefault(subject_id, []).append(vote)
         all_votes.append(vote)
 
-    rows = [aggregate(s, by_subject.get(str(s.get("id", "")), []), scale=scale)
+    # Skipped subjects keep their row — unjudged and saying what was
+    # missing. A table with a gap in it is the finding; a table that
+    # quietly lost the row is a smaller corpus with no note of why.
+    rows = [(aggregate(s, by_subject.get(str(s.get("id", "")), []), scale=scale)
+             if id(s) not in empty else
+             {"id": s.get("id"), "coords": coords_of(s), "unjudged": True,
+              "missing": empty[id(s)]})
             for s in subjects]
     return K.collection(
         "eval/verdict", rows,

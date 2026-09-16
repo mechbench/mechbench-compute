@@ -121,6 +121,42 @@ class TestTheBody:
                 "edges": []}})).payload["outputs"]["each"]
         assert [i["text"] for i in K.items_of(out)][:2] == ["dusk-1", "dusk-2"]
 
+    def test_the_body_sees_the_protocol_s_own_bindings(self):
+        """A body is a sub-protocol, not a foreign graph: a run launched
+        with `$model` should be able to name it inside the body, rather
+        than carrying the same constant on every record to bind it in."""
+        body = {"nodes": [
+            {"id": "design", "block": "records/cross",
+             "params": {"factors": [
+                 {"name": "topic", "levels": [{"key": "$topic"}]},
+                 {"name": "era", "levels": [{"key": "$era"}]}]}},
+            {"id": "write", "block": "records/fill",
+             "params": {"templates": {"text": "{topic} in {era}"}}},
+        ], "edges": list(BODY["edges"])}
+        graph = {"nodes": [
+            {"id": "each", "block": "records/map",
+             "params": {"body": body, "bind": {"topic": "user"}},
+             "inputs": {"records": TOPICS}},
+        ], "edges": []}
+        out = ProtocolExecutor().run(ProtocolSpec(
+            kind="pipeline", prompt="", model_id=None,
+            extra={"graph": graph, "bindings": {"era": "1890"}}))
+        assert [i["text"] for i in K.items_of(out.payload["outputs"]["each"])] == [
+            "dusk in 1890", "kettle in 1890"]
+
+    def test_a_record_s_binding_shadows_the_protocol_s(self):
+        """Both name `topic`; the per-record value is the specific one."""
+        graph = {"nodes": [
+            {"id": "each", "block": "records/map",
+             "params": {"body": BODY, "bind": {"topic": "user"}},
+             "inputs": {"records": TOPICS[:1]}},
+        ], "edges": []}
+        out = ProtocolExecutor().run(ProtocolSpec(
+            kind="pipeline", prompt="", model_id=None,
+            extra={"graph": graph, "bindings": {"topic": "ignored"}}))
+        assert [i["text"] for i in K.items_of(out.payload["outputs"]["each"])] == [
+            "dusk-1", "dusk-2"]
+
     def test_no_body_is_refused_with_what_a_body_is(self):
         with pytest.raises(ValueError, match="needs a `body`"):
             ProtocolExecutor().run(ProtocolSpec(

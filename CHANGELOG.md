@@ -13,6 +13,52 @@ nothing said so.
 
 ---
 
+## 0.87.0 — 2026-09-17
+
+What writing the first two protocols against the dataflow set turned up.
+Each of these is reachable only now that a branch can go missing and
+leave the run standing.
+
+### Changes that raise
+
+- **A judge is refused a subject with nothing to read** (`eval/judge`).
+  A record whose judged field — `text`, or `text_a`/`text_b` on a
+  pairwise scale — is absent or blank now fails the node by name, where
+  before the empty string was shown to the judge and the answer scored.
+  A winner over an empty string is indistinguishable from any other
+  winner in the column, and this became reachable the moment
+  `records/zip` gained `on_missing: "placeholder"`: the failed branch
+  keeps its key and its side arrives empty. `on_missing: "skip"` keeps
+  those subjects as `unjudged` rows naming what was missing, and grades
+  the rest; the summary carries `n_unjudged` and which.
+
+### Changes that alter results without raising
+
+- **A judge sends no `temperature` unless one is named** (`eval/judge`).
+  The block sent `0.0` for every judge that did not say otherwise,
+  which made `claude-sonnet-5` unusable as a judge outright — it
+  answers HTTP 400, "`temperature` is deprecated for this model". A
+  default the provider may refuse is not a safe default; a judge's
+  steadiness is bought with `n_votes` and reported as `agreement`.
+  Scores from a remote judge that never named a temperature will move,
+  because the request now takes the provider's own default. Name
+  `judge: {"temperature": 0.0}` to keep the old requests exactly.
+
+### Other
+
+- **A `records/map` body sees the protocol's own bindings** (task
+  000400). The body is a sub-protocol, not a foreign graph: a run
+  launched with `$model` can now name it inside the body instead of
+  carrying the same constant on every record to bind it in. `bind`
+  shadows them, since the per-record value is the specific one.
+
+- **The mock provider can refuse from inside a graph.**
+  `provider_options: {"mock": {"fail": "…"}}` raises, the way `text`
+  fixes the reply — so a protocol author can rehearse the branch that
+  goes down, and check the placeholder path, before a real provider
+  proves it at an awkward moment. Previously only a caller that
+  constructed the transport could (`script=`), which a graph cannot.
+
 ## 0.86.0 — 2026-09-17
 
 The rest of the dataflow set: what happens when a branch fails, when two

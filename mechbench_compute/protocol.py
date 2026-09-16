@@ -877,7 +877,7 @@ class ProtocolExecutor:
                 elif block == "records/map":
                     results[nid] = self._block_map(
                         inputs, params, secrets=secrets, on_item=on_item,
-                        on_start=expand, **resume_kwargs)
+                        on_start=expand, bindings=bindings, **resume_kwargs)
                 elif block == "weights/capture":
                     results[nid] = self._run_model_block(
                         self._block_capture_weights, inputs, params)
@@ -1380,7 +1380,7 @@ class ProtocolExecutor:
         return out
 
     def _block_map(self, inputs, params, *, secrets=None, on_item=None,
-                   on_start=None, resume_items=None):
+                   on_start=None, resume_items=None, bindings=None):
         """`records/map` (task 000400): run a sub-protocol once per record.
 
         Run sets fan out over whole runs and a node fans out over the
@@ -1391,7 +1391,11 @@ class ProtocolExecutor:
         node's items.
 
         `bind` maps a record's fields into the body's holes, so the body
-        is written once with `$holes` and the stream supplies them.
+        is written once with `$holes` and the stream supplies them. The
+        protocol's own bindings reach the body too — it is a
+        sub-protocol, not a foreign graph, and a body that names the
+        run's `$model` should get the run's model — with `bind`
+        shadowing them, since the per-record value is the specific one.
 
         The isomorphism the chunking law wants (000407) is structural
         here: the body sees ONE record at a time and nothing else, so
@@ -1431,7 +1435,7 @@ class ProtocolExecutor:
                 if on_item:
                     on_item(key, resume_items[key], True)
                 continue
-            bindings = {hole: rec.get(field) for hole, field in bind.items()}
+            bound = {hole: rec.get(field) for hole, field in bind.items()}
             missing_fields = [f for h, f in bind.items() if rec.get(f) is None]
             if missing_fields:
                 raise ValueError(
@@ -1439,7 +1443,9 @@ class ProtocolExecutor:
                     f"bind into the body's holes")
             out = child.run(ProtocolSpec(
                 kind="pipeline", prompt="", model_id=None,
-                extra={"graph": body, "bindings": bindings}), secrets=secrets)
+                extra={"graph": body,
+                       "bindings": {**(bindings or {}), **bound}}),
+                secrets=secrets)
             outputs = out.payload.get("outputs") or {}
             if want:
                 chosen = outputs.get(str(want))

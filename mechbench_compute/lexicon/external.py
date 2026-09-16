@@ -295,6 +295,12 @@ JSON. A record that carries the text under another name goes through
 * **Parsing is honest.** A vote that could not be read is recorded as
   unparsed rather than scored; a numeric answer outside the scale is
   clamped and flagged.
+* **An empty subject is not judged.** A record whose judged field is
+  missing or blank is refused by name, because a winner over an empty
+  string looks exactly like every other winner in the column. This is
+  reachable: a `records/zip` with `on_missing: "placeholder"` keeps the
+  key of a branch that failed. `on_missing: "skip"` keeps those records
+  as unjudged rows and grades the rest.
 
 The judge runs through `chat`, so it inherits the budget cap, concurrency,
 resumability and per-call provenance; a local model is the cheap first test.
@@ -305,13 +311,16 @@ resumability and per-call provenance; a local model is the cheap first test.
            "`text_b` for a pairwise scale. A document collection is read the "
            "same way.", many=True),
     ),
-    emits=Emits('eval/verdict', collection=True, doc='One item per subject: `id`, `coords`, the verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or `winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every `vote`, and `unparsed: true` when no vote could be read. The header carries `judge` (who graded and how), `summary` (mean/median/stdev or counts, `n_unparsed`, `first_shown_win_rate` for pairwise) and `spend`.'),
+    emits=Emits('eval/verdict', collection=True, doc='One item per subject: `id`, `coords`, the verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or `winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every `vote`, `unparsed: true` when no vote could be read, and `unjudged: true` with the `missing` field names when there was nothing to judge. The header carries `judge` (who graded and how), `summary` (mean/median/stdev or counts, `n_unparsed`, `n_unjudged` and which, `first_shown_win_rate` for pairwise) and `spend`.'),
     params=(
         P("judge", "object",
           "Who grades: `{\"model\": …, \"system\": rubric, \"max_tokens\": "
-          "512, \"temperature\": 0.0, \"budget_usd\": …, "
+          "512, \"temperature\": …, \"budget_usd\": …, "
           "\"provider_options\": …}`. `model` is required; `system` is the "
-          "rubric unless `rubric` is given."),
+          "rubric unless `rubric` is given. `temperature` is sent only if "
+          "you name one — a judge's steadiness comes from `n_votes` and "
+          "is reported as `agreement`, and some models refuse the "
+          "parameter outright."),
         P("rubric", "string",
           "The standard the judge applies, appended to `judge.system`. One "
           "of the two must be present — an unstated standard is not a "
@@ -328,6 +337,11 @@ resumability and per-call provenance; a local model is the cheap first test.
         P("concurrency", "int",
           "How many judge requests are in flight at once (remote judges).",
           4),
+        P("on_missing", "string",
+          "A record whose judged field is missing or blank: `\"error\"` "
+          "refuses it by name; `\"skip\"` keeps it as an unjudged row, "
+          "naming what was absent, and grades the rest.",
+          "error"),
     ),
     example={
         "judge": {"model": {"provider": "anthropic", "model": "claude-sonnet-5"},
