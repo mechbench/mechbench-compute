@@ -131,6 +131,33 @@ class TestPairwisePosition:
         two = J.build_prompts([{"id": "s1"}], **args)
         assert [p["order"] for p in one] == [p["order"] for p in two]
 
+    def test_an_answer_is_mapped_back_from_what_the_judge_saw(self):
+        """The judge answers about the sides in front of it, and half
+        the time they are swapped. A vote that says "A" under `BA`
+        chose `text_b`, and every count downstream has to know that."""
+        out = judged('{"winner": "A", "rationale": "the first one"}',
+                     n_votes=4, scale={"kind": "pairwise"},
+                     records=[{"id": "p1", "coords": {},
+                               "text_a": "one", "text_b": "two"}])
+        votes = out["items"][0]["votes"]
+        assert {v["shown_winner"] for v in votes} == {"A"}   # always said A
+        for v in votes:
+            assert v["winner"] == ("A" if v["order"] == "AB" else "B")
+
+    def test_a_judge_that_always_picks_the_first_shown_is_visibly_biased(self):
+        """The whole point of randomising position. This judge has no
+        opinion about the writing at all — it answers "A" every time —
+        and the diagnostics must say so: the first-shown option won
+        every vote, and the verdict is a coin toss. Before the answers
+        were mapped back, this same judge reported perfect agreement
+        and an unremarkable 0.5 position rate."""
+        out = judged('{"winner": "A"}', n_votes=6,
+                     scale={"kind": "pairwise"},
+                     records=[{"id": "p1", "coords": {},
+                               "text_a": "one", "text_b": "two"}])
+        assert out["summary"]["first_shown_win_rate"] == 1.0
+        assert out["items"][0]["agreement"] < 1.0
+
     def test_position_bias_is_reported_as_a_rate(self):
         # Every vote picked whatever was shown first.
         votes = [{"parsed": True, "winner": "A", "order": "AB"},

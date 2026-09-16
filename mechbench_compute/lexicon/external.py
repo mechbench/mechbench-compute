@@ -288,10 +288,13 @@ JSON. A record that carries the text under another name goes through
   are averaged and their spread kept; labels and preferences take the
   majority, and `agreement` records how often the judge agreed with itself.
   A rubric that produces 0.5 there is a finding.
-* **Position is randomised and recorded.** In pairwise mode the A/B order
-  flips per vote from a seeded coin and each vote records the order it saw;
-  the summary reports how often the first-shown option won (0.5 is the
-  honest number).
+* **Position is randomised, recorded, and undone.** In pairwise mode the
+  A/B order flips per vote from a seeded coin; each vote records the
+  order it saw and the letter it answered, and the answer is mapped back
+  to the record's own `text_a`/`text_b` before anything counts it. The
+  summary reports how often the option shown FIRST won across every vote
+  — 0.5 is the honest number, and 1.0 is a judge with no opinion about
+  the writing.
 * **Parsing is honest.** A vote that could not be read is recorded as
   unparsed rather than scored; a numeric answer outside the scale is
   clamped and flagged.

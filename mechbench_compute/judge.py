@@ -226,7 +226,13 @@ def aggregate(subject: Mapping[str, Any], votes: Sequence[Mapping[str, Any]], *,
         # How much the judge agreed with itself. A rubric that produces
         # 0.5 here is the finding, not a number to average away.
         row["agreement"] = round(top / len(parsed), 4)
-    row["rationale"] = str(parsed[0].get("rationale", ""))
+    # A pairwise rationale talks about "A" and "B" as the judge saw
+    # them, so prefer one written under the unswapped order — otherwise
+    # its letters mean the opposite of the row's, and say so.
+    spoke = next((v for v in parsed if v.get("order", "AB") == "AB"), parsed[0])
+    row["rationale"] = str(spoke.get("rationale", ""))
+    if scale.kind == "pairwise" and spoke.get("order") == "BA":
+        row["rationale_order"] = "BA"
     return row
 
 
@@ -373,11 +379,25 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
     for item in K.items_of(graded):
         coords = (item.get("metadata") or {}).get("coords") or {}
         subject_id = str(coords.get("subject", ""))
-        read = scale.read(str(item.get("text", "")))
+        read = dict(scale.read(str(item.get("text", ""))))
+        order = order_by_id.get(item["id"].rsplit("-s", 1)[0], "AB")
+        # The judge answers about what it SAW, and half the time it saw
+        # the sides swapped. Map the answer back to the record's own
+        # `text_a`/`text_b` before anything counts it, keeping the seen
+        # label beside it. Without this the position randomisation
+        # scrambled the result it was supposed to make trustworthy: a
+        # judge that picked the same passage every time was reported as
+        # disagreeing with itself, and `first_shown_win_rate` — the
+        # diagnostic for exactly this — was computed from labels that
+        # had never been mapped.
+        if scale.kind == "pairwise" and read.get("winner"):
+            read["shown_winner"] = read["winner"]
+            if order == "BA":
+                read["winner"] = "B" if read["winner"] == "A" else "A"
         vote: dict[str, Any] = {
             "vote": int(coords.get("vote", 0)),
             "parsed": bool(read),
-            "order": order_by_id.get(item["id"].rsplit("-s", 1)[0], "AB"),
+            "order": order,
             **read,
         }
         call = (item.get("metadata") or {}).get("call")

@@ -13,6 +13,38 @@ nothing said so.
 
 ---
 
+## 0.88.0 — 2026-09-17
+
+One bug, found by reading the votes behind a verdict the demonstration
+protocol produced.
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **A pairwise verdict is mapped back from what the judge saw**
+  (`eval/judge`). The A/B order flips per vote, and the judge's answer
+  was counted as the letter it gave — never mapped back to the record's
+  own `text_a`/`text_b`. So the randomisation that was supposed to make
+  a pairwise result trustworthy scrambled it instead: a judge that
+  chose the same passage in all three votes was reported as a 2–1 split
+  for the OTHER passage, with `agreement` 0.67 rather than 1.0, and
+  `first_shown_win_rate` — the diagnostic for exactly this — was
+  computed from unmapped labels, reading 0.0 for a judge with no
+  position bias at all. **Every pairwise verdict from every earlier
+  release is wrong** wherever votes saw different orders (any
+  `n_votes > 1`, and half of all single votes). Re-run them. Each vote
+  now carries `shown_winner` beside the mapped `winner`, and a row
+  whose rationale was written under a swapped order says so with
+  `rationale_order: "BA"` — the letters in that text are the judge's,
+  not the record's.
+
+### Other
+
+- _None._
+
 ## 0.87.0 — 2026-09-17
 
 What writing the first two protocols against the dataflow set turned up.
