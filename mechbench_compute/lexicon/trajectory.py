@@ -80,7 +80,7 @@ the model saw.
         P("axis", "string",
           "`\"layers\"`: one position through every layer. `\"positions\"`: "
           "one layer along the sequence.",
-          "layers"),
+          "layers", choices=("layers", "positions")),
         P("layers", "list[int] | \"all\"",
           "For `axis: \"layers\"`, the layers to step through.",
           "all"),
@@ -104,13 +104,13 @@ the model saw.
           "steps — instead of one per step: `{\"reduce\": \"mean\" | \"max\", "
           "\"over\": <selector>}`, `over` counting steps from the trajectory's "
           "own start, so `{\"range\": [5, 30]}` is steps 5 … 29.",
-          None),
+          None, value="pool"),
         _RESIDUAL_POINT,
         P("replay", "string",
           "`\"auto\"`: use the record's stored token ids when it has a "
           "trace, else tokenize its text. `\"trace\"`: require the trace. "
           "`\"text\"`: always tokenize the text.",
-          "auto"),
+          "auto", choices=("auto", "trace", "text")),
         P("vocab_top", "int",
           "Also record each step's distribution through the unembedding "
           "(`vocab`, with this many top tokens), a lens reading per step. "
@@ -186,7 +186,7 @@ projections).
         P("pair_by", "string",
           "`\"id\"`: pair rows with the same record id and step. `\"step\"`: "
           "pair by step alone.",
-          "id"),
+          "id", choices=("id", "step")),
         P("threshold", "float",
           "The mean cosine below which the trajectories count as diverged.",
           0.9),
@@ -235,10 +235,12 @@ reduced `as`:
         P("as", "string",
           "The reduction: `\"per_step\"`, `\"window\"` or `\"vectors\"` — "
           "see above.",
-          "per_step"),
+          "per_step", choices=("per_step", "window", "vectors")),
         P("steps", "\"all\" | object",
-          "Which steps take part: `\"all\"` or `{\"range\": [a, b]}`.",
-          "all"),
+          "Which steps take part: `\"all\"` or `{\"range\": [a, b]}`, steps `a` … `b − 1`.",
+          "all", fields=(
+              P("range", "list[int]", "`[a, b]`: steps `a` … `b − 1`."),
+          )),
     ),
     example={
         "by": "label",

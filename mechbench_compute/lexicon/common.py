@@ -17,7 +17,7 @@ from __future__ import annotations
 from mechbench_compute.lexicon._base import P, Param
 
 COMMON: tuple[Param, ...] = (
-    P("model", "string",
+    P("model", "model",
       "The model the block runs on: a model reference, most often the "
       "run binding `\"$model\"` so one protocol can run against several "
       "models. A model reference may carry its own adapters; they are part "
@@ -52,10 +52,10 @@ COMMON: tuple[Param, ...] = (
       "and report what would be sent and what it would cost, but send "
       "nothing.",
       False),
-    P("require_resume", "object",
-      "A demand on an upstream node: `{\"records\": \"items\"}` says the "
-      "node feeding this port must be able to resume at the `items` level "
+    P("require_resume", "map[string, string]",
+      "A demand on an upstream node: `{\"records\": \"reproducible\"}` says "
+      "the node feeding this port must resume at least that faithfully "
       "or start over rather than reuse a partial result. Read by the "
       "executor when planning a re-run, never by the block itself.",
-      None),
+      None, choices=("reproducible", "exchangeable", "state-restorable", "restart")),
 )

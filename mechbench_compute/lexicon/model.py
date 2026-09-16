@@ -60,11 +60,11 @@ _POSITIONS_DOC = (
 _RESIDUAL_POINT = P("point", "string",
                     "Which residual stream to read: `\"resid_post\"` (after each "
                     "layer) or `\"resid_pre\"` (before it).",
-                    "resid_post")
+                    "resid_post", choices=("resid_post", "resid_pre"), value="point")
 
 
 def _tracked(what: str) -> P:
-    return P("tracked", "object",
+    return P("tracked", "map[string, string]",
              f"Tokens to follow by name, `{{\"answer\": \" Paris\"}}`; the first "
              f"is the target — {what}. Each is tokenized as a continuation "
              "(include the leading space). A record's own `tracked` takes "
@@ -72,6 +72,48 @@ def _tracked(what: str) -> P:
              "for that prompt is the target.",
              None)
 
+
+_ONE_OR_MORE = "int | list[int]"
+
+#: One item of an intervention: an edit at a point in the forward pass,
+#: or — naming `parameter` instead — an edit to a weight.
+_SPEC_FIELDS = (
+    P("point", "string", "Where in the forward pass to act.", "resid_post", value="point"),
+    P("parameter", "string",
+      "Edit this weight instead of an activation, named as the module tree names it; "
+      "`*` stands for one segment.",
+      None),
+    P("layers", "int | list[int] | \"all\"", "Which layers the item applies to.", "all"),
+    P("positions", "selector", "Which token positions.", "last"),
+    P("heads", _ONE_OR_MORE, "Only these attention heads, at a point with a head axis.", None),
+    P("neurons", _ONE_OR_MORE, "Only these indices along the feature axis.", None),
+    P("op", "string", "What to do there — the table above lists each op and what it needs.", "zero",
+      choices=("zero", "mean", "resample", "patch", "add", "scale", "clamp", "project_out",
+               "rotate", "truncate")),
+    P("strength", "float", "The item's magnitude, multiplied by each sweep factor.", 1.0),
+    P("direction", "json",
+      "The direction, usually `{\"$fetch\": …}`; or it arrives on the node's `direction` port.", None),
+    P("direction2", "json", "For `rotate`: the second axis of the plane.", None),
+    P("source", "json",
+      "For `mean`, `resample` and `patch`: the replacement activations, or they arrive on the "
+      "node's `source` port.",
+      None),
+    P("row", "object", "For `patch`: which row of `source` to write in.", None,
+      fields=(P("index", "int", "The row's index.", 0),)),
+    P("condition", "object",
+      "Act only where the activation projects onto a direction above (or below) a threshold.", None,
+      fields=(
+          P("direction", "json", "The direction projected onto."),
+          P("threshold", "float", "The projection's threshold.", 0.0),
+          P("above", "bool", "Act above the threshold; `false` acts below it.", True),
+      )),
+    P("seed", "int", "The seed `resample` draws with; the node's `seed` by default.", None),
+    P("side", "string",
+      "For a weight's `project_out`: the side facing the residual stream, where the module's "
+      "name does not imply it.",
+      None, choices=("in", "out")),
+    P("rank", "int", "For a weight's `truncate`: how many singular directions to keep.", None),
+)
 
 _PROMPTS = In("records", "records/record",
               "The prompts, one per record; a record's prompt is its `user`, "
@@ -132,7 +174,7 @@ against. The output has one row per record per sweep factor.
 | `heads` | list[int] | all | Restrict the item to these attention heads, at a point that has a head axis (`attn.q`, `attn.k`, `attn.v`, `attn.scores`, `attn.weights`, `attn.per_head_out`, and the pre-norm/pre-rope variants). |
 | `neurons` | list[int] | all | Restrict the item to these indices along the feature axis — MLP neurons at `mlp.act`, residual dimensions at `resid_post`, vocabulary entries at `logits`. |
 | `op` | string | `"zero"` | What to do there — see the table below. |
-| `strength` | float | `1.0` | The item's magnitude: the coefficient for `add`, the factor for `scale`, the value for `clamp`, the angle in radians for `rotate`. Multiplied by each sweep factor. |
+| `strength` | float | `1.0` | The item's magnitude: the coefficient for `add`, the factor for `scale`, the bound for `clamp`, the angle in radians for `rotate`. Multiplied by each sweep factor. |
 | `direction` | direction | — | The direction for `add`, `project_out`, `clamp`, `rotate` and (optionally) `patch`. May instead arrive on the node's `direction` port, which fills every item that names none. |
 | `direction2` | direction | — | The second axis of the plane for `rotate`. |
 | `source` | collection | — | A collection of `activations/vector` — or a capture readout from another `intervene/apply` — supplying replacement activations for `mean`, `resample` and `patch`; items are matched to the item's layer (and point). May instead arrive on the node's `source` port. |
@@ -150,7 +192,7 @@ The ops:
 | `patch` | Replace it with one specific `source` row, or with `direction` itself. | `source` + `row`, or `direction` |
 | `add` | Add `strength × direction`. | `direction` |
 | `scale` | Multiply it by `strength`. | — |
-| `clamp` | Set its component along `direction` to `strength`. | `direction` |
+| `clamp` | Clip its component along `direction` into [−\|`strength`\|, \|`strength`\|]. | `direction` |
 | `project_out` | Remove its component along `direction`. | `direction` |
 | `rotate` | Rotate it by `strength` radians in the plane of `direction` and `direction2`. | `direction`, `direction2` |
 
@@ -202,12 +244,14 @@ one item can zero every layer's `o_proj`.
         P("spec", "list[object]",
           "The intervention items, applied together in one forward pass per "
           "record. At least one is required; the fields are described under "
-          "*Spec items* above."),
+          "*Spec items* above.", fields=_SPEC_FIELDS),
         P("sweep", "object",
           "Strength factors to run the whole spec at, as `{\"strength\": "
           "[0.5, 1.0, 2.0]}`. Every item's `strength` is multiplied by the "
           "factor, and each record gets one row per factor.",
-          {"strength": [1.0]}),
+          {"strength": [1.0]}, fields=(
+              P("strength", "list[float]", "The factors; `0` is the untouched model.", [1.0]),
+          )),
         P("control", "bool",
           "Add a factor‑0 run — the model untouched — to the sweep, so every "
           "record has a baseline row (`factor: 0.0`). Set `false` when the "
@@ -222,12 +266,21 @@ one item can zero every layer's `o_proj`.
           "is a selector naming one position. A capture readout is itself "
           "accepted as another intervention's `source`. `readout.top_k` "
           "overrides the `top_k` param.",
-          {"type": "decision"}),
+          {"type": "decision"}, fields=(
+              P("type", "string", "`decision` reads the next-token distribution; `capture` reads activations.",
+                "decision", choices=("decision", "capture")),
+              P("kind", "string", "The older spelling of `type`; read when `type` is absent.", None,
+                choices=("decision", "capture")),
+              P("top_k", "int", "For `decision`: overrides the node's `top_k`.", None),
+              P("points", "list[string]",
+                "For `capture`: the hook points to read, such as `blocks.14.resid_post`.", None),
+              P("position", "selector", "For `capture`: the one position to read.", "last"),
+          )),
         P("top_k", "int",
           "How many of the most likely next tokens to record per row in a "
           "decision readout.",
           5),
-        P("tracked", "object",
+        P("tracked", "map[string, string]",
           "Tokens to follow by name: `{\"yes\": \" Yes\", \"no\": \" No\"}` "
           "records each one's probability and log-probability under "
           "`tracked.<name>`. Tokenized as a continuation, so include the "
@@ -278,7 +331,7 @@ with a `prefill`), where `logits/read` reads.
           "MatFormer-style models; other architectures refuse it), one or "
           "several. The default zeroes attention and MLP together — the "
           "whole layer.",
-          ["attn_out", "mlp_out"]),
+          ["attn_out", "mlp_out"], choices=("attn_out", "mlp_out", "gate_out"), value="point"),
         _LAYERS_ALL,
         _tracked("the answer whose dependence on each layer is measured"),
     ),
@@ -455,11 +508,11 @@ reported as errors rather than silently shifted.
           "registers recovery at any probability mass) or `\"prob\"` (raw "
           "probability — only registers when the clean prompt puts real "
           "mass on the target).",
-          "logprob"),
+          "logprob", choices=("logprob", "prob")),
         P("point", "string",
           "The residual point patched: `\"resid_post\"` (after the layer) or "
           "`\"resid_pre\"` (before it).",
-          "resid_post"),
+          "resid_post", choices=("resid_post", "resid_pre"), value="point"),
         _tracked("the clean answer whose recovery is traced; defaults to the "
                 "clean prompt's top‑1"),
     ),
@@ -548,7 +601,7 @@ layers or records.
           "What to capture: `\"resid\"` (the residual stream, one vector per "
           "layer), `\"queries\"` or `\"keys\"` (attention Q or K, one vector "
           "per layer per head).",
-          "resid"),
+          "resid", choices=("resid", "queries", "keys")),
         P("position", "selector",
           f"Which token's vector to read: {_POSITIONS_DOC}, resolving to a "
           "single position. Ignored when `pool` is set.",
@@ -559,7 +612,7 @@ layers or records.
           "`{\"reduce\": \"mean\", \"over\": {\"range\": [5, 30]}}` is the "
           "mean over positions 5 … 29 (a document's body after its "
           "envelope); `\"over\": \"all\"` is the whole sequence.",
-          None),
+          None, value="pool"),
         P("skip_empty", "bool",
           "Drop records with no text instead of refusing. The dropped ids "
           "are reported in `skipped_empty`, because dropping changes n.",
@@ -627,7 +680,7 @@ decides. A set of records renders as overlaid curves.
     emits=Emits('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked`. The header carries `layers` and `top_k`."),
     params=(
         P("top_k", "int", "How many of the most likely tokens to record per layer.", 5),
-        P("tracked", "object",
+        P("tracked", "map[string, string]",
           "Tokens to follow by name: `{\"yes\": \" Yes\", \"no\": \" No\"}` "
           "records each one's probability and log-probability under "
           "`tracked.<name>`. Tokenized as a continuation, so include the "
@@ -681,7 +734,12 @@ For anything beyond one direction at one layer and position, use
           "Which groups define the direction: `{\"axis\": \"register\", "
           "\"positive\": \"formal\", \"negative\": \"casual\"}` — the "
           "centroid of the items whose `axis` coordinate is `positive` minus "
-          "the centroid of those at `negative`. `axis` defaults to `label`."),
+          "the centroid of those at `negative`. `axis` defaults to `label`.", fields=(
+              P("axis", "string", "The coordinate the groups are read on; `label` reads the older field too.",
+                "label"),
+              P("positive", "string | float", "The `axis` value of the items the direction points toward."),
+              P("negative", "string | float", "The `axis` value of the items it points away from."),
+          )),
         P("alphas", "list[float]",
           "The strengths to sweep. Each prompt is run once per alpha; "
           "alpha `0` is the untouched control.",
@@ -694,7 +752,7 @@ For anything beyond one direction at one layer and position, use
         P("top_k", "int",
           "How many of the most likely next tokens to record per row.",
           5),
-        P("tracked", "object",
+        P("tracked", "map[string, string]",
           "Tokens to follow by name: `{\"yes\": \" Yes\", \"no\": \" No\"}` "
           "records each one's probability and log-probability under "
           "`tracked.<name>`. Tokenized as a continuation, so include the "
@@ -761,7 +819,7 @@ annotate it token by token.
           "`\"text\"` keeps the completion text; `\"trace\"` also keeps token "
           "ids, offsets and spans, so the collection can be scored token by "
           "token.",
-          "text"),
+          "text", choices=("text", "trace")),
     ),
     example={
         "model": "$model",
@@ -806,7 +864,7 @@ readings.
     ),
     emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`), and `rollout` when one was requested. The header carries `top_k`.'),
     params=(
-        P("tracked", "object",
+        P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"yes\": \" Yes\"}` — the candidate "
           "answers of a forced choice, each recorded under `tracked`. A "
           "record's own `tracked` takes precedence.",
@@ -820,7 +878,14 @@ readings.
           "at most `max_tokens` long, stopping at a terminator, pruning "
           "branches below `floor`, within a budget of `max_forwards` model "
           "calls.",
-          None),
+          None, fields=(
+              P("top_k", "int", "How many complete outcomes to keep.", 10),
+              P("max_tokens", "int", "The longest outcome, in tokens.", 8),
+              P("max_forwards", "int", "The budget of model calls, the prefill included.", 128),
+              P("floor", "float", "Prune a path whose whole probability falls below this.", 0.001),
+              P("terminators", "list[string]",
+                "An outcome is complete at the first token containing one of these.", ['"']),
+          )),
     ),
     example={
         "model": "$model",

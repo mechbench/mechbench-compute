@@ -382,6 +382,8 @@ def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
     if a.get("axis") != b.get("axis"):
         raise ValueError("trajectories must share an axis to be compared")
     pair_by = str(params.get("pair_by", "id"))
+    if pair_by not in ("id", "step"):
+        raise ValueError(f"pair_by must be 'id' or 'step', not {pair_by!r}")
     threshold = float(params.get("threshold", 0.9))
 
     def key(r):

@@ -18,6 +18,42 @@ _RECORDS = In("records", "collection | records/table",
               "item has an id and its fields; a table's rows are read as records.",
               many=True)
 
+_COORDS_TYPE = "map[string, string | float]"
+
+#: One factor of a crossed design: enumerated levels, sampled ones, or both.
+_FACTOR_FIELDS = (
+    P("name", "string", "The factor's name: the coordinate every record carries it under."),
+    P("levels", "list[object]", "The enumerated levels.", None,
+      fields=(
+          P("key", "string", "The level's key: its coordinate value, and part of each record's id."),
+          P("value", "string", "The level's text, for `records/fill`; the key by default.", None),
+          P("coords", _COORDS_TYPE, "Further coordinates the level stamps on its records.", None),
+      )),
+    P("sampled", "object | list[object]",
+      "Levels drawn by a generator, or several generators; each value depends only on the "
+      "generator's `seed` and its index.",
+      None,
+      fields=(
+          P("type", "string",
+            "`noise` draws random strings; `words` draws word sequences. One of `type` or "
+            "`kind` is required.",
+            None, choices=("noise", "words")),
+          P("kind", "string", "The older spelling of `type`; read when `type` is absent.", None,
+            choices=("noise", "words")),
+          P("size", "int", "How long each value is: characters for `noise`, words for `words`."),
+          P("count", "int", "How many values to draw."),
+          P("start", "int", "The first index, so a later node can extend the set.", 0),
+          P("seed", "int | string", "The generator's own seed (not the node's).", 0),
+          P("word_list", "list[string] | object", "For `words`: the words drawn from.", None,
+            fields=(P("words", "list[string]", "The words."),)),
+          P("wrap", "string", "A template each value is framed in, `{x}` for the value.", "{x}"),
+          P("key_prefix", "string", "The level keys' prefix; `<type>-<size>` by default.", None),
+          P("kind_coord", "string",
+            "The coordinate naming the generator; `<factor name>_kind` by default.", None),
+          P("coords", _COORDS_TYPE, "Further coordinates stamped on the sampled records.", None),
+      )),
+)
+
 _FACTORS_DESC = """\
 Each factor has a `name` and its **levels**: either enumerated —
 `{"levels": [{"key": "noir", "value": "a noir story"}, …]}` — or **sampled**
@@ -49,10 +85,10 @@ FACTOR_CROSS = Op(
           "The factors to cross, each `{name, levels?, sampled?}` as "
           "described above. At least one is needed for a non-trivial "
           "design.",
-          None),
+          None, fields=_FACTOR_FIELDS),
         P("axes", "list[object]",
           "The older name for `factors`; read when `factors` is absent.",
-          None),
+          None, fields=_FACTOR_FIELDS),
     ),
     example={
         "factors": [
@@ -88,7 +124,7 @@ chat-shaped ops — and no adaptation step is needed between them.
     ),
     emits=Emits('records/record', collection=True, doc='One record per input record: `{id, coords}` plus one field per template.'),
     params=(
-        P("templates", "object",
+        P("templates", "map[string, string]",
           "Field name → template string. `{name}` is replaced by the "
           "record's value for factor `name`.",
           None),
@@ -125,7 +161,7 @@ it is. Everything not named is kept.
     inputs=(_RECORDS,),
     emits=Emits('records/record', collection=True, doc='The same records, with the named fields moved.'),
     params=(
-        P("fields", "object",
+        P("fields", "map[string, string]",
           "Old name → new name, each a field or a dotted path such as "
           "`coords.genre`."),
     ),
@@ -151,7 +187,7 @@ matches.
     inputs=(_RECORDS,),
     emits=Emits('records/record', collection=True, doc='The matching records.'),
     params=(
-        P("where", "object",
+        P("where", "map[string, string | float | bool | list[string | float | bool]]",
           "Field → value or list of values. `{\"genre\": \"noir\", "
           "\"leak\": 0}` keeps noir records with no leak.",
           None),
@@ -244,7 +280,7 @@ absent, for a readout that can report a missing arm.
           "A key missing from some branch: `\"fail\"`, `\"drop\"` (keep only "
           "the keys every branch has) or `\"placeholder\"` (keep them all, "
           "marking what is absent).",
-          "fail"),
+          "fail", choices=("fail", "drop", "placeholder")),
         P("names", "list[string]",
           "What to call each branch, in edge order. Defaults to the source "
           "node ids.",
@@ -298,15 +334,18 @@ collect.
     params=(
         P("body", "object",
           "The graph to run per record — `{nodes, edges}`, the same shape a "
-          "protocol's graph has. Its holes are filled by `bind`."),
-        P("bind", "object",
+          "protocol's graph has. Its holes are filled by `bind`.", fields=(
+              P("nodes", "list[json]", "The body's nodes, as a protocol graph writes them."),
+              P("edges", "list[json]", "The body's edges.", []),
+          )),
+        P("bind", "map[string, string]",
           "Hole name → the record field that fills it, per record.",
           None),
         P("collect", "string",
           "`\"stream\"` (flatten every invocation's items), `\"first\"` "
           "(one item per record) or `\"all\"` (nest each invocation's items "
           "under its record).",
-          "stream"),
+          "stream", choices=("stream", "first", "all")),
         P("output", "string",
           "Which of the body's terminal nodes to collect, when it has more "
           "than one.",
@@ -341,7 +380,7 @@ The output keeps `coords`, so it feeds `records/summarize` directly.
         P("value", "string",
           "The numeric field to difference. A record has many numeric "
           "fields; this names the one the question is about."),
-        P("baseline_where", "object",
+        P("baseline_where", "map[string, string | float]",
           "Coordinates identifying the baseline records, e.g. "
           "`{\"alpha\": 0}`."),
         P("match_on", "list[string]",
@@ -384,7 +423,7 @@ skipped records is reported on the table as `n_missing`.
         P("on_missing", "string",
           "`\"error\"`: refuse a record without the field. `\"skip\"`: omit "
           "it and report how many were omitted.",
-          "error"),
+          "error", choices=("error", "skip")),
     ),
     example={"value": "delta", "by": ["genre", "alpha"]},
     example_inputs={"records": {"$fetch": "$deltas"}},
@@ -453,13 +492,29 @@ each frequency statistic.
     ),
     params=(
         P("measures", "list[object]",
-          "The measurements to make, each `{kind, name, …}` as in the "
+          "The measurements to make, each `{type, name, …}` as in the "
           "table above.",
-          None),
+          None, fields=(
+              P("type", "string", "Which measurement. One of `type` or `kind` is required.", None,
+                choices=("pattern", "lexical", "corpus_frequency")),
+              P("kind", "string", "The older spelling of `type`; read when `type` is absent.", None,
+                choices=("pattern", "lexical", "corpus_frequency")),
+              P("name", "string", "The field it writes; the type by default.", None),
+              P("patterns", "list[string]", "For `pattern`: the regular expressions.", None),
+              P("where", "string", "For `pattern`: match anywhere, or only at the start.", "anywhere",
+                choices=("anywhere", "prefix")),
+              P("ignore_case", "bool", "For `pattern`: match without regard to case.", False),
+              P("lowercase", "bool", "For `lexical` and `corpus_frequency`: lowercase words first.", True),
+              P("min_length", "int", "For `lexical` and `corpus_frequency`: the shortest word counted.", 1),
+              P("frequencies", "map[string, float]",
+                "For `corpus_frequency`: word → count, unless a `frequencies` input is wired.", None),
+              P("stat", "string", "For `corpus_frequency`: the statistic.", "mean_log10",
+                choices=("mean_log10", "mean", "coverage")),
+          )),
         P("mode", "string",
           "`\"annotate\"`: emit each record with its measures. "
           "`\"corpus\"`: emit one summary record.",
-          "annotate"),
+          "annotate", choices=("annotate", "corpus")),
         P("keep", "bool",
           "In `annotate` mode, carry the whole item (text, trace, metadata) "
           "on each output record rather than only `id`, `coords` and the "
@@ -601,10 +656,14 @@ be encoded directly.
         P("encoding", "object",
           "`{\"x\": field, \"y\": field, \"series\": field}` — which fields "
           "go on which axis, and which splits the data into series.",
-          None),
+          None, fields=(
+              P("x", "string", "The field on the x axis.", None),
+              P("y", "string", "The field on the y axis.", None),
+              P("series", "string", "The field that splits the rows into series.", None),
+          )),
         P("x", "string", "The x field; the same as `encoding.x`.", None),
         P("y", "string", "The y field; the same as `encoding.y`.", None),
-        P("mark", "string", "The mark: `\"bar\"`, `\"line\"`, `\"point\"`.", "bar"),
+        P("mark", "string", "The mark: `\"bar\"`, `\"line\"`, `\"point\"`.", "bar", choices=("bar", "line", "point")),
         P("title", "string", "The chart's title.", ""),
     ),
     example={
@@ -665,7 +724,7 @@ downstream.
           "`cosine` for vectors, `jensen-shannon` for distributions, "
           "`hamming` for records.",
           None),
-        P("options", "object",
+        P("options", "map[string, json]",
           "The metric's options, as it declares them — `{\"center\": true}` "
           "for `cosine`.",
           None),

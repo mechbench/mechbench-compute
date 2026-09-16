@@ -525,10 +525,14 @@ def viz_spec(records: Any, params: Mapping[str, Any],
     y = enc.get("y") or params.get("y")
     if not x or not y:
         raise ValueError("viz/spec needs encoding.x and encoding.y")
+    mark = params.get("mark", "bar")
+    if mark not in ("bar", "line", "point"):
+        raise ValueError(
+            f"records/plot mark must be 'bar', 'line' or 'point', not {mark!r}")
     spec: dict[str, Any] = {
         "kind": "records/chart",
         "title": params.get("title", ""),
-        "mark": params.get("mark", "bar"),
+        "mark": mark,
         "encoding": {"x": x, "y": y,
                      **({"series": enc["series"]} if enc.get("series") else {})},
     }
@@ -610,6 +614,9 @@ def text_stats(inputs: Mapping[str, Any],
     field = "text"
     measures = params.get("measures") or []
     mode = params.get("mode", "annotate")
+    if mode not in ("annotate", "corpus"):
+        raise ValueError(
+            f"text/measure mode must be 'annotate' or 'corpus', not {mode!r}")
     # `keep` (task 000368): an annotated row carries the whole item —
     # text, trace, metadata — not just id + coords + measures, so a
     # capture downstream can replay the story it was labelled on.
@@ -633,10 +640,18 @@ def text_stats(inputs: Mapping[str, Any],
     for m in measures:
         kind = m.get("type") or m.get("kind")
         name = m.get("name") or kind
+        if kind not in ("pattern", "lexical", "corpus_frequency"):
+            raise ValueError(
+                f"text/measure: unknown measure type {kind!r}: one of "
+                "'pattern', 'lexical', 'corpus_frequency'")
         if kind == "pattern":
             flags = re.IGNORECASE if m.get("ignore_case") else 0
             pats = [re.compile(pat, flags) for pat in m["patterns"]]
             where = m.get("where", "anywhere")
+            if where not in ("anywhere", "prefix"):
+                raise ValueError(
+                    f"text/measure measure {name!r}: where must be 'anywhere' "
+                    f"or 'prefix', not {where!r}")
             compiled.append((name, kind, {"patterns": pats,
                                           "where": where}))
         elif kind == "lexical":
@@ -652,9 +667,14 @@ def text_stats(inputs: Mapping[str, Any],
             lower = bool(m.get("lowercase", True))
             tbl = {str(k).lower() if lower else str(k): float(v)
                    for k, v in table.items()}
+            stat = m.get("stat", "mean_log10")
+            if stat not in ("mean_log10", "mean", "coverage"):
+                raise ValueError(
+                    f"text/measure measure {name!r}: stat must be 'mean_log10', "
+                    f"'mean' or 'coverage', not {stat!r}")
             compiled.append((name, kind,
                              {"table": tbl,
-                              "stat": m.get("stat", "mean_log10"),
+                              "stat": stat,
                               "lowercase": lower,
                               "min_length": int(m.get("min_length", 1))}))
         else:

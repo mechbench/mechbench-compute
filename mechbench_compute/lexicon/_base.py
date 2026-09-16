@@ -133,11 +133,17 @@ class Value:
     fields: dict[str, dict[str, Any]] = field(default_factory=dict)
     required: tuple[str, ...] = ()
     grammar: bool = False
+    #: A vocabulary grammar's words, when it is one: the point names. An
+    #: editor offers them; a param may narrow them with its own `choices`.
+    choices: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "summary": self.summary, "doc": self.doc,
-                "fields": self.fields, "required": list(self.required),
-                "grammar": self.grammar}
+        d = {"name": self.name, "summary": self.summary, "doc": self.doc,
+             "fields": self.fields, "required": list(self.required),
+             "grammar": self.grammar}
+        if self.choices:
+            d["choices"] = list(self.choices)
+        return d
 
 
 @dataclass(frozen=True)
@@ -225,13 +231,96 @@ class _Required:
 REQUIRED: Any = _Required()
 
 
+#: The words of the parameter type grammar. A param's `type` is a union
+#: of alternatives separated by ` | `, each one of:
+#:
+#: * a word: `string`, `int`, `float`, `bool`, `null`;
+#: * `selector` — a position selector, the `position` grammar;
+#: * `model` — a model reference: a repository id, `{base, adapters}`,
+#:   an endpoint `{provider, model}`, or a run binding like `"$model"`;
+#: * `object` — a structure whose fields the param DECLARES (its own
+#:   `fields`, or the `value` it names). An object nobody declared is
+#:   what an editor can only show as JSON, so the suite refuses one;
+#: * `json` — any JSON value, open on purpose: provider-native options,
+#:   a metric's keyword arguments. The openness is in the type, where a
+#:   reader sees it;
+#: * `callable` — a Python function, for tests; never in a protocol;
+#: * a quoted literal, `"all"`;
+#: * `list[T]` — a list of `T`, itself a union;
+#: * `map[string, T]` — string keys to `T`: `tracked`, `templates`.
+TYPE_WORDS = frozenset({"string", "int", "float", "bool", "null",
+                        "selector", "model", "object", "json", "callable"})
+
+
+@dataclass(frozen=True)
+class TypeNode:
+    """One alternative of a parsed param type. `form` is `word`,
+    `literal`, `list` or `map`; `word` is the word or the literal's
+    text; `of` is a list's or a map's element union."""
+
+    form: str
+    word: str = ""
+    of: tuple[TypeNode, ...] = ()
+
+
+def _split_top(text: str, sep: str) -> list[str]:
+    out, depth, cur = [], 0, ""
+    for ch in text:
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        if ch == sep and depth == 0:
+            out.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    out.append(cur)
+    return out
+
+
+def parse_type(text: str) -> tuple[TypeNode, ...]:
+    """A param's `type` as the union of its alternatives. Raises
+    ValueError, naming the part, on anything outside the grammar."""
+    alts: list[TypeNode] = []
+    for raw in _split_top(text, "|"):
+        alt = raw.strip()
+        if len(alt) >= 2 and alt[0] == alt[-1] == '"':
+            alts.append(TypeNode("literal", alt[1:-1]))
+        elif alt.startswith("list[") and alt.endswith("]"):
+            alts.append(TypeNode("list", of=parse_type(alt[5:-1])))
+        elif alt.startswith("map[") and alt.endswith("]"):
+            key, _, rest = alt[4:-1].partition(",")
+            if key.strip() != "string" or not rest.strip():
+                raise ValueError(f"{alt!r}: a map is `map[string, T]`")
+            alts.append(TypeNode("map", of=parse_type(rest)))
+        elif alt in TYPE_WORDS:
+            alts.append(TypeNode("word", alt))
+        else:
+            raise ValueError(f"{alt!r} in {text!r} is not in the type grammar")
+    return tuple(alts)
+
+
+def type_words(text: str) -> frozenset[str]:
+    """Every word a type uses, at any depth: `list[string | object]`
+    uses `string` and `object`."""
+    def walk(nodes: tuple[TypeNode, ...]) -> set[str]:
+        out: set[str] = set()
+        for n in nodes:
+            if n.form == "word":
+                out.add(n.word)
+            out |= walk(n.of)
+        return out
+    return frozenset(walk(parse_type(text)))
+
+
 @dataclass(frozen=True)
 class Param:
-    """One parameter of an op.
+    """One parameter of an op, or one field of a structured parameter.
 
-    `type` is a short type expression in the reader's terms — `int`,
-    `list[string]`, `object`, `record`, `direction`, `int | "all"` —
-    not a Python annotation. `doc` is markdown; its first paragraph is
+    `type` is an expression in the grammar above, in the reader's terms
+    — `int`, `list[string]`, `map[string, string]`, `"all" | list[int]`
+    — not a Python annotation. `doc` is markdown; its first paragraph is
     the one-line description a table shows, and any further paragraphs
     are the details a page shows beneath it. `default` is the value the
     block uses when the param is absent, as the protocol would write it
@@ -242,6 +331,21 @@ class Param:
     type: str
     doc: str
     default: Any = REQUIRED
+    #: The closed set a string takes, when it has one: `("layers",
+    #: "positions")`. DECLARED and proved against the code's own check,
+    #: never read out of the prose — a doc that shows `"resid_post"` and
+    #: `"resid_pre"` may be naming two of a grammar's many points, and an
+    #: editor that offered only those two would forbid the rest.
+    choices: tuple[str, ...] = ()
+    #: The shared `Value` this param's structure is, when it is one of
+    #: the grammars many ops take: `"pool"`, `"point"`. Its fields (or
+    #: its vocabulary) are declared once, there.
+    value: str | None = None
+    #: The fields of every `object` in this param's type, when the
+    #: structure is this op's own: `lora` is `rank`, `alpha` and
+    #: `target_modules`. Fields are params, so a field may be an object
+    #: with fields of its own.
+    fields: tuple[Param, ...] = ()
 
     @property
     def required(self) -> bool:
@@ -252,6 +356,12 @@ class Param:
                              "required": self.required}
         if not self.required:
             d["default"] = self.default
+        if self.choices:
+            d["choices"] = list(self.choices)
+        if self.value:
+            d["value"] = self.value
+        if self.fields:
+            d["fields"] = [f.to_dict() for f in self.fields]
         return d
 
 
@@ -447,9 +557,11 @@ class Op:
         }
 
 
-def P(name: str, type: str, doc: str, default: Any = REQUIRED) -> Param:
+def P(name: str, type: str, doc: str, default: Any = REQUIRED, *,
+      choices: tuple[str, ...] = (), value: str | None = None,
+      fields: tuple[Param, ...] = ()) -> Param:
     """Shorthand for a declaration file: `P("top_k", "int", "…", 5)`."""
-    return Param(name, type, doc, default)
+    return Param(name, type, doc, default, choices, value, fields)
 
 
 def In(name: str, kind: str, doc: str, *, required: bool = True,

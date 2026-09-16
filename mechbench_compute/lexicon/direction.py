@@ -42,7 +42,7 @@ def _point() -> P:
              "Override the point recorded on the direction — `\"resid_post\"`, "
              "`\"resid_pre\"`, or any point name. By default it is taken from "
              "the vectors' own `space`.",
-             None)
+             None, value="point")
 
 
 def _source() -> P:

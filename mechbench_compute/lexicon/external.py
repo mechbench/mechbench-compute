@@ -20,6 +20,127 @@ _BUDGET = P("budget_usd", "float",
             "one is set, bounds it further.",
             None)
 
+_PROVIDER_OPTIONS_DOC = (
+    "Provider-native request fields this block does not model, **keyed by "
+    "provider** — `{\"anthropic\": {\"thinking\": {…}}}` — passed through "
+    "as given. A key that names no provider is refused.")
+
+#: A tool a chat may call: a built-in by name, or a definition.
+_TOOL_FIELDS = (
+    P("name", "string", "The tool's name, unique among the tools offered."),
+    P("description", "string", "What the tool does, as the model is told.", ""),
+    P("schema", "json",
+      "The arguments, as a JSON Schema object (`input_schema` is read too). "
+      "By default a tool takes no arguments.",
+      None),
+    P("handler", "object",
+      "What runs when the model calls it: one of `block` (an operation, with "
+      "`params`), `protocol`, or `sandbox` (a sandbox method). Without one the "
+      "tool is offered and a call returns an error.",
+      None,
+      fields=(
+          P("block", "string", "The operation that runs the call.", None),
+          P("params", "json", "The operation's params; the call's arguments are merged over them.", None),
+          P("protocol", "string", "A protocol that runs the call.", None),
+          P("sandbox", "string", "The sandbox method that runs the call.", None),
+      )),
+)
+
+#: One message of a conversation sent as-is.
+_MESSAGE_FIELDS = (
+    P("role", "string", "Who said it. A system prompt goes in `system`, not here.",
+      "user", choices=("user", "assistant")),
+    P("content", "string | list[string | object]",
+      "The text, or a list of parts: text, a tool call, a tool result.",
+      fields=(
+          P("type", "string", "Which kind of part.", "text",
+            choices=("text", "tool_call", "tool_result")),
+          P("text", "string", "For a text part: the text.", None),
+          P("id", "string", "For a tool call: its id.", None),
+          P("name", "string", "For a tool call: the tool's name.", None),
+          P("arguments", "json", "For a tool call: the arguments object.", None),
+          P("tool_call_id", "string", "For a tool result: the call it answers.", None),
+          P("content", "json", "For a tool result: what the tool returned.", None),
+          P("is_error", "bool", "For a tool result: whether the call failed.", False),
+      )),
+)
+
+_SANDBOX_FIELDS = (
+    P("base", "string",
+      "The guest the sandbox runs: `mbshell` (a shell) or `cpython` (Python 3), "
+      "or a path to a `.wasm` file.",
+      "mbshell"),
+    P("tools", "list[string]", "The sandbox's tools offered to the model.",
+      ["bash", "read_file", "write_file", "list"],
+      choices=("bash", "find", "grep", "python", "read_file", "write_file", "list")),
+    P("limits", "object", "The ceilings one sandbox session runs under.", None,
+      fields=(
+          P("memory_mb", "int", "Memory, in megabytes.", 256),
+          P("fuel", "int", "Instructions executed before the guest is stopped.", 100_000_000_000),
+          P("wall_seconds", "float", "Wall-clock time per call, in seconds.", 30),
+          P("output_bytes", "int", "The most output one call returns.", 262144),
+          P("max_files", "int", "How many files the workspace may hold.", 10000),
+          P("max_bytes", "int", "How many bytes the workspace may hold.", 268435456),
+      )),
+    P("strict", "bool",
+      "Virtualise the clock and the random number generator, so a run is a "
+      "function of its inputs.",
+      False),
+    P("snapshot", "json",
+      "The workspace a session starts from: a path → content map, or a stored "
+      "`sandbox/snapshot`.",
+      None),
+    P("mounts", "list[object]", "Further trees mounted into the workspace.", None,
+      fields=(
+          P("path", "string", "Where the tree is mounted (`at` is read too)."),
+          P("snapshot", "json", "The tree itself: a path → content map.", None),
+          P("object", "string", "A stored object to mount, by reference.", None),
+          P("digest", "string", "The stored object's expected digest.", ""),
+      )),
+)
+
+#: A model in a conversation that is not a participant: a moderator, a
+#: judge, a summarizer. The same fields a participant has.
+_AGENT_FIELDS = (
+    P("name", "string", "What the others call it. Defaults to `participant-N`.", None),
+    P("model", "model", "The model it runs on."),
+    P("system", "string",
+      "Its system prompt; `{name}`, `{participants}`, `{others}`, `{turn}` and "
+      "the record's fields are filled in.",
+      ""),
+    P("tools", "list[string | object]", "Tools it may call.", [],
+      choices=("calc", "bench.lookup"), fields=_TOOL_FIELDS),
+    P("provider_options", "map[string, map[string, json]]", _PROVIDER_OPTIONS_DOC, None),
+    P("temperature", "float", "Sampling temperature; the provider's default when unset.", None),
+    P("top_p", "float", "Nucleus sampling threshold; the provider's default when unset.", None),
+    P("max_tokens", "int", "The longest reply, in tokens.", 1024),
+    P("budget_usd", "float", "Its own spend cap, within the node's.", None),
+    P("channels", "list[string]", "The channels it speaks and listens on.", ["main"]),
+    P("perspective", "string", "How it sees the others' messages, overriding the node's default.",
+      None, choices=("others_as_user_attributed", "others_as_user_merged")),
+)
+
+#: A target distribution over outcome strings.
+_TRANSFORM = P(
+    "transform", "list[object]",
+    "Steps that reshape the distribution, applied in order; the result is "
+    "always normalised.",
+    [],
+    fields=(
+        P("op", "string", "The step.",
+          choices=("sqrt", "pow", "temper", "temper_to_entropy", "mix_uniform", "top_k", "normalize")),
+        P("exponent", "float", "For `pow`: the power each weight is raised to.", None),
+        P("temperature", "float", "For `temper`: divides the log-weights; above 0.", None),
+        P("bits", "float", "For `temper_to_entropy`: the entropy to reach, in bits.", None),
+        P("tolerance", "float", "For `temper_to_entropy`: how close is close enough, in bits.", 1e-4),
+        P("epsilon", "float", "For `mix_uniform`: the share of uniform mixed in, from 0 to 1.", None),
+        P("k", "int", "For `top_k`: how many of the heaviest outcomes to keep.", None),
+    ))
+_UNIFORM = P("uniform", "list[string]",
+             "The outcomes, weighted equally. Wins over `weights` when both are given.", None)
+_WEIGHTS = P("weights", "map[string, float]",
+             "Outcome → weight, each finite and at least 0: raw corpus frequencies, say.", None)
+
 CHAT = Op(
     name="text/chat",
     requires="by-model",
@@ -69,10 +190,10 @@ without contacting the provider at all.
     emits=Emits('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. The header carries `fidelity`, `spend` (calls, cost, cache hits) and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
     params=(
         _BUDGET,
-        P("messages", "list[object]",
+        P("messages", "string | list[string | object]",
           "A conversation to send when a record has neither `messages` nor "
           "a `user` field.",
-          None),
+          None, fields=_MESSAGE_FIELDS),
         P("system", "string",
           "A system prompt used when the record has none.",
           None),
@@ -108,8 +229,8 @@ without contacting the provider at all.
         P("tools", "list[string | object]",
           "Tools the model may call: built-in names, or full definitions "
           "with an op as handler.",
-          None),
-        P("tool_choice", "string | object",
+          None, choices=("calc", "bench.lookup"), fields=_TOOL_FIELDS),
+        P("tool_choice", "string | map[string, json]",
           "How the provider should choose tools — `\"auto\"`, `\"none\"`, "
           "or a specific tool — in the provider's own vocabulary. Remote "
           "only, and refused with no `tools` declared: locally the model's "
@@ -121,13 +242,13 @@ without contacting the provider at all.
         P("on_tool_error", "string",
           "Local path only. `\"record\"`: a failed tool call is recorded on "
           "the item and the run continues. `\"fail\"`: it fails the node.",
-          "record"),
+          "record", choices=("record", "fail")),
         P("sandbox", "object",
           "Give each item a filesystem sandbox: `{base, tools, limits, "
           "strict, snapshot, mounts}`, or `{}` for the default image. Its "
           "tools are offered alongside `tools`.",
-          None),
-        P("provider_options", "object",
+          None, fields=_SANDBOX_FIELDS),
+        P("provider_options", "map[string, map[string, json]]",
           "Provider-native request fields this block does not model, **keyed "
           "by provider** — `{\"anthropic\": {\"thinking\": {…}}}` — merged "
           "over any the model reference carries and passed through as given. "
@@ -156,7 +277,7 @@ without contacting the provider at all.
           "`\"replay\"`: only recorded responses, refuse anything else. "
           "`\"record\"`: call the provider and record. `\"auto\"`: replay "
           "what is recorded, call and record the rest.",
-          "replay"),
+          "replay", choices=("replay", "record", "auto")),
         P("record_requests", "bool",
           "Also store each outgoing request body on its call record, not "
           "only the response. About what is kept, not what is sent: this "
@@ -230,21 +351,47 @@ One conversation runs per input record, or one in all when there are none;
           "`{\"policy\": \"round_robin\", \"max_turns\": 6, "
           "\"stop_phrases\": [...], \"moderator\": agent, \"judge\": "
           "agent}` — who speaks next and when it stops.",
-          None),
+          None, fields=(
+              P("policy", "string", "Who speaks next.", "round_robin",
+                choices=("round_robin", "speaker_names_next", "moderator", "until_judge", "until_stop")),
+              P("max_turns", "int", "The most participant turns the conversation runs.", 6),
+              P("stop_phrases", "list[string]",
+                "End when the last message contains one of these, ignoring case — under any policy.", []),
+              P("moderator", "object", "For `moderator`: the model that chooses who speaks.", None,
+                fields=_AGENT_FIELDS),
+              P("judge", "object", "For `until_judge`: the model that says when the conversation is done.",
+                None, fields=_AGENT_FIELDS),
+          )),
         P("perspective", "object",
           "`{\"default\": \"others_as_user_attributed\", \"overrides\": "
           "{name: perspective}}` — how each participant sees the others.",
-          None),
+          None, fields=(
+              P("default", "string", "How every participant sees the others' messages.",
+                "others_as_user_attributed",
+                choices=("others_as_user_attributed", "others_as_user_merged")),
+              P("overrides", "map[string, string]", "Participant name → the perspective it sees instead.",
+                None, choices=("others_as_user_attributed", "others_as_user_merged")),
+          )),
         P("window", "object",
           "`{\"policy\": \"none\" | \"truncate_oldest\" | \"sliding\" | "
           "\"summarize\", \"tokens\": n, \"summarizer\": agent}` — what to "
           "do when the transcript outgrows the context.",
-          None),
+          None, fields=(
+              P("policy", "string", "What to drop or condense when the transcript outgrows `tokens`.",
+                "none", choices=("none", "truncate_oldest", "sliding", "summarize")),
+              P("tokens", "int",
+                "The transcript's ceiling, counted in whitespace-separated words. `0` never windows.", 0),
+              P("summarizer", "object", "For `summarize`: the model that condenses the dropped turns.",
+                None, fields=_AGENT_FIELDS),
+          )),
         P("opening", "list[string | object]",
           "Scripted lines the conversation starts with: a string (spoken by "
           "the script, unattributed) or `{\"participant\": name, \"text\": "
           "…}`. Nothing is spent on them.",
-          None),
+          None, fields=(
+              P("participant", "string", "Who says it; `user` is the unattributed script.", "user"),
+              P("text", "string", "The line; `{field}` takes the record's value.", ""),
+          )),
         P("max_tool_rounds", "int",
           "How many times one participant's turn may call tools and be "
           "asked again.",
@@ -322,11 +469,18 @@ resumability and per-call provenance; a local model is the cheap first test.
         P("judge", "object",
           "Who grades: `{\"model\": …, \"system\": rubric, \"max_tokens\": "
           "512, \"temperature\": …, \"budget_usd\": …, "
-          "\"provider_options\": …}`. `model` is required; `system` is the "
-          "rubric unless `rubric` is given. `temperature` is sent only if "
+          "\"provider_options\": …}`. `model` is required; `rubric`, when "
+          "given, is appended to `system`. `temperature` is sent only if "
           "you name one — a judge's steadiness comes from `n_votes` and "
           "is reported as `agreement`, and some models refuse the "
-          "parameter outright."),
+          "parameter outright.", fields=(
+              P("model", "model", "The judge's model."),
+              P("system", "string", "The judge's system prompt; `rubric` is appended to it.", ""),
+              P("max_tokens", "int", "The longest verdict, in tokens.", 512),
+              P("temperature", "float", "Sampling temperature, sent only when named.", None),
+              P("budget_usd", "float", "The spend cap, when the node sets none.", None),
+              P("provider_options", "map[string, map[string, json]]", _PROVIDER_OPTIONS_DOC, None),
+          )),
         P("rubric", "string",
           "The standard the judge applies, appended to `judge.system`. One "
           "of the two must be present — an unstated standard is not a "
@@ -337,7 +491,16 @@ resumability and per-call provenance; a local model is the cheap first test.
           "\"max\": 5}` (or `\"range\": [1, 5]`); `{\"type\": "
           "\"categorical\", \"labels\": [...]}`; or `{\"type\": "
           "\"pairwise\"}`.",
-          {"type": "numeric", "min": 1, "max": 5}),
+          {"type": "numeric", "min": 1, "max": 5}, fields=(
+              P("type", "string", "What kind of answer.", "numeric",
+                choices=("numeric", "categorical", "pairwise")),
+              P("kind", "string", "The older spelling of `type`; read when `type` is absent.", None,
+                choices=("numeric", "categorical", "pairwise")),
+              P("min", "float", "For `numeric`: the lowest score. Defaults to `range[0]`, else 1.", None),
+              P("max", "float", "For `numeric`: the highest score. Defaults to `range[1]`, else 5.", None),
+              P("range", "list[float]", "For `numeric`: `[min, max]` in one field.", None),
+              P("labels", "list[string]", "For `categorical`: the labels, at least two.", None),
+          )),
         P("n_votes", "int", "How many times each subject is judged.", 1),
         _BUDGET,
         P("concurrency", "int",
@@ -347,7 +510,7 @@ resumability and per-call provenance; a local model is the cheap first test.
           "A record whose judged field is missing or blank: `\"error\"` "
           "refuses it by name; `\"skip\"` keeps it as an unjudged row, "
           "naming what was absent, and grades the rest.",
-          "error"),
+          "error", choices=("error", "skip")),
     ),
     example={
         "judge": {"model": {"provider": "anthropic", "model": "claude-sonnet-5"},
@@ -384,7 +547,7 @@ releases.
         P("metric", "string",
           "The hub metric's name: `\"accuracy\"`, `\"exact_match\"`, "
           "`\"f1\"`, `\"bleu\"`, `\"rouge\"`, …"),
-        P("kwargs", "object",
+        P("kwargs", "map[string, json]",
           "Extra keyword arguments for the metric's `compute` — e.g. "
           "`{\"average\": \"macro\"}` for F1.",
           None),
@@ -491,18 +654,37 @@ draw gives.
         P("target", "object",
           "The target distribution — `{\"uniform\": [...]}` or "
           "`{\"weights\": {...}}`, with optional `transform` steps, "
-          "`depth`, `join`, `per_slot`. See above."),
+          "`depth`, `join`, `per_slot`. See above.", fields=(
+              _UNIFORM, _WEIGHTS, _TRANSFORM,
+              P("depth", "int",
+                "How many slots an outcome has. Above 1, each outcome is a sequence sampled fresh every step.", 1),
+              P("join", "string", "For depth > 1: the text between slots.", ""),
+              P("per_slot", "list[object]",
+                "For depth > 1: one target per slot, as many as `depth`. Without it every slot shares this one.",
+                None, fields=(_UNIFORM, _WEIGHTS, _TRANSFORM)),
+          )),
         P("steps", "int", "Training steps.", 250),
         P("lr", "float", "Learning rate.", 1e-4),
         P("lora", "object",
           "`{\"rank\": 8, \"alpha\": 16, \"target_modules\": [\"q_proj\", "
           "\"v_proj\"]}` — the adapter's shape.",
-          {"rank": 8, "alpha": 16, "target_modules": ["q_proj", "v_proj"]}),
+          {"rank": 8, "alpha": 16, "target_modules": ["q_proj", "v_proj"]}, fields=(
+              P("rank", "int", "The adapter's rank.", 8),
+              P("alpha", "float", "The scaling numerator: the update is scaled by `alpha / rank`.", 16),
+              P("target_modules", "list[string]", "The projections the adapter is trained on.",
+                ["q_proj", "v_proj"],
+                choices=("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")),
+          )),
         P("batch", "object",
           "Items per step by kind: depth 1 `{\"target\": 3, \"anchor\": 1, "
           "\"continuation\": 2}`; depth > 1 `{\"sequence\": 3, \"target\": 1, "
           "\"anchor\": 1}`.",
-          None),
+          None, fields=(
+              P("target", "int", "Target items per step: at depth > 1, the first slot's marginal rows.", None),
+              P("anchor", "int", "Anchor items per step.", None),
+              P("continuation", "int", "Continuation items per step (depth 1).", None),
+              P("sequence", "int", "Sampled sequences per step (depth > 1).", None),
+          )),
         P("closer", "string",
           "The text after the outcome that closes the decision — `\" }\"` "
           "for depth 1, `'\"'` for deeper tries.",
@@ -518,7 +700,9 @@ draw gives.
         P("naturalism", "bool | object",
           "Run the one-token-per-slot gate before training; `{\"samples\": "
           "40}` sets how many sequences it checks.",
-          True),
+          True, fields=(
+              P("samples", "int", "How many sampled sequences the gate checks.", 40),
+          )),
         P("checkpoint_every", "int",
           "Save resumable training state every this many steps.",
           50),
@@ -662,7 +846,15 @@ Nothing arrives by edge: the stack to merge is the `model` reference's.
         P("to", "object",
           "Where to publish: `{\"bench\": {\"name\": …}}` (lowercase, "
           "digits, `-`, `_`) or `{\"hf\": {\"repo\": …, \"private\": …}}`. "
-          "Exactly one."),
+          "Exactly one.", fields=(
+              P("bench", "object", "Publish to this platform as a stored checkpoint.", None,
+                fields=(P("name", "string",
+                          "The checkpoint's name: lowercase letters, digits, `-` and `_`, "
+                          "starting with a letter or digit, at most 61 characters."),)),
+              P("hf", "object", "Publish to a Hugging Face repository.", None,
+                fields=(P("repo", "string", "The destination, `\"<namespace>/<name>\"`."),
+                        P("private", "bool", "Create the repository private.", True))),
+          )),
     ),
     example={"model": "$model", "to": {"bench": {"name": "spinner-fair-v1"}}},
 )

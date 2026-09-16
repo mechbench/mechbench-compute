@@ -240,8 +240,10 @@ POOL_VALUE = Value(
     "The one pooling clause: read a set of positions and reduce them to one vector.",
     grammar=True,
     fields={
-        "reduce": F("string", "`mean` or `max`, applied element-wise over the selected positions."),
-        "over": F("position", "Which positions to pool: a position selector; `\"all\"` by default."),
+        "reduce": F("string", "`mean` or `max`, applied element-wise over the selected positions.",
+                    choices=["mean", "max"], default="mean"),
+        "over": F("selector", "Which positions to pool: a position selector; `\"all\"` by default.",
+                  default="all"),
     },
     doc="""\
 `pool: {"reduce": "mean", "over": "all"}` turns a one-position read into
@@ -280,6 +282,7 @@ POINT_VALUE = Value(
     "point",
     "The one vocabulary for where in a forward pass an activation is read or edited.",
     grammar=True,
+    choices=tuple(n for _, names in _POINT_GROUPS for n in names),
     doc=f"""\
 A **point** is a place in the forward pass. Every `point` parameter, every
 `space.point`, and the hook names a capture readout reports use these

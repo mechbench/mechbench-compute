@@ -116,7 +116,7 @@ def test_corpus_mode_summary():
 
 
 def test_unknown_measure_kind():
-    with pytest.raises(ValueError, match="unknown measure kind"):
+    with pytest.raises(ValueError, match="unknown measure type"):
         text_stats({"records": STORIES},
                    {"measures": [{"kind": "vibes"}]})
 

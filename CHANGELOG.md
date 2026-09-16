@@ -13,6 +13,54 @@ nothing said so.
 
 ---
 
+## 0.94.0 — 2026-09-17
+
+### Changes that raise
+
+- **Five closed sets the lexicon now declares are refused by name
+  outside them**, where the code used to read anything else as a
+  default. `records/plot` `mark` is `bar`, `line` or `point` (anything
+  else rendered as a scatter); `trajectory/compare` `pair_by` is `id` or
+  `step` (anything else paired by step); `text/measure` `mode` is
+  `annotate` or `corpus` (anything else summarised the corpus); a
+  `pattern` measure's `where` is `anywhere` or `prefix`, and a
+  `corpus_frequency` measure's `stat` is `mean_log10`, `mean` or
+  `coverage` (anything else fell back to the default). An unknown
+  measure type still raises, now as "unknown measure type" — the field
+  is `type`, `kind` being its older spelling.
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- **A parameter's structure is declared, not described** — the
+  protocol composer builds every node's editor from it. `Param` gains
+  `choices` (the closed set a string takes), `value` (the shared grammar
+  it is — `pool`, `point`) and `fields` (the fields of an object it
+  takes, themselves params). The type grammar is written down
+  (`lexicon._base.parse_type`): words, quoted literals, `list[T]`,
+  `map[string, T]`, and three new words — `model` for a model
+  reference, `json` for a value open on purpose, and `object`, which
+  must now come with its fields. `tracked`, `templates`, `bind`,
+  `rename`'s `fields`, `where`, `require_resume` and the provider
+  options are maps; thirty-one structured params gained their fields.
+  `tests/test_lexicon_shapes.py` proves every object is declared, every
+  closed set is one the code itself refuses outside of, and every
+  example conforms; every param of the 62 protocols stored on the bench
+  conformed when it was written.
+- **The prose was wrong in five places, found by declaring the
+  structure:** `clamp` clips a component into ±|strength| rather than
+  setting it; a judge's `rubric` is appended to `system`, not a
+  replacement for it; a conversation window's `tokens` counts words;
+  `trajectory/aggregate`'s step range is half-open; a measure is
+  `{type, name, …}`. `require_resume`'s example named a level that does
+  not exist.
+- `scripts/dump_lexicon_ts.py` writes the declarations for
+  mechbench-ui; `tests/test_lexicon_ts.py` fails when the UI's copy — or
+  its kind table, which had drifted since 0.79.0 — is stale.
+
 ## 0.93.0 — 2026-09-17
 
 ### Changes that raise
