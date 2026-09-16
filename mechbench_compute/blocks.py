@@ -1,24 +1,31 @@
-"""Stdlib building blocks (epic 000258, arc B): the pure blocks —
-Grid and Template — plus the block registry the pipeline executor
-resolves op refs against.
+"""Stdlib building blocks (epic 000258, arc B): the pure blocks, plus
+the block registry the pipeline executor resolves op refs against.
+
+An operation is named once, in the lexicon, and that name is used
+everywhere — here, in a stored graph, on the docs page. This docstring
+called these `Grid`, `Template`, `FactorCross` and `PairedDelta` until
+2026-09-17, names retired by 000495 and 000510 and carried nowhere
+else; teaching a reader a vocabulary the executor would refuse is the
+same fault as shipping one.
 
 Design rules these implement:
 
-- **FactorCross** (nee Grid): factors -> records with coordinates —
+- **`records/cross`**: factors -> records with coordinates —
   the fully crossed design of experimental methodology. A factor
   enumerates its levels or samples them from a seeded generator.
   Records carry {id, coords, values}: `coords` are the level KEYS
-  (structured, for GroupBy/PairedDelta — never parsed from the id),
-  `values` the substitution payloads (which carry their own
-  whitespace; there is no hidden joining logic). "Axis" is reserved
-  for the charting surface, deliberately.
+  (structured, for `records/summarize` and `records/subtract` — never
+  parsed from the id), `values` the substitution payloads (which carry
+  their own whitespace; there is no hidden joining logic). "Axis" is
+  reserved for the charting surface, deliberately.
 - **Range-splitting invariance**: sampled axes derive one rng per
   instance from (seed, index), so generate(seed, 0, 1000) equals
   generate(seed, 0, 100) + generate(seed, 100, 900). Incremental
   dataset growth is the same node run over a later range.
-- **Template**: records x named string templates -> the same records
-  with instantiated string fields. Source-agnostic: records may come
-  from a Grid or from any record stream (dataset rows, later).
+- **`records/fill`**: records x named string templates -> the same
+  records with instantiated string fields. Source-agnostic: records may
+  come from `records/cross` or from any record stream (dataset rows,
+  later).
   No block in this module knows what a "prompt" is.
 """
 
