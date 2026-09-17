@@ -2233,10 +2233,15 @@ class ProtocolExecutor:
 
         from mechbench_compute.distill import encode, render
         from mechbench_compute.finetune import (
+            batch_for,
             build_anchor_items,
+            build_item_path_factory,
             build_marginal_items,
+            build_path_factory,
             build_sequence_factory,
             build_target_items,
+            check_enough_to_draw,
+            compile_tries,
             naturalism_gate,
             resolve_slot_targets,
             train_soft_ce,
@@ -2269,16 +2274,48 @@ class ProtocolExecutor:
             raise ValueError("finetune/lora: params.target is required")
         depth = int(target_spec.get("depth", 1))
         join = str(target_spec.get("join", ""))
+        unit = str(target_spec.get("unit", "token"))
+        replace = bool(target_spec.get("replace", True))
+        if unit not in ("token", "item"):
+            raise ValueError(f"adapter/train: target.unit is 'token' or 'item', not {unit!r}")
+        if depth <= 1 and (unit != "token" or not replace):
+            raise ValueError(
+                "adapter/train: target.unit and target.replace describe slots — "
+                "set target.depth above 1")
+        batch = batch_for(depth, unit, params.get("batch"))
         rendered_all = [rendered_of(r) for r in records]
         factories = {}
+        marginals: list = []
+        continuations: list = []
         if depth <= 1:
-            # The 002 shape: trie marginal + continuation rows.
+            # The 002 shape: trie marginal + continuation rows; `path`
+            # trains the whole trie (000548).
             from mechbench_compute.finetune import target_map_from_spec
 
             target = target_map_from_spec(target_spec)
             closer = params.get("closer", " }")
-            marginals, continuations = build_target_items(
-                tok, target, rendered_all, closer=closer)
+            tries = compile_tries(tok, target, rendered_all, closer)
+            if batch.get("target", 0) or batch.get("continuation", 0):
+                marginals, continuations = build_target_items(
+                    tok, target, rendered_all, closer=closer, tries=tries)
+            if batch.get("path", 0):
+                factories["path"] = build_path_factory(tries)
+        elif unit == "item":
+            # Item slots (000548): whole outcomes per slot, soft rows at
+            # every token, optionally drawn without replacement. Every
+            # path trains every position from its slot's own root, so
+            # the token-slot position controls have nothing to act on.
+            if params.get("positions", "all") != "all" or params.get("marginal", True) is not True:
+                raise ValueError(
+                    "adapter/train: `positions` and `marginal` shape token "
+                    "slots; with target.unit 'item' every path trains every "
+                    "position")
+            slot_targets = resolve_slot_targets(target_spec, depth)
+            closer = params.get("closer", '"')
+            gate = params.get("naturalism", True)
+            factories["path"] = build_item_path_factory(
+                tok, slot_targets, rendered_all, join=join, closer=closer,
+                replace=replace, gate=bool(gate))
         else:
             # The 016–018 deep-trie shape: freshly sampled depth-N
             # sequences per step, per-slot targets, configurable
@@ -2287,6 +2324,8 @@ class ProtocolExecutor:
             # first-slot marginal row (params.marginal; the cap drops
             # it, since that row IS position-0 pressure).
             slot_targets = resolve_slot_targets(target_spec, depth)
+            if not replace:
+                check_enough_to_draw(slot_targets)
             closer = params.get("closer", '"')
             positions = params.get("positions", "all")
             gate = params.get("naturalism", True)
@@ -2296,14 +2335,15 @@ class ProtocolExecutor:
                     [encode(tok, r) for r in rendered_all],
                     join=join, closer=closer,
                     samples=int(gate.get("samples", 40))
-                    if isinstance(gate, dict) else 40)
+                    if isinstance(gate, dict) else 40,
+                    replace=replace)
             factories["sequence"] = build_sequence_factory(
                 tok, slot_targets, rendered_all,
-                join=join, closer=closer, positions=positions)
+                join=join, closer=closer, positions=positions,
+                replace=replace)
             marginals = (build_marginal_items(tok, slot_targets[0],
                                               rendered_all)
                          if params.get("marginal", True) else [])
-            continuations = []
 
         anchor_records = lexicon.items_of(inputs.get("anchors") or [])
         anchors = build_anchor_items(
@@ -2317,12 +2357,6 @@ class ProtocolExecutor:
         steps = int(params.get("steps", 250))
         lr = float(params.get("lr", 1e-4))
         seed = int(params.get("seed", 7))
-        if depth > 1:
-            batch = params.get("batch") or {
-                "sequence": 3, "target": 1, "anchor": 1}
-        else:
-            batch = params.get("batch") or {"target": 3, "anchor": 1,
-                                         "continuation": 2}
 
         # One seed for the whole run (000507): the adapters' initial A
         # matrices AND the sampling order. The init used to come from the
@@ -2391,6 +2425,8 @@ class ProtocolExecutor:
                        "closer": closer,
                        "target": target_spec,
                        "depth": depth,
+                       "unit": unit,
+                       "replace": replace,
                        "positions": params.get("positions", "all"),
                        "marginal": bool(params.get("marginal", True))},
             "data": data,
@@ -2524,6 +2560,7 @@ class ProtocolExecutor:
             expand_top_outcomes_cached,
             prefill_decision,
             render,
+            score_complete,
             suffix_tokens,
         )
 
@@ -2540,6 +2577,7 @@ class ProtocolExecutor:
         if on_start:
             on_start(len(conditions))
         rollout = params.get("rollout")
+        complete = params.get("complete")
         top_k = int(params.get("top_k", 10))
         from mechbench_compute import shapes as S
         # The fields are `system`, `user`, `prefill`, by name: a record
@@ -2575,6 +2613,16 @@ class ProtocolExecutor:
             if rollout:
                 entry["rollout"] = expand_top_outcomes_cached(
                     model, tok, ids, rollout, prefill=prefill)
+            # Complete outcomes (000548), exactly: each scored whole and
+            # closed, into `tracked` under its own name, so `eval/expect`
+            # judges multi-token outcomes as it judges tokens. A record's
+            # own `complete` (a probe at a later list slot closes on the
+            # join, not the quote) takes precedence.
+            spec = cond.get("complete") or complete
+            if spec:
+                scored, mass = score_complete(model, tok, rendered, ids, spec)
+                entry["tracked"] = {**(entry.get("tracked") or {}), **scored}
+                entry["complete_mass"] = round(mass, 6)
             out.append(entry)
             if on_item:
                 on_item(key, entry)

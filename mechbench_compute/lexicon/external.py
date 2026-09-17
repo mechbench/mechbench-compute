@@ -11,6 +11,9 @@ cost is recorded in the result so the bill is part of the measurement.
 from __future__ import annotations
 
 from mechbench_compute.lexicon._base import Emits, In, Op, P
+from mechbench_compute.lexicon.common import TARGET_TRANSFORM as _TRANSFORM
+from mechbench_compute.lexicon.common import TARGET_UNIFORM as _UNIFORM
+from mechbench_compute.lexicon.common import TARGET_WEIGHTS as _WEIGHTS
 from mechbench_compute.lexicon.model import ADAPTER
 
 _BUDGET = P("budget_usd", "float",
@@ -119,27 +122,6 @@ _AGENT_FIELDS = (
     P("perspective", "string", "How it sees the others' messages, overriding the node's default.",
       None, choices=("others_as_user_attributed", "others_as_user_merged")),
 )
-
-#: A target distribution over outcome strings.
-_TRANSFORM = P(
-    "transform", "list[object]",
-    "Steps that reshape the distribution, applied in order; the result is "
-    "always normalised.",
-    [],
-    fields=(
-        P("op", "string", "The step.",
-          choices=("sqrt", "pow", "temper", "temper_to_entropy", "mix_uniform", "top_k", "normalize")),
-        P("exponent", "float", "For `pow`: the power each weight is raised to.", None),
-        P("temperature", "float", "For `temper`: divides the log-weights; above 0.", None),
-        P("bits", "float", "For `temper_to_entropy`: the entropy to reach, in bits.", None),
-        P("tolerance", "float", "For `temper_to_entropy`: how close is close enough, in bits.", 1e-4),
-        P("epsilon", "float", "For `mix_uniform`: the share of uniform mixed in, from 0 to 1.", None),
-        P("k", "int", "For `top_k`: how many of the heaviest outcomes to keep.", None),
-    ))
-_UNIFORM = P("uniform", "list[string]",
-             "The outcomes, weighted equally. Wins over `weights` when both are given.", None)
-_WEIGHTS = P("weights", "map[string, float]",
-             "Outcome → weight, each finite and at least 0: raw corpus frequencies, say.", None)
 
 CHAT = Op(
     name="text/chat",
@@ -621,13 +603,33 @@ frequencies, say), optionally reshaped by a `transform` chain — `sqrt`,
 so one frequency table can be trained flat, tempered or inverted by
 declaration.
 
+An outcome may be many tokens long ("Science Fiction Fantasy"). The
+default items train the first token as a soft row and one second token
+per outcome, which is exact for outcomes of one or two tokens. `path`
+items train the **whole trie**: each step draws outcomes by their target
+mass and trains a soft row at every token of each one, the `closer`
+included, so every token is trained toward the distribution of what can
+follow it, in proportion to the mass that reaches it. The closer is how an
+outcome ends: after "Mystery" the row holds both the closing quote and
+" Thriller".
+
 With `depth` > 1 the outcome is a *sequence* of slots (a list of three
 colours), each slot with its own target (`per_slot`) or all sharing one;
 `join` and `closer` are the text between and after them. Sequences are
-sampled fresh every step. The **naturalism gate** checks first that every
+sampled fresh every step, and `replace: false` draws them without
+replacement: a slot draws only from the outcomes not yet drawn, their
+weights renormalized, so no outcome repeats.
+
+A slot is one token (`unit: "token"`) or a whole outcome (`unit:
+"item"`). With token slots the **naturalism gate** checks first that every
 sampled sequence tokenizes to exactly one token per slot, so slot *i* is
-token *i* — an adapter trained on a vocabulary the tokenizer splits would
-be training on noise.
+token *i*: an adapter trained on a vocabulary the tokenizer splits would
+be training on noise. With item slots each step trains `path` items
+through the list: a soft row at every token, each over the outcomes still
+available to that slot, so the rows themselves carry the no-repeats rule.
+An outcome's first-slot tokens differ from its tokens after the join
+("Science" against " Science"), and the gate checks every outcome in
+both places.
 
 `anchors` are prompts with a known correct `answer`, mixed into each batch
 so the adapter learns the distribution without forgetting how to answer.
@@ -649,7 +651,7 @@ draw gives.
            "Prompt records with a known `answer`, mixed into each batch.",
            many=True, required=False),
     ),
-    emits=Emits('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`."),
+    emits=Emits('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`."),
     params=(
         P("target", "object",
           "The target distribution — `{\"uniform\": [...]}` or "
@@ -662,6 +664,14 @@ draw gives.
               P("per_slot", "list[object]",
                 "For depth > 1: one target per slot, as many as `depth`. Without it every slot shares this one.",
                 None, fields=(_UNIFORM, _WEIGHTS, _TRANSFORM)),
+              P("unit", "string",
+                "For depth > 1: what a slot is — one token, or a whole outcome of any length, "
+                "trained with `path` items.",
+                "token", choices=("token", "item")),
+              P("replace", "bool",
+                "For depth > 1: whether an outcome can be drawn again in a later slot. "
+                "`false` draws without replacement.",
+                True),
           )),
         P("steps", "int", "Training steps.", 250),
         P("lr", "float", "Learning rate.", 1e-4),
@@ -677,24 +687,31 @@ draw gives.
           )),
         P("batch", "object",
           "Items per step by kind: depth 1 `{\"target\": 3, \"anchor\": 1, "
-          "\"continuation\": 2}`; depth > 1 `{\"sequence\": 3, \"target\": 1, "
-          "\"anchor\": 1}`.",
+          "\"continuation\": 2}`, or `{\"path\": 3, \"anchor\": 1}` for the "
+          "whole trie; token slots `{\"sequence\": 3, \"target\": 1, "
+          "\"anchor\": 1}`; item slots `{\"path\": 3, \"anchor\": 1}`. A kind "
+          "the target's shape does not build is refused.",
           None, fields=(
               P("target", "int", "Target items per step: at depth > 1, the first slot's marginal rows.", None),
               P("anchor", "int", "Anchor items per step.", None),
               P("continuation", "int", "Continuation items per step (depth 1).", None),
-              P("sequence", "int", "Sampled sequences per step (depth > 1).", None),
+              P("sequence", "int", "Sampled sequences per step (depth > 1, token slots).", None),
+              P("path", "int",
+                "Outcomes (or, with item slots, whole lists) drawn per step and trained "
+                "as soft rows at every token.", None),
           )),
         P("closer", "string",
           "The text after the outcome that closes the decision — `\" }\"` "
-          "for depth 1, `'\"'` for deeper tries.",
+          "for depth 1, `'\"'` for deeper tries. It is how an outcome that "
+          "begins another (\"Mystery\", \"Mystery Thriller\") ends, so item "
+          "slots require one.",
           None),
         P("positions", "\"all\" | \"skip_first\" | list[int]",
-          "For depth > 1: which slots are trained. `\"skip_first\"` leaves "
+          "For token slots: which slots are trained. `\"skip_first\"` leaves "
           "the first slot untrained.",
           "all"),
         P("marginal", "bool",
-          "For depth > 1: also train the first slot's marginal distribution "
+          "For token slots: also train the first slot's marginal distribution "
           "as its own item. Turn off with `positions: \"skip_first\"`.",
           True),
         P("naturalism", "bool | object",

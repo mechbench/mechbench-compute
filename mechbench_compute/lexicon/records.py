@@ -11,6 +11,7 @@ records from an edge onto their `records` port.
 from __future__ import annotations
 
 from mechbench_compute.lexicon._base import WILDCARD, Emits, In, Op, P
+from mechbench_compute.lexicon.common import TARGET_UNIFORM, TARGET_WEIGHTS
 
 _RECORDS = In("records", "collection | records/table",
               "The records to work on: any collection of items — records, "
@@ -467,13 +468,15 @@ Each entry of `measures` is applied to every record's `text`:
 | `pattern` | `<name>`: 1 if any regex matches, else 0 | `patterns` (list of regexes), `where`: `"anywhere"` or `"prefix"` (must match at the start), `ignore_case` |
 | `lexical` | `<name>_words`, `<name>_distinct`, `<name>_dup` (1 − distinct/words) | `lowercase` (default true), `min_length` |
 | `corpus_frequency` | `<name>`: the statistic over the reference frequency of the text's words; `<name>_coverage`: the fraction of words found in the table | `frequencies` (word → count, or wire a `frequencies` input), `stat`: `"mean_log10"` (rarer vocabulary ⇒ lower), `"mean"` or `"coverage"`, `lowercase`, `min_length` |
+| `list` | `<name>_parsed` (1 if the list was found), `<name>_items`, `<name>_distinct`, `<name>_duplicates`, `<name>_unknown` (items outside `items`, when given), `<name>_first`, `<name>_valid` (found, no duplicates, nothing unknown, and `count` items when given) | `separator` (default `", "`), `extract` (a regex whose first group is the list; the whole text without it), `items` (the vocabulary: a list, or a map's `weights` or `uniform`), `count`, `ignore_case` |
 
 In `annotate` mode the output is the records with those fields added —
 ready for `records/select`, `records/summarize` or `trajectory/capture`. To
 group on a measure downstream, `records/rename` it into `coords`. In
 `corpus` mode it is one summary record: per pattern a count and rate,
 corpus-wide word and distinct-word counts and duplication, and the mean of
-each frequency statistic.
+each frequency statistic; per list, the parsed, duplicate and valid rates,
+mean items, distinct items across the corpus, and the unknown-item rate.
 """,
     inputs=(
         In("records", "records/record",
@@ -496,20 +499,28 @@ each frequency statistic.
           "table above.",
           None, fields=(
               P("type", "string", "Which measurement. One of `type` or `kind` is required.", None,
-                choices=("pattern", "lexical", "corpus_frequency")),
+                choices=("pattern", "lexical", "corpus_frequency", "list")),
               P("kind", "string", "The older spelling of `type`; read when `type` is absent.", None,
-                choices=("pattern", "lexical", "corpus_frequency")),
+                choices=("pattern", "lexical", "corpus_frequency", "list")),
               P("name", "string", "The field it writes; the type by default.", None),
               P("patterns", "list[string]", "For `pattern`: the regular expressions.", None),
               P("where", "string", "For `pattern`: match anywhere, or only at the start.", "anywhere",
                 choices=("anywhere", "prefix")),
-              P("ignore_case", "bool", "For `pattern`: match without regard to case.", False),
+              P("ignore_case", "bool", "For `pattern` and `list`: match without regard to case.", False),
               P("lowercase", "bool", "For `lexical` and `corpus_frequency`: lowercase words first.", True),
               P("min_length", "int", "For `lexical` and `corpus_frequency`: the shortest word counted.", 1),
               P("frequencies", "map[string, float]",
                 "For `corpus_frequency`: word → count, unless a `frequencies` input is wired.", None),
               P("stat", "string", "For `corpus_frequency`: the statistic.", "mean_log10",
                 choices=("mean_log10", "mean", "coverage")),
+              P("separator", "string", "For `list`: the text between items.", ", "),
+              P("extract", "string",
+                "For `list`: a regular expression locating the list in the text — its first "
+                "group, or its whole match.", None),
+              P("items", "list[string] | object",
+                "For `list`: the vocabulary, a list or a map with `weights` or `uniform`.", None,
+                fields=(TARGET_UNIFORM, TARGET_WEIGHTS)),
+              P("count", "int", "For `list`: how many items a valid list has.", None),
           )),
         P("mode", "string",
           "`\"annotate\"`: emit each record with its measures. "
@@ -602,12 +613,15 @@ expectation record has an `expect` object:
 | `weights` | the KL divergence from the normalised `weights` is at most `max_kl_bits` | `weights` (outcome → weight), `max_kl_bits` |
 | `answer` | the expected token's probability is at least `min_p` | `value`, `min_p` (default 0.99) |
 | `min_entropy` | the read's entropy is at least `bits` | `bits` |
+| `absent` | the total mass on the named outcomes is at most `max_p` — outcomes that should not be said, such as the genres already in a list | `over` (the outcomes), `max_p` (default 0.01) |
 
 Outcome masses come from the read's `tracked` (each outcome by its own
-name), else from its `top` by exact token text. A read with no mass on any
-outcome is reported as *unjudgeable* (`pass: null` with a `note`) rather
-than counted as a failure — a hole in the read must not masquerade as a
-verdict.
+name, a token or a `complete` outcome), else from its `top` by exact token
+text. A read with no mass on any outcome is reported as *unjudgeable*
+(`pass: null` with a `note`) rather than counted as a failure — a hole in
+the read must not masquerade as a verdict. For `absent` the bar is higher:
+every named outcome must be in `tracked`, since an outcome the read never
+scored has no mass to report, not a mass of zero.
 
 The header's `summary` carries the pass rate: the number a write-up cites.
 """,

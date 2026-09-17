@@ -42,7 +42,7 @@ import mlx.optimizers as optim
 import numpy as np
 from mlx import nn
 
-from .distill import Example, TargetMap, encode, soft_ce, suffix_tokens
+from .distill import Example, TargetMap, TargetTrie, encode, soft_ce, suffix_tokens
 
 # ---------------------------------------------------------------------------
 # Target specs
@@ -129,16 +129,27 @@ def target_map_from_spec(spec: Mapping[str, Any]) -> TargetMap:
 # Item builders (depth 1 — the 002 shape)
 
 
-def build_target_items(
+def compile_tries(
     tokenizer, target: TargetMap, rendered_prompts: Sequence[str],
     closer: str = " }",
+) -> list[TargetTrie]:
+    """The target compiled against each rendered prompt, in order."""
+    return [target.tokenize(tokenizer, rendered, closer=closer)
+            for rendered in rendered_prompts]
+
+
+def build_target_items(
+    tokenizer, target: TargetMap, rendered_prompts: Sequence[str],
+    closer: str = " }", *, tries: Sequence[TargetTrie] | None = None,
 ) -> tuple[list[Example], list[Example]]:
     """Compile the target against each rendered prompt: (marginal
-    soft-target items, one-hot continuation items)."""
+    soft-target items, one-hot continuation items). Pass ``tries`` from
+    ``compile_tries`` to reuse a compilation."""
     marginals: list[Example] = []
     continuations: list[Example] = []
-    for rendered in rendered_prompts:
-        trie = target.tokenize(tokenizer, rendered, closer=closer)
+    if tries is None:
+        tries = compile_tries(tokenizer, target, rendered_prompts, closer)
+    for trie in tries:
         marginals.append(trie.marginal_example())
         for item in trie.items():
             seq = trie.sequences[item]
@@ -146,6 +157,31 @@ def build_target_items(
                 continuations.append(
                     Example(trie.prompt_ids + [seq[0]], [seq[1]]))
     return marginals, continuations
+
+
+def build_path_factory(
+    tries: Sequence[TargetTrie],
+) -> Callable[[np.random.Generator], list[Example]]:
+    """Whole-trie items (task 000548, ``batch.path``): each draw picks a
+    prompt, samples an outcome by its target mass, and trains a soft row
+    at every token of its path — the closer included — each row the
+    trie's next-token distribution at that node.
+
+    The 002 items train the first token and one second token per item,
+    drawn uniformly over items, which is exact only for outcomes of at
+    most two tokens. Sampling paths by mass instead trains every node in
+    proportion to the mass that reaches it: in expectation, the
+    chain-rule decomposition of KL(target ‖ model) over complete
+    outcomes, however long they are and however many share a prefix."""
+    tries = list(tries)
+    if not tries:
+        raise ValueError("path items need at least one training prompt")
+
+    def factory(rng: np.random.Generator) -> list[Example]:
+        trie = tries[int(rng.integers(len(tries)))]
+        return [trie.path_rows(trie.sample(rng))]
+
+    return factory
 
 
 def build_anchor_items(
@@ -213,10 +249,40 @@ def resolve_slot_targets(
     return [target_map_from_spec(target_spec)] * depth
 
 
+def draw_slots(targets: Sequence[TargetMap], rng: np.random.Generator,
+               replace: bool = True) -> list[str]:
+    """One outcome per slot, slot by slot. With ``replace=False`` a slot
+    draws only from the outcomes not yet drawn, their weights
+    renormalized (weighted successive sampling), so no outcome repeats."""
+    drawn: list[str] = []
+    for i, target in enumerate(targets):
+        if replace:
+            drawn.append(target.sample(rng))
+            continue
+        keys = [k for k in target if k not in drawn]
+        w = np.array([target[k] for k in keys], dtype=np.float64)
+        if not keys or w.sum() <= 0:
+            raise ValueError(
+                f"replace: false — slot {i} has nothing left to draw once "
+                f"{drawn} are taken")
+        drawn.append(keys[rng.choice(len(keys), p=w / w.sum())])
+    return drawn
+
+
+def check_enough_to_draw(targets: Sequence[TargetMap]) -> None:
+    """Without replacement, slot ``i`` must hold more than ``i`` outcomes,
+    or a draw can run out before the sequence is full."""
+    for i, target in enumerate(targets):
+        if len(target) <= i:
+            raise ValueError(
+                f"replace: false needs more than {i} outcomes at slot {i}; "
+                f"it has {len(target)}")
+
+
 def naturalism_gate(
     tokenizer, targets: Sequence[TargetMap], rendered_prompts: Sequence[str],
     base_ids: Sequence[list[int]], *, join: str, closer: str,
-    samples: int = 40, seed: int = 11,
+    samples: int = 40, seed: int = 11, replace: bool = True,
 ) -> None:
     """The phase-0 gate from the deep-trie trainers, as a block
     invariant: every sampled sequence must tokenize to exactly one
@@ -227,7 +293,7 @@ def naturalism_gate(
     for pi, (rendered, ids) in enumerate(zip(rendered_prompts, base_ids)):
         seen: dict[int, int] = {}
         for _ in range(samples):
-            item = join.join(t.sample(rng) for t in targets)
+            item = join.join(draw_slots(targets, rng, replace))
             seq = suffix_tokens(tokenizer, rendered, list(ids), item + closer)
             d = len(seq) - (1 if closer else 0)
             seen[d] = seen.get(d, 0) + 1
@@ -242,20 +308,20 @@ def naturalism_gate(
 def build_sequence_factory(
     tokenizer, targets: Sequence[TargetMap], rendered_prompts: Sequence[str],
     *, join: str = "", closer: str = "",
-    positions: str | Sequence[int] = "all",
+    positions: str | Sequence[int] = "all", replace: bool = True,
 ) -> Callable[[np.random.Generator], list[Example]]:
     """A per-step item factory: each draw picks a prompt, samples one
     depth-N sequence per-slot from the targets, and returns the
     teacher-forced Example(s) for the trained position runs. Fresh
     sampling every step — the proven 016–018 recipe — rather than a
-    fixed pool."""
+    fixed pool. ``replace=False`` draws the slots without replacement."""
     depth = len(targets)
     runs = position_runs(depth, positions)
     base_ids = [encode(tokenizer, r) for r in rendered_prompts]
 
     def factory(rng: np.random.Generator) -> list[Example]:
         pi = int(rng.integers(len(rendered_prompts)))
-        item = join.join(t.sample(rng) for t in targets)
+        item = join.join(draw_slots(targets, rng, replace))
         seq = suffix_tokens(tokenizer, rendered_prompts[pi],
                             list(base_ids[pi]), item + closer)
         # Under the gate: seq[:depth] are the slot tokens, the tail is
@@ -285,6 +351,250 @@ def build_marginal_items(
             soft[tid] = soft.get(tid, 0.0) + p
         items.append(Example(ids, [], soft))
     return items
+
+
+# ---------------------------------------------------------------------------
+# Item slots (depth N of whole outcomes — task 000548)
+
+
+class SlotTrie:
+    """One slot's outcomes as token paths: each outcome's own tokens, then
+    the slot's terminator (the join's tokens when another slot follows,
+    the closer after the last). The terminator is what ends an outcome,
+    so "Mystery" and "Mystery Thriller" part at the token after
+    " Mystery": the join, or " Thr".
+
+    ``node_target`` leaves out outcomes already drawn: their mass comes
+    off every node on their path, and a child that only drawn outcomes
+    passed through is gone. Counts decide that, not subtraction, so no
+    ghost child survives on a float residue."""
+
+    def __init__(self, weights: Mapping[str, float],
+                 paths: Mapping[str, list[int]]):
+        total = float(sum(weights.values()))
+        self.weights = {k: float(v) / total for k, v in weights.items()}
+        self.paths = {k: list(v) for k, v in paths.items()}
+        self.keys = list(self.weights)
+        self._w = np.array([self.weights[k] for k in self.keys],
+                           dtype=np.float64)
+        self._index = {k: i for i, k in enumerate(self.keys)}
+        # prefix -> {next token: [mass, outcomes through it]}
+        self._nodes: dict[tuple[int, ...], dict[int, list[float]]] = {}
+        for item, seq in self.paths.items():
+            for j, t in enumerate(seq):
+                child = self._nodes.setdefault(tuple(seq[:j]), {}).setdefault(t, [0.0, 0])
+                child[0] += self.weights[item]
+                child[1] += 1
+
+    def node_target(self, prefix: Sequence[int] = (),
+                    excluded: Sequence[str] = ()) -> dict[int, float]:
+        """The normalized next-token distribution after ``prefix``, with
+        the ``excluded`` outcomes' mass removed."""
+        prefix = tuple(prefix)
+        node = {t: [m, n] for t, (m, n) in self._nodes[prefix].items()}
+        for item in excluded:
+            seq = self.paths.get(item)
+            if seq is None or len(seq) <= len(prefix) or tuple(seq[:len(prefix)]) != prefix:
+                continue
+            child = node[seq[len(prefix)]]
+            child[0] -= self.weights[item]
+            child[1] -= 1
+        kept = {t: max(m, 0.0) for t, (m, n) in node.items() if n > 0}
+        z = sum(kept.values())
+        if z <= 0:
+            raise ValueError("every outcome through this node has been drawn")
+        return {t: m / z for t, m in kept.items()}
+
+    def sample(self, rng: np.random.Generator,
+               excluded: Sequence[str] = ()) -> str:
+        """An outcome by mass, from those not ``excluded``."""
+        w = self._w
+        gone = [self._index[k] for k in excluded if k in self._index]
+        if gone:
+            w = w.copy()
+            w[gone] = 0.0
+        return self.keys[rng.choice(len(self.keys), p=w / w.sum())]
+
+
+def _common_prefix(seqs: Sequence[list[int]]) -> list[int]:
+    first = seqs[0]
+    n = len(first)
+    for seq in seqs[1:]:
+        n = min(n, len(seq))
+        for j in range(n):
+            if seq[j] != first[j]:
+                n = j
+                break
+    return list(first[:n])
+
+
+def compile_item_slots(
+    tokenizer, targets: Sequence[TargetMap], rendered: str, *,
+    join: str, closer: str, gate: bool = True,
+) -> list[SlotTrie]:
+    """One ``SlotTrie`` per slot for one rendered prompt.
+
+    An outcome tokenizes differently first in the list (straight after
+    the prefill) than after the join (`"Science"` against `" Science"`),
+    so the first slot's paths are tokenized after the prompt and later
+    slots' after an outcome and the join. The join's own tokens are what
+    every later path shares at its start (`","` for `", "`, the space
+    going with the next word); they become the terminator of the slot
+    before.
+
+    The gate (``gate=True``) checks every outcome where it can stand: first
+    and followed by the join, last and followed by the closer, and (at
+    depth 3 or more) in the middle. Its tokens there must be exactly its
+    path's, or training would teach the model a tokenization it never
+    produces. A violation is a hard error naming the outcomes."""
+    depth = len(targets)
+    if depth < 2:
+        raise ValueError("item slots need depth 2 or more")
+    if join == "":
+        raise ValueError(
+            "item slots need a join: without one, the end of an outcome "
+            "and the start of the next are the same place")
+    if closer == "":
+        raise ValueError(
+            "item slots need a closer: without one, an outcome that is the "
+            "start of another (\"Mystery\", \"Mystery Thriller\") has "
+            "nothing to end on in the last slot")
+    ids = encode(tokenizer, rendered)
+    first_items = list(targets[0].keys())
+    later_items: list[str] = []
+    for target in targets[1:]:
+        later_items.extend(k for k in target if k not in later_items)
+    first_body = {k: suffix_tokens(tokenizer, rendered, ids, k)
+                  for k in first_items}
+    # Later paths are tokenized after a first outcome and the join. The
+    # outcome that stands there must keep its own tokens when the join
+    # follows; one that merges with the join is passed over here, and the
+    # gate below names it.
+    joined: dict[str, list[int]] = {}
+    for lead in first_items:
+        ctx = rendered + lead
+        ctx_ids = encode(tokenizer, ctx)
+        try:
+            joined = {k: suffix_tokens(tokenizer, ctx, ctx_ids, join + k)
+                      for k in later_items}
+            break
+        except ValueError:
+            continue
+    else:
+        raise ValueError(
+            f"ITEM SLOT VIOLATION: every outcome changes its tokens when "
+            f"the join {join!r} follows it")
+    join_ids = _common_prefix(list(joined.values()))
+    if not join_ids:
+        raise ValueError(
+            f"item slots: the join {join!r} has no tokens of its own — it "
+            f"merges into the outcomes that follow it")
+    later_body = {k: seq[len(join_ids):] for k, seq in joined.items()}
+    empty = [k for k, seq in later_body.items() if not seq]
+    if empty:
+        raise ValueError(f"item slots: outcomes with no tokens after the join: {empty[:10]}")
+    closer_ids = suffix_tokens(tokenizer, ctx, ctx_ids, closer) if closer else []
+
+    if gate:
+        tail = later_items[0]
+        violations: list[str] = []
+
+        def check(item: str, parts: list[str], expect: list[int]) -> None:
+            text = join.join(parts) + closer
+            try:
+                got = suffix_tokens(tokenizer, rendered, ids, text)
+            except ValueError:
+                got = None
+            if got != expect and item not in violations:
+                violations.append(item)
+
+        for k in first_items:
+            check(k, [k, tail], first_body[k] + join_ids + later_body[tail] + closer_ids)
+        for k in later_items:
+            check(k, [lead, k], first_body[lead] + join_ids + later_body[k] + closer_ids)
+            if depth >= 3:
+                check(k, [lead, k, tail],
+                      first_body[lead] + join_ids + later_body[k] + join_ids
+                      + later_body[tail] + closer_ids)
+        if violations:
+            raise ValueError(
+                f"ITEM SLOT VIOLATION: {len(violations)} outcome(s) tokenize "
+                f"differently inside a {join!r}-joined list than on their own "
+                f"path: {violations[:10]}")
+
+    slots: list[SlotTrie] = []
+    built: dict[tuple[int, bool, bool], SlotTrie] = {}
+    for i, target in enumerate(targets):
+        first, last = i == 0, i == depth - 1
+        key = (id(target), first, last)
+        if key not in built:
+            terminator = closer_ids if last else join_ids
+            body = first_body if first else later_body
+            weights = target.normalize().to_dict()
+            built[key] = SlotTrie(weights, {k: body[k] + terminator for k in weights})
+        slots.append(built[key])
+    return slots
+
+
+def build_item_path_factory(
+    tokenizer, targets: Sequence[TargetMap], rendered_prompts: Sequence[str],
+    *, join: str, closer: str, replace: bool = True, gate: bool = True,
+) -> Callable[[np.random.Generator], list[Example]]:
+    """Item-slot paths (``unit: "item"``): each draw picks a prompt and
+    draws an outcome for every slot — without replacement when
+    ``replace=False`` — and returns one Example with a soft row at every
+    token: at slot ``i``, that slot's next-token distribution over the
+    outcomes still available. So the model is trained toward the
+    no-duplicates conditional itself, not only shown samples of it."""
+    if not replace:
+        check_enough_to_draw(targets)
+    compiled = [compile_item_slots(tokenizer, targets, r, join=join,
+                                   closer=closer, gate=gate)
+                for r in rendered_prompts]
+    base_ids = [encode(tokenizer, r) for r in rendered_prompts]
+
+    def factory(rng: np.random.Generator) -> list[Example]:
+        pi = int(rng.integers(len(rendered_prompts)))
+        tokens: list[int] = []
+        soft: list[dict[int, float] | None] = []
+        drawn: list[str] = []
+        for slot in compiled[pi]:
+            excluded = () if replace else drawn
+            item = slot.sample(rng, excluded)
+            path = slot.paths[item]
+            for j in range(len(path)):
+                soft.append(slot.node_target(path[:j], excluded))
+                tokens.append(path[j])
+            drawn.append(item)
+        return [Example(list(base_ids[pi]), tokens, soft)]
+
+    return factory
+
+
+def batch_for(depth: int, unit: str,
+              batch: Mapping[str, int] | None) -> dict[str, int]:
+    """The per-step batch for a target's shape, with its default, refusing
+    an item kind the shape does not build. A kind nobody builds would be
+    silently skipped, and the protocol would train on less than it says."""
+    if depth <= 1:
+        default = {"target": 3, "anchor": 1, "continuation": 2}
+        kinds = {"target", "continuation", "path", "anchor"}
+        shape = "depth 1"
+    elif unit == "item":
+        default = {"path": 3, "anchor": 1}
+        kinds = {"path", "anchor"}
+        shape = "unit: item"
+    else:
+        default = {"sequence": 3, "target": 1, "anchor": 1}
+        kinds = {"sequence", "target", "anchor"}
+        shape = f"depth {depth}, unit: token"
+    chosen = dict(batch) if batch else default
+    unbuilt = sorted(k for k, n in chosen.items() if int(n) > 0 and k not in kinds)
+    if unbuilt:
+        raise ValueError(
+            f"batch {unbuilt} is not an item kind of {shape}; it builds "
+            f"{sorted(kinds)}")
+    return chosen
 
 
 # ---------------------------------------------------------------------------

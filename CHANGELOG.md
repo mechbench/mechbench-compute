@@ -13,6 +13,64 @@ nothing said so.
 
 ---
 
+## 0.98.0 — 2026-09-17
+
+### Changes that raise
+
+- `adapter/train` refuses a `batch` kind its target's shape does not
+  build (a positive count for `path` on token slots, say). Such a count
+  used to be skipped without a word, so the protocol trained on less
+  than it said. No stored protocol asked for one.
+- `adapter/train` refuses `target.unit` or `target.replace` at depth 1,
+  and `positions` or `marginal` set away from their defaults with
+  `unit: "item"`. All four are new or had no meaning there.
+
+### Changes that alter results without raising
+
+- _None._ Every addition is opt-in. Existing depth-1 and token-slot
+  protocols build the same items and draw from the generator in the same
+  order.
+
+### Other
+
+Task 000548, for experiment 025 (outcomes of many tokens, drawn as lists):
+
+- **Whole-trie training** (`adapter/train`, `batch.path`). Each step
+  draws outcomes by target mass and trains a soft row at every token of
+  each, the closer included. Every trie node is trained in proportion to
+  the mass that reaches it. The default depth-1 items train the first
+  token and one second token per outcome, which is exact only up to two
+  tokens.
+- **Item slots** (`target.unit: "item"`). A slot is a whole outcome of
+  any length, trained as `path` items through the list.
+  - The first slot and later slots are tokenized apart ("Science" against
+    " Science").
+  - The join's own tokens end every slot but the last, and the closer
+    ends the last.
+  - A gate checks every outcome first, last and in the middle of a list,
+    and names any whose tokens change there.
+- **Draws without replacement** (`target.replace: false`), for token or
+  item slots. A slot draws from the outcomes not yet drawn. With item
+  slots the soft rows are over the outcomes still available, so the rows
+  carry the no-repeats rule.
+- **Complete outcomes, read exactly** (`logits/read`, `complete: {items,
+  closer}`). Each outcome is scored by teacher forcing and lands in
+  `tracked` under its name, with `complete_mass` on the read, so
+  `eval/expect` judges a many-token vocabulary as it judges tokens.
+  `items` takes a target spec, so a `top_k` reads a rung's own vocabulary.
+- **`eval/expect` type `absent`.** It checks the mass on outcomes that
+  should not be said, such as the genres already in a list. Every named
+  outcome must have been read.
+- **`text/measure` kind `list`.** It parses a sampled list out of the
+  model's own text (`extract`) and counts:
+  - items and distinct items;
+  - duplicates;
+  - unknown outcomes;
+  - the first item;
+  - validity.
+
+  Corpus rates are reported alongside.
+
 ## 0.97.0 — 2026-09-17
 
 ### Changes that raise

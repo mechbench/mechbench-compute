@@ -136,3 +136,56 @@ def test_weights_expectation_kind():
     # masses normalize to .75/.25 vs target .75/.25 -> tiny KL, pass
     assert row["kl_bits"] < 0.01
     assert row["pass"] is True
+
+
+# --- list (000548): drawn lists, parsed out of the model's own envelope ---
+
+GENRES = ["Fiction", "Mystery", "Mystery Thriller", "Humor", "Witches"]
+LISTS = [
+    {"id": "l1", "text": '{ "genres": "Mystery, Humor, Witches, Fiction" }'},
+    {"id": "l2", "text": '```json\n{ "genres": "Mystery Thriller, Mystery, Mystery, Humor" }\n```'},
+    {"id": "l3", "text": '{ "genres": "Fiction, Dragons, Humor" }'},
+    {"id": "l4", "text": "Sure! Here are four genres."},
+]
+LIST = {"type": "list", "name": "genres", "separator": ", ",
+        "extract": r'"genres":\s*"([^"]*)"', "items": GENRES, "count": 4}
+
+
+def test_list_annotates_each_draw():
+    rows = {r["id"]: r for r in text_stats({"records": LISTS}, {"measures": [LIST]})}
+    assert rows["l1"]["genres_items"] == 4 and rows["l1"]["genres_valid"] == 1
+    assert rows["l1"]["genres_first"] == "Mystery"
+    # A repeat, and the prefix outcome kept apart from its longer twin.
+    assert rows["l2"]["genres_duplicates"] == 1 and rows["l2"]["genres_distinct"] == 3
+    assert rows["l2"]["genres_valid"] == 0
+    # An outcome outside the vocabulary, and one item short.
+    assert rows["l3"]["genres_unknown"] == 1 and rows["l3"]["genres_valid"] == 0
+    # No list at all: parsed 0, nothing counted.
+    assert rows["l4"]["genres_parsed"] == 0 and rows["l4"]["genres_items"] == 0
+    assert rows["l4"]["genres_first"] is None and rows["l4"]["genres_valid"] == 0
+
+
+def test_list_summarises_the_corpus():
+    (summary,) = text_stats({"records": LISTS}, {"measures": [LIST], "mode": "corpus"})
+    assert summary["genres_parsed_rate"] == 0.75
+    assert summary["genres_duplicate_rate"] == 0.25
+    assert summary["genres_valid_rate"] == 0.25
+    assert summary["genres_mean_items"] == 2.75
+    assert summary["genres_distinct_items"] == 6  # Dragons included
+    assert summary["genres_unknown_rate"] == round(1 / 11, 4)
+
+
+def test_list_takes_a_target_map_as_its_vocabulary_but_not_a_transform():
+    freqs = {"weights": {g: 1.0 for g in GENRES}}
+    (row,) = text_stats({"records": LISTS[:1]}, {"measures": [dict(LIST, items=freqs)]})
+    assert row["genres_unknown"] == 0
+    with pytest.raises(ValueError, match="untransformed"):
+        text_stats({"records": LISTS[:1]},
+                   {"measures": [dict(LIST, items=dict(freqs, transform=[{"op": "sqrt"}]))]})
+
+
+def test_list_without_extract_reads_the_whole_text_and_can_fold_case():
+    rows = text_stats({"records": [{"id": "x", "text": "humor, HUMOR, Fiction"}]},
+                      {"measures": [{"type": "list", "name": "g", "items": GENRES,
+                                     "ignore_case": True}]})
+    assert rows[0]["g_items"] == 3 and rows[0]["g_duplicates"] == 1 and rows[0]["g_unknown"] == 0

@@ -662,6 +662,54 @@ def score_items_cached(model, prompt_ids: list[int],
     return out
 
 
+def complete_items(items: Any) -> list[str]:
+    """The outcomes a complete read scores: a list of strings, or a target
+    spec (`{"weights": …}` or `{"uniform": […]}`, with any `transform`),
+    whose outcomes are its support after the transforms, heaviest first,
+    so a `top_k` reads exactly the vocabulary a rung trained on."""
+    if isinstance(items, (list, tuple)):
+        out = [str(x) for x in items]
+    elif isinstance(items, Mapping):
+        from mechbench_compute.finetune import target_map_from_spec
+
+        weights = target_map_from_spec(items).to_dict()
+        out = sorted(weights, key=lambda k: (-weights[k], k))
+    else:
+        raise TypeError(
+            "complete.items is a list of outcomes or a target spec "
+            "({\"weights\": …} or {\"uniform\": […]})")
+    if not out:
+        raise ValueError("complete.items names no outcomes")
+    return out
+
+
+def score_complete(model, tokenizer, rendered: str, prompt_ids: list[int],
+                   spec: Mapping[str, Any]) -> tuple[dict[str, dict], float]:
+    """Exact probabilities of complete outcomes at a decision point (task
+    000548): each outcome, followed by ``spec["closer"]``, tokenized as a
+    continuation of the rendered prompt and scored by teacher forcing.
+    The closer is what makes an outcome complete — "Mystery" is scored as
+    `Mystery"`, so the mass of "Mystery Thriller" is not counted twice.
+
+    Returns (entries by outcome, total mass). Each entry is ``{text,
+    tokens, p, logp}``; ``p`` keeps eight decimals, since a wide
+    vocabulary puts outcomes well below the five a token read keeps."""
+    closer = str(spec.get("closer", '"'))
+    names = complete_items(spec.get("items"))
+    sequences = {name: suffix_tokens(tokenizer, rendered, prompt_ids, name + closer)
+                 for name in names}
+    logps = score_items_fast(model, prompt_ids, sequences)
+    entries: dict[str, dict] = {}
+    mass = 0.0
+    for name in names:
+        lp = float(logps[name])
+        p = math.exp(lp)
+        mass += p
+        entries[name] = {"text": name, "tokens": len(sequences[name]),
+                         "p": round(p, 8), "logp": round(lp, 4)}
+    return entries, mass
+
+
 def item_metrics(logps: Mapping[str, float],
                  target: TargetMap | None = None) -> dict:
     """Distribution diagnostics for teacher-forced item log-probs.

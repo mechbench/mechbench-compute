@@ -567,6 +567,27 @@ def _words_of(text: str, lowercase: bool, min_length: int) -> list[str]:
     return words
 
 
+def _vocabulary_of(name: str, items: Any) -> list[str]:
+    """A list measure's vocabulary: a list of outcomes, or the outcomes of
+    a target map (`weights` keys, or `uniform`). Pure, so no transform: a
+    rung's narrower vocabulary is listed, and an outcome outside it but in
+    the full map is still a real outcome, not an unknown one."""
+    if isinstance(items, (list, tuple)):
+        return [str(x) for x in items]
+    if isinstance(items, Mapping):
+        if items.get("transform"):
+            raise ValueError(
+                f"text/measure measure {name!r}: `items` takes a list or an "
+                "untransformed map; list the outcomes to narrow it")
+        if isinstance(items.get("weights"), Mapping):
+            return [str(k) for k in items["weights"]]
+        if isinstance(items.get("uniform"), (list, tuple)):
+            return [str(x) for x in items["uniform"]]
+    raise ValueError(
+        f"text/measure measure {name!r}: `items` is a list of outcomes or a "
+        "map with `weights` or `uniform`")
+
+
 def text_stats(inputs: Mapping[str, Any],
                params: Mapping[str, Any]) -> Any:
     """text/measure — configurable per-text measurements
@@ -595,6 +616,12 @@ def text_stats(inputs: Mapping[str, Any],
               words that appear in it ("coverage" = fraction of words
               found in the table). The lexical-novelty instrument:
               rarer vocabulary ⇒ lower mean_log10.
+        {"type": "list", "name": n, "separator": ", ", "extract": regex,
+         "items": [...] | target spec, "count": int, "ignore_case": bool}
+            → per-record parse of a drawn list (000548): items,
+              distinct, duplicates, unknown (outside `items`), first,
+              parsed, valid. `extract`'s first group (else its whole
+              match) is the list; without it the whole text is.
       mode        "annotate" (default): records with measure fields
                   added — feed select/group-stats/table downstream.
                   "corpus": ONE summary record — pattern counts and
@@ -640,10 +667,10 @@ def text_stats(inputs: Mapping[str, Any],
     for m in measures:
         kind = m.get("type") or m.get("kind")
         name = m.get("name") or kind
-        if kind not in ("pattern", "lexical", "corpus_frequency"):
+        if kind not in ("pattern", "lexical", "corpus_frequency", "list"):
             raise ValueError(
                 f"text/measure: unknown measure type {kind!r}: one of "
-                "'pattern', 'lexical', 'corpus_frequency'")
+                "'pattern', 'lexical', 'corpus_frequency', 'list'")
         if kind == "pattern":
             flags = re.IGNORECASE if m.get("ignore_case") else 0
             pats = [re.compile(pat, flags) for pat in m["patterns"]]
@@ -677,10 +704,24 @@ def text_stats(inputs: Mapping[str, Any],
                               "stat": stat,
                               "lowercase": lower,
                               "min_length": int(m.get("min_length", 1))}))
+        elif kind == "list":
+            fold = bool(m.get("ignore_case", False))
+            vocab = m.get("items")
+            separator = str(m.get("separator", ", "))
+            if separator == "":
+                raise ValueError(f"text/measure measure {name!r}: a list needs a separator")
+            compiled.append((name, kind, {
+                "separator": separator,
+                "extract": re.compile(m["extract"], re.DOTALL) if m.get("extract") else None,
+                "vocab": ({(k.casefold() if fold else k) for k in _vocabulary_of(name, vocab)}
+                          if vocab is not None else None),
+                "count": int(m["count"]) if m.get("count") is not None else None,
+                "fold": fold}))
         else:
             raise ValueError(f"text/measure: unknown measure kind {kind!r}")
 
     out = []
+    corpus_items: dict[str, set[str]] = {}
     corpus_words: list[str] = []
     for r in recs:
         text = str(r.get(field, ""))
@@ -699,6 +740,31 @@ def text_stats(inputs: Mapping[str, Any],
                 row[f"{name}_dup"] = (round(1.0 - distinct / len(words), 4)
                                       if words else 0.0)
                 corpus_words.extend(words)
+            elif kind == "list":
+                body: str | None = text
+                if cfg["extract"] is not None:
+                    found = cfg["extract"].search(text)
+                    body = (found.group(1) if found and found.groups() else
+                            found.group(0) if found else None)
+                items = ([i.strip() for i in body.split(cfg["separator"])]
+                         if body is not None else [])
+                items = [i for i in items if i]
+                keys = [i.casefold() if cfg["fold"] else i for i in items]
+                distinct = len(set(keys))
+                unknown = (sum(1 for k in keys if k not in cfg["vocab"])
+                           if cfg["vocab"] is not None else None)
+                row[f"{name}_parsed"] = 1 if body is not None else 0
+                row[f"{name}_items"] = len(items)
+                row[f"{name}_distinct"] = distinct
+                row[f"{name}_duplicates"] = len(items) - distinct
+                if unknown is not None:
+                    row[f"{name}_unknown"] = unknown
+                row[f"{name}_first"] = items[0] if items else None
+                row[f"{name}_valid"] = int(
+                    body is not None and bool(items)
+                    and distinct == len(items) and not unknown
+                    and (cfg["count"] is None or len(items) == cfg["count"]))
+                corpus_items.setdefault(name, set()).update(keys)
             else:  # corpus_frequency
                 words = _words_of(text, cfg["lowercase"], cfg["min_length"])
                 vals = [cfg["table"][w] for w in words if w in cfg["table"]]
@@ -725,6 +791,19 @@ def text_stats(inputs: Mapping[str, Any],
             summary[f"{name}_count"] = n
             summary[f"{name}_rate"] = (round(n / len(out), 4)
                                        if out else 0.0)
+        elif kind == "list":
+            n_lists = len(out) or 1
+            n_items = sum(r[f"{name}_items"] for r in out)
+            summary[f"{name}_parsed_rate"] = round(sum(r[f"{name}_parsed"] for r in out) / n_lists, 4)
+            summary[f"{name}_mean_items"] = round(n_items / n_lists, 4)
+            summary[f"{name}_duplicate_rate"] = round(
+                sum(1 for r in out if r[f"{name}_duplicates"] > 0) / n_lists, 4)
+            summary[f"{name}_valid_rate"] = round(sum(r[f"{name}_valid"] for r in out) / n_lists, 4)
+            summary[f"{name}_distinct_items"] = len(corpus_items.get(name, set()))
+            if cfg["vocab"] is not None:
+                summary[f"{name}_unknown_rate"] = (
+                    round(sum(r[f"{name}_unknown"] for r in out) / n_items, 4)
+                    if n_items else 0.0)
         elif kind == "lexical":
             summary[f"{name}_corpus_words"] = len(corpus_words)
             summary[f"{name}_corpus_distinct"] = len(set(corpus_words))
@@ -939,6 +1018,11 @@ def eval_expectation(inputs: Mapping[str, Any],
           -> kl_bits from the NORMALIZED weights over the outcome
              masses (the shaped-target battery: a rung is judged
              against its OWN target, not uniform); pass iff <= t.
+      {"type": "absent", "over": [outcomes], "max_p": t}
+          -> mass, the total on outcomes that should not be said (a
+             list slot's repeats); pass iff mass <= t. Every named
+             outcome must have been READ (in `tracked`): absence is
+             never inferred from an outcome the read did not score.
 
     The aggregate row (id "ALL") carries the pass rate — the number a
     publication cites.
@@ -1025,6 +1109,18 @@ def eval_expectation(inputs: Mapping[str, Any],
             ok = p is not None and p >= float(exp.get("min_p", 0.99))
         elif expect_type == "min_entropy":
             ok = float(dist.get("entropy_bits") or 0.0) >= float(exp["bits"])
+        elif expect_type == "absent":
+            over = [str(o) for o in exp["over"]]
+            unread = [o for o in over if o not in tracked]
+            if unread:
+                row["pass"] = None
+                row["note"] = f"unjudgeable: not read — {unread[:5]}"
+                n_unjudgeable += 1
+                rows.append(row)
+                continue
+            mass = sum(mass_of(o) for o in over)
+            row["mass"] = round(mass, 6)
+            ok = mass <= float(exp.get("max_p", 0.01))
         else:
             raise ValueError(f"unknown expectation type: {expect_type!r}")
         row["pass"] = ok

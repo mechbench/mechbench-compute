@@ -370,3 +370,28 @@ class TestRecordCoercion:
         assert render(M(), {"id": "a", "text": "t", "template": "chat"}).text == "<chat>t"
         with pytest.raises(ValueError, match="no prompt"):
             render(M(), {"id": "a", "text": "   "})
+
+
+def test_eval_expectation_absent_judges_the_mass_on_outcomes_already_said():
+    import math
+
+    def entry(p):
+        return {"text": "x", "tokens": 2, "p": p, "logp": math.log(p)}
+    reads = [
+        {"id": "clean", "entropy_bits": 5.0,
+         "tracked": {"Mystery": entry(0.004), "Humor": entry(0.002), "Witches": entry(0.2)}},
+        {"id": "repeats", "entropy_bits": 5.0,
+         "tracked": {"Mystery": entry(0.05), "Humor": entry(0.01)}},
+        {"id": "unread", "entropy_bits": 5.0, "tracked": {"Mystery": entry(0.001)}},
+    ]
+    already = {"type": "absent", "over": ["Mystery", "Humor"], "max_p": 0.01}
+    out = eval_expectation({"results": reads, "expectations": [
+        {"id": "clean", "expect": already},
+        {"id": "repeats", "expect": already},
+        {"id": "unread", "expect": already}]}, {})
+    by_id = {r["id"]: r for r in out["items"]}
+    assert by_id["clean"]["pass"] is True and by_id["clean"]["mass"] == 0.006
+    assert by_id["repeats"]["pass"] is False and by_id["repeats"]["mass"] == 0.06
+    # "Humor" was never scored: no verdict, rather than a false pass.
+    assert by_id["unread"]["pass"] is None and "Humor" in by_id["unread"]["note"]
+    assert out["summary"]["n_judged"] == 2 and out["summary"]["n_unjudgeable"] == 1

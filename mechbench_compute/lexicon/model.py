@@ -37,6 +37,11 @@ Shared conventions, stated once here and referred to from the entries:
 from __future__ import annotations
 
 from mechbench_compute.lexicon._base import Emits, In, Op, P
+from mechbench_compute.lexicon.common import (
+    TARGET_TRANSFORM,
+    TARGET_UNIFORM,
+    TARGET_WEIGHTS,
+)
 
 #: The port every model-running op has: an adapter fused for this node.
 ADAPTER = In("adapter", "adapter/lora",
@@ -852,6 +857,18 @@ its first token is recorded under `tracked` by its name — `{"1": "1", …,
 *complete* outcomes token by token (best-first, reusing the prompt cache)
 so that multi-token answers are compared as wholes.
 
+`complete` reads a named set of multi-token outcomes **exactly**: each
+outcome followed by its `closer` is scored by teacher forcing, and its
+probability goes into `tracked` under its own name, with `text`, the
+number of `tokens`, `p` (eight decimals) and `logp`. The closer is what
+makes an outcome complete: "Mystery" is scored as `Mystery"`, so it does
+not also count the mass of "Mystery Thriller". `complete_mass` is the total
+over the set, which is how much of what the model says at all falls in
+it. `eval/expect` then judges the set as it judges tokens, so a
+791-outcome target is checked against the model outcome by outcome. A
+record's own `complete` takes precedence: a probe midway through a list
+closes its outcomes on the join, not the quote.
+
 Records keep their `coords`, so a grid of conditions comes out as a grid of
 readings.
 """,
@@ -862,7 +879,7 @@ readings.
            "its own `tracked`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`), and `rollout` when one was requested. The header carries `top_k`.'),
+    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` with `complete`, and `rollout` when one was requested. The header carries `top_k`.'),
     params=(
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"yes\": \" Yes\"}` — the candidate "
@@ -885,6 +902,17 @@ readings.
               P("floor", "float", "Prune a path whose whole probability falls below this.", 0.001),
               P("terminators", "list[string]",
                 "An outcome is complete at the first token containing one of these.", ['"']),
+          )),
+        P("complete", "object",
+          "Score a set of complete outcomes exactly: `{\"items\": [...], "
+          "\"closer\": \"\\\"\"}`, recorded under `tracked`. A record's own "
+          "`complete` takes precedence.",
+          None, fields=(
+              P("items", "list[string] | object",
+                "The outcomes: a list, or a target spec (`weights` or `uniform`, with any "
+                "`transform`) whose support is read, so a `top_k` reads a rung's own vocabulary.",
+                None, fields=(TARGET_UNIFORM, TARGET_WEIGHTS, TARGET_TRANSFORM)),
+              P("closer", "string", "The text that ends an outcome.", '"'),
           )),
     ),
     example={
