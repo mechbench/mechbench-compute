@@ -13,6 +13,32 @@ nothing said so.
 
 ---
 
+## 0.97.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ Client-only additions; nothing an operation computes changes.
+
+### Other
+
+- **Publishing, copying and deleting from a script** (`bench`):
+  `publish_protocol_version` and `unpublish_protocol_version`;
+  `create_protocol(..., publish=True)` publishes the version it leaves at
+  the head and answers its public page's path; `copy_protocol_version`
+  copies a version into a project, sub-protocols and all, with
+  `dry_run`; `delete` takes an object path (with `prefix`) or a
+  protocol, job, article, dataset or project id, answers a `dry_run`,
+  raises the refusal's code, and needs `acknowledge_citations` when
+  articles cite the target; `history` reads a lifetime's audit log, also
+  after deletion; `get_protocol`.
+- A refused call's `BenchError.body` is the whole JSON answer, not its
+  first 500 characters — a long refusal (the articles citing a deletion)
+  used to arrive as unparseable text with no `code()`.
+
 ## 0.96.0 — 2026-09-17
 
 ### Changes that raise

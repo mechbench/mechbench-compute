@@ -182,6 +182,90 @@ class TestRunningAnAuthorTwice:
             bench.create_protocol("o", "p", "n", graph={}, exists="overwrite")
 
 
+PUBLISHED_VERSION = {"protocolId": "prt_1", "version": 2, "ownerHandle": "benji",
+                     "projectSlug": "lab", "name": "018-axes"}
+
+
+class TestPublishing:
+    """Epic 000535: an author script publishes the exact version an
+    article will embed (task 000542)."""
+
+    def test_publish_answers_the_public_page_and_the_unpublished_includes(self, fake):
+        fake.add("POST", "/versions/2/publish",
+                 {"version": PUBLISHED_VERSION, "unpublishedIncludes": [{"name": "leaf"}]})
+        out = bench.publish_protocol_version("prt_1", 2)
+        assert fake.calls[-1]["url"] == "https://api.test/protocols/prt_1/versions/2/publish"
+        assert out["publicPath"] == "/benji/lab/protocols/prt_1/v/2"
+        assert out["unpublishedIncludes"] == [{"name": "leaf"}]
+
+    def test_create_protocol_can_publish_what_it_leaves_at_the_head(self, fake):
+        fake.add("POST", "/versions/2/publish", {"version": PUBLISHED_VERSION, "unpublishedIncludes": []})
+        fake.add("POST", "/protocols", bench.BenchError(
+            "taken", status=409, body={"code": "NAME_TAKEN", "protocolId": "prt_1"}))
+        fake.add("PATCH", "/protocols/prt_1", {"protocol": {"id": "prt_1", "version": 2}})
+        out = bench.create_protocol("benji", "lab", "018-axes", graph={}, publish=True)
+        assert out["version"] == 2
+        assert out["published"]["publicPath"] == "/benji/lab/protocols/prt_1/v/2"
+        assert fake.calls[-1]["url"].endswith("/protocols/prt_1/versions/2/publish")
+
+    def test_unpublish_names_the_citing_articles(self, fake):
+        fake.add("POST", "/unpublish", {"version": 2, "published": False,
+                                        "citedBy": [{"title": "Lighthouse"}], "unreadable": 0})
+        assert bench.unpublish_protocol_version("prt_1", 2)["citedBy"] == [{"title": "Lighthouse"}]
+
+
+class TestCopy:
+    def test_it_posts_the_destination_and_can_dry_run(self, fake):
+        fake.add("POST", "/copy", {"name": "top-2", "copied": [], "reused": []})
+        out = bench.copy_protocol_version("prt_1", 3, "me", "bench", name="top", dry_run=True)
+        assert out["name"] == "top-2"
+        call = fake.calls[-1]
+        assert call["url"] == "https://api.test/protocols/prt_1/versions/3/copy?dryRun=1"
+        import json
+        assert json.loads(call["body"]) == {"ownerKind": "user", "ownerHandle": "me",
+                                            "projectSlug": "bench", "name": "top"}
+
+
+class TestDelete:
+    """Task 000545: one verb for every deletable thing, a dry run first."""
+
+    def test_an_id_names_its_route_and_a_path_is_an_object(self, fake):
+        fake.add("DELETE", "https://api.test/", {"ok": True})
+        bench.delete("prt_abc")
+        bench.delete("j_abc")
+        bench.delete("art_abc")
+        bench.delete("ds_abc")
+        bench.delete("proj_abc")
+        bench.delete("benji/lab/results/j_abc", prefix=True)
+        assert [c["url"] for c in fake.calls] == [
+            "https://api.test/protocols/prt_abc",
+            "https://api.test/jobs/j_abc",
+            "https://api.test/articles/art_abc",
+            "https://api.test/datasets/ds_abc",
+            "https://api.test/projects/proj_abc",
+            "https://api.test/objects/benji/lab/results/j_abc?prefix=1",
+        ]
+
+    def test_dry_run_and_acknowledgement_travel_as_query(self, fake):
+        fake.add("DELETE", "https://api.test/", {"dryRun": True, "deletes": {"objects": 2}})
+        assert bench.delete("benji/lab/notes", prefix=True, dry_run=True)["deletes"] == {"objects": 2}
+        bench.delete("prt_abc", acknowledge_citations=True)
+        assert fake.calls[0]["url"].endswith("/objects/benji/lab/notes?prefix=1&dryRun=1")
+        assert fake.calls[1]["url"].endswith("/protocols/prt_abc?acknowledge=citations")
+
+    def test_a_refusal_carries_its_code(self, fake):
+        fake.add("DELETE", "https://api.test/", bench.BenchError(
+            "cited", status=409, body={"code": "CITED", "citedBy": [{"title": "t"}]}))
+        with pytest.raises(bench.BenchError) as e:
+            bench.delete("prt_abc")
+        assert e.value.code() == "CITED"
+
+    def test_something_that_is_neither_is_refused_locally(self, fake):
+        with pytest.raises(ValueError, match="neither an object path"):
+            bench.delete("nonsense")
+        assert fake.calls == []
+
+
 class TestCancel:
     def test_it_posts_the_reason_and_returns_the_new_state(self, fake):
         fake.add("POST", "/jobs/j1/cancel",

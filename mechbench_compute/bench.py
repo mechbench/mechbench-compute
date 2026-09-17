@@ -246,9 +246,13 @@ def _request(method: str, url: str, key: str, body: bytes | None = None,
                 resp_headers = {k.lower(): v for k, v in resp.headers.items()}
             break
         except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")[:500]
+            # Parsed whole, quoted short: a refusal that names what is in
+            # its way (a deletion's citing articles, 000545) runs past any
+            # length worth printing, and a truncated body is not JSON.
+            full = e.read().decode("utf-8", "replace")
+            detail = full[:500]
             try:
-                parsed: Any = json.loads(detail)
+                parsed: Any = json.loads(full)
             except ValueError:
                 parsed = detail
             if e.code not in _RETRY_STATUS:
@@ -609,6 +613,7 @@ def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
 def create_protocol(owner: str, project: str, name: str, *, graph: dict,
                     description: str = "", signature: dict | None = None,
                     owner_kind: str = "user", exists: str = "version",
+                    publish: bool = False,
                     api_url: str | None = None,
                     api_key: str | None = None) -> dict:
     """Register a protocol: `POST /protocols` with its graph and
@@ -630,6 +635,10 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
     The authoring half of an experiment used to carry its own `api()`
     for exactly this call; it belongs beside `launch`, which runs what
     this registers.
+
+    `publish=True` publishes the version this call leaves at the head —
+    the exact version an article about its runs will embed (task 000542)
+    — and puts `publish_protocol_version`'s answer under `published`.
     """
     if exists not in ("version", "error"):
         raise ValueError(f"exists is 'version' or 'error', not {exists!r}")
@@ -662,7 +671,11 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
     # The protocols routes still answer `{protocol: …}` — the one wrapper
     # 000451 left behind (task 000456). Unwrapped here, once, so no
     # caller has to; drop this line when the route goes bare.
-    return out.get("protocol", out) if isinstance(out, dict) else out
+    protocol = out.get("protocol", out) if isinstance(out, dict) else out
+    if publish:
+        protocol = {**protocol, "published": publish_protocol_version(
+            protocol["id"], protocol["version"], api_url=api_url, api_key=api_key)}
+    return protocol
 
 
 def _name_taken(e: BenchError) -> str | None:
@@ -674,6 +687,131 @@ def _name_taken(e: BenchError) -> str | None:
         return None
     got = e.body.get("protocolId") if isinstance(e.body, dict) else None
     return str(got) if got else None
+
+
+# --- publishing, copying, deleting (epic 000535) -----------------------------
+#
+# A published protocol version is readable by anyone, and is what an
+# article embeds (task 000536); the version is the published unit, so a
+# later edit never reaches it. A copy brings its sub-protocols along
+# (000541). Every deletion answers a dry run, is refused while something
+# outside it depends on it, and names the articles citing it until told
+# otherwise (000543, 000545).
+
+
+def _public_path(version: dict) -> str | None:
+    """The site path of a published version's page, when the answer names
+    enough to build it: `/<owner>/<project>/protocols/<id>/v/<n>`."""
+    owner, project = version.get("ownerHandle"), version.get("projectSlug")
+    pid, n = version.get("protocolId"), version.get("version")
+    if not (owner and project and pid and n):
+        return None
+    return f"/{owner}/{project}/protocols/{pid}/v/{n}"
+
+
+def get_protocol(protocol: str, *, api_url: str | None = None,
+                 api_key: str | None = None) -> dict:
+    """`GET /protocols/:id` — the bare protocol, its head `version` among
+    the rest."""
+    url, key = _config(api_url, api_key)
+    out = _request("GET", f"{url}/protocols/{protocol}", key)
+    return out.get("protocol", out) if isinstance(out, dict) else out
+
+
+def publish_protocol_version(protocol: str, version: int, *,
+                             api_url: str | None = None,
+                             api_key: str | None = None) -> dict:
+    """Make one sealed version readable by anyone (task 000536).
+
+    `POST /protocols/:id/versions/:n/publish`, which takes someone who can
+    administer the protocol. Returns `{version, unpublishedIncludes,
+    publicPath}`: the version as the public reads it, the sub-protocols
+    it includes that are not published (a reader sees only their names),
+    and its page's path on the site. Publishing twice is the same answer.
+    """
+    url, key = _config(api_url, api_key)
+    out = _request("POST", f"{url}/protocols/{protocol}/versions/{int(version)}/publish", key)
+    return {**out, "publicPath": _public_path(out.get("version") or {})}
+
+
+def unpublish_protocol_version(protocol: str, version: int, *,
+                               api_url: str | None = None,
+                               api_key: str | None = None) -> dict:
+    """Withdraw a published version. Returns `{version, published,
+    citedBy, unreadable}` — the articles that embed it, or link to it from
+    a result, now show a placeholder there (task 000540)."""
+    url, key = _config(api_url, api_key)
+    return _request("POST", f"{url}/protocols/{protocol}/versions/{int(version)}/unpublish", key)
+
+
+def copy_protocol_version(protocol: str, version: int, owner: str, project: str, *,
+                          name: str | None = None, owner_kind: str = "user",
+                          dry_run: bool = False, api_url: str | None = None,
+                          api_key: str | None = None) -> dict:
+    """Copy a version into a project of yours (task 000541).
+
+    A protocol includes only protocols with its own owner (000544), so the
+    copy brings every sub-protocol along, or reuses an earlier copy of the
+    same version in that project. Returns `{protocol, copied, reused}`;
+    with `dry_run`, `{name, copied, reused}` and nothing made. A
+    sub-protocol you cannot read refuses the whole copy
+    (`UNREADABLE_INCLUDES`).
+    """
+    url, key = _config(api_url, api_key)
+    body: dict[str, Any] = {"ownerKind": owner_kind, "ownerHandle": owner, "projectSlug": project}
+    if name is not None:
+        body["name"] = name
+    return _request(
+        "POST", f"{url}/protocols/{protocol}/versions/{int(version)}/copy"
+                f"{'?dryRun=1' if dry_run else ''}", key,
+        body=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, timeout=90)
+
+
+#: What an id names, by its prefix. Anything else is an object path.
+_DELETABLE = {"prt": "protocols", "j": "jobs", "art": "articles", "ds": "datasets", "proj": "projects"}
+
+
+def _deletion_url(url: str, target: str, prefix: bool) -> str:
+    head, sep, _ = target.partition("_")
+    if sep and "/" not in target and head in _DELETABLE:
+        return f"{url}/{_DELETABLE[head]}/{target}"
+    if "/" not in target:
+        raise ValueError(f"{target!r} is neither an object path nor a protocol, job, "
+                         f"article, dataset or project id")
+    return f"{url}/objects/{target}{'?prefix=1' if prefix else ''}"
+
+
+def delete(target: str, *, prefix: bool = False, dry_run: bool = False,
+           acknowledge_citations: bool = False, api_url: str | None = None,
+           api_key: str | None = None) -> dict:
+    """Delete an object (a path; everything under it with `prefix`), or a
+    protocol, job, article, dataset or project (an id). Task 000545.
+
+    With `dry_run`, answers what it would do — `{deletes, keeps, refusal,
+    citedBy, unreadable}` — and deletes nothing. Otherwise a refusal
+    raises `BenchError` with its code (`LINEAGE_CHILDREN`,
+    `DATASET_REFERENT`, `INCLUDED`, `JOBS_RUNNING`, `DEPENDED_ON`, …), and
+    articles citing the target raise `CITED` until
+    `acknowledge_citations=True`. What is deleted keeps its history
+    (`history`), and its address is free for something new at once.
+    """
+    url, key = _config(api_url, api_key)
+    target_url = _deletion_url(url, target, prefix)
+    query = [q for q, on in (("dryRun=1", dry_run), ("acknowledge=citations", acknowledge_citations)) if on]
+    if query:
+        target_url += ("&" if "?" in target_url else "?") + "&".join(query)
+    return _request("DELETE", target_url, key)
+
+
+def history(kind: str, entity_id: str, *, api_url: str | None = None,
+            api_key: str | None = None) -> dict:
+    """A lifetime's audit log, readable after the thing is gone (task
+    000545): `{lifetime, events, others}`, where `others` are the other
+    lifetimes that have held its address. `kind` is object, protocol,
+    article, project, dataset or job."""
+    url, key = _config(api_url, api_key)
+    return _request("GET", f"{url}/history/{kind}/{entity_id}", key)
 
 
 def cancel(job_id: str, *, reason: str = "", api_url: str | None = None,
