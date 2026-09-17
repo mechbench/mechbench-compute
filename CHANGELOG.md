@@ -13,6 +13,48 @@ nothing said so.
 
 ---
 
+## 0.101.0 — 2026-09-18
+
+### Changes that raise
+
+- _None_ for a stored protocol. A graph in the declared form
+  (`dataflow: 2`) refuses, before anything runs: an unbound param or
+  input; a `{"$ref"}` where the op declares no stored object; a legacy
+  `$fetch` macro; an output that names no node.
+
+### Changes that alter results without raising
+
+- _None._ No result's bytes and no node's fingerprint change. A node's
+  **lineage inputs** grow: a stored object read by reference into a
+  param (a frequency table in `target.weights`) is now named as an input
+  of that node, in both forms. Until now lineage listed only what arrived
+  by edge.
+
+### Other
+
+Epic 000553 (`mechbench/docs/DATAFLOW.md`), tasks 000557 and 000558: the
+executor reads the declared dataflow form.
+
+- **Two references, as values.** `{"$param": name}` is the run's bound
+  param; `{"$ref": {"bench": path, "sha256"?}}` (or `hf_dataset`,
+  `hf_adapter`) is a stored object, fetched at the node's boundary. In a
+  declared graph a string that begins with `$` is a string. A param may
+  be bound to a `$ref`: references can be passed.
+- **Protocol inputs as edge sources**: `from: {"input": name}`. The graph
+  is lowered at load into the shapes the executor has always run, so a
+  protocol rewritten from the legacy form computes the same bytes under
+  the **same node fingerprints** — caches and resumes survive the
+  migration, and a test holds that.
+- **The lexicon says where a stored object may sit**: `P(…,
+  stored="text/word-list")` on `target.weights`, `complete.items`, and
+  `text/measure`'s `items` and `frequencies`. `P(…, reference=True)` asks
+  for the address itself, unresolved. One new type word, `ref`.
+- **Declared outputs are the run's results** (`extra.outputs`, from the
+  signature): stored at `results/<job>/<output name>`, listed by name in
+  the manifest with `output_nodes`. Every other node is an intermediate
+  at `results/<job>/nodes/<node id>`. A node can be renamed without
+  moving a result. A protocol with no declared outputs behaves as before.
+
 ## 0.100.0 — 2026-09-17
 
 ### Changes that raise

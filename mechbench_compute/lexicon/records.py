@@ -517,7 +517,8 @@ and "Steampunk Fantasy" are readable beside the names the map has.
               P("lowercase", "bool", "For `lexical` and `corpus_frequency`: lowercase words first.", True),
               P("min_length", "int", "For `lexical` and `corpus_frequency`: the shortest word counted.", 1),
               P("frequencies", "map[string, float]",
-                "For `corpus_frequency`: word → count, unless a `frequencies` input is wired.", None),
+                "For `corpus_frequency`: word → count, unless a `frequencies` input is wired. "
+                "A stored word list may be given by reference.", None, stored="text/word-list"),
               P("stat", "string", "For `corpus_frequency`: the statistic.", "mean_log10",
                 choices=("mean_log10", "mean", "coverage")),
               P("separator", "string", "For `list`: the text between items.", ", "),
@@ -525,8 +526,9 @@ and "Steampunk Fantasy" are readable beside the names the map has.
                 "For `list`: a regular expression locating the list in the text — its first "
                 "group, or its whole match.", None),
               P("items", "list[string] | object",
-                "For `list`: the vocabulary, a list or a map with `weights` or `uniform`.", None,
-                fields=(TARGET_UNIFORM, TARGET_WEIGHTS)),
+                "For `list`: the vocabulary, a list or a map with `weights` or `uniform`. "
+                "A stored word list may be given by reference.", None,
+                fields=(TARGET_UNIFORM, TARGET_WEIGHTS), stored="text/word-list"),
               P("count", "int", "For `list`: how many items a valid list has.", None),
           )),
         P("mode", "string",

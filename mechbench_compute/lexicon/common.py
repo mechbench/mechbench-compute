@@ -80,4 +80,6 @@ TARGET_TRANSFORM = P(
 TARGET_UNIFORM = P("uniform", "list[string]",
              "The outcomes, weighted equally. Wins over `weights` when both are given.", None)
 TARGET_WEIGHTS = P("weights", "map[string, float]",
-             "Outcome → weight, each finite and at least 0: raw corpus frequencies, say.", None)
+             "Outcome → weight, each finite and at least 0: raw corpus frequencies, say. "
+             "A stored word list may be given by reference.", None,
+             stored="text/word-list")

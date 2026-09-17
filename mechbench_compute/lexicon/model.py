@@ -934,8 +934,10 @@ readings.
           None, fields=(
               P("items", "list[string] | object",
                 "The outcomes: a list, or a target spec (`weights` or `uniform`, with any "
-                "`transform`) whose support is read, so a `top_k` reads a rung's own vocabulary.",
-                None, fields=(TARGET_UNIFORM, TARGET_WEIGHTS, TARGET_TRANSFORM)),
+                "`transform`) whose support is read, so a `top_k` reads a rung's own vocabulary. "
+                "A stored word list may be given by reference.",
+                None, fields=(TARGET_UNIFORM, TARGET_WEIGHTS, TARGET_TRANSFORM),
+                stored="text/word-list"),
               P("opener", "string",
                 "Text before each outcome that is not part of its name, such as the space "
                 "after a list's comma.", ""),

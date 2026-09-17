@@ -47,6 +47,11 @@ export interface LexiconParam {
   value?: string;
   /** The fields of every `object` in the type. */
   fields?: LexiconParam[];
+  /** The kind of stored object this param may be given by reference
+   * (`{"$ref": …}`), resolved by the executor at the node's boundary. */
+  stored?: string;
+  /** The block takes the reference itself, unresolved. */
+  reference?: boolean;
 }
 
 /** One input port. */

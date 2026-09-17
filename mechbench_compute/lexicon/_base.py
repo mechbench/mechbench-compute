@@ -277,7 +277,12 @@ REQUIRED: Any = _Required()
 #: * `list[T]` — a list of `T`, itself a union;
 #: * `map[string, T]` — string keys to `T`: `tracked`, `templates`.
 TYPE_WORDS = frozenset({"string", "int", "float", "bool", "null",
-                        "selector", "model", "object", "json", "callable"})
+                        "selector", "model", "object", "json", "callable",
+                        # A reference to a stored object (epic 000553): the
+                        # type of a protocol param whose value is an address
+                        # — `{"$ref": {"bench": …}}` — rather than what is
+                        # at it.
+                        "ref"})
 
 
 @dataclass(frozen=True)
@@ -374,6 +379,15 @@ class Param:
     #: `target_modules`. Fields are params, so a field may be an object
     #: with fields of its own.
     fields: tuple[Param, ...] = ()
+    #: The kind of stored object this param may be given BY REFERENCE
+    #: (epic 000553): `{"$ref": {"bench": …}}` here is fetched by the
+    #: executor at the node's boundary, recorded as a lineage input, and
+    #: handed to the block as the value. A `$ref` anywhere this is not
+    #: declared is refused before the node runs.
+    stored: str | None = None
+    #: The block wants the reference ITSELF — the address, unresolved — to
+    #: stream from it lazily or to publish to it.
+    reference: bool = False
 
     @property
     def required(self) -> bool:
@@ -390,6 +404,10 @@ class Param:
             d["value"] = self.value
         if self.fields:
             d["fields"] = [f.to_dict() for f in self.fields]
+        if self.stored:
+            d["stored"] = self.stored
+        if self.reference:
+            d["reference"] = True
         return d
 
 
@@ -587,9 +605,10 @@ class Op:
 
 def P(name: str, type: str, doc: str, default: Any = REQUIRED, *,
       choices: tuple[str, ...] = (), value: str | None = None,
-      fields: tuple[Param, ...] = ()) -> Param:
+      fields: tuple[Param, ...] = (), stored: str | None = None,
+      reference: bool = False) -> Param:
     """Shorthand for a declaration file: `P("top_k", "int", "…", 5)`."""
-    return Param(name, type, doc, default, choices, value, fields)
+    return Param(name, type, doc, default, choices, value, fields, stored, reference)
 
 
 def In(name: str, kind: str, doc: str, *, required: bool = True,

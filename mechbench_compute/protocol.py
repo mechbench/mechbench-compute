@@ -273,11 +273,40 @@ class ProtocolExecutor:
         from mechbench_compute.blocks import PURE_BLOCKS
         from mechbench_compute.seeds import hardware_class
 
+        from mechbench_compute import dataflow
+
         extra = spec.extra or {}
         graph = extra.get("graph") or {}
         bindings = extra.get("bindings") or {}
+        # The declared form (epic 000553): the run binds `params` and
+        # `inputs` by name, and the graph refers to them with values no
+        # literal can be. It is lowered here into the shapes this executor
+        # has always run, so everything below — ordering, resume, missing
+        # nodes, fingerprints — sees what it saw before.
+        declared = dataflow.is_declared(graph)
+        bound_params = extra.get("params") or {}
+        if declared:
+            graph = dataflow.lower(graph, extra.get("inputs") or {})
         nodes = {n["id"]: n for n in graph.get("nodes", [])}
         edges = graph.get("edges", [])
+        # What the protocol declares it keeps (000558): `[{name, from:
+        # {node}}]`, from its signature. With these, a result is stored
+        # under its declared NAME and every other node's value apart, as
+        # an intermediate — so a node can be renamed without moving a
+        # result anyone depends on. Without them (every legacy protocol)
+        # nothing changes: terminals are the outputs, under their ids.
+        declared_outputs = extra.get("outputs") if declared else None
+        outputs_of: dict[str, list[str]] = {}
+        for o in declared_outputs or []:
+            source = o["from"]["node"]
+            if source not in nodes:
+                raise ValueError(
+                    f"output {o['name']!r} comes from {source!r}, which is not a node")
+            if o["name"] == dataflow.INTERMEDIATES:
+                raise ValueError(
+                    f"an output cannot be named {dataflow.INTERMEDIATES!r}: that is "
+                    f"where intermediates are stored")
+            outputs_of.setdefault(source, []).append(o["name"])
 
         # What actually resolved (task 000260): every $fetch's content
         # hash and every model ref's snapshot commit, recorded into the
@@ -285,12 +314,87 @@ class ProtocolExecutor:
         # strictness.
         resolved: dict[str, dict] = {"objects": {}, "models": {}}
 
+        def fetch_object(ref, want=None):
+            from mechbench_compute import bench
+            fetched, meta = bench.fetch(ref, with_meta=True)
+            got = (meta or {}).get("content_hash") or ""
+            resolved["objects"][str(ref)] = got
+            if want and not got.endswith(str(want)):
+                raise ValueError(
+                    f"pinned object {ref!r} resolved to {got!r}, "
+                    f"expected sha256 {want!r}")
+            return fetched.get("payload", fetched) if isinstance(fetched, dict) else fetched
+
+        def stored_inputs_of(node):
+            """The bench objects a node reads by reference, in the order it
+            names them: its lineage inputs beside its upstream nodes
+            (000557). A frequency table fetched into a param is an input of
+            the node that trained on it, and until now lineage did not say
+            so. Read off the node itself rather than collected as fetches
+            happen, because remote nodes resolve alongside their siblings
+            and a fetch's timing says nothing about whose it was."""
+            found: list[str] = []
+
+            def walk(v):
+                if declared:
+                    if dataflow.is_param_ref(v):
+                        v = bound_params.get(v["$param"])
+                    if dataflow.is_object_ref(v):
+                        path = v["$ref"].get("bench")
+                        if isinstance(path, str) and path not in found:
+                            found.append(path)
+                        return
+                elif isinstance(v, dict) and "$fetch" in v:
+                    path = v["$fetch"]
+                    if isinstance(path, str) and path.startswith("$"):
+                        path = bindings.get(path[1:])
+                    if isinstance(path, str) and path not in found:
+                        found.append(path)
+                    return
+                if isinstance(v, dict):
+                    for x in v.values():
+                        walk(x)
+                elif isinstance(v, list):
+                    for x in v:
+                        walk(x)
+
+            walk(node.get("inputs") or {})
+            walk(node.get("params") or {})
+            return found
+
+        def resolve_declared(v, keep_reference=False):
+            """The declared form's two references, and nothing else: a
+            string that begins with `$` is a string here."""
+            if dataflow.is_param_ref(v):
+                name = v["$param"]
+                if name not in bound_params:
+                    raise ValueError(f"unbound param: {name!r}")
+                return resolve_declared(bound_params[name], keep_reference)
+            if dataflow.is_object_ref(v):
+                which, source = dataflow.source_of(v)
+                if keep_reference:
+                    # The op asked for the address, not what is at it.
+                    return dict(v["$ref"])
+                if which == "bench":
+                    return fetch_object(source, v["$ref"].get("sha256"))
+                if which == "hf_dataset":
+                    return resolve_hf_dataset(source)
+                return resolve_hf_adapter(source)
+            if isinstance(v, dict):
+                return {k: resolve_declared(x) for k, x in v.items()}
+            if isinstance(v, list):
+                return [resolve_declared(x) for x in v]
+            return v
+
         def resolve_value(v):
             """Recursive param resolution. Forms beyond literals:
             "$name"                    -> the run binding (a string).
             {"$fetch": ref}            -> the bench object's payload.
             {"$fetch": ref, "sha256":} -> same, verified against the
-                                          pinned content hash."""
+                                          pinned content hash.
+            In a declared graph: {"$param": name} and {"$ref": source}."""
+            if declared:
+                return resolve_declared(v)
             if isinstance(v, str) and v.startswith("$"):
                 name = v[1:]
                 if name not in bindings:
@@ -301,17 +405,7 @@ class ProtocolExecutor:
             if isinstance(v, dict) and set(v.keys()) == {"$hf_dataset"}:
                 return resolve_hf_dataset(resolve_value(v["$hf_dataset"]))
             if isinstance(v, dict) and "$fetch" in v                     and set(v.keys()) <= {"$fetch", "sha256"}:
-                from mechbench_compute import bench
-                ref = resolve_value(v["$fetch"])
-                fetched, meta = bench.fetch(ref, with_meta=True)
-                got = (meta or {}).get("content_hash") or ""
-                resolved["objects"][str(ref)] = got
-                want = v.get("sha256")
-                if want and not got.endswith(str(want)):
-                    raise ValueError(
-                        f"pinned object {ref!r} resolved to {got!r}, "
-                        f"expected sha256 {want!r}")
-                return fetched.get("payload", fetched)                     if isinstance(fetched, dict) else fetched
+                return fetch_object(resolve_value(v["$fetch"]), v.get("sha256"))
             if isinstance(v, dict):
                 return {k: resolve_value(x) for k, x in v.items()}
             if isinstance(v, list):
@@ -404,7 +498,12 @@ class ProtocolExecutor:
                 resolved["models"][ref] = {"repo": ref, "pinned": None,
                                             "commit": None}
 
-        def resolve_params(params):
+        def resolve_params(params, block=None):
+            if declared and block is not None:
+                # A param whose op asked for the reference itself gets the
+                # address; every other is resolved to what is there.
+                return {k: resolve_declared(v, dataflow.wants_reference(block, k))
+                        for k, v in (params or {}).items()}
             return {k: resolve_value(v) for k, v in (params or {}).items()}
 
         # Topological order (Kahn). The API validated acyclicity, but a
@@ -499,6 +598,8 @@ class ProtocolExecutor:
         # the nodes upstream of the mistake have been computed (000512,
         # 000513).
         _preflight(nodes, edges, order)
+        if declared:
+            dataflow.check_refs(nodes, bound_params)
 
         resume = resume or {}
         # A consumer may require a minimum resume level of an upstream
@@ -567,10 +668,10 @@ class ProtocolExecutor:
                 # (task 000400). Resolving it here would refuse a hole
                 # that is not this protocol's to fill.
                 params = resolve_params(
-                    {k: v for k, v in raw_params.items() if k != "body"})
+                    {k: v for k, v in raw_params.items() if k != "body"}, block)
                 params["body"] = raw_params["body"]
             else:
-                params = resolve_params(raw_params)
+                params = resolve_params(raw_params, block)
             if "model" in params:
                 # The model algebra (000312 Arc A): a binding may be a
                 # structured ModelRef. Normalize it HERE — adapters are
@@ -937,8 +1038,15 @@ class ProtocolExecutor:
             results[nid] = lexicon.canonical_collection(results[nid])
             node_hashes[nid] = resume_mod.content_hash(results[nid])
             if result_base:
+                names = outputs_of.get(nid, [])
+                if declared_outputs is None:
+                    target = f"{result_base}/{nid}"
+                elif names:
+                    target = f"{result_base}/{names[0]}"
+                else:
+                    target = f"{result_base}/{dataflow.INTERMEDIATES}/{nid}"
                 out = bench.emit(
-                    f"{result_base}/{nid}",
+                    target,
                     results[nid],
                     # Lineage names the inputs that EXIST. A node run
                     # under `on_missing` (000399) has an upstream that
@@ -947,14 +1055,23 @@ class ProtocolExecutor:
                     # was a KeyError that failed the very run the policy
                     # was keeping alive. `nodes_missing` on the manifest
                     # is where the absence is recorded.
-                    inputs=[node_paths[e["from"]["node"]]
-                            for e in in_edges
-                            if e["from"]["node"] in node_paths],
+                    inputs=list(dict.fromkeys([
+                        *(node_paths[e["from"]["node"]] for e in in_edges
+                          if e["from"]["node"] in node_paths),
+                        # …and the stored objects it read by reference.
+                        *stored_inputs_of(node)])),
                     # Provenance records the stored identity.
                     operation=lexicon.canonical_path(block),
                     params=_wire_params(params),
                 )
                 node_paths[nid] = out["path"]
+                # A node declared as several outputs is stored under each
+                # name; the first is the one its consumers' lineage cites.
+                for also in names[1:]:
+                    bench.emit(f"{result_base}/{also}", results[nid],
+                               inputs=[out["path"]],
+                               operation=lexicon.canonical_path(block),
+                               params=_wire_params(params))
             if isinstance(results[nid], dict) and results[nid].get("spend"):
                 spend_by_node[nid] = results[nid]["spend"]
             if self._on_node_done is not None:
@@ -994,10 +1111,19 @@ class ProtocolExecutor:
                 return [sanitize(x, at) for x in v]
             return v
 
+        if declared_outputs is None:
+            kept = {nid: nid for nid in terminals}
+        else:
+            # By declared name. An output whose node produced nothing is
+            # absent here and named under `nodes_missing`.
+            kept = {o["name"]: o["from"]["node"] for o in declared_outputs
+                    if o["from"]["node"] in results
+                    and o["from"]["node"] not in missing}
         payload = {
             "kind": "run/result",
-            "outputs": {nid: sanitize(results[nid], node_paths.get(nid, ""))
-                         for nid in terminals},
+            "outputs": {name: sanitize(results[nid], node_paths.get(nid, ""))
+                         for name, nid in kept.items()},
+            **({"output_nodes": dict(kept)} if declared_outputs is not None else {}),
             "nodes_executed": [nid for nid in order if nid not in missing],
             "node_paths": node_paths,
             # What each node produced, small enough to read beside the
