@@ -56,7 +56,7 @@ def _fake_generate_substrate(monkeypatch, calls: _Calls):
     monkeypatch.setattr(distill, "prefill_decision", lambda model, ids: ("cache", ids))
 
     def sample(model, ids, *, max_tokens, temperature, top_p, rng, prefill,
-               return_ids=False):
+               return_ids=False, stop_strings=()):
         calls.n += 1
         word = int(rng.integers(0, 10**9))
         return f"story-{word}", [1, 2, 3]

@@ -13,6 +13,32 @@ nothing said so.
 
 ---
 
+## 0.99.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ Both new params are opt-in. Every generated item's
+  `metadata.sampling` gains `ended`; the text is unchanged.
+
+### Other
+
+- **`text/generate` continues a record's prefill** (`continue_prefill`,
+  task 000549). Each sample's assistant turn begins with the record's
+  `prefill`, so the samples continue exactly the envelope that a
+  `logits/read` of the same record reads and that a training step
+  conditions on. Without it the model chooses its own JSON layout: an
+  untrained Gemma E2B fenced 19 of 210 single-genre answers. The item's
+  `text` is the prefill followed by what the model wrote.
+- **`text/generate` `stop`**, as in `text/chat`. It ends a sample at the
+  first of its strings, which are not kept in the text.
+- **`metadata.sampling.ended`** on every generated item says how the
+  sample ended: `"stop"`, `"end"` or `"max_tokens"`. An answer that never
+  closed is told apart from one that did.
+
 ## 0.98.0 — 2026-09-17
 
 ### Changes that raise

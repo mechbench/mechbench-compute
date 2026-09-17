@@ -1059,6 +1059,13 @@ class ProtocolExecutor:
         fidelity = params.get("fidelity", "text")
         if fidelity not in ("text", "trace"):
             raise ValueError(f"generate: unsupported fidelity {fidelity!r}")
+        # A record's prefill begins the assistant's turn when asked
+        # (000549): the samples then continue exactly the envelope a
+        # decision read and a training step condition on, and `stop`
+        # ends them where the answer does. Off, the prefill is dropped,
+        # as it always was.
+        continue_prefill = bool(params.get("continue_prefill", False))
+        stop_strings = tuple(s for s in (params.get("stop") or ()) if s)
 
         from mechbench_compute.generate import offsets_by_cumulative_decode
 
@@ -1066,7 +1073,8 @@ class ProtocolExecutor:
             on_start(len(records) * n)
         items = []
         for rec in records:
-            r = render(model, dict(rec, prefill=""))
+            lead = str(rec.get("prefill") or "") if continue_prefill else ""
+            r = render(model, dict(rec, prefill=lead))
             rendered, ids = r.text, r.ids
             prefill = prefill_decision(model, ids)
             for k in range(start, start + n):
@@ -1086,11 +1094,20 @@ class ProtocolExecutor:
                 text, out_ids = sample_completion_cached(
                     model, ids, max_tokens=max_tokens,
                     temperature=temperature, top_p=top_p, rng=rng,
-                    prefill=prefill, return_ids=True)
+                    prefill=prefill, return_ids=True,
+                    stop_strings=stop_strings)
+                if stop_strings and any(s in tok.decode(out_ids) for s in stop_strings):
+                    ended = "stop"
+                elif len(out_ids) >= max_tokens:
+                    ended = "max_tokens"
+                else:
+                    ended = "end"
                 item = {
                     "id": f"{rec['id']}-s{k}",
                     "kind": "text/document",
-                    "text": text,
+                    # The assistant's turn as it reads: the prefill it was
+                    # begun with, then what the model wrote.
+                    "text": lead + text,
                     # A document is a record: coords on the item, and
                     # under metadata where older readers look.
                     "coords": {**rec.get("coords", {}), "sample": k},
@@ -1098,7 +1115,9 @@ class ProtocolExecutor:
                         "coords": {**rec.get("coords", {}), "sample": k},
                         "sampling": {"temperature": temperature,
                                      "top_p": top_p, "seed": seed,
-                                     "index": k},
+                                     "index": k, "ended": ended,
+                                     **({"prefill": lead} if lead else {}),
+                                     **({"stop": list(stop_strings)} if stop_strings else {})},
                         # The wire form, never the resolved object: the
                         # object carries the adapter bytes (000488).
                         "model": _wire_model(params.get("model")),

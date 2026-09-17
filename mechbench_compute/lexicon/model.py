@@ -793,17 +793,29 @@ its key: running the same node again reproduces the same texts, and growing
 a corpus later is the same node over a later `start` range, unioned with
 the first.
 
+`continue_prefill` begins each sample's assistant turn with the record's
+`prefill`, so the model continues exactly the envelope a `logits/read` of
+the same record reads, and a training step conditions on: `'{ "genre": "'`
+samples the genre itself, not the model's choice of JSON layout. The
+item's `text` is the prefill followed by what the model wrote. `stop` ends
+a sample at the first of its strings, which are not kept in the text:
+with `stop: ["\""]` a sample is the answer and nothing after it. Each
+item's `metadata.sampling.ended` says how it ended — `"stop"`, `"end"`
+(the model ended its turn) or `"max_tokens"` — so an answer that never
+closed is distinguishable from one that did.
+
 With `fidelity: "trace"` each item also keeps its token ids, character
 offsets and the prompt/body segmentation, which is what `score` needs to
 annotate it token by token.
 """,
     inputs=(
         In("records", "records/record",
-           "Chat-shaped records: `user` (required) and `system` (optional), "
+           "Chat-shaped records: `user` (required), `system` and `prefill` "
+           "(optional; the prefill is read only with `continue_prefill`), "
            "an `id`, and optionally `coords`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling`, and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`."),
+    emits=Emits('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`."),
     params=(
         P("n", "int", "How many completions to sample per record.", 1),
         P("start", "int",
@@ -820,6 +832,14 @@ annotate it token by token.
           "probabilities sum to `top_p` is sampled from.",
           0.95),
         P("max_tokens", "int", "The longest completion, in tokens.", 256),
+        P("continue_prefill", "bool",
+          "Begin each sample's assistant turn with the record's `prefill`, and "
+          "keep it at the front of the item's `text`.",
+          False),
+        P("stop", "list[string]",
+          "Strings at which a sample stops; the marker itself is not part of "
+          "the text.",
+          None),
         P("fidelity", "string",
           "`\"text\"` keeps the completion text; `\"trace\"` also keeps token "
           "ids, offsets and spans, so the collection can be scored token by "
