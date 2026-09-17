@@ -627,6 +627,9 @@ def text_stats(inputs: Mapping[str, Any],
                   "corpus": ONE summary record — pattern counts and
                   rates, corpus-wide distinct words and duplication,
                   means of per-record frequency stats.
+                  "items": one record per distinct item a `list` measure
+                  parsed, with its count — what the corpus SAID, whether
+                  or not `items` contains it (000551).
     """
     import math as _math
     import re
@@ -641,9 +644,10 @@ def text_stats(inputs: Mapping[str, Any],
     field = "text"
     measures = params.get("measures") or []
     mode = params.get("mode", "annotate")
-    if mode not in ("annotate", "corpus"):
+    if mode not in ("annotate", "corpus", "items"):
         raise ValueError(
-            f"text/measure mode must be 'annotate' or 'corpus', not {mode!r}")
+            "text/measure mode must be 'annotate', 'corpus' or 'items', not "
+            f"{mode!r}")
     # `keep` (task 000368): an annotated row carries the whole item —
     # text, trace, metadata — not just id + coords + measures, so a
     # capture downstream can replay the story it was labelled on.
@@ -722,6 +726,9 @@ def text_stats(inputs: Mapping[str, Any],
 
     out = []
     corpus_items: dict[str, set[str]] = {}
+    # What the corpus said, item by item (000551): the vocabulary labels
+    # an answer, it does not decide whether the answer counts.
+    said: dict[str, dict[str, dict]] = {}
     corpus_words: list[str] = []
     for r in recs:
         text = str(r.get(field, ""))
@@ -765,6 +772,14 @@ def text_stats(inputs: Mapping[str, Any],
                     and distinct == len(items) and not unknown
                     and (cfg["count"] is None or len(items) == cfg["count"]))
                 corpus_items.setdefault(name, set()).update(keys)
+                for pos, (item, key) in enumerate(zip(items, keys)):
+                    tally = said.setdefault(name, {}).setdefault(key, {
+                        "item": item, "count": 0, "lists": 0, "first": 0,
+                        "in_vocabulary": None if cfg["vocab"] is None else key in cfg["vocab"]})
+                    tally["count"] += 1
+                    tally["first"] += int(pos == 0)
+                    if key not in keys[:pos]:
+                        tally["lists"] += 1
             else:  # corpus_frequency
                 words = _words_of(text, cfg["lowercase"], cfg["min_length"])
                 vals = [cfg["table"][w] for w in words if w in cfg["table"]]
@@ -782,6 +797,20 @@ def text_stats(inputs: Mapping[str, Any],
 
     if mode == "annotate":
         return out
+
+    if mode == "items":
+        if not any(kind == "list" for _, kind, _ in compiled):
+            raise ValueError(
+                "text/measure mode 'items' needs a `list` measure: it tallies "
+                "what the lists said")
+        rows = []
+        for name, tally in said.items():
+            total = sum(t["count"] for t in tally.values()) or 1
+            for t in sorted(tally.values(), key=lambda t: (-t["count"], t["item"])):
+                rows.append({"id": f"{name}:{t['item']}",
+                             "coords": {"measure": name, "item": t["item"]},
+                             **t, "share": round(t["count"] / total, 6)})
+        return rows
 
     summary: dict[str, Any] = {"id": "corpus", "coords": {},
                                "n_texts": len(out)}

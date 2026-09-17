@@ -189,3 +189,33 @@ def test_list_without_extract_reads_the_whole_text_and_can_fold_case():
                       {"measures": [{"type": "list", "name": "g", "items": GENRES,
                                      "ignore_case": True}]})
     assert rows[0]["g_items"] == 3 and rows[0]["g_duplicates"] == 1 and rows[0]["g_unknown"] == 0
+
+
+def test_items_mode_tallies_what_the_corpus_said_map_or_not():
+    rows = text_stats({"records": LISTS}, {"measures": [LIST], "mode": "items"})
+    by_item = {r["item"]: r for r in rows}
+    # Every answer is a row, in the map or not.
+    assert by_item["Mystery"]["count"] == 3 and by_item["Mystery"]["lists"] == 2
+    assert by_item["Mystery"]["in_vocabulary"] is True
+    assert by_item["Dragons"]["count"] == 1 and by_item["Dragons"]["in_vocabulary"] is False
+    # Ranked by count, ties by name: "Humor" and "Mystery" both said 3 times.
+    assert [r["item"] for r in rows[:2]] == ["Humor", "Mystery"]
+    assert by_item["Humor"]["count"] == 3 and by_item["Humor"]["lists"] == 3
+    assert abs(sum(r["share"] for r in rows) - 1.0) < 1e-5  # shares are rounded
+    # `first` counts the lists an item led.
+    assert by_item["Mystery"]["first"] == 1 and by_item["Mystery Thriller"]["first"] == 1
+    assert by_item["Humor"]["first"] == 0
+    assert rows[0]["coords"] == {"measure": "genres", "item": "Humor"}
+
+
+def test_items_mode_without_a_vocabulary_labels_nothing():
+    rows = text_stats({"records": LISTS[:1]},
+                      {"measures": [{k: v for k, v in LIST.items() if k != "items"}],
+                       "mode": "items"})
+    assert {r["item"] for r in rows} == {"Mystery", "Humor", "Witches", "Fiction"}
+    assert all(r["in_vocabulary"] is None for r in rows)
+
+
+def test_items_mode_needs_a_list_measure():
+    with pytest.raises(ValueError, match="needs a `list` measure"):
+        text_stats({"records": LISTS}, {"measures": [LEAK], "mode": "items"})

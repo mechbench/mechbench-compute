@@ -477,6 +477,13 @@ group on a measure downstream, `records/rename` it into `coords`. In
 corpus-wide word and distinct-word counts and duplication, and the mean of
 each frequency statistic; per list, the parsed, duplicate and valid rates,
 mean items, distinct items across the corpus, and the unknown-item rate.
+
+In `items` mode it is one record per distinct item the `list` measures
+parsed — `item`, `count`, `lists` (how many lists held it), `first` (how
+often it led one), `share`, and `in_vocabulary` when `items` was given.
+This is what the corpus SAID, in its own vocabulary: an answer outside
+the map is a row like any other, labelled rather than dropped, so "Sci-Fi"
+and "Steampunk Fantasy" are readable beside the names the map has.
 """,
     inputs=(
         In("records", "records/record",
@@ -524,8 +531,9 @@ mean items, distinct items across the corpus, and the unknown-item rate.
           )),
         P("mode", "string",
           "`\"annotate\"`: emit each record with its measures. "
-          "`\"corpus\"`: emit one summary record.",
-          "annotate", choices=("annotate", "corpus")),
+          "`\"corpus\"`: emit one summary record. `\"items\"`: emit one "
+          "record per distinct item a `list` measure parsed.",
+          "annotate", choices=("annotate", "corpus", "items")),
         P("keep", "bool",
           "In `annotate` mode, carry the whole item (text, trace, metadata) "
           "on each output record rather than only `id`, `coords` and the "

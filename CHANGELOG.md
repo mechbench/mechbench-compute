@@ -13,6 +13,25 @@ nothing said so.
 
 ---
 
+## 0.100.0 — 2026-09-17
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ The new mode is a third reading of the same measurements.
+
+### Other
+
+- **`text/measure` mode `items`** (task 000551): one record per distinct
+  item a `list` measure parsed — `item`, `count`, `lists`, `first`,
+  `share`, and `in_vocabulary` when a vocabulary was given. It is what a
+  corpus SAID, in its own vocabulary: an answer outside the map is a row
+  like any other, labelled rather than dropped. `annotate` counts
+  unknowns, `corpus` rates them; neither could say what they were.
+
 ## 0.99.0 — 2026-09-17
 
 ### Changes that raise
