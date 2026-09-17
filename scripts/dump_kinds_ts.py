@@ -7,7 +7,7 @@ written across releases, so it needs the same table; this script writes
 it as a TypeScript module the UI commits verbatim.
 
 Usage:
-    python scripts/dump_kinds_ts.py > ../mechbench-ui/src/lib/kindAliases.generated.ts
+    python scripts/dump_kinds_ts.py > ../mechbench-models/src/kinds.generated.ts
 """
 
 from __future__ import annotations
