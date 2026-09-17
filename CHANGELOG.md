@@ -25,6 +25,21 @@ nothing said so.
 
 ### Other
 
+- **The release gate no longer loads a model** (task 000552). Benji: "we
+  support many different models, and it's not practical to run a
+  performance test of all those different models upon every release".
+  `scripts/bench_rollout.py` becomes a tool, run by `scripts/release.py
+  --with-model-budget`; the gate says it did not measure it. The
+  invariants of the cached rollout path — one prompt encoding, each
+  expansion feeding only its own tokens, no whole-vocabulary sort — are
+  counted in `tests/test_rollout_work.py` on every test run instead. The
+  slowdown that prompted the budget (000506) was the runner on
+  efficiency cores, which release-time timing could not have told from a
+  busy machine anyway.
+- **`logits/read` `rollout` on a narrow vocabulary** raised
+  `kth out of bounds` where it should take every token: a branch width
+  of fifty against a tokenizer smaller than that. Found by the new test;
+  no real tokenizer is that small, so no result is affected.
 - **`text/measure` mode `items`** (task 000551): one record per distinct
   item a `list` measure parsed — `item`, `count`, `lists`, `first`,
   `share`, and `in_vocabulary` when a vocabulary was given. It is what a

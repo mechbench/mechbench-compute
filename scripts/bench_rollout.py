@@ -18,6 +18,11 @@ Prints a table of medians per phase and the implied cost per expansion
 forward; exits non-zero when that cost is over `--budget-ms`. Needs the
 model in the local Hugging Face cache and an otherwise idle machine —
 a busy GPU makes the number about the machine, not the code.
+
+Since 0.100.0 this is a tool, not a gate: `scripts/release.py` runs it
+only with `--with-model-budget` (task 000552). A release no longer waits
+on ~10 GB of weights, and the regression it was written for is counted
+in `tests/test_rollout_work.py` instead.
 """
 from __future__ import annotations
 

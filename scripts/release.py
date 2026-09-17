@@ -76,11 +76,21 @@ def rollout_budget() -> None:
     with rollout must not have got slower per forward. A matrix of 312
     reads once took 36 minutes where it had taken 4, and nothing in the
     numbers said so — the count of forwards was the same; only the
-    clock knew. The budget is coarse (150 ms a forward on E2B, against
-    ~75 measured) so it catches a slower path, not a busy afternoon;
-    it is skipped, and says so, when the runner is executing a job or
-    the model is not in the local cache, because then the number would
-    be about the machine."""
+    clock knew.
+
+    **Opt-in since 0.100.0** (`--with-model-budget`, task 000552). Benji:
+    "we support many different models, and it's not practical to run a
+    performance test of all those different models upon every release …
+    we have been cutting many releases per day". It loaded ~10 GB of
+    weights for one model, and skipped itself whenever the runner was
+    busy or that model was not cached.
+
+    Note what 000506 turned out to be: the runner running as a launchd
+    `Background` process, on the efficiency cores. That is an environment
+    regression, and no release-time run on the release machine would have
+    told it from a busy afternoon. Timing belongs where the work happens
+    — per-node durations from real jobs — and the code invariants belong
+    in the suite (`tests/test_rollout_work.py`)."""
     status = run(["mechbench", "status"], timeout=30)
     if status.returncode == 0 and "executing" in (status.stdout or ""):
         print("  skipped: the runner is executing a job; the number would be the machine's")
@@ -102,6 +112,7 @@ def rollout_budget() -> None:
 
 def main() -> None:
     dry = "--dry-run" in sys.argv
+    with_budget = "--with-model-budget" in sys.argv
     m = re.search(r'^version = "([^"]+)"',
                   (REPO / "pyproject.toml").read_text(), re.MULTILINE)
     if not m:
@@ -166,8 +177,13 @@ def main() -> None:
             if proc.returncode != 0:
                 die(f"smoke: {name}", proc)
 
-    print("[6/6] rollout budget: the cost of an expansion forward")
-    rollout_budget()
+    if with_budget:
+        print("[6/6] rollout budget: the cost of an expansion forward")
+        rollout_budget()
+    else:
+        print("[6/6] rollout budget: not measured (`--with-model-budget` "
+              "runs it). The work it guarded is counted in "
+              "tests/test_rollout_work.py; the timing needs a model.")
 
     print(f"\ngate PASSED for {ver}")
     if dry:
