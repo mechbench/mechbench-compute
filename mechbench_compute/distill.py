@@ -684,30 +684,39 @@ def complete_items(items: Any) -> list[str]:
 
 
 def score_complete(model, tokenizer, rendered: str, prompt_ids: list[int],
-                   spec: Mapping[str, Any]) -> tuple[dict[str, dict], float]:
+                   spec: Mapping[str, Any]) -> tuple[dict[str, dict], float, float]:
     """Exact probabilities of complete outcomes at a decision point (task
-    000548): each outcome, followed by ``spec["closer"]``, tokenized as a
-    continuation of the rendered prompt and scored by teacher forcing.
-    The closer is what makes an outcome complete — "Mystery" is scored as
-    `Mystery"`, so the mass of "Mystery Thriller" is not counted twice.
+    000548): each outcome, between ``spec["opener"]`` and
+    ``spec["closer"]``, tokenized as a continuation of the rendered prompt
+    and scored by teacher forcing. The closer is what makes an outcome
+    complete — "Mystery" is scored as `Mystery"`, so the mass of "Mystery
+    Thriller" is not counted twice. The opener is text before each
+    outcome that is not part of its name: after a list's `,` the next
+    genre is scored as " Humor" and recorded as "Humor" (a prompt ending
+    in the space would tokenize the space alone, as no generation does).
 
-    Returns (entries by outcome, total mass). Each entry is ``{text,
-    tokens, p, logp}``; ``p`` keeps eight decimals, since a wide
-    vocabulary puts outcomes well below the five a token read keeps."""
+    Returns (entries by outcome, total mass, entropy in bits of the mass
+    renormalized over the set). Each entry is ``{text, tokens, p, logp}``;
+    ``p`` keeps eight decimals, since a wide vocabulary puts outcomes well
+    below the five a token read keeps."""
+    opener = str(spec.get("opener", ""))
     closer = str(spec.get("closer", '"'))
     names = complete_items(spec.get("items"))
-    sequences = {name: suffix_tokens(tokenizer, rendered, prompt_ids, name + closer)
+    sequences = {name: suffix_tokens(tokenizer, rendered, prompt_ids, opener + name + closer)
                  for name in names}
     logps = score_items_fast(model, prompt_ids, sequences)
     entries: dict[str, dict] = {}
-    mass = 0.0
+    ps = []
     for name in names:
         lp = float(logps[name])
         p = math.exp(lp)
-        mass += p
+        ps.append(p)
         entries[name] = {"text": name, "tokens": len(sequences[name]),
                          "p": round(p, 8), "logp": round(lp, 4)}
-    return entries, mass
+    mass = sum(ps)
+    entropy = (-sum((p / mass) * math.log2(p / mass) for p in ps if p > 0)
+               if mass > 0 else 0.0)
+    return entries, mass, entropy
 
 
 def item_metrics(logps: Mapping[str, float],

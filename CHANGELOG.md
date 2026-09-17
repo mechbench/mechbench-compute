@@ -58,6 +58,14 @@ Task 000548, for experiment 025 (outcomes of many tokens, drawn as lists):
   `tracked` under its name, with `complete_mass` on the read, so
   `eval/expect` judges a many-token vocabulary as it judges tokens.
   `items` takes a target spec, so a `top_k` reads a rung's own vocabulary.
+  - `opener` is text scored before each outcome but left out of its
+    name (the space after a list's comma).
+  - A record's own `complete` is laid over the block's field by field.
+  - `complete_entropy_bits` is the entropy over the set.
+- A target's `weights` may be a fetched `text/word-list` or target-map
+  object (`{"$fetch": …}` resolves to `{kind, weights}`), as the
+  `adapter/train` example has always written it; it used to fail on
+  `kind`.
 - **`eval/expect` type `absent`.** It checks the mass on outcomes that
   should not be said, such as the genres already in a list. Every named
   outcome must have been read.

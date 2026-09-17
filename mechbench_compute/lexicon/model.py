@@ -862,12 +862,16 @@ outcome followed by its `closer` is scored by teacher forcing, and its
 probability goes into `tracked` under its own name, with `text`, the
 number of `tokens`, `p` (eight decimals) and `logp`. The closer is what
 makes an outcome complete: "Mystery" is scored as `Mystery"`, so it does
-not also count the mass of "Mystery Thriller". `complete_mass` is the total
-over the set, which is how much of what the model says at all falls in
-it. `eval/expect` then judges the set as it judges tokens, so a
+not also count the mass of "Mystery Thriller". An `opener` is text before
+each outcome that is not part of its name — after a list's comma the next
+outcome is scored as " Humor" and recorded as "Humor". `complete_mass` is
+the total over the set, which is how much of what the model says at all
+falls in it, and `complete_entropy_bits` the entropy of that mass
+renormalized. `eval/expect` then judges the set as it judges tokens, so a
 791-outcome target is checked against the model outcome by outcome. A
-record's own `complete` takes precedence: a probe midway through a list
-closes its outcomes on the join, not the quote.
+record's own `complete` is laid over the block's field by field: a probe
+midway through a list names its opener and closer and keeps the block's
+outcomes.
 
 Records keep their `coords`, so a grid of conditions comes out as a grid of
 readings.
@@ -879,7 +883,7 @@ readings.
            "its own `tracked`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` with `complete`, and `rollout` when one was requested. The header carries `top_k`.'),
+    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` and `complete_entropy_bits` with `complete`, and `rollout` when one was requested. The header carries `top_k`.'),
     params=(
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"yes\": \" Yes\"}` — the candidate "
@@ -906,12 +910,15 @@ readings.
         P("complete", "object",
           "Score a set of complete outcomes exactly: `{\"items\": [...], "
           "\"closer\": \"\\\"\"}`, recorded under `tracked`. A record's own "
-          "`complete` takes precedence.",
+          "`complete` is laid over this one field by field.",
           None, fields=(
               P("items", "list[string] | object",
                 "The outcomes: a list, or a target spec (`weights` or `uniform`, with any "
                 "`transform`) whose support is read, so a `top_k` reads a rung's own vocabulary.",
                 None, fields=(TARGET_UNIFORM, TARGET_WEIGHTS, TARGET_TRANSFORM)),
+              P("opener", "string",
+                "Text before each outcome that is not part of its name, such as the space "
+                "after a list's comma.", ""),
               P("closer", "string", "The text that ends an outcome.", '"'),
           )),
     ),

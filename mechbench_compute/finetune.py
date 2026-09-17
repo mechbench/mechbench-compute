@@ -113,6 +113,11 @@ def target_map_from_spec(spec: Mapping[str, Any]) -> TargetMap:
         target = TargetMap.uniform([str(x) for x in spec["uniform"]])
     else:
         weights = spec.get("weights")
+        # A fetched `target_map` object arrives as its payload, `{kind,
+        # weights}` — the form the lexicon's own example writes
+        # (`"weights": {"$fetch": …}`), which used to fail on `kind`.
+        if isinstance(weights, Mapping) and isinstance(weights.get("weights"), Mapping):
+            weights = weights["weights"]
         if not weights:
             raise ValueError(f"unrecognized target spec: {list(spec.keys())}")
         target = TargetMap({str(k): float(v) for k, v in weights.items()})

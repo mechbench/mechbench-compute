@@ -2616,13 +2616,15 @@ class ProtocolExecutor:
             # Complete outcomes (000548), exactly: each scored whole and
             # closed, into `tracked` under its own name, so `eval/expect`
             # judges multi-token outcomes as it judges tokens. A record's
-            # own `complete` (a probe at a later list slot closes on the
-            # join, not the quote) takes precedence.
-            spec = cond.get("complete") or complete
+            # own `complete` is laid over the block's field by field, so a
+            # probe at a later list slot names only its opener and closer
+            # and keeps the block's outcomes.
+            spec = {**(complete or {}), **(cond.get("complete") or {})}
             if spec:
-                scored, mass = score_complete(model, tok, rendered, ids, spec)
+                scored, mass, entropy = score_complete(model, tok, rendered, ids, spec)
                 entry["tracked"] = {**(entry.get("tracked") or {}), **scored}
                 entry["complete_mass"] = round(mass, 6)
+                entry["complete_entropy_bits"] = round(entropy, 4)
             out.append(entry)
             if on_item:
                 on_item(key, entry)
