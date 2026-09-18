@@ -13,6 +13,37 @@ nothing said so.
 
 ---
 
+## 0.102.0 — 2026-09-18
+
+### Changes that raise
+
+- A run's `keep` must be `"all"` or `"outputs"`; anything else refuses
+  before anything runs.
+
+### Changes that alter results without raising
+
+- _None._ No result's bytes and no node's fingerprint change. Every run
+  manifest gains `node_hashes` (each node's content hash) and
+  `node_inputs` (each node's upstream nodes); a discard-mode run adds
+  `keep` and `nodes_held`.
+
+### Other
+
+Epic 000553, task 000561: eager discard of intermediates.
+
+- **`keep: "outputs"`** on a declared run holds every node that is not a
+  declared output on the device instead of emitting it: the API never
+  receives the bytes. The result stays in memory for its consumers and
+  goes to the runner's spool through a new executor hook,
+  `on_node_kept(nid, fingerprint, result)`, so a resume on the same
+  device picks it up (`resume[nid]["held"]`) under the same fingerprint
+  and recomputes nothing. A consumer's lineage cites a held upstream by
+  content hash (`~hash/sha256:…`, a path form of its own), and the
+  manifest's `node_hashes` is what that verifies against.
+- **A failed discard-mode run stores its held intermediates** under
+  `results/<job>/nodes/<id>` before the failure is raised: they are the
+  evidence. The default, `keep: "all"`, stores everything as before.
+
 ## 0.101.0 — 2026-09-18
 
 ### Changes that raise

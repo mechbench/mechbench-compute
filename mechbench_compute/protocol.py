@@ -51,8 +51,8 @@ class ProtocolSpec:
 class ProtocolExecutor:
     def __init__(self, on_download=None, on_download_bytes=None, *,
                  on_node_start=None, on_spool_item=None,
-                 on_checkpoint=None, on_node_done=None, limiter=None,
-                 budget=None) -> None:
+                 on_checkpoint=None, on_node_done=None, on_node_kept=None,
+                 limiter=None, budget=None) -> None:
         self._model: Model | None = None
         self._model_id: str | None = None
         # Called just before weights are fetched, and only then: the runner
@@ -65,11 +65,15 @@ class ProtocolExecutor:
         # `on_spool_item(nid, key, item)` hands over each completed
         # item of an item-resumable block; `on_checkpoint(nid, state)`
         # a training checkpoint; `on_node_done(nid, path, fp)` a
-        # finished node's emitted object.
+        # finished node's emitted object; `on_node_kept(nid, fp, result)`
+        # a finished node's result HELD on the device instead of emitted
+        # (a run with `keep: "outputs"`, 000561), so a resume on this
+        # device can pick it up without the bench ever having seen it.
         self._on_node_start = on_node_start
         self._on_spool_item = on_spool_item
         self._on_checkpoint = on_checkpoint
         self._on_node_done = on_node_done
+        self._on_node_kept = on_node_kept
         # Rate limits are the runner's business (000338): it knows what
         # else is running against the same account. Absent one, remote
         # calls are unthrottled and only the provider's own 429s slow
@@ -307,6 +311,18 @@ class ProtocolExecutor:
                     f"an output cannot be named {dataflow.INTERMEDIATES!r}: that is "
                     f"where intermediates are stored")
             outputs_of.setdefault(source, []).append(o["name"])
+        # Eager discard (000561): with `keep: "outputs"` a node that is not
+        # a declared output is never emitted. Its result stays here for
+        # its consumers, goes to the runner's spool for a resume, and is
+        # cited downstream by content hash. The default keeps everything,
+        # as it always has.
+        keep = str(extra.get("keep") or "all")
+        if keep not in ("all", "outputs"):
+            raise ValueError(f"keep must be 'all' or 'outputs', not {keep!r}")
+        discard = declared and keep == "outputs"
+        #: Held results: node id -> (block, resolved params), what an
+        #: emit of the evidence needs should the run fail.
+        held: dict[str, tuple[str, Any]] = {}
 
         # What actually resolved (task 000260): every $fetch's content
         # hash and every model ref's snapshot commit, recorded into the
@@ -852,6 +868,15 @@ class ProtocolExecutor:
                     self._on_node_done(nid, node_paths[nid], fingerprint)
                 bump()
                 continue
+            if entry and "held" in entry and discard and not outputs_of.get(nid):
+                # Node skip, discard mode: the earlier attempt held the
+                # result on this device under this exact fingerprint. The
+                # spool still has it; nothing to write again.
+                results[nid] = entry["held"]
+                node_hashes[nid] = resume_mod.content_hash(results[nid])
+                held[nid] = (block, params)
+                bump()
+                continue
             if entry and entry.get("items") and resume_mod.item_resumable(block):
                 resume_kwargs["resume_items"] = dict(entry["items"])
             if entry and entry.get("checkpoint") is not None:
@@ -1037,7 +1062,15 @@ class ProtocolExecutor:
             # items in any order are the same bytes.
             results[nid] = lexicon.canonical_collection(results[nid])
             node_hashes[nid] = resume_mod.content_hash(results[nid])
-            if result_base:
+            if result_base and discard and not outputs_of.get(nid):
+                # Held, not emitted (000561): the consumers read it from
+                # memory, a resume from the spool, and the API never sees
+                # the bytes. Its identity is its content hash, which the
+                # manifest records and its consumers' lineage cites.
+                held[nid] = (block, params)
+                if self._on_node_kept is not None:
+                    self._on_node_kept(nid, fingerprint, results[nid])
+            elif result_base:
                 names = outputs_of.get(nid, [])
                 if declared_outputs is None:
                     target = f"{result_base}/{nid}"
@@ -1054,10 +1087,15 @@ class ProtocolExecutor:
                     # no path to cite, and citing the absence as a path
                     # was a KeyError that failed the very run the policy
                     # was keeping alive. `nodes_missing` on the manifest
-                    # is where the absence is recorded.
+                    # is where the absence is recorded. An upstream HELD
+                    # rather than stored (discard mode) is cited by its
+                    # content hash, which is a path form of its own.
                     inputs=list(dict.fromkeys([
-                        *(node_paths[e["from"]["node"]] for e in in_edges
-                          if e["from"]["node"] in node_paths),
+                        *(cited for cited in (
+                            node_paths.get(e["from"]["node"])
+                            or (f"~hash/sha256:{node_hashes[e['from']['node']]}"
+                                if e["from"]["node"] in held else None)
+                            for e in in_edges) if cited is not None),
                         # …and the stored objects it read by reference.
                         *stored_inputs_of(node)])),
                     # Provenance records the stored identity.
@@ -1074,7 +1112,9 @@ class ProtocolExecutor:
                                params=_wire_params(params))
             if isinstance(results[nid], dict) and results[nid].get("spend"):
                 spend_by_node[nid] = results[nid]["spend"]
-            if self._on_node_done is not None:
+            # A held node was handed over by `on_node_kept`: it has no
+            # emitted object for `on_node_done` to record.
+            if self._on_node_done is not None and nid not in held:
                 self._on_node_done(nid, node_paths.get(nid), fingerprint)
             # An expanded node's items already covered its worth — the
             # old unconditional bump made done overrun total by one per
@@ -1093,6 +1133,21 @@ class ProtocolExecutor:
             if len(orphaned) > 1:
                 print(f"[graph] {len(orphaned)} nodes failed: "
                       f"{', '.join(orphaned)}")
+            # A failed run keeps its intermediates even in discard mode:
+            # they are the evidence of what went wrong. Stored where a
+            # kept run would have stored them; a failure to store one is
+            # said, and does not hide the failure being reported.
+            for nid, (held_block, held_params) in held.items():
+                try:
+                    out = bench.emit(
+                        f"{result_base}/{dataflow.INTERMEDIATES}/{nid}",
+                        results[nid],
+                        inputs=list(stored_inputs_of(nodes[nid])),
+                        operation=lexicon.canonical_path(held_block),
+                        params=_wire_params(held_params))
+                    node_paths[nid] = out["path"]
+                except Exception as exc:  # noqa: BLE001 — evidence, not the verdict
+                    print(f"[graph] could not store the held result of {nid}: {exc}")
             raise failures[first]
 
         terminals = [nid for nid in nodes
@@ -1126,6 +1181,14 @@ class ProtocolExecutor:
             **({"output_nodes": dict(kept)} if declared_outputs is not None else {}),
             "nodes_executed": [nid for nid in order if nid not in missing],
             "node_paths": node_paths,
+            # Every node's content hash and its upstream nodes (000561):
+            # what a result's lineage verifies against when an
+            # intermediate was held rather than stored — and a record
+            # worth having either way.
+            "node_hashes": {nid: node_hashes[nid] for nid in order if nid in node_hashes},
+            "node_inputs": {nid: [e["from"]["node"] for e in _ordered_edges(edges, nid)]
+                            for nid in order if nid in results and nid not in missing},
+            **({"keep": keep, "nodes_held": sorted(held)} if discard else {}),
             # What each node produced, small enough to read beside the
             # node in the composer without fetching its object (task
             # 000525): the kind, and how many items or rows.

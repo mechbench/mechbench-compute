@@ -78,9 +78,10 @@ class _Hooks:
         return ProtocolExecutor(on_node_start=lambda nid, fp: self.fingerprints.__setitem__(nid, fp))
 
 
-def _run(extra, hooks=None):
+def _run(extra, hooks=None, resume=None):
     hooks = hooks or _Hooks()
-    out = hooks.executor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra=extra))
+    out = hooks.executor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra=extra),
+                               resume=resume)
     payload = out.payload if hasattr(out, "payload") else out
     return payload, hooks
 
@@ -252,3 +253,85 @@ def test_a_legacy_protocol_keeps_its_terminals_under_their_ids(fake_bench):
     payload, _ = _run({"graph": legacy, "bindings": {}, "resultPath": "lab/p/results/j4"})
     assert sorted(fake_bench) == ["lab/p/results/j4/grid", "lab/p/results/j4/picked"]
     assert list(payload["outputs"]) == ["picked"] and "output_nodes" not in payload
+
+
+# --- eager discard: keep: outputs (000561) --------------------------------
+
+class _Keeping(_Hooks):
+    """Hooks that also spool held results, as the runner does."""
+
+    def __init__(self):
+        super().__init__()
+        self.held: dict[str, tuple[str, object]] = {}
+        self.done: dict[str, object] = {}
+
+    def executor(self):
+        return ProtocolExecutor(
+            on_node_start=lambda nid, fp: self.fingerprints.__setitem__(nid, fp),
+            on_node_kept=lambda nid, fp, result: self.held.__setitem__(nid, (fp, result)),
+            on_node_done=lambda nid, path, fp: self.done.__setitem__(nid, path),
+        )
+
+
+def test_keep_outputs_emits_only_the_declared_outputs_and_cites_the_rest_by_hash(fake_bench):
+    payload, hooks = _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "outputs",
+                           "outputs": [{"name": "kept", "from": {"node": "picked"}}],
+                           "resultPath": "lab/p/results/j5"}, _Keeping())
+    # The API received the output and nothing else.
+    assert sorted(fake_bench) == ["lab/p/results/j5/kept"]
+    # The intermediate went to the device's spool, under its fingerprint.
+    assert set(hooks.held) == {"grid"} and hooks.held["grid"][0] == hooks.fingerprints["grid"]
+    assert "grid" not in hooks.done
+    # Its consumer's lineage cites it by content hash — a path form of
+    # its own — and the manifest records every node's hash and inputs, so
+    # the result verifies without the bytes.
+    grid_hash = payload["node_hashes"]["grid"]
+    assert fake_bench["lab/p/results/j5/kept"]["inputs"] == [f"~hash/sha256:{grid_hash}"]
+    assert payload["node_inputs"] == {"grid": [], "picked": ["grid"]}
+    assert payload["nodes_held"] == ["grid"] and payload["keep"] == "outputs"
+    assert "grid" not in payload["node_paths"]
+    # Inspection keeps the summaries either way.
+    assert set(payload["node_summaries"]) == {"grid", "picked"}
+
+
+def test_a_discard_mode_run_resumes_from_the_held_result_to_the_same_bytes(fake_bench):
+    first, hooks = _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "outputs",
+                         "outputs": [{"name": "kept", "from": {"node": "picked"}}],
+                         "resultPath": "lab/p/results/j6"}, _Keeping())
+    fp, result = hooks.held["grid"]
+    # Interrupted after grid, resumed on the same device: grid is not run
+    # again (no second spool write), and the output is byte-identical.
+    again = _Keeping()
+    second, again = _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "outputs",
+                          "outputs": [{"name": "kept", "from": {"node": "picked"}}],
+                          "resultPath": "lab/p/results/j6"}, again,
+                         resume={"grid": {"fingerprint": fp, "held": result}})
+    assert again.held == {}
+    assert dump_canonical(second["outputs"]) == dump_canonical(first["outputs"])
+    assert second["node_hashes"] == first["node_hashes"]
+    # A held result under a changed fingerprint is not trusted: the node
+    # runs again and is spooled again.
+    third = _Keeping()
+    _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "outputs",
+          "outputs": [{"name": "kept", "from": {"node": "picked"}}],
+          "resultPath": "lab/p/results/j6"}, third,
+         resume={"grid": {"fingerprint": "stale", "held": result}})
+    assert set(third.held) == {"grid"}
+
+
+def test_a_failed_discard_mode_run_stores_its_held_intermediates(fake_bench):
+    failing = {**TWO_NODES,
+               "nodes": [TWO_NODES["nodes"][0],
+                         {"id": "picked", "block": "records/select", "params": {"where": "not a mapping"}}]}
+    with pytest.raises(Exception):
+        _run({"graph": failing, "params": {}, "inputs": {}, "keep": "outputs",
+              "outputs": [{"name": "kept", "from": {"node": "picked"}}],
+              "resultPath": "lab/p/results/j7"}, _Keeping())
+    # The evidence is where a kept run would have stored it.
+    assert sorted(fake_bench) == ["lab/p/results/j7/nodes/grid"]
+
+
+def test_keep_takes_two_words(fake_bench):
+    with pytest.raises(ValueError, match="keep must be 'all' or 'outputs'"):
+        _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "some",
+              "outputs": [{"name": "kept", "from": {"node": "picked"}}]})
