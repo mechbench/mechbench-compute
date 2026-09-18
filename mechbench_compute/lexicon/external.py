@@ -10,7 +10,7 @@ cost is recorded in the result so the bill is part of the measurement.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Emits, In, Op, P
+from mechbench_compute.lexicon._base import Output, In, Op, P
 from mechbench_compute.lexicon.common import TARGET_TRANSFORM as _TRANSFORM
 from mechbench_compute.lexicon.common import TARGET_UNIFORM as _UNIFORM
 from mechbench_compute.lexicon.common import TARGET_WEIGHTS as _WEIGHTS
@@ -169,7 +169,7 @@ without contacting the provider at all.
            "— for tests and exact reproduction.", required=False),
         ADAPTER,
     ),
-    emits=Emits('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. The header carries `fidelity`, `spend` (calls, cost, cache hits) and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
+    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. The header carries `fidelity`, `spend` (calls, cost, cache hits) and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
     params=(
         _BUDGET,
         P("messages", "string | list[string | object]",
@@ -278,7 +278,7 @@ without contacting the provider at all.
         "tools": ["calc"],
         "cache": True,
     },
-    example_inputs={"records": {"$fetch": "$prompts"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
 
 CONVERSATION = Op(
@@ -326,7 +326,7 @@ One conversation runs per input record, or one in all when there are none;
            "placeholders in the opening. Without any, one conversation runs.",
            many=True, required=False),
     ),
-    emits=Emits('text/transcript', collection=True, doc='One item per conversation: `text` (the visible turns as prose), `turns` (`{role, text}`), and `metadata.transcript` — the full transcript with `messages` (each `{index, participant, role_as_seen, text, call?, tool_calls?, channel?}`), `participants`, `stopped_because` and `spend_usd`. The header carries `fidelity` and `spend`.'),
+    output=Output('text/transcript', collection=True, doc='One item per conversation: `text` (the visible turns as prose), `turns` (`{role, text}`), and `metadata.transcript` — the full transcript with `messages` (each `{index, participant, role_as_seen, text, call?, tool_calls?, channel?}`), `participants`, `stopped_because` and `spend_usd`. The header carries `fidelity` and `spend`.'),
     params=(
         _BUDGET,
         P("turns", "object",
@@ -446,7 +446,7 @@ resumability and per-call provenance; a local model is the cheap first test.
            "`text_b` for a pairwise scale. A document collection is read the "
            "same way.", many=True),
     ),
-    emits=Emits('eval/verdict', collection=True, doc='One item per subject: `id`, `coords`, the verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or `winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every `vote`, `unparsed: true` when no vote could be read, and `unjudged: true` with the `missing` field names when there was nothing to judge. The header carries `judge` (who graded and how), `summary` (mean/median/stdev or counts, `n_unparsed`, `n_unjudged` and which, `first_shown_win_rate` for pairwise) and `spend`.'),
+    output=Output('eval/verdict', collection=True, doc='One item per subject: `id`, `coords`, the verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or `winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every `vote`, `unparsed: true` when no vote could be read, and `unjudged: true` with the `missing` field names when there was nothing to judge. The header carries `judge` (who graded and how), `summary` (mean/median/stdev or counts, `n_unparsed`, `n_unjudged` and which, `first_shown_win_rate` for pairwise) and `spend`.'),
     params=(
         P("judge", "object",
           "Who grades: `{\"model\": …, \"system\": rubric, \"max_tokens\": "
@@ -502,7 +502,7 @@ resumability and per-call provenance; a local model is the cheap first test.
         "n_votes": 3,
         "budget_usd": 3.0,
     },
-    example_inputs={"records": {"$fetch": "$stories"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/stories"}}},
 )
 
 EVAL_HF_METRIC = Op(
@@ -524,7 +524,7 @@ releases.
         In("records", "records/record",
            "Records carrying a `prediction` and a `reference`.", many=True),
     ),
-    emits=Emits('records/table', collection=False, doc='One row per value the metric returned: `metric`, `variant`, `value`, `n`.'),
+    output=Output('records/table', collection=False, doc='One row per value the metric returned: `metric`, `variant`, `value`, `n`.'),
     params=(
         P("metric", "string",
           "The hub metric's name: `\"accuracy\"`, `\"exact_match\"`, "
@@ -539,7 +539,7 @@ releases.
           "base"),
     ),
     example={"metric": "exact_match", "variant": "adapter"},
-    example_inputs={"records": {"$fetch": "$answers"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/answers"}}},
 )
 
 EVAL_SUITE = Op(
@@ -561,8 +561,8 @@ The harness version is recorded on the table: prompt templates change
 between its releases, so the version is part of the measurement.
 """,
     inputs=(ADAPTER,),
-    emits=(
-        Emits('records/table', collection=False, doc='One row per (task, metric): `task`, `metric`, `variant`, `value`, `stderr`, `n`.')
+    output=(
+        Output('records/table', collection=False, doc='One row per (task, metric): `task`, `metric`, `variant`, `value`, `stderr`, `n`.')
     ),
     params=(
         P("tasks", "list[string]",
@@ -580,7 +580,7 @@ between its releases, so the version is part of the measurement.
           "A label for which model was measured, stamped on every row.",
           "base"),
     ),
-    example={"model": "$model", "tasks": ["hellaswag", "arc_easy"], "limit": 200, "variant": "base"},
+    example={"model": {"$param": "model"}, "tasks": ["hellaswag", "arc_easy"], "limit": 200, "variant": "base"},
 )
 
 FINETUNE_LORA = Op(
@@ -651,7 +651,7 @@ draw gives.
            "Prompt records with a known `answer`, mixed into each batch.",
            many=True, required=False),
     ),
-    emits=Emits('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`."),
+    output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`."),
     params=(
         P("target", "object",
           "The target distribution — `{\"uniform\": [...]}` or "
@@ -725,14 +725,14 @@ draw gives.
           50),
     ),
     example={
-        "model": "$model",
-        "target": {"weights": {"$fetch": "$frequencies"},
+        "model": {"$param": "model"},
+        "target": {"weights": {"$ref": {"bench": "you/lab/frequencies"}},
                    "transform": [{"op": "sqrt"}, {"op": "normalize"}]},
         "steps": 300,
         "lora": {"rank": 8, "alpha": 16},
         "seed": 7,
     },
-    example_inputs={"records": {"$fetch": "$prompts"}, "anchors": {"$fetch": "$anchors"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}, "anchors": {"$ref": {"bench": "you/lab/anchors"}}},
 )
 
 MEASURE_ADAPTER = Op(
@@ -773,7 +773,7 @@ what each does to a prompt.
            "one. Its bytes are read; the model it was trained on is not "
            "loaded."),
     ),
-    emits=Emits('adapter/delta', collection=True, doc="One item per module, id and `coords.module` the module's own name in the model tree (`layers.12.self_attn.q_proj`) — two layers' `q_proj` are two modules, and `coords.projection` is what groups them: `frobenius`, `spectral`, `singular_values`, `effective_rank`, `mass_share`, `rank`, `shape`, and `vector`/`basis` when asked for. `coords` carry `layer`, `module`, `projection`, `container` and, when `source` is given, `adapter`. The header carries the adapter's `base_model`, `trained_on` and `lora` shape, and `measured` — the modules, layers and total norm the shares are shares of."),
+    output=Output('adapter/delta', collection=True, doc="One item per module, id and `coords.module` the module's own name in the model tree (`layers.12.self_attn.q_proj`) — two layers' `q_proj` are two modules, and `coords.projection` is what groups them: `frobenius`, `spectral`, `singular_values`, `effective_rank`, `mass_share`, `rank`, `shape`, and `vector`/`basis` when asked for. `coords` carry `layer`, `module`, `projection`, `container` and, when `source` is given, `adapter`. The header carries the adapter's `base_model`, `trained_on` and `lora` shape, and `measured` — the modules, layers and total norm the shares are shares of."),
     params=(
         P("layers", "list[int] | \"all\"",
           "Which layers to measure.",
@@ -797,7 +797,7 @@ what each does to a prompt.
           None),
     ),
     example={"layers": [8, 12, 16], "vectors": True, "source": "zoo-cats"},
-    example_inputs={"adapter": {"$fetch": "$adapter"}},
+    example_inputs={"adapter": {"$ref": {"bench": "you/lab/adapter"}}},
 )
 
 HF_PUSH_ADAPTER = Op(
@@ -822,8 +822,8 @@ hub or needing a token.
         In("adapter", "adapter/lora",
            "The adapter to publish, usually from `adapter/train`."),
     ),
-    emits=(
-        Emits('adapter/push', collection=False, doc='`repo`, `private`, `files` (name and size), `lora`, `base_model`, `commit`, `url`, and `hf_adapter_ref` to fetch it back.')
+    output=(
+        Output('adapter/push', collection=False, doc='`repo`, `private`, `files` (name and size), `lora`, `base_model`, `commit`, `url`, and `hf_adapter_ref` to fetch it back.')
     ),
     params=(
         P("repo", "string", "The destination, `\"<namespace>/<name>\"`."),
@@ -831,7 +831,7 @@ hub or needing a token.
         P("commit_message", "string", "The commit message.", "mechbench: adapter push"),
     ),
     example={"repo": "benjismith/spinner-fair-v1", "private": True},
-    example_inputs={"adapter": {"$fetch": "$adapter"}},
+    example_inputs={"adapter": {"$ref": {"bench": "you/lab/adapter"}}},
 )
 
 MERGE = Op(
@@ -858,7 +858,7 @@ skipped.
 Nothing arrives by edge: the stack to merge is the `model` reference's.
 """,
     inputs=(),
-    emits=Emits('adapter/checkpoint', collection=False, doc='Where the checkpoint landed, its files with their hashes, and the stack that was merged.'),
+    output=Output('adapter/checkpoint', collection=False, doc='Where the checkpoint landed, its files with their hashes, and the stack that was merged.'),
     params=(
         P("to", "object",
           "Where to publish: `{\"bench\": {\"name\": …}}` (lowercase, "
@@ -873,7 +873,7 @@ Nothing arrives by edge: the stack to merge is the `model` reference's.
                         P("private", "bool", "Create the repository private.", True))),
           )),
     ),
-    example={"model": "$model", "to": {"bench": {"name": "spinner-fair-v1"}}},
+    example={"model": {"$param": "model"}, "to": {"bench": {"name": "spinner-fair-v1"}}},
 )
 
 TOOLS_CALC = Op(
@@ -891,7 +891,7 @@ naming `"calc"` in its `tools`; the model's call supplies `arguments:
 call.
 """,
     inputs=(),
-    emits=None,
+    output=None,
     params=(
         P("expression", "string",
           "The expression, when the block is run directly rather than as a "
@@ -915,7 +915,7 @@ recorded on the item that made it. A tool has no input ports — its
 arguments come from the call.
 """,
     inputs=(),
-    emits=None,
+    output=None,
     params=(
         P("path", "string",
           "The object path, when the block is run directly rather than as "

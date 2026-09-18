@@ -17,7 +17,7 @@ readings use.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import WILDCARD, Emits, In, Op, P
+from mechbench_compute.lexicon._base import WILDCARD, Output, In, Op, P
 from mechbench_compute.lexicon.model import ADAPTER
 
 _DIRECTION = In("direction", "direction/vector", "The direction.")
@@ -75,7 +75,7 @@ to find a concept direction, and the one most steering results are built on.
            "A collection of vectors with items at the chosen `layer`, grouped "
            "on the `axis` coordinate.", many=True),
     ),
-    emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"diff_of_means"`, with `axis`, `positive`, `negative`, `n_positive` and `n_negative`.'),
+    output=Output('direction/vector', collection=False, doc='`derivation.method` is `"diff_of_means"`, with `axis`, `positive`, `negative`, `n_positive` and `n_negative`.'),
     params=(
         P("layer", "int", "The layer whose items the centroids are taken from."),
         P("axis", "string",
@@ -93,7 +93,7 @@ to find a concept direction, and the one most steering results are built on.
         "positive": "formal",
         "negative": "casual",
     },
-    example_inputs={"vectors": {"$fetch": "$vectors"}},
+    example_inputs={"vectors": {"$ref": {"bench": "you/lab/vectors"}}},
 )
 
 FROM_PCA = Op(
@@ -113,8 +113,8 @@ number of items.
 At least two items are needed.
 """,
     inputs=(_VECTORS,),
-    emits=(
-        Emits('direction/vector', collection=False, doc='`derivation.method` is `"pca"`, with `derivation.component`, `derivation.explained` and `derivation.n_items`.')
+    output=(
+        Output('direction/vector', collection=False, doc='`derivation.method` is `"pca"`, with `derivation.component`, `derivation.explained` and `derivation.n_items`.')
     ),
     params=(
         P("layer", "int", "The layer whose items are decomposed."),
@@ -136,7 +136,7 @@ At least two items are needed.
         _source(),
     ),
     example={"layer": 14, "component": 0},
-    example_inputs={"vectors": {"$fetch": "$vectors"}},
+    example_inputs={"vectors": {"$ref": {"bench": "you/lab/vectors"}}},
 )
 
 ADD = Op(
@@ -153,8 +153,8 @@ meaningless and is refused rather than producing a plausible-looking vector.
 normalised to unit length.
 """,
     inputs=_NAMED_DIRECTIONS,
-    emits=(
-        Emits('direction/vector', collection=False, doc='`derivation.method` is `"add"`, with `derivation.weights`.')
+    output=(
+        Output('direction/vector', collection=False, doc='`derivation.method` is `"add"`, with `derivation.weights`.')
     ),
     params=(
         P("weights", "list[float]",
@@ -162,7 +162,7 @@ normalised to unit length.
           None),
     ),
     example={"weights": [1.0, 0.5]},
-    example_inputs={"directions": [{"$fetch": "$formal"}, {"$fetch": "$terse"}]},
+    example_inputs={"directions": [{"$ref": {"bench": "you/lab/formal"}}, {"$ref": {"bench": "you/lab/terse"}}]},
 )
 
 AVERAGE = Op(
@@ -179,10 +179,10 @@ dominated by whichever axis happened to be longest. Same as `direction/add`
 with equal weights, except that the derivation says `average`.
 """,
     inputs=_NAMED_DIRECTIONS,
-    emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"average"`.'),
+    output=Output('direction/vector', collection=False, doc='`derivation.method` is `"average"`.'),
     params=(),
     example={},
-    example_inputs={"directions": [{"$fetch": "$axis_a"}, {"$fetch": "$axis_b"}]},
+    example_inputs={"directions": [{"$ref": {"bench": "you/lab/axis_a"}}, {"$ref": {"bench": "you/lab/axis_b"}}]},
 )
 
 ORTHOGONALIZE = Op(
@@ -203,14 +203,14 @@ has nothing left and the block refuses it. All inputs must share a space.
         In("against", "direction/vector",
            "The direction(s) to remove — one, or a list of them.", many=True),
     ),
-    emits=(
-        Emits('direction/vector', collection=False, doc='`derivation.method` is `"orthogonalize"`, with `derivation.against` (how many independent directions were removed).')
+    output=(
+        Output('direction/vector', collection=False, doc='`derivation.method` is `"orthogonalize"`, with `derivation.against` (how many independent directions were removed).')
     ),
     params=(),
     example={},
     example_inputs={
-        "direction": {"$fetch": "$sentiment"},
-        "against": [{"$fetch": "$length"}],
+        "direction": {"$ref": {"bench": "you/lab/sentiment"}},
+        "against": [{"$ref": {"bench": "you/lab/length"}}],
     },
 )
 
@@ -226,10 +226,10 @@ for one that was hand-built or imported, and for making normalisation a
 visible step in the graph rather than an assumption.
 """,
     inputs=(In("direction", "direction/vector", "The direction to normalise."),),
-    emits=Emits('direction/vector', collection=False, doc='`derivation.method` is `"normalize"`.'),
+    output=Output('direction/vector', collection=False, doc='`derivation.method` is `"normalize"`.'),
     params=(),
     example={},
-    example_inputs={"direction": {"$fetch": "$imported"}},
+    example_inputs={"direction": {"$ref": {"bench": "you/lab/imported"}}},
 )
 
 PROJECT = Op(
@@ -251,12 +251,12 @@ groups it was built from — or ones it was not.
            many=True),
         In("direction", "direction/vector", "The direction to project onto."),
     ),
-    emits=(
-        Emits('activations/coordinate', collection=True, doc="One item per input vector: `id`, `coords`, `space`, the `direction`'s identity and `coord`, the dot product with the unit direction.")
+    output=(
+        Output('activations/coordinate', collection=True, doc="One item per input vector: `id`, `coords`, `space`, the `direction`'s identity and `coord`, the dot product with the unit direction.")
     ),
     params=(),
     example={},
-    example_inputs={"vectors": {"$fetch": "$vectors"}, "direction": {"$fetch": "$axis"}},
+    example_inputs={"vectors": {"$ref": {"bench": "you/lab/vectors"}}, "direction": {"$ref": {"bench": "you/lab/axis"}}},
 )
 
 VOCAB = Op(
@@ -278,14 +278,14 @@ direction inside an attention block is not in the space the unembedding
 reads.
 """,
     inputs=(In("direction", "direction/vector", "The direction to read."), ADAPTER),
-    emits=(
-        Emits('direction/vocab', collection=False, doc="`space`, `top_k`, and `positive` and `negative` — each a distribution (`entropy_bits`, `top` as `{token, p, logp}`) of the unembedding applied to that sign.")
+    output=(
+        Output('direction/vocab', collection=False, doc="`space`, `top_k`, and `positive` and `negative` — each a distribution (`entropy_bits`, `top` as `{token, p, logp}`) of the unembedding applied to that sign.")
     ),
     params=(
         P("top_k", "int", "How many tokens to list per sign.", 10),
     ),
-    example={"model": "$model", "top_k": 20},
-    example_inputs={"direction": {"$fetch": "$axis"}},
+    example={"model": {"$param": "model"}, "top_k": 20},
+    example_inputs={"direction": {"$ref": {"bench": "you/lab/axis"}}},
 )
 
 OPS: tuple[Op, ...] = (

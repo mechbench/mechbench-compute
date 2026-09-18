@@ -125,6 +125,20 @@ def wants_reference(block: str, name: str) -> bool:
     return bool(decl is not None and decl.reference)
 
 
+def map_bound_names(node: Mapping[str, Any]) -> frozenset[str]:
+    """The names a `records/map` node binds per record into its body
+    (`bind: {topic: "user"}`): a `{"$param": "topic"}` under `body` is
+    the map's, bound at each record, not the run's."""
+    try:
+        block = lexicon.resolve(node["block"])
+    except KeyError:
+        return frozenset()
+    if block != "records/map":
+        return frozenset()
+    bind = (node.get("params") or {}).get("bind")
+    return frozenset(bind) if isinstance(bind, Mapping) else frozenset()
+
+
 def check_refs(nodes: Mapping[str, Mapping[str, Any]],
                bound_params: Mapping[str, Any]) -> None:
     """Refuse a stored-object reference that sits where no declaration
@@ -134,12 +148,15 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
     node's params a `$ref` — written there, or arriving through a param
     the run bound to one — needs the position to declare `stored` (the
     kind it takes by reference) or `reference` (it takes the address).
+    A map body's own bound names are bound per record, later.
     """
     problems: list[str] = []
 
-    def walk(v: Any, nid: str, op: Any, path: list[str]) -> None:
+    def walk(v: Any, nid: str, op: Any, path: list[str], local: frozenset[str]) -> None:
         if is_param_ref(v):
             name = v["$param"]
+            if path[:1] == ["body"] and name in local:
+                return
             if name not in bound_params:
                 problems.append(f"{nid}.{'.'.join(path)}: unbound param {name!r}")
                 return
@@ -160,16 +177,16 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
                     f"protocol writes {{\"$ref\": …}}")
                 return
             for k, x in v.items():
-                walk(x, nid, op, [*path, str(k)])
+                walk(x, nid, op, [*path, str(k)], local)
         elif isinstance(v, list):
             for i, x in enumerate(v):
-                walk(x, nid, op, [*path, str(i)])
+                walk(x, nid, op, [*path, str(i)], local)
 
     for nid, node in nodes.items():
         try:
             op = lexicon.BY_NAME.get(lexicon.resolve(node["block"]))
         except KeyError:
             op = None
-        walk(node.get("params") or {}, nid, op, [])
+        walk(node.get("params") or {}, nid, op, [], map_bound_names(node))
     if problems:
         raise ValueError("references that cannot be resolved:\n  " + "\n  ".join(problems))

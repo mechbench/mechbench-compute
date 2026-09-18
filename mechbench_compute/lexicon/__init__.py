@@ -38,6 +38,7 @@ from mechbench_compute.lexicon._base import (
     ROOT,
     WILDCARD,
     Emits,
+    Output,
     Family,
     In,
     Kind,

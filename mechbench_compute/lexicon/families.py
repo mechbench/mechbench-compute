@@ -15,9 +15,9 @@ from mechbench_compute.lexicon._base import Family
 FAMILIES: tuple[Family, ...] = (
     Family(
         "records",
-        "The rows of an experiment: the conditions a design produces, the results every operation emits, and the tables that summarise them.",
+        "The rows of an experiment: the conditions a design produces, the results every operation produces, and the tables that summarise them.",
         """\
-Everything an operation reads or emits is a record — an `id`, the
+Everything an operation reads or produces is a record — an `id`, the
 `coords` that place it in the design, and the fields the operation
 wrote — and everything plural is a collection of records of one kind.
 This family makes records (`cross` writes one per combination of
@@ -71,12 +71,12 @@ between two.
         "logits",
         "The model's next-token distribution: read at the decision point, at every layer, at every position, or split by what contributed.",
         """\
-Every operation here reads the model's output distribution and emits a
+Every operation here reads the model's output distribution and produces a
 `logits/distribution` or a kind that extends it — the same `entropy_bits`,
 `top` and `tracked` spelled once, so a decision read, a funnel layer and
 an intervention readout compare by the same metrics. `read` reads at
 the decision point, the first token after a prompt and its prefill, and
-emits a decision. `read-layers` reads that point at every layer through
+produces a decision. `read-layers` reads that point at every layer through
 the unembedding — the funnel, the curve of a model committing. `scan`
 reads every position at every layer for one target token — the lens.
 `attribute` splits the final logit into the contribution of the
@@ -110,7 +110,7 @@ A kind declares how its items compare the way it declares how they are
 drawn: vectors by cosine, euclidean distance or dot product; next-token
 distributions by Jensen–Shannon, Hellinger, total variation or KL;
 records by how many coordinate axes differ. `compare` takes any such
-collection and emits the similarity matrix per group, with the metric
+collection and produces the similarity matrix per group, with the metric
 and its options recorded and, when the items carry a value on the
 chosen axis, how well the groups separate. `span` builds a minimum
 spanning tree over a similarity — the spread's scale, its clumpiness,
@@ -186,7 +186,7 @@ trajectory is a collection of coordinates.
         "Low-rank adapters: trained against a target distribution at a decision point, merged into a checkpoint, published.",
         """\
 `train` fits a LoRA adapter that moves what the model says at a decision
-point toward a target distribution over outcomes, and emits it as an
+point toward a target distribution over outcomes, and produces it as an
 object whose lineage is the training's methods section. `merge` collapses
 a model's adapter stack into one standalone checkpoint; `publish` puts an
 adapter on the Hugging Face hub with a model card that carries its bench
@@ -211,7 +211,7 @@ representative of.
 
 `capture` names parameter points in the module tree
 (`layers.12.self_attn.q_proj`, `embed_tokens`, `layers.*.mlp.down_proj`)
-and emits one `weights/parameter` per tensor: its shape, its norm, how
+and produces one `weights/parameter` per tensor: its shape, its norm, how
 much of it is zero, and, when asked, its spectrum and its values. The
 reduced forms are the default because a parameter is large — a 4B
 model's embedding table is 400 million numbers, and the interesting

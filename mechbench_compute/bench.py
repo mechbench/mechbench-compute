@@ -593,15 +593,40 @@ TERMINAL = ("done", "done_with_missing", "failed", "cancelled", "interrupted")
 
 
 def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
+           params: dict[str, Any] | None = None,
+           inputs: dict[str, Any] | None = None,
+           keep: str | None = None,
            budget: float | None = None, api_url: str | None = None,
            api_key: str | None = None) -> dict:
     """Bind a protocol and queue its job. `POST /protocols/:ref/runs`.
+
+    A protocol declares `params` (typed values: the model, an `n`) and
+    `inputs` (stored objects, by path or as a `{"$ref"}`), and a run
+    binds each by name (epic 000553). `keep="outputs"` asks for the
+    intermediates to be held on the runner rather than stored. The
+    positional `bindings` is the legacy form, read by the server as
+    what it was — a name the signature declares as a param or as an
+    input — until 000565 retires it.
 
     Returns the bare run, with `id` and `jobId` on it (task 000451) —
     record the job id at once; a job id in a scrollback is a job id lost.
     """
     url, key = _config(api_url, api_key)
-    body: dict[str, Any] = {"bindings": dict(bindings or {})}
+    body: dict[str, Any] = {}
+    if bindings:
+        body["bindings"] = dict(bindings)
+    if params is not None:
+        body["params"] = dict(params)
+    if inputs is not None:
+        body["inputs"] = {
+            name: ({"$ref": {"bench": v}} if isinstance(v, str) else v)
+            for name, v in inputs.items()}
+    if keep is not None:
+        if keep not in ("all", "outputs"):
+            raise ValueError(f"keep is 'all' or 'outputs', not {keep!r}")
+        body["keep"] = keep
+    if not body:
+        body["bindings"] = {}
     if budget is not None:
         body["budgetUsd"] = budget
     return _request(
@@ -612,12 +637,23 @@ def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
 
 def create_protocol(owner: str, project: str, name: str, *, graph: dict,
                     description: str = "", signature: dict | None = None,
+                    params: list[dict] | None = None,
+                    inputs: list[dict] | None = None,
+                    outputs: list[dict] | None = None,
                     owner_kind: str = "user", exists: str = "version",
                     publish: bool = False,
                     api_url: str | None = None,
                     api_key: str | None = None) -> dict:
     """Register a protocol: `POST /protocols` with its graph and
     signature. Returns the bare protocol (id, version, name, ...).
+
+    A declared protocol (epic 000553) says what it takes and keeps in
+    three lists — `params=[{"name", "type", "default"?, "doc"?}]`,
+    `inputs=[{"name", "kind", "many"?, "default"?}]`, `outputs=[{"name",
+    "from": {"node", "output"?}}]` — and its graph carries `dataflow:
+    2`. Given any of the three, the signature is built from them (the
+    others default to empty); `signature=` is the legacy way of saying
+    the same and is read until 000565.
 
     **Running an author twice makes a second VERSION, not a second
     protocol** (task 000519). A project holds one protocol per name;
@@ -642,6 +678,13 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
     """
     if exists not in ("version", "error"):
         raise ValueError(f"exists is 'version' or 'error', not {exists!r}")
+    if params is not None or inputs is not None or outputs is not None:
+        if signature is not None:
+            raise ValueError("pass params/inputs/outputs, or a signature; not both")
+        signature = {"params": list(params or []), "inputs": list(inputs or []),
+                     "outputs": list(outputs or [])}
+        if isinstance(graph, dict) and graph.get("dataflow") != 2:
+            graph = {"dataflow": 2, **graph}
     url, key = _config(api_url, api_key)
     body: dict[str, Any] = {
         "ownerKind": owner_kind, "ownerHandle": owner, "projectSlug": project,

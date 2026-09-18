@@ -68,6 +68,12 @@ export interface LexiconPort {
   max_edges?: number;
 }
 
+export interface LexiconOutput {
+  kind: string;
+  collection: boolean;
+  otherwise?: { kind: string; collection: boolean; when: { param: string; equals: unknown } | { port: string } }[];
+}
+
 export interface LexiconOp {
   name: string;
   path: string;
@@ -76,13 +82,12 @@ export interface LexiconOp {
   requires: "pure" | "mlx-local" | "remote" | "by-model";
   summary: string;
   inputs: LexiconPort[];
-  /** What it emits, and — under `otherwise` — what it emits instead when
-   * a param has a value or an input port is filled. */
-  emits: {
-    kind: string;
-    collection: boolean;
-    otherwise?: { kind: string; collection: boolean; when: { param: string; equals: unknown } | { port: string } }[];
-  } | null;
+  /** Its one output, and — under `otherwise` — what it produces instead
+   * when a param has a value or an input port is filled. An op and a
+   * protocol are declared in the same words (epic 000553). */
+  output: LexiconOutput | null;
+  /** The old name of `output`, read until 000565. */
+  emits: LexiconOutput | null;
   params: LexiconParam[];
   example: Record<string, unknown> | null;
   example_inputs: Record<string, unknown> | null;
@@ -116,8 +121,9 @@ def _op(op: Any) -> dict[str, Any]:
     d = op.to_dict()
     for gone in ("description",):
         d.pop(gone)
-    if d["emits"]:
-        d["emits"] = {k: v for k, v in d["emits"].items() if k != "doc"}
+    for key in ("output", "emits"):
+        if d[key]:
+            d[key] = {k: v for k, v in d[key].items() if k != "doc"}
     return d
 
 

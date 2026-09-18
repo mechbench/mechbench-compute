@@ -20,7 +20,7 @@ corpus-scale trace small enough to store.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Emits, In, Op, Otherwise, P
+from mechbench_compute.lexicon._base import Output, In, Op, Otherwise, P
 from mechbench_compute.lexicon.model import _POSITIONS_DOC, _RESIDUAL_POINT, ADAPTER
 
 _TRAJECTORY = In("trajectory", "trajectory/point",
@@ -75,7 +75,7 @@ the model saw.
            required=False),
         ADAPTER,
     ),
-    emits=Emits('trajectory/point', collection=True, doc='One item per record per step: `{id, coords, space, step, position, token, norm, vector}`, with `vocab` (a distribution) when asked for, and `n_pooled` plus `steps` when reduced. With `project`, a collection of `activations/coordinate` instead: `coord` and the direction\'s identity in place of the vector, `projected: true` in the header. The header carries `axis`, `point`, `layers`, `position`/`positions`, `d_model` and `replay` (`"trace"`, `"text"` or `"mixed"`).',
+    output=Output('trajectory/point', collection=True, doc='One item per record per step: `{id, coords, space, step, position, token, norm, vector}`, with `vocab` (a distribution) when asked for, and `n_pooled` plus `steps` when reduced. With `project`, a collection of `activations/coordinate` instead: `coord` and the direction\'s identity in place of the vector, `projected: true` in the header. The header carries `axis`, `point`, `layers`, `position`/`positions`, `d_model` and `replay` (`"trace"`, `"text"` or `"mixed"`).',
                  otherwise=(Otherwise("activations/coordinate", collection=True, port="project"),)),
     params=(
         P("axis", "string",
@@ -119,12 +119,12 @@ the model saw.
           0),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "axis": "positions",
         "layer": 12,
         "positions": "generated",
     },
-    example_inputs={"records": {"$fetch": "$stories"}, "project": {"$fetch": "$outcome_axis"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/stories"}}, "project": {"$ref": {"bench": "you/lab/outcome_axis"}}},
 )
 
 PROJECT = Op(
@@ -146,8 +146,8 @@ is the funnel read against one axis, which is a legitimate question.
         In("direction", "direction/vector",
            "A direction of the trajectory's width."),
     ),
-    emits=(
-        Emits('activations/coordinate', collection=True, doc="One coordinate per input point: `id`, `coords`, `space`, `step`, `position`, `token`, the `direction`'s identity and `coord` (the vector kept as well under `keep_vectors`); the header repeats the input's, with `projected: true`.")
+    output=(
+        Output('activations/coordinate', collection=True, doc="One coordinate per input point: `id`, `coords`, `space`, `step`, `position`, `token`, the `direction`'s identity and `coord` (the vector kept as well under `keep_vectors`); the header repeats the input's, with `projected: true`.")
     ),
     params=(
         P("keep_vectors", "bool",
@@ -156,8 +156,8 @@ is the funnel read against one axis, which is a legitimate question.
     ),
     example={"keep_vectors": False},
     example_inputs={
-        "trajectory": {"$fetch": "$trajectory"},
-        "direction": {"$fetch": "$axis"},
+        "trajectory": {"$ref": {"bench": "you/lab/trajectory"}},
+        "direction": {"$ref": {"bench": "you/lab/axis"}},
     },
 )
 
@@ -182,7 +182,7 @@ projections).
         In("a", "trajectory/point", "The first trajectory.", many=True),
         In("b", "trajectory/point", "The second trajectory.", many=True),
     ),
-    emits=Emits('trajectory/comparison', collection=True, doc='One item per pair: `cosine`, `angle_deg`, `norm_a`, `norm_b`, `norm_ratio`. The header carries `divergence_step`, `min_cosine_step`, `per_step` (`{step, mean_cosine, n}`) and `n_pairs`.'),
+    output=Output('trajectory/comparison', collection=True, doc='One item per pair: `cosine`, `angle_deg`, `norm_a`, `norm_b`, `norm_ratio`. The header carries `divergence_step`, `min_cosine_step`, `per_step` (`{step, mean_cosine, n}`) and `n_pairs`.'),
     params=(
         P("pair_by", "string",
           "`\"id\"`: pair rows with the same record id and step. `\"step\"`: "
@@ -193,7 +193,7 @@ projections).
           0.9),
     ),
     example={"threshold": 0.9},
-    example_inputs={"a": {"$fetch": "$base_traj"}, "b": {"$fetch": "$tuned_traj"}},
+    example_inputs={"a": {"$ref": {"bench": "you/lab/base_traj"}}, "b": {"$ref": {"bench": "you/lab/tuned_traj"}}},
 )
 
 AGGREGATE = Op(
@@ -227,7 +227,7 @@ reduced `as`:
            "A trajectory of points, or a projected one of coordinates, read "
            "the same way.", many=True),
     ),
-    emits=Emits('trajectory/summary', collection=True, doc="For `per_step` and `window`: one item per group (and per step), with a mean `vector` or a mean `coord` as the input had; the header repeats the input's and adds `aggregated: {by, as, steps}`. For `vectors`: a collection of `activations/vector` instead, one item per group with the group on the `by` coordinate.",
+    output=Output('trajectory/summary', collection=True, doc="For `per_step` and `window`: one item per group (and per step), with a mean `vector` or a mean `coord` as the input had; the header repeats the input's and adds `aggregated: {by, as, steps}`. For `vectors`: a collection of `activations/vector` instead, one item per group with the group on the `by` coordinate.",
                  otherwise=(Otherwise("activations/vector", collection=True, param="as", equals="vectors"),)),
     params=(
         P("by", "string",
@@ -249,7 +249,7 @@ reduced `as`:
         "as": "vectors",
         "steps": {"range": [5, 30]},
     },
-    example_inputs={"trajectory": {"$fetch": "$trajectory"}},
+    example_inputs={"trajectory": {"$ref": {"bench": "you/lab/trajectory"}}},
 )
 
 OPS: tuple[Op, ...] = (CAPTURE, PROJECT, COMPARE, AGGREGATE)

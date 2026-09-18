@@ -306,7 +306,7 @@ def test_shapes_reach_the_published_dict() -> None:
     json.dumps([op.to_dict() for op in OPS])
 
 
-@pytest.mark.parametrize("op", [op for op in OPS if op.emits and op.emits.otherwise], ids=lambda op: op.name)
+@pytest.mark.parametrize("op", [op for op in OPS if op.output and op.output.otherwise], ids=lambda op: op.name)
 def test_what_an_op_emits_instead_is_declared_against_the_node(op: Op) -> None:
     """An `otherwise` names a declared kind and a condition on the node a
     composer can read — a param it has, with a value that param takes,
@@ -314,8 +314,8 @@ def test_what_an_op_emits_instead_is_declared_against_the_node(op: Op) -> None:
     page and the declaration cannot disagree."""
     from mechbench_compute.lexicon.kinds import BY_KIND
 
-    assert op.emits is not None
-    for o in op.emits.otherwise:
+    assert op.output is not None
+    for o in op.output.otherwise:
         assert o.kind in BY_KIND, f"{op.name}: {o.kind} is not a declared kind"
         assert (o.param is None) != (o.port is None), f"{op.name}: name a param or a port, not both"
         if o.param is not None:
@@ -326,4 +326,4 @@ def test_what_an_op_emits_instead_is_declared_against_the_node(op: Op) -> None:
         else:
             assert op.port(o.port or "") is not None and o.port in op.port_names, (
                 f"{op.name}: no port {o.port!r}")
-        assert f"`{o.kind}`" in op.emits.doc, f"{op.name}: the emits prose does not name `{o.kind}`"
+        assert f"`{o.kind}`" in op.output.doc, f"{op.name}: the output prose does not name `{o.kind}`"

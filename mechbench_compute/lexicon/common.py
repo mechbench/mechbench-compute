@@ -2,7 +2,7 @@
 
 A protocol node names its block and gives it params. A few of those
 params are about how the node is connected — which model it runs on,
-how to label what it emits, what it may spend — and every block accepts
+how to label what it produces, what it may spend — and every block accepts
 them, so they are documented once here rather than on each of the
 fifty-five pages.
 
@@ -19,8 +19,9 @@ from mechbench_compute.lexicon._base import P, Param
 COMMON: tuple[Param, ...] = (
     P("model", "model",
       "The model the block runs on: a model reference, most often the "
-      "run binding `\"$model\"` so one protocol can run against several "
-      "models. A model reference may carry its own adapters; they are part "
+      "protocol's `model` param (`{\"$param\": \"model\"}`) so one protocol "
+      "can run against several models. A model reference may carry its "
+      "own adapters; they are part "
       "of what the model means and are fused before anything else.",
       None),
     P("adapter_scale", "float",
@@ -41,7 +42,7 @@ COMMON: tuple[Param, ...] = (
       "hardware class reproduces the same result.",
       0),
     P("name", "string",
-      "A label stamped on the record the block emits, so a person browsing "
+      "A label stamped on the record the block produces, so a person browsing "
       "results can tell what it is. Each block has a sensible default.",
       None),
     P("description", "string",

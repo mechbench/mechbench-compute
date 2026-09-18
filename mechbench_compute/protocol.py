@@ -1003,7 +1003,9 @@ class ProtocolExecutor:
                 elif block == "records/map":
                     results[nid] = self._block_map(
                         inputs, params, secrets=secrets, on_item=on_item,
-                        on_start=expand, bindings=bindings, **resume_kwargs)
+                        on_start=expand,
+                        bindings=bound_params if declared else bindings,
+                        **resume_kwargs)
                 elif block == "weights/capture":
                     results[nid] = self._run_model_block(
                         self._block_capture_weights, inputs, params)
@@ -1662,10 +1664,15 @@ class ProtocolExecutor:
                 raise ValueError(
                     f"record {key!r} has no {', '.join(missing_fields)} to "
                     f"bind into the body's holes")
+            # A body in the declared form (epic 000553) reads its
+            # `{"$param"}`s from `params`: the record's bound fields,
+            # over the enclosing run's params reached by name. A legacy
+            # body reads `bindings` as it always did.
+            child_bound = {**(bindings or {}), **bound}
             out = child.run(ProtocolSpec(
                 kind="pipeline", prompt="", model_id=None,
-                extra={"graph": body,
-                       "bindings": {**(bindings or {}), **bound}}),
+                extra={"graph": body, "bindings": child_bound,
+                       "params": child_bound}),
                 secrets=secrets)
             outputs = out.payload.get("outputs") or {}
             if want:

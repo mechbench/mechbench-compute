@@ -13,6 +13,39 @@ nothing said so.
 
 ---
 
+## 0.103.0 — 2026-09-18
+
+### Changes that raise
+
+- `bench.launch(keep=…)` refuses a word other than `all` or `outputs`;
+  `bench.create_protocol` refuses `params`/`inputs`/`outputs` given
+  beside a `signature`.
+
+### Changes that alter results without raising
+
+- _None._ No result's bytes and no node's fingerprint change. A
+  `records/map` body in the declared form now runs: its `{"$param"}`s
+  read the record's bound fields over the enclosing run's params.
+
+### Other
+
+Epic 000553, task 000563: one vocabulary.
+
+- **The lexicon declares `output`**, not `emits`: `Op.output`, the
+  `Output` class, and `"output"` in `to_dict` and the generated TS. The
+  old spellings — `Op.emits`, `Emits`, the `"emits"` key — are read and
+  written beside them until 000565. Every op's example writes
+  `{"$param": "model"}` and `{"$ref": {"bench": …}}`; the prose says
+  "produces".
+- **The client speaks the declared form**: `launch(protocol,
+  params={…}, inputs={…}, keep=…)` — a path given for an input is the
+  stored object it names — and `create_protocol(…, params=[…],
+  inputs=[…], outputs=[…])`, which marks the graph `dataflow: 2`. The
+  legacy `bindings` and `signature` still work.
+- **A `records/map` body's `bind` names are its own**: a `{"$param"}`
+  under `body` that `bind` covers is bound per record and is neither a
+  param of the protocol nor refused as unbound.
+
 ## 0.102.0 — 2026-09-18
 
 ### Changes that raise

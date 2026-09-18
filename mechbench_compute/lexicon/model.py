@@ -36,7 +36,7 @@ Shared conventions, stated once here and referred to from the entries:
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Emits, In, Op, P
+from mechbench_compute.lexicon._base import Output, In, Op, P
 from mechbench_compute.lexicon.common import (
     TARGET_TRANSFORM,
     TARGET_UNIFORM,
@@ -97,7 +97,7 @@ _SPEC_FIELDS = (
                "rotate", "truncate")),
     P("strength", "float", "The item's magnitude, multiplied by each sweep factor.", 1.0),
     P("direction", "json",
-      "The direction, usually `{\"$fetch\": …}`; or it arrives on the node's `direction` port.", None),
+      "The direction, usually a stored one (`{\"$ref\": …}`); or it arrives on the node's `direction` port.", None),
     P("direction2", "json", "For `rotate`: the second axis of the plane.", None),
     P("source", "json",
       "For `mean`, `resample` and `patch`: the replacement activations, or they arrive on the "
@@ -167,7 +167,7 @@ against. The output has one row per record per sweep factor.
   "positions": "last",
   "op": "add",
   "strength": 4.0,
-  "direction": {"$fetch": "$direction"}
+  "direction": {"$ref": {"bench": "you/lab/direction"}}
 }
 ```
 
@@ -208,7 +208,7 @@ grammar.
 
 A spec item that names a **`parameter`** rather than a `point` edits the
 model itself — `{"parameter": "layers.12.self_attn.o_proj", "op":
-"project_out", "direction": {"$fetch": "$axis"}}`. The two kinds compose
+"project_out", "direction": {"$ref": {"bench": "you/lab/axis"}}}`. The two kinds compose
 in one spec, and differ in scope: an activation edit lasts for one
 forward pass, a weight edit for the node. The tensor is changed, every
 record runs against the changed model, and the original is reinstalled
@@ -244,7 +244,7 @@ one item can zero every layer's `o_proj`.
            "item without one.", many=True, required=False),
         ADAPTER,
     ),
-    emits=Emits('intervene/readout', collection=True, doc='One item per record per factor: `id`, `coords`, `factor`, and the readout — for a decision, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp}` for the tokens asked about); for a capture, `position` and `captures`, a collection of `activations/vector` with one item per hook point, each in its own `space` (at most 4096 values). The header carries `spec` (the list as run, with directions and sources replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf) and `sweep` (the factors, including `0.0` when a control was added).'),
+    output=Output('intervene/readout', collection=True, doc='One item per record per factor: `id`, `coords`, `factor`, and the readout — for a decision, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp}` for the tokens asked about); for a capture, `position` and `captures`, a collection of `activations/vector` with one item per hook point, each in its own `space` (at most 4096 values). The header carries `spec` (the list as run, with directions and sources replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf) and `sweep` (the factors, including `0.0` when a control was added).'),
     params=(
         P("spec", "list[object]",
           "The intervention items, applied together in one forward pass per "
@@ -294,17 +294,17 @@ one item can zero every layer's `o_proj`.
           None),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "spec": [{
             "point": "resid_post", "layers": [14], "positions": "last",
             "op": "add", "strength": 4.0,
-            "direction": {"$fetch": "$direction"},
+            "direction": {"$ref": {"bench": "you/lab/direction"}},
         }],
         "sweep": {"strength": [0.5, 1.0, 2.0]},
         "tracked": {"answer": " Paris"},
         "top_k": 10,
     },
-    example_inputs={"records": {"$fetch": "$prompts"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
 
 ABLATE_LAYERS = Op(
@@ -328,7 +328,7 @@ sweep can be taken at a decision point inside an assistant turn (a record
 with a `prefill`), where `logits/read` reads.
 """,
     inputs=(_PROMPTS, ADAPTER),
-    emits=Emits('intervene/ablation', collection=True, doc="Per record, one item per layer: `id`, `layer`, `delta_logp`. The header's `conditions` carry each record's untouched read (`{id, target, baseline_logp}`), and `aggregates.mean_delta` / `aggregates.median_delta` are per-layer across all records, in `layers` order."),
+    output=Output('intervene/ablation', collection=True, doc="Per record, one item per layer: `id`, `layer`, `delta_logp`. The header's `conditions` carry each record's untouched read (`{id, target, baseline_logp}`), and `aggregates.mean_delta` / `aggregates.median_delta` are per-layer across all records, in `layers` order."),
     params=(
         P("point", "string | list[string]",
           "The sub-layer output(s) zeroed at each layer: `\"attn_out\"`, "
@@ -341,12 +341,12 @@ with a `prefill`), where `logits/read` reads.
         _tracked("the answer whose dependence on each layer is measured"),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "point": "mlp_out",
         "layers": "all",
         "tracked": {"answer": " Paris"},
     },
-    example_inputs={"records": {"$fetch": "$prompts"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
 
 ABLATE_HEADS = Op(
@@ -368,17 +368,17 @@ Cost is one forward pass per record per (layer, head): on a 30-layer,
 about rather than all of them when the prompt set is large.
 """,
     inputs=(_PROMPTS, ADAPTER),
-    emits=Emits('intervene/heads', collection=False, doc="One grid over axes `[layer, head]`: `measures.mean_delta` is the mean Δ log‑p across records; `conditions` lists each record's `{id, target, baseline_logp}`; `layers` and `n_heads` give the axes."),
+    output=Output('intervene/heads', collection=False, doc="One grid over axes `[layer, head]`: `measures.mean_delta` is the mean Δ log‑p across records; `conditions` lists each record's `{id, target, baseline_logp}`; `layers` and `n_heads` give the axes."),
     params=(
         _LAYERS_ALL,
         _tracked("the answer whose dependence on each head is measured"),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "layers": [10, 11, 12, 13, 14, 15],
         "tracked": {"answer": " Paris"},
     },
-    example_inputs={"records": {"$fetch": "$prompts"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
 
 ATTENTION_PATTERNS = Op(
@@ -405,17 +405,17 @@ million values.
            "`prompt` or `text` field.", many=True),
         ADAPTER,
     ),
-    emits=Emits('activations/attention', collection=True, doc="One grid per record over axes `[layer, head, query, key]`: `measures.weight` is indexed in that order (row = the attending position, column = the attended-to position); `tokens` are the prompt's tokens."),
+    output=Output('activations/attention', collection=True, doc="One grid per record over axes `[layer, head, query, key]`: `measures.weight` is indexed in that order (row = the attending position, column = the attended-to position); `tokens` are the prompt's tokens."),
     params=(
         P("layers", "list[int]",
           "The layers whose attention to record. Must be named — `\"all\"` is "
           "refused."),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "layers": [5, 6],
     },
-    example_inputs={"records": {"$fetch": "$prompts"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
 
 ATTRIBUTION_LOGITS = Op(
@@ -450,7 +450,7 @@ Because additivity only holds over the whole stream, `layers` must be
            "record may carry its own `tracked`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …): `measures.contribution`, the `target` and `contrast` tokens, the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
+    output=Output('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …): `measures.contribution`, the `target` and `contrast` tokens, the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
     params=(
         P("apply_ln", "bool",
           "Fold the final norm's scale into the unembedding so contributions "
@@ -469,11 +469,11 @@ Because additivity only holds over the whole stream, `layers` must be
         _tracked("the logit being decomposed"),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "tracked": {"answer": " Paris"},
         "per_head_layers": [12, 13],
     },
-    example_inputs={"records": {"$fetch": "$prompts"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
 
 PATCH_TRACE = Op(
@@ -505,7 +505,7 @@ reported as errors rather than silently shifted.
            "own `tracked`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` residual is patched in; `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures."),
+    output=Output('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` residual is patched in; `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures."),
     params=(
         _LAYERS_ALL,
         P("metric", "string",
@@ -522,11 +522,11 @@ reported as errors rather than silently shifted.
                 "clean prompt's top‑1"),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "tracked": {"answer": " Paris"},
         "metric": "logprob",
     },
-    example_inputs={"records": {"$fetch": "$pairs"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/pairs"}}},
 )
 
 RESIDUALS_DIVERGENCE = Op(
@@ -547,16 +547,16 @@ the change has propagated.
 Unequal-length pairs are reported as errors, not aligned by guesswork.
 """,
     inputs=(_PAIRS, ADAPTER),
-    emits=Emits('activations/divergence', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.divergence` is 1 − cosine; `tokens` are prompt `a`'s. An unaligned pair has `error` and empty measures."),
+    output=Output('activations/divergence', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.divergence` is 1 − cosine; `tokens` are prompt `a`'s. An unaligned pair has `error` and empty measures."),
     params=(
         _LAYERS_ALL,
         _RESIDUAL_POINT,
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "layers": "all",
     },
-    example_inputs={"records": {"$fetch": "$pairs"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/pairs"}}},
 )
 
 RESIDUALS_VECTORS = Op(
@@ -598,7 +598,7 @@ layers or records.
            "document collection is read the same way.", many=True),
         ADAPTER,
     ),
-    emits=Emits('activations/vector', collection=True, doc='One item per record per layer (per head, for Q/K sources): `{id, coords, space, vector, norm}`, plus `token` (the token read, when not pooled) and `n_pooled` when pooled. The header carries `model`, `point`, `source`, `position` (`"pooled"` when pooled), `layers`, `d_model`, and `skipped_empty` listing any records dropped under `skip_empty`.'),
+    output=Output('activations/vector', collection=True, doc='One item per record per layer (per head, for Q/K sources): `{id, coords, space, vector, norm}`, plus `token` (the token read, when not pooled) and `n_pooled` when pooled. The header carries `model`, `point`, `source`, `position` (`"pooled"` when pooled), `layers`, `d_model`, and `skipped_empty` listing any records dropped under `skip_empty`.'),
     params=(
         _LAYERS_ALL,
         _RESIDUAL_POINT,
@@ -624,11 +624,11 @@ layers or records.
           False),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "layers": [8, 12, 16],
         "pool": {"reduce": "mean", "over": {"range": [5, 30]}},
     },
-    example_inputs={"records": {"$fetch": "$stories"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/stories"}}},
 )
 
 LENS_POSITIONS = Op(
@@ -650,16 +650,16 @@ The map answers: where in the sequence, and at what depth, does the answer
 become visible?
 """,
     inputs=(_PROMPTS, ADAPTER),
-    emits=Emits('logits/lens', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.logprob` and `measures.rank` (0 is the top readout), `tokens`, and the `target` token."),
+    output=Output('logits/lens', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.logprob` and `measures.rank` (0 is the top readout), `tokens`, and the `target` token."),
     params=(
         _LAYERS_ALL,
         _tracked("the answer being watched for"),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "tracked": {"answer": " Paris"},
     },
-    example_inputs={"records": {"$fetch": "$prompts"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
 
 LENS_TRAJECTORY = Op(
@@ -682,7 +682,7 @@ entropy falling, one token taking over, at whichever depth this model
 decides. A set of records renders as overlaid curves.
 """,
     inputs=(_CHAT_RECORDS, ADAPTER),
-    emits=Emits('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked`. The header carries `layers` and `top_k`."),
+    output=Output('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked`. The header carries `layers` and `top_k`."),
     params=(
         P("top_k", "int", "How many of the most likely tokens to record per layer.", 5),
         P("tracked", "map[string, string]",
@@ -694,10 +694,10 @@ decides. A set of records renders as overlaid curves.
           None),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "top_k": 5,
     },
-    example_inputs={"records": {"$fetch": "$conditions"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/conditions"}}},
 )
 
 STEER_INJECT = Op(
@@ -730,7 +730,7 @@ For anything beyond one direction at one layer and position, use
            "the injection `layer`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked`. The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas."),
+    output=Output('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked`. The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas."),
     params=(
         P("layer", "int",
           "The layer whose residual stream the direction is added to. Items "
@@ -766,13 +766,13 @@ For anything beyond one direction at one layer and position, use
           None),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "layer": 12,
         "direction": {"axis": "register", "positive": "formal", "negative": "casual"},
         "alphas": [-4.0, 0.0, 4.0, 8.0],
         "tracked": {"hedge": " certainly"},
     },
-    example_inputs={"records": {"$fetch": "$prompts"}, "vectors": {"$fetch": "$vectors"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}, "vectors": {"$ref": {"bench": "you/lab/vectors"}}},
 )
 
 # --- reading and generating --------------------------------------------------------
@@ -815,7 +815,7 @@ annotate it token by token.
            "an `id`, and optionally `coords`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`."),
+    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`."),
     params=(
         P("n", "int", "How many completions to sample per record.", 1),
         P("start", "int",
@@ -847,13 +847,13 @@ annotate it token by token.
           "text", choices=("text", "trace")),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "n": 4,
         "temperature": 0.9,
         "max_tokens": 200,
         "fidelity": "trace",
     },
-    example_inputs={"records": {"$fetch": "$prompts"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
 
 DECISION_READ = Op(
@@ -903,7 +903,7 @@ readings.
            "its own `tracked`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` and `complete_entropy_bits` with `complete`, and `rollout` when one was requested. The header carries `top_k`.'),
+    output=Output('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` and `complete_entropy_bits` with `complete`, and `rollout` when one was requested. The header carries `top_k`.'),
     params=(
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"yes\": \" Yes\"}` — the candidate "
@@ -945,10 +945,10 @@ readings.
           )),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "tracked": {"red": "red", "blue": "blue", "green": "green"},
     },
-    example_inputs={"conditions": {"$fetch": "$conditions"}},
+    example_inputs={"conditions": {"$ref": {"bench": "you/lab/conditions"}}},
 )
 
 SCORE = Op(
@@ -970,13 +970,13 @@ item has no token ids to replay and the block refuses it.
     inputs=(
         In("collection", "text/document",
            "A trace-fidelity document collection, usually from `text/generate`; "
-           "a stored one arrives as `{\"$fetch\": …}`.", many=True),
+           "a stored one arrives as `{\"$ref\": …}`.", many=True),
         ADAPTER,
     ),
-    emits=Emits('text/annotation', collection=True, doc='One item per token: `{anchor: {item_id, token_start, token_end}, value}` with the surprisal in bits. The header names the `collection` scored and carries `value_type: "numeric"` and `required_fidelity: "trace"`.'),
+    output=Output('text/annotation', collection=True, doc='One item per token: `{anchor: {item_id, token_start, token_end}, value}` with the surprisal in bits. The header names the `collection` scored and carries `value_type: "numeric"` and `required_fidelity: "trace"`.'),
     params=(),
-    example={"model": "$model"},
-    example_inputs={"collection": {"$fetch": "$collection"}},
+    example={"model": {"$param": "model"}},
+    example_inputs={"collection": {"$ref": {"bench": "you/lab/collection"}}},
 )
 
 TOKENIZE_STATS = Op(
@@ -1012,7 +1012,7 @@ to exactly that depth.
            "Records whose `text` (else `user` or `prompt`) is measured, when "
            "no `vocabulary` is given.", many=True, required=False),
     ),
-    emits=Emits('text/tokenization', collection=False, doc="`n_items`, `mean_depth`, `min_depth`, `max_depth`, `single_token_fraction`, `mean_tokens_per_word`, `fragmented_fraction`, `rows` (the histogram: `{depth, count, share}`), `script_composition`, `boundary_failures` (items that changed the prefix's own tokenization), `gate` (`{expected_depth, pass, n_violations, violations}` or null), `most_fragmented`, and `items` when kept."),
+    output=Output('text/tokenization', collection=False, doc="`n_items`, `mean_depth`, `min_depth`, `max_depth`, `single_token_fraction`, `mean_tokens_per_word`, `fragmented_fraction`, `rows` (the histogram: `{depth, count, share}`), `script_composition`, `boundary_failures` (items that changed the prefix's own tokenization), `gate` (`{expected_depth, pass, n_violations, violations}` or null), `most_fragmented`, and `items` when kept."),
     params=(
         P("prefix", "string",
           "The envelope each item is tokenized after — `'{ \"name\": \"'` "
@@ -1033,7 +1033,7 @@ to exactly that depth.
           False),
     ),
     example={
-        "model": "$model",
+        "model": {"$param": "model"},
         "prefix": "{ \"color\": \"",
         "expect_depth": 1,
     },
@@ -1078,7 +1078,7 @@ wrote. To read what training wrote BY ITSELF, `adapter/measure` reads
 the adapter's own deltas and needs no model at all.
 """,
     inputs=(ADAPTER,),
-    emits=Emits('weights/parameter', collection=True, doc="One item per parameter tensor, id and `coords.module` naming it in the model's own tree: `shape`, `n`, `dtype`, `frobenius`, `mean`, `std`, `max_abs`, `sparsity`, plus `singular_values`/`spectral`/`effective_rank` under `spectrum` and `values` under `values`. The header carries the `model` and `captured` — the tensors read, the numbers that is, and how many the model has."),
+    output=Output('weights/parameter', collection=True, doc="One item per parameter tensor, id and `coords.module` naming it in the model's own tree: `shape`, `n`, `dtype`, `frobenius`, `mean`, `std`, `max_abs`, `sparsity`, plus `singular_values`/`spectral`/`effective_rank` under `spectrum` and `values` under `values`. The header carries the `model` and `captured` — the tensors read, the numbers that is, and how many the model has."),
     params=(
         P("points", "list[string] | \"all\"",
           "Which parameters to read, named as the module tree names them; "
@@ -1093,7 +1093,7 @@ the adapter's own deltas and needs no model at all.
           "numbers across the selection.",
           False),
     ),
-    example={"model": "$model", "points": ["layers.*.mlp.down_proj"],
+    example={"model": {"$param": "model"}, "points": ["layers.*.mlp.down_proj"],
              "spectrum": 8},
 )
 
@@ -1117,7 +1117,7 @@ hidden space, where a direction means nothing to an unembedding or to
 another layer, and this block refuses it by name.
 
 What comes out is `direction/vector` — the same kind `direction/fit`
-emits from activations — so everything that family does applies:
+produces from activations — so everything that family does applies:
 `direction/unembed` names the tokens a direction promotes,
 `direction/project` measures activations against it,
 `geometry/compare` measures two of them against each other. A weight's
@@ -1138,7 +1138,7 @@ direction — and for comparing modules across layers or models.
 whole model by accident.
 """,
     inputs=(ADAPTER,),
-    emits=Emits('direction/vector', collection=True, doc="`top_k` items per module, ids `<parameter>#<k>`: the unit direction, `norm` its singular value, `space` naming the model, the layer and the point the module reads or writes (`attn.in_norm`, `attn_out`, `mlp.in_norm`, `mlp_out`), and `derivation` recording the module, the side and the index. The header's `decomposed` lists what was skipped and why."),
+    output=Output('direction/vector', collection=True, doc="`top_k` items per module, ids `<parameter>#<k>`: the unit direction, `norm` its singular value, `space` naming the model, the layer and the point the module reads or writes (`attn.in_norm`, `attn_out`, `mlp.in_norm`, `mlp_out`), and `derivation` recording the module, the side and the index. The header's `decomposed` lists what was skipped and why."),
     params=(
         P("points", "list[string]",
           "Which parameters to decompose, named as the module tree names "
@@ -1153,7 +1153,7 @@ whole model by accident.
           "that, and says why it skipped the rest.",
           "auto"),
     ),
-    example={"model": "$model", "points": ["layers.*.self_attn.o_proj"],
+    example={"model": {"$param": "model"}, "points": ["layers.*.self_attn.o_proj"],
              "top_k": 2},
 )
 

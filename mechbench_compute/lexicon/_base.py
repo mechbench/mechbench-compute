@@ -210,9 +210,9 @@ class Kind:
 
 @dataclass(frozen=True)
 class Otherwise:
-    """What an op emits in place of its usual kind, and the one thing
+    """What an op produces in place of its usual kind, and the one thing
     about the node that decides it: a param's value, or an input port
-    being filled. `trajectory/aggregate` with `as: "vectors"` emits
+    being filled. `trajectory/aggregate` with `as: "vectors"` produces
     `activations/vector`, not `trajectory/summary`; a composer that knew
     only the usual kind would refuse to wire it into `direction/fit`,
     which is exactly where it goes."""
@@ -232,10 +232,12 @@ class Otherwise:
 
 
 @dataclass(frozen=True)
-class Emits:
-    """What an op produces: a kind, singly or as a collection of it, and
-    the prose that says which fields matter. `otherwise` are the kinds it
-    produces instead under a condition the node states."""
+class Output:
+    """What an op produces — its one output: a kind, singly or as a
+    collection of it, and the prose that says which fields matter.
+    `otherwise` are the kinds it produces instead under a condition the
+    node states. An op and a protocol are declared in the same words
+    (epic 000553): params, inputs, output(s)."""
 
     kind: str
     collection: bool = False
@@ -247,6 +249,10 @@ class Emits:
         if self.otherwise:
             d["otherwise"] = [o.to_dict() for o in self.otherwise]
         return d
+
+
+#: The old name of `Output`, read until 000565.
+Emits = Output
 
 
 class _Required:
@@ -265,7 +271,8 @@ REQUIRED: Any = _Required()
 #: * a word: `string`, `int`, `float`, `bool`, `null`;
 #: * `selector` — a position selector, the `position` grammar;
 #: * `model` — a model reference: a repository id, `{base, adapters}`,
-#:   an endpoint `{provider, model}`, or a run binding like `"$model"`;
+#:   an endpoint `{provider, model}`, or a param of the protocol,
+#:   `{"$param": "model"}`;
 #: * `object` — a structure whose fields the param DECLARES (its own
 #:   `fields`, or the `value` it names). An object nobody declared is
 #:   what an editor can only show as JSON, so the suite refuses one;
@@ -428,10 +435,11 @@ class Port:
     read the same way, `kind` lists both with ` | `. `required` ports
     must be wired (or given inline) before the node runs.
 
-    A port is filled by an edge from an upstream node, or — for a small
-    literal or a stored object — under the node's `inputs` map, as a
-    list, an object, or `{"$fetch": …}`. Never under `params`: what a
-    node computes on is an input, what it computes with is a param.
+    A port is filled by an edge from an upstream node or from one of the
+    protocol's inputs, or — for a small literal or a stored object —
+    under the node's `inputs` map, as a list, an object, or `{"$ref":
+    …}`. Never under `params`: what a node computes on is an input, what
+    it computes with is a param.
 
     `many` and `variadic` are different things, and a port may be
     either, both or neither (task 000397):
@@ -514,10 +522,11 @@ class Op:
     `description`: markdown, as long as it needs to be — what the op
     does, the shapes it expects, what the result looks like.
     `inputs`: the typed ports — what arrives by edge, or inline under
-    the node's `inputs`. `emits`: the record it produces. `example`: a
-    params object that would run, with `$bindings` and `{"$fetch": …}`
-    where a value comes from outside the protocol; `example_inputs` the
-    node's `inputs` beside it, when the example needs any.
+    the node's `inputs`. `output`: the record it produces. `example`: a
+    params object that would run, with `{"$param": …}` where the
+    protocol's param supplies a value and `{"$ref": …}` where a stored
+    object does; `example_inputs` the node's `inputs` beside it, when
+    the example needs any.
     """
 
     #: The bare name, `family/op` — what a protocol writes.
@@ -528,7 +537,7 @@ class Op:
     inputs: tuple[Port, ...] = ()
     #: The kind produced, or None for an op whose result is not a bench
     #: object (a tool handler's).
-    emits: Emits | None = None
+    output: Output | None = None
     #: What a machine must have to run this operation (task 000516).
     #: Declared here and nowhere else: the composer used to carry it per
     #: block in a hand-written table, and that table decides which
@@ -586,6 +595,11 @@ class Op:
                 return p
         return self.wildcard
 
+    @property
+    def emits(self) -> Output | None:
+        """The old name of `output`, read until 000565."""
+        return self.output
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -596,7 +610,10 @@ class Op:
             "summary": self.summary,
             "description": self.description,
             "inputs": [p.to_dict() for p in self.inputs],
-            "emits": self.emits.to_dict() if self.emits else None,
+            "output": self.output.to_dict() if self.output else None,
+            # The old key, for a reader from before the rename (000565
+            # removes it).
+            "emits": self.output.to_dict() if self.output else None,
             "params": [p.to_dict() for p in self.params],
             "example": self.example,
             "example_inputs": self.example_inputs,

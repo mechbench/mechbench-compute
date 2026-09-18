@@ -111,6 +111,24 @@ class TestLaunch:
         import json
         assert "budgetUsd" not in json.loads(fake.calls[-1]["body"])
 
+    def test_it_binds_params_and_inputs_by_name_and_asks_to_keep(self, fake):
+        # The declared form (epic 000553): a path given for an input is
+        # the stored object it names; no legacy bindings are sent.
+        fake.add("POST", "/runs", {"id": "r", "jobId": "j"})
+        bench.launch("p", params={"model": "gemma", "n": 12},
+                     inputs={"prompts": "lab/p/prompts", "given": [{"id": "1"}]},
+                     keep="outputs")
+        import json
+        assert json.loads(fake.calls[-1]["body"]) == {
+            "params": {"model": "gemma", "n": 12},
+            "inputs": {"prompts": {"$ref": {"bench": "lab/p/prompts"}}, "given": [{"id": "1"}]},
+            "keep": "outputs"}
+
+    def test_keep_takes_two_words(self, fake):
+        import pytest
+        with pytest.raises(ValueError, match="keep is 'all' or 'outputs'"):
+            bench.launch("p", params={}, keep="some")
+
 
 class TestCreateProtocol:
     def test_it_posts_the_graph_and_returns_the_bare_protocol(self, fake):
@@ -123,6 +141,7 @@ class TestCreateProtocol:
                                     description="d",
                                     signature={"inputs": [], "outputs": []})
         assert out == {"id": "prt_1", "version": 1, "name": "018-axes"}
+
         import json
         body = json.loads(fake.calls[-1]["body"])
         assert body["ownerHandle"] == "benji" and body["projectSlug"] == "lab"
@@ -134,6 +153,22 @@ class TestCreateProtocol:
         fake.add("POST", "/protocols", {"id": "prt_2", "version": 1})
         assert bench.create_protocol("o", "p", "n", graph={})["id"] == "prt_2"
 
+    def test_params_inputs_and_outputs_make_the_declared_signature(self, fake):
+        fake.add("POST", "/protocols", {"protocol": {"id": "prt_2", "version": 1, "name": "p"}})
+        bench.create_protocol("benji", "lab", "p",
+                              graph={"nodes": [], "edges": []},
+                              params=[{"name": "n", "type": "int", "default": 4}],
+                              outputs=[{"name": "said", "from": {"node": "said"}}])
+        import json
+        body = json.loads(fake.calls[-1]["body"])
+        assert body["signature"] == {"params": [{"name": "n", "type": "int", "default": 4}],
+                                     "inputs": [],
+                                     "outputs": [{"name": "said", "from": {"node": "said"}}]}
+        assert body["graph"]["dataflow"] == 2
+        import pytest
+        with pytest.raises(ValueError, match="not both"):
+            bench.create_protocol("benji", "lab", "p", graph={"nodes": [], "edges": []},
+                                  params=[], signature={"inputs": [], "outputs": []})
 
 class TestRunningAnAuthorTwice:
     """Task 000519. The second run is the protocol's second VERSION, not

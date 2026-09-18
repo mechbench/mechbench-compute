@@ -1,4 +1,4 @@
-"""The kinds: every data type an op reads or emits, declared once.
+"""The kinds: every data type an op reads or produces, declared once.
 
 A kind is singular (docs/LEXICON.md §4). Plurality is the one container,
 `collection`: `{kind: "collection", item_kind, key, items, ...header}`,
@@ -110,7 +110,7 @@ TABLE = Kind(
     renderer={"primitive": "table", "field_map": {"rows": "rows"}},
     doc="A table is for reading, not for further computation: its rows are plain objects typed by `columns`, "
         "not items of a kind, so nothing downstream reads a table but a chart and a person. `records/tabulate` "
-        "makes one from any collection (coordinates become the leading columns), and `records/summarize` emits one "
+        "makes one from any collection (coordinates become the leading columns), and `records/summarize` produces one "
         "directly.",
 )
 
@@ -257,7 +257,7 @@ DISTRIBUTION = Kind(
     fields={"entropy_bits": F("number", "The distribution's entropy in bits."),
             "top": TOP, "tracked": TRACKED},
     required=("entropy_bits", "top"),
-    doc="Every op that reads a next-token distribution emits this shape or a kind that extends it: "
+    doc="Every op that reads a next-token distribution produces this shape or a kind that extends it: "
         "the same `top` and `tracked`, spelled once. Two reads compare over the union of the tokens "
         "they carry, the mass neither names counted as one last bucket.",
     metrics=(
@@ -281,7 +281,7 @@ DECISION = Kind(
     key=("id",),
     header={"model": "The model read.", "top_k": "How many tokens `top` holds."},
     renderer=_TABLE_RENDERER,
-    doc="What `logits/read` emits, one per condition, and what `eval/expect` judges. `tracked` holds "
+    doc="What `logits/read` produces, one per condition, and what `eval/expect` judges. `tracked` holds "
         "each named token by the name the protocol gave it — the op's `tracked` param, or the record's own, "
         "which takes precedence — and the first is the target. `rollout`, when asked for, expands the most "
         "likely complete outcomes past the first token.",
@@ -496,7 +496,7 @@ ABLATION = Kind(
             "conditions": "Per record: `{id, target, baseline_logp}` — the untouched read each delta is against.",
             "aggregates": "`{mean_delta, median_delta}` per layer across records."},
     renderer=_TABLE_RENDERER,
-    doc="What `intervene/ablate-layers` emits: one item per (record, layer), the drop in the target's log-probability "
+    doc="What `intervene/ablate-layers` produces: one item per (record, layer), the drop in the target's log-probability "
         "when that layer's sub-layer outputs are zeroed. The baseline each delta is measured against is on the "
         "header, per record, so a delta is never read without the number it is a difference from; a layer the "
         "answer runs through shows as a large negative delta.",
@@ -546,7 +546,7 @@ VOCAB = Kind(
     fields={"space": SPACE, "top_k": F("integer", "How many tokens per sign."),
             "positive": DIST, "negative": DIST},
     required=("space", "positive", "negative"),
-    doc="What `direction/unembed` emits: the direction pushed through the unembedding as if it were a final "
+    doc="What `direction/unembed` produces: the direction pushed through the unembedding as if it were a final "
         "residual, and its negative likewise, each read as a next-token distribution. The tokens the positive "
         "side promotes are what the axis 'says'; the negative side is what it says when reversed. Two "
         "distributions, so the distribution metrics compare a direction's vocabulary with another's.",
@@ -585,7 +585,7 @@ COMPARISON = Kind(
             "n_pairs": "Rows paired.", "divergence_step": "The first step below the threshold.", "min_cosine_step": "The step of least agreement.",
             "per_step": "`{step, mean_cosine, n}` across ids."},
     renderer=_TABLE_RENDERER,
-    doc="What `trajectory/compare` emits: the two trajectories paired by id or by step, and at each step the "
+    doc="What `trajectory/compare` produces: the two trajectories paired by id or by step, and at each step the "
         "cosine and angle between their vectors and the ratio of their norms. The header carries the first "
         "step at which the cosine fell below the threshold — where two models, or two prompts, stop agreeing.",
 )
@@ -601,7 +601,7 @@ SUMMARY = Kind(
     key=("group", "step"),
     header={"aggregated": "`{by, as, steps}` — how the rows were grouped and reduced."},
     renderer=_TABLE_RENDERER,
-    doc="What `trajectory/aggregate` emits, in one of three shapes the header's `as` names: per step, the mean "
+    doc="What `trajectory/aggregate` produces, in one of three shapes the header's `as` names: per step, the mean "
         "coordinate and its standard deviation across the group; over a window, one value per group; or as "
         "vectors, the group's mean vector with the spread of its members around it — the shape "
         "`direction/fit` reads directly.",
@@ -618,7 +618,7 @@ LORA = Kind(
             "train": F("object", "Steps, lr, seed, batch, final loss, the target spec, and the counts."),
             "data": F("string", "The safetensors bytes.", contentEncoding="binary")},
     required=("format", "lora", "data"),
-    doc="What `adapter/train` emits, and what a model-running node takes on its `adapter` port. `train` records "
+    doc="What `adapter/train` produces, and what a model-running node takes on its `adapter` port. `train` records "
         "the whole training — steps, learning rate, seed, batch, final loss, the target it was trained toward "
         "and the counts — so the adapter's own object is the methods section of the experiment that made it, "
         "and `trained_on` names the base and the adapters it was stacked on, which is what a later fusion must "
@@ -657,7 +657,7 @@ PARAMETER = Kind(
     header={"model": "The model's wire form — which weights these are.",
             "captured": "`{parameters, values, of}` — how many tensors this node read, how many numbers that is, and how many the model has."},
     renderer=_TABLE_RENDERER,
-    doc="What `weights/capture` emits: one item per parameter tensor, `id` and `coords.module` naming it in the model's "
+    doc="What `weights/capture` produces: one item per parameter tensor, `id` and `coords.module` naming it in the model's "
         "own tree (`layers.12.self_attn.q_proj.weight`). `coords` carry `layer`, `container`, `projection` and "
         "`parameter` where the name has them, so a reading groups by layer or by projection the way an activation "
         "capture groups by layer. The reduced forms are the default: the spectrum costs an SVD per tensor and the "
@@ -689,7 +689,7 @@ DELTA = Kind(
             "measured": "`{modules, layers, frobenius}` — what this node covered, which is what the shares are shares of.",
             "source": "What to call this adapter, stamped on every item's `coords.adapter`."},
     renderer=_TABLE_RENDERER,
-    doc="What `adapter/measure` emits: one item per (layer, module), read from the adapter's own low-rank factors "
+    doc="What `adapter/measure` produces: one item per (layer, module), read from the adapter's own low-rank factors "
         "with no model and no forward pass. `coords.layer` and `coords.module` are what a reading groups on — "
         "mass by layer is the 'where did training write' map — and `coords.adapter` separates two adapters "
         "measured into one collection. With `vectors` on, two adapters' writes at the same module are compared "

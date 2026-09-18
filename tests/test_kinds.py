@@ -65,17 +65,17 @@ def test_names_are_unique_and_the_container_is_one() -> None:
 
 def test_every_op_emits_a_declared_kind_or_nothing() -> None:
     for op in L.OPS:
-        if op.emits is None:
+        if op.output is None:
             assert op.family == "tools", f"{op.name} emits nothing and is not a tool"
             continue
-        assert op.emits.kind in K.BY_KIND, f"{op.name} emits undeclared {op.emits.kind!r}"
-        kind = K.BY_KIND[op.emits.kind]
-        if op.emits.collection:
+        assert op.output.kind in K.BY_KIND, f"{op.name} produces undeclared {op.output.kind!r}"
+        kind = K.BY_KIND[op.output.kind]
+        if op.output.collection:
             assert kind.collectable, f"{op.name} emits a collection of {kind.name}, which declares no key"
 
 
 def test_every_op_kind_is_emitted_by_some_op() -> None:
-    emitted = {op.emits.kind for op in L.OPS if op.emits}
+    emitted = {op.output.kind for op in L.OPS if op.output}
     # Ancestors and the container are declared for the lattice, not
     # emitted directly; platform kinds are produced by the platform.
     exempt = {COLLECTION, "records/record", "records/condition", "records/pair",

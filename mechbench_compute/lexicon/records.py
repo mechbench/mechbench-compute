@@ -10,7 +10,7 @@ records from an edge onto their `records` port.
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import WILDCARD, Emits, In, Op, P
+from mechbench_compute.lexicon._base import WILDCARD, Output, In, Op, P
 from mechbench_compute.lexicon.common import TARGET_UNIFORM, TARGET_WEIGHTS
 
 _RECORDS = In("records", "collection | records/table",
@@ -80,7 +80,7 @@ FACTOR_CROSS = Op(
     ),
     description=_FACTORS_DESC,
     inputs=(),
-    emits=Emits('records/record', collection=True, doc='One record per combination: `{id, coords, values}`.'),
+    output=Output('records/record', collection=True, doc='One record per combination: `{id, coords, values}`.'),
     params=(
         P("factors", "list[object]",
           "The factors to cross, each `{name, levels?, sampled?}` as "
@@ -123,7 +123,7 @@ chat-shaped ops — and no adaptation step is needed between them.
         In("records", "records/record",
            "Records with `values`, usually from `records/cross`.", many=True),
     ),
-    emits=Emits('records/record', collection=True, doc='One record per input record: `{id, coords}` plus one field per template.'),
+    output=Output('records/record', collection=True, doc='One record per input record: `{id, coords}` plus one field per template.'),
     params=(
         P("templates", "map[string, string]",
           "Field name → template string. `{name}` is replaced by the "
@@ -136,7 +136,7 @@ chat-shaped ops — and no adaptation step is needed between them.
             "user": "Write {genre}. Begin with the phrase: {seed}",
         },
     },
-    example_inputs={"records": {"$fetch": "$design"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/design"}}},
 )
 
 RENAME = Op(
@@ -160,14 +160,14 @@ a document's `metadata.coords`. A record without the old field is left as
 it is. Everything not named is kept.
 """,
     inputs=(_RECORDS,),
-    emits=Emits('records/record', collection=True, doc='The same records, with the named fields moved.'),
+    output=Output('records/record', collection=True, doc='The same records, with the named fields moved.'),
     params=(
         P("fields", "map[string, string]",
           "Old name → new name, each a field or a dotted path such as "
           "`coords.genre`."),
     ),
     example={"fields": {"question": "user", "opening": "coords.opening"}},
-    example_inputs={"records": {"$fetch": "$records"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/records"}}},
 )
 
 SELECT = Op(
@@ -186,7 +186,7 @@ matches.
 `fields` projects the survivors down to `id`, `coords` and the named fields.
 """,
     inputs=(_RECORDS,),
-    emits=Emits('records/record', collection=True, doc='The matching records.'),
+    output=Output('records/record', collection=True, doc='The matching records.'),
     params=(
         P("where", "map[string, string | float | bool | list[string | float | bool]]",
           "Field → value or list of values. `{\"genre\": \"noir\", "
@@ -198,7 +198,7 @@ matches.
           None),
     ),
     example={"where": {"genre": ["noir", "fable"], "leak": 0}},
-    example_inputs={"records": {"$fetch": "$records"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/records"}}},
 )
 
 UNION = Op(
@@ -225,8 +225,8 @@ is a union followed by the direction algebra.
            "of `activations/vector` — on a port of your naming; the name "
            "becomes the value on the batch coordinate.", many=True),
     ),
-    emits=(
-        Emits('records/record', collection=True, doc="Every input's records, each with the batch coordinate; the header's `segments` says how many came from each port. When every input was a collection of `activations/vector`, so is the output, every item keeping its own `space`.")
+    output=(
+        Output('records/record', collection=True, doc="Every input's records, each with the batch coordinate; the header's `segments` says how many came from each port. When every input was a collection of `activations/vector`, so is the output, every item keeping its own `space`.")
     ),
     params=(
         P("batch_axis", "string",
@@ -235,7 +235,7 @@ is a union followed by the direction algebra.
           "batch"),
     ),
     example={"batch_axis": "run"},
-    example_inputs={"base": {"$fetch": "$base_vectors"}, "adapted": {"$fetch": "$adapted_vectors"}},
+    example_inputs={"base": {"$ref": {"bench": "you/lab/base_vectors"}}, "adapted": {"$ref": {"bench": "you/lab/adapted_vectors"}}},
 )
 
 ZIP = Op(
@@ -272,7 +272,7 @@ absent, for a readout that can report a missing arm.
            "first edge is the first branch.",
            many=True, variadic=True, min_edges=2),
     ),
-    emits=Emits('records/record', collection=True, doc="One record per key: `id`, `coords` from the first branch that has it, and `branches` — a map of branch name to that branch's record (or `{missing: true}` under `placeholder`). With `flatten`, each branch's fields are copied up under a `<branch>_` prefix instead. The header carries `branches` (name, source node, count) and `zipped` (the key, how many came out, the policy, and what was dropped)."),
+    output=Output('records/record', collection=True, doc="One record per key: `id`, `coords` from the first branch that has it, and `branches` — a map of branch name to that branch's record (or `{missing: true}` under `placeholder`). With `flatten`, each branch's fields are copied up under a `<branch>_` prefix instead. The header carries `branches` (name, source node, count) and `zipped` (the key, how many came out, the policy, and what was dropped)."),
     params=(
         P("by", "\"id\" | list[string]",
           "What to align on: record ids, or the named coordinates.",
@@ -292,7 +292,7 @@ absent, for a readout that can report a missing arm.
           False),
     ),
     example={"by": ["prompt"], "names": ["base", "adapted"]},
-    example_inputs={"branches": {"$fetch": "$base_reads"}},
+    example_inputs={"branches": {"$ref": {"bench": "you/lab/base_reads"}}},
 )
 
 MAP = Op(
@@ -331,7 +331,7 @@ collect.
            "The stream to map over: one invocation of the body per record.",
            many=True),
     ),
-    emits=Emits('records/record', collection=True, doc="Under `stream`, every invocation's items in one collection, each id prefixed `<record>:<item>` and carrying `coords.mapped`; under `first` or `all`, one item per record. The header's `mapped` says how many records ran, under which policy, and what the body's nodes were."),
+    output=Output('records/record', collection=True, doc="Under `stream`, every invocation's items in one collection, each id prefixed `<record>:<item>` and carrying `coords.mapped`; under `first` or `all`, one item per record. The header's `mapped` says how many records ran, under which policy, and what the body's nodes were."),
     params=(
         P("body", "object",
           "The graph to run per record — `{nodes, edges}`, the same shape a "
@@ -354,11 +354,11 @@ collect.
     ),
     example={"bind": {"topic": "user"}, "collect": "stream",
              "body": {"nodes": [{"id": "write", "block": "text/generate",
-                                 "params": {"model": "$model", "n": 3,
+                                 "params": {"model": {"$param": "model"}, "n": 3,
                                             "messages": [{"role": "user",
                                                           "content": "$topic"}]}}],
                       "edges": []}},
-    example_inputs={"records": {"$fetch": "$topics"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/topics"}}},
 )
 
 PAIRED_DELTA = Op(
@@ -376,7 +376,7 @@ with no matching baseline is an error, not a silent omission.
 The output keeps `coords`, so it feeds `records/summarize` directly.
 """,
     inputs=(_RECORDS,),
-    emits=Emits('records/record', collection=True, doc='One record per non-baseline record: `{id, coords, value, baseline, delta}`.'),
+    output=Output('records/record', collection=True, doc='One record per non-baseline record: `{id, coords, value, baseline, delta}`.'),
     params=(
         P("value", "string",
           "The numeric field to difference. A record has many numeric "
@@ -390,7 +390,7 @@ The output keeps `coords`, so it feeds `records/summarize` directly.
           None),
     ),
     example={"value": "entropy_bits", "baseline_where": {"alpha": 0}, "match_on": ["prompt"]},
-    example_inputs={"records": {"$fetch": "$reads"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/reads"}}},
 )
 
 GROUP_STATS = Op(
@@ -411,8 +411,8 @@ be read, an unscored item — set `on_missing: "skip"` and the count of
 skipped records is reported on the table as `n_missing`.
 """,
     inputs=(_RECORDS,),
-    emits=(
-        Emits('records/table', collection=False, doc='One row per group with the `by` coordinates and `n`, `median`, `mean`, `min`, `max`, `share_negative`; `n_missing` when any were skipped.')
+    output=(
+        Output('records/table', collection=False, doc='One row per group with the `by` coordinates and `n`, `median`, `mean`, `min`, `max`, `share_negative`; `n_missing` when any were skipped.')
     ),
     params=(
         P("value", "string",
@@ -427,7 +427,7 @@ skipped records is reported on the table as `n_missing`.
           "error", choices=("error", "skip")),
     ),
     example={"value": "delta", "by": ["genre", "alpha"]},
-    example_inputs={"records": {"$fetch": "$deltas"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/deltas"}}},
 )
 
 TABLE_FROM_RECORDS = Op(
@@ -442,7 +442,7 @@ becomes a column, then every scalar (number or string) field; each column's
 type is inferred from its values. Nested fields are left out.
 """,
     inputs=(_RECORDS,),
-    emits=Emits('records/table', collection=False, doc='`columns` (`{name, dtype}`) and `rows`.'),
+    output=Output('records/table', collection=False, doc='`columns` (`{name, dtype}`) and `rows`.'),
     params=(
         P("row_axis", "string",
           "What one row stands for, recorded on the table for its renderer "
@@ -450,7 +450,7 @@ type is inferred from its values. Nested fields are left out.
           "record"),
     ),
     example={"row_axis": "condition", "name": "steering deltas"},
-    example_inputs={"records": {"$fetch": "$deltas"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/deltas"}}},
 )
 
 TEXT_STATS = Op(
@@ -497,8 +497,8 @@ and "Steampunk Fantasy" are readable beside the names the map has.
            "`corpus_frequency` measures that name none of their own.",
            required=False),
     ),
-    emits=(
-        Emits('records/record', collection=True, doc='In `annotate` mode, one record per item (`id`, `coords`, the measure fields, and the whole item when `keep` is set). In `corpus` mode, a single record with the corpus summary.')
+    output=(
+        Output('records/record', collection=True, doc='In `annotate` mode, one record per item (`id`, `coords`, the measure fields, and the whole item when `keep` is set). In `corpus` mode, a single record with the corpus summary.')
     ),
     params=(
         P("measures", "list[object]",
@@ -562,10 +562,10 @@ rounded algorithm, so the result is the same whatever order or chunking the
 records arrived in. Safe to run over partial results and merge.
 """,
     inputs=(_RECORDS,),
-    emits=Emits('records/sum', collection=False, doc='`{n, sum}`.'),
+    output=Output('records/sum', collection=False, doc='`{n, sum}`.'),
     params=(P("value", "string", "The numeric field to sum."),),
     example={"value": "cost_usd"},
-    example_inputs={"records": {"$fetch": "$records"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/records"}}},
 )
 
 REDUCE_TOP_K = Op(
@@ -577,13 +577,13 @@ deterministic. An exact reduce: the top-k of a union is the top-k of the
 top-ks, so partial results merge without loss.
 """,
     inputs=(_RECORDS,),
-    emits=Emits('records/record', collection=True, doc='The top k, in order.'),
+    output=Output('records/record', collection=True, doc='The top k, in order.'),
     params=(
         P("value", "string", "The numeric field to rank by."),
         P("k", "int", "How many to keep.", 10),
     ),
     example={"value": "delta", "k": 5},
-    example_inputs={"records": {"$fetch": "$deltas"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/deltas"}}},
 )
 
 REDUCE_HISTOGRAM = Op(
@@ -595,7 +595,7 @@ REDUCE_HISTOGRAM = Op(
 the number of records. An exact reduce: counts add.
 """,
     inputs=(_RECORDS,),
-    emits=Emits('records/histogram', collection=False, doc='`bins` (the counts, in order), `below`, `above`.'),
+    output=Output('records/histogram', collection=False, doc='`bins` (the counts, in order), `below`, `above`.'),
     params=(
         P("value", "string", "The numeric field to bin."),
         P("lo", "float", "The lower edge of the first bin."),
@@ -603,7 +603,7 @@ the number of records. An exact reduce: counts add.
         P("bins", "int", "How many equal-width bins between `lo` and `hi`."),
     ),
     example={"value": "entropy_bits", "lo": 0.0, "hi": 8.0, "bins": 16},
-    example_inputs={"records": {"$fetch": "$reads"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/reads"}}},
 )
 
 EVAL_EXPECTATION = Op(
@@ -642,13 +642,13 @@ The header's `summary` carries the pass rate: the number a write-up cites.
         In("expectations", "records/record",
            "Records `{id, expect}`, one per result to judge.", many=True),
     ),
-    emits=(
-        Emits('eval/verdict', collection=True, doc='One verdict per judged result: `id`, `coords`, `expect`, `entropy_bits`, `kl_bits`, `mass`, `p_expected`, and `pass` (null with a `note` when unjudgeable). The header\'s `summary` carries `pass_rate`, `n_pass`, `n_judged` and `n_unjudgeable`.')
+    output=(
+        Output('eval/verdict', collection=True, doc='One verdict per judged result: `id`, `coords`, `expect`, `entropy_bits`, `kl_bits`, `mass`, `p_expected`, and `pass` (null with a `note` when unjudgeable). The header\'s `summary` carries `pass_rate`, `n_pass`, `n_judged` and `n_unjudgeable`.')
     ),
     params=(),
     example={},
     example_inputs={
-        "results": {"$fetch": "$reads"},
+        "results": {"$ref": {"bench": "you/lab/reads"}},
         "expectations": [
             {"id": "d6", "expect": {"type": "uniform",
                                     "over": ["1", "2", "3", "4", "5", "6"],
@@ -675,7 +675,7 @@ be encoded directly.
         In("records", "collection | records/table",
            "The table, or any collection of items, to chart.", many=True),
     ),
-    emits=Emits('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`), and `source` or `data`.'),
+    output=Output('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`), and `source` or `data`.'),
     params=(
         P("encoding", "object",
           "`{\"x\": field, \"y\": field, \"series\": field}` — which fields "
@@ -695,7 +695,7 @@ be encoded directly.
         "mark": "line",
         "encoding": {"x": "layer", "y": "mean", "series": "genre"},
     },
-    example_inputs={"records": {"$fetch": "$table"}},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/table"}}},
 )
 
 VECTORS_SIMILARITY = Op(
@@ -713,7 +713,7 @@ drawn: `activations/vector` (and so directions and trajectory points) by
 `hellinger`, `total-variation` or `kl`; `records/record` (and every record
 kind) by `hamming` over `coords`. The op takes any such collection on
 `items`, applies the named `metric` — the kind's first when none is named —
-and emits the matrix with the metric, its `options`, and whether it is
+and produces the matrix with the metric, its `options`, and whether it is
 symmetric recorded on the header.
 
 Items are grouped `by` a header axis before comparing: `"space"` (the
@@ -739,8 +739,8 @@ downstream.
            "The items to compare: any collection whose kind declares metrics.",
            many=True),
     ),
-    emits=(
-        Emits('geometry/similarity', collection=True, doc='One item per group: `{group, layer?, head?, space?, ids, labels, matrix, pairs?, separation?, nn_purity?, silhouette?}`, `labels` being the items\' values on the `axis` coordinate. The header carries `metric`, `metric_kind`, `symmetric`, `options`, `over` (the kind compared), `by`, `axis`, and `position`/`point` for vectors.')
+    output=(
+        Output('geometry/similarity', collection=True, doc='One item per group: `{group, layer?, head?, space?, ids, labels, matrix, pairs?, separation?, nn_purity?, silhouette?}`, `labels` being the items\' values on the `axis` coordinate. The header carries `metric`, `metric_kind`, `symmetric`, `options`, `over` (the kind compared), `by`, `axis`, and `position`/`point` for vectors.')
     ),
     params=(
         P("metric", "string",
@@ -763,7 +763,7 @@ downstream.
           "label"),
     ),
     example={"metric": "cosine", "options": {"center": True}, "axis": "genre"},
-    example_inputs={"items": {"$fetch": "$vectors"}},
+    example_inputs={"items": {"$ref": {"bench": "you/lab/vectors"}}},
 )
 
 VECTORS_MST = Op(
@@ -799,7 +799,7 @@ reproduces its numbers reproduces its tree.
            "The pairwise matrices, one per group, from `geometry/compare`.",
            many=True),
     ),
-    emits=Emits('geometry/mst', collection=True, doc='One item per group: `group`, `layer`/`head` when the group is a space, `n`, `n_edges`, `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`, `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels`, and `edges` as `[i, j, weight]` when kept. The header carries `metric`, `options`, `over` (the kind compared), `bridge_sigma` and `axis`. `records/table` reads the items as its rows.'),
+    output=Output('geometry/mst', collection=True, doc='One item per group: `group`, `layer`/`head` when the group is a space, `n`, `n_edges`, `mean`, `variance`, `stdev`, `cv`, `total`, `min`, `max`, `bridge_threshold`, `bridges`, `components_after_cut`, `ids`, `labels`, and `edges` as `[i, j, weight]` when kept. The header carries `metric`, `options`, `over` (the kind compared), `bridge_sigma` and `axis`. `records/table` reads the items as its rows.'),
     params=(
         P("bridge_sigma", "float",
           "How many standard deviations above the mean edge an edge must be "
@@ -811,7 +811,7 @@ reproduces its numbers reproduces its tree.
           True),
     ),
     example={"bridge_sigma": 2.0},
-    example_inputs={"similarity": {"$fetch": "$similarity"}},
+    example_inputs={"similarity": {"$ref": {"bench": "you/lab/similarity"}}},
 )
 
 OPS: tuple[Op, ...] = (

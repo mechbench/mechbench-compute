@@ -160,7 +160,7 @@ COORDS_VALUE = Value(
 `coords` is how a record knows where in the design it sits. `records/
 cross` writes one record per combination of factors, each with `coords`
 `{"genre": "noir", "seed": 1}`; every op that reads records copies the
-coordinates onto what it emits, so a decision read, a captured vector and
+coordinates onto what it produces, so a decision read, a captured vector and
 a verdict all still know their genre. A grouping is always a coordinate:
 the ops that group or separate take an `axis` naming one, never a field
 of their own.

@@ -197,3 +197,48 @@ class TestResumeAndIsomorphism:
         whole = K.items_of(_run())
         assert K.items_of(half) == [i for i in whole
                                     if i["coords"]["mapped"] == "t1"]
+
+
+class TestDeclaredBody:
+    """The declared form (epic 000553): a body refers to the map's
+    bound names and the run's params with `{"$param"}`; nothing is a
+    `$` string, and the map's own names are not the protocol's."""
+
+    def test_a_declared_body_binds_its_names_per_record_and_the_runs_by_name(self):
+        body = {"dataflow": 2, "nodes": [
+            {"id": "design", "block": "records/cross",
+             "params": {"factors": [
+                 {"name": "n", "levels": [{"key": "1"}, {"key": "2"}]},
+                 {"name": "topic", "levels": [{"key": {"$param": "topic"}}]},
+                 {"name": "tag", "levels": [{"key": {"$param": "tag"}}]}]}},
+            {"id": "write", "block": "records/fill",
+             "params": {"templates": {"text": "{tag}:{topic}-{n}"}}},
+        ], "edges": [
+            {"from": {"node": "design"}, "to": {"node": "write", "port": "records"}},
+        ]}
+        graph = {"dataflow": 2, "nodes": [
+            {"id": "each", "block": "records/map",
+             "params": {"body": body, "bind": {"topic": "user"}},
+             "inputs": {"records": TOPICS}},
+        ], "edges": []}
+        # `tag` is the run's param; `topic` is the map's, bound per record.
+        out = ProtocolExecutor().run(ProtocolSpec(
+            kind="pipeline", prompt="", model_id=None,
+            extra={"graph": graph, "params": {"tag": "x"}, "inputs": {}})).payload["outputs"]["each"]
+        assert [i["text"] for i in K.items_of(out)] == [
+            "x:dusk-1", "x:dusk-2", "x:kettle-1", "x:kettle-2"]
+
+    def test_a_name_the_map_does_not_bind_and_the_run_does_not_supply_is_refused(self):
+        body = {"dataflow": 2, "nodes": [
+            {"id": "design", "block": "records/cross",
+             "params": {"factors": [{"name": "topic", "levels": [{"key": {"$param": "elsewhere"}}]}]}},
+        ], "edges": []}
+        graph = {"dataflow": 2, "nodes": [
+            {"id": "each", "block": "records/map",
+             "params": {"body": body, "bind": {"topic": "user"}},
+             "inputs": {"records": TOPICS}},
+        ], "edges": []}
+        with pytest.raises(ValueError, match="unbound param 'elsewhere'"):
+            ProtocolExecutor().run(ProtocolSpec(
+                kind="pipeline", prompt="", model_id=None,
+                extra={"graph": graph, "params": {}, "inputs": {}}))
