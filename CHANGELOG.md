@@ -13,6 +13,23 @@ nothing said so.
 
 ---
 
+## 0.103.1 — 2026-09-18
+
+### Changes that raise
+
+- _None._ A `{"$ref"}` at `records/cross`'s `factors[].sampled.word_list`
+  is no longer refused by the reference check: the position declares it
+  takes a stored word list, which is what the block always read there.
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- The declaration above (`stored="text/word-list"` on `word_list`),
+  found by the migration's dry run over the stored protocols (000564).
+
 ## 0.103.0 — 2026-09-18
 
 ### Changes that raise
