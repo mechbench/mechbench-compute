@@ -13,6 +13,47 @@ nothing said so.
 
 ---
 
+## 0.113.0 — 2026-09-19
+
+### Changes that raise
+
+- A `sees` clause that is not `{own_thinking, others_thinking}` with
+  each `"none"` | `"full"` | `{"last_turns": n}` | `{"truncate_words":
+  n}` is refused by name.
+
+### Changes that alter results without raising
+
+- **A `text/transcript` item now has the shape its kind declares**:
+  `messages`, `participants` and `stopped` at the top level, `coords`
+  on the item, `turns` and `text` kept for the browser, the perspective
+  and `spend_usd` under `metadata`. Before, the messages sat under
+  `metadata.transcript` and the reason it ended was
+  `metadata.transcript.stopped_because`; nothing outside compute's own
+  tests read them there. The words a conversation produces are the
+  same.
+
+### Other
+
+- **A transcript is a value** (000617). Two ops cut out of
+  `text/converse`'s loop: `text/render` — a transcript as one
+  participant sees it (own turns as `assistant`, others' as `user`,
+  perspective, channels, `sees`), as the chat-shaped records
+  `text/chat` takes — and `text/extend` — each transcript plus the
+  reply that names it, as that participant's turn, reasoning kept on
+  the message and out of its text. render → chat → extend on the mock
+  provider says exactly what `text/converse` says on the same turn
+  (tested). The fold that runs them per turn is the remaining piece.
+- **`sees`** (000593): what a participant re-reads of the room's
+  reasoning is a declared clause on `text/render` and on a
+  participant — `own_thinking` and `others_thinking`, each `"none"`
+  (default), `"full"`, `{"last_turns": n}` or `{"truncate_words": n}`
+  — a param, so `{"$param": "sees"}` sweeps it. Replaces
+  `replay_thinking: bool`, which is still read as `own_thinking:
+  "full"`. Another participant's reasoning is now a choice, marked
+  `(thinking)` in the rendering, never a default.
+
+---
+
 ## 0.112.1 — 2026-09-19
 
 ### Changes that raise

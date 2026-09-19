@@ -95,6 +95,8 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "records/subtract": [("blocks.py", "paired_delta")],
     "records/summarize": [("blocks.py", "group_stats")],
     "records/contrast": [("blocks.py", "contrast")],
+    "text/render": [("transcript.py", "render_records")],
+    "text/extend": [("transcript.py", "extend")],
     "records/tabulate": [("blocks.py", "table_from_records")],
     "records/union": [("blocks.py", "union")],
     "records/zip": [("blocks.py", "zip_branches")],

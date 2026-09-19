@@ -38,14 +38,15 @@ from typing import Any
 from mechbench_compute import chat as chat_mod
 from mechbench_compute import thinking as THINK
 from mechbench_compute import tools as tool_mod
+from mechbench_compute import transcript as TR
 from mechbench_compute.providers import Budget, budget_from, make_transport
 from mechbench_compute.providers import limiter as pl
 from mechbench_compute.providers import messages as pm
 
-TRANSCRIPT_KIND = "text/transcript"
+TRANSCRIPT_KIND = TR.TRANSCRIPT_KIND
 
 #: How a participant sees everyone else.
-PERSPECTIVES = ("others_as_user_attributed", "others_as_user_merged")
+PERSPECTIVES = TR.PERSPECTIVES
 
 #: Who speaks next.
 TURN_POLICIES = ("round_robin", "speaker_names_next", "moderator",
@@ -57,12 +58,12 @@ WINDOW_POLICIES = ("none", "truncate_oldest", "sliding", "summarize")
 #: Channels are how a conversation carries messages participants must
 #: NOT see: a judge's verdicts, a moderator's routing. The perspective
 #: map drops any channel a participant does not subscribe to.
-MAIN = "main"
+MAIN = TR.MAIN
 
 #: The reserved participant name for scripted lines (the opening, a
 #: human-authored injection). It is never attributed in a rendering:
 #: "user: hello" would read as a participant called "user".
-SCRIPT_SPEAKER = "user"
+SCRIPT_SPEAKER = TR.SCRIPT_SPEAKER
 
 
 @dataclass
@@ -82,12 +83,14 @@ class Agent:
     budget_usd: float | None = None
     channels: tuple[str, ...] = (MAIN,)
     perspective: str | None = None
-    #: Whether this participant re-reads its OWN past reasoning on later
-    #: turns (task 000592). Off: a scratchpad is written to be thrown
-    #: away, and a conversation that replays it feeds on its own
-    #: reasoning without anyone having chosen that. Nobody ever sees
-    #: another participant's.
-    replay_thinking: bool = False
+    #: What this participant re-reads of the room's reasoning on later
+    #: turns (task 000593): `{own_thinking, others_thinking}`, each
+    #: "none" | "full" | {last_turns: n} | {truncate_words: n}. The
+    #: default replays nothing — a scratchpad is written to be thrown
+    #: away, and a conversation that replays it by accident feeds on
+    #: its own reasoning (task 000592). `replay_thinking: true`, the
+    #: older boolean, reads as `own_thinking: "full"`.
+    sees: Mapping[str, Any] = field(default_factory=lambda: dict(TR.SEES_DEFAULT))
 
     @staticmethod
     def parse(value: Any, *, index: int = 0) -> Agent:
@@ -105,7 +108,7 @@ class Agent:
         if "model" not in raw:
             raise ValueError(f"participant {name!r} declares no model")
         known = {f.name for f in Agent.__dataclass_fields__.values()}
-        unknown = set(raw) - known - {"description", "provenance"}
+        unknown = set(raw) - known - {"description", "provenance", "replay_thinking"}
         if unknown:
             raise ValueError(
                 f"participant {name!r}: unknown field(s) "
@@ -119,7 +122,8 @@ class Agent:
             budget_usd=raw.get("budget_usd"),
             channels=tuple(raw.get("channels") or (MAIN,)),
             perspective=raw.get("perspective"),
-            replay_thinking=bool(raw.get("replay_thinking", False)),
+            sees=TR.parse_sees(raw["sees"] if "sees" in raw
+                               else raw.get("replay_thinking")),
         )
 
     def is_endpoint(self) -> bool:
@@ -166,43 +170,15 @@ class Message:
 
 def render_for(agent: Agent, history: Sequence[Message], *,
                perspective: str) -> list[pm.Message]:
-    """The shared transcript as THIS participant sees it.
-
-    Own messages become `assistant`; everyone else's become `user`.
-    Consecutive user-side messages merge into one, because providers
-    require strict alternation and merging is the honest way to give it
-    to them — the alternative is reordering someone's words.
-    """
-    if perspective not in PERSPECTIVES:
-        raise ValueError(
-            f"unknown perspective {perspective!r} — one of {PERSPECTIVES}")
-    seen = set(agent.channels)
-    turns: list[tuple[str, str]] = []
-    for m in history:
-        if m.channel not in seen:
-            continue          # a judge's verdict is not part of the room
-        if m.participant == agent.name:
-            # Its own turn. The scratchpad comes back only if this
-            # participant asked for it; another's never does, whatever
-            # anyone asks (task 000592).
-            own = (f"{m.thinking}\n\n{m.text}"
-                   if agent.replay_thinking and m.thinking else m.text)
-            turns.append(("assistant", own))
-            continue
-        attributed = (perspective == "others_as_user_attributed"
-                      and m.participant != SCRIPT_SPEAKER)
-        text = f"{m.participant}: {m.text}" if attributed else m.text
-        turns.append(("user", text))
-    merged: list[tuple[str, str]] = []
-    for role, text in turns:
-        if merged and merged[-1][0] == role:
-            merged[-1] = (role, merged[-1][1] + "\n\n" + text)
-        else:
-            merged.append((role, text))
+    """The shared transcript as THIS participant sees it — `transcript.render`
+    over the messages' wire form, with the participant's channels and
+    `sees` (task 000617: one rendering, shared with `text/render`)."""
+    rendered = TR.render([m.to_wire() for m in history], participant=agent.name,
+                         channels=agent.channels, perspective=perspective, sees=agent.sees)
     # A conversation that opens with this participant has nothing to
     # answer; providers want a user turn first, so the system prompt
     # carries the instruction and an empty opening is refused upstream.
-    return [pm.Message(role=r, content=(pm.TextPart(t),)) for r, t in merged]
+    return [pm.Message(role=m["role"], content=(pm.TextPart(m["content"]),)) for m in rendered]
 
 
 def system_for(agent: Agent, *, turn: int, participants: Sequence[str],
@@ -566,30 +542,16 @@ def _transcript_item(cid: str, rec: Mapping[str, Any], participants,
                      history: Sequence[Message], stopped: str, spend: float,
                      default_perspective: str,
                      overrides: Mapping[str, Any]) -> dict[str, Any]:
-    """One conversation as a document item: `turns` for the chat
-    renderer, `text` so text/measure works unchanged, and the full
-    transcript (with per-message provenance) in metadata."""
-    visible = [m for m in history if m.channel == MAIN]
-    return {
-        "id": cid,
-        "kind": TRANSCRIPT_KIND,
-        "text": "\n\n".join(f"{m.participant}: {m.text}" for m in visible),
-        "turns": [{"role": m.participant, "text": m.text} for m in visible],
-        "metadata": {
-            "coords": {**(rec.get("coords") or {})},
-            "transcript": {
-                "kind": TRANSCRIPT_KIND,
-                "id": cid,
-                "participants": [a.name for a in participants],
-                "messages": [
-                    m.to_wire(role_as_seen="assistant") for m in history
-                ],
-                "stopped_because": stopped,
-                "spend_usd": spend,
-            },
+    """One conversation as its kind declares it (task 000617):
+    `messages`, `participants`, `stopped` at the top level; `turns`
+    and `text` for the browser; the perspective and the spend in
+    metadata."""
+    return TR.transcript_item(
+        cid, [m.to_wire(role_as_seen="assistant") for m in history],
+        participants=[a.name for a in participants], stopped=stopped,
+        coords=dict(rec.get("coords") or {}),
+        metadata={
             "perspective": {"default": default_perspective,
                             **({"overrides": dict(overrides)} if overrides else {})},
             "spend_usd": spend,
-            "stopped_because": stopped,
-        },
-    }
+        })

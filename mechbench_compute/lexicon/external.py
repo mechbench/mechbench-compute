@@ -103,6 +103,12 @@ _SANDBOX_FIELDS = (
       )),
 )
 
+#: One `sees` policy: a word, or an object with one of these fields.
+_POLICY_FIELDS = (
+    P("last_turns", "int", "Replay only the n most recent such turns.", None),
+    P("truncate_words", "int", "Replay the first n words of each.", None),
+)
+
 #: A model in a conversation that is not a participant: a moderator, a
 #: judge, a summarizer. The same fields a participant has.
 _AGENT_FIELDS = (
@@ -122,12 +128,126 @@ _AGENT_FIELDS = (
     P("channels", "list[string]", "The channels it speaks and listens on.", ["main"]),
     P("perspective", "string", "How it sees the others' messages, overriding the node's default.",
       None, choices=("others_as_user_attributed", "others_as_user_merged")),
-    P("replay_thinking", "bool",
-      "Whether it re-reads its OWN reasoning on later turns. Off by "
-      "default: a scratchpad is written to be thrown away, and a "
-      "conversation that replays it feeds on its own reasoning without "
-      "anyone having chosen that. No participant ever sees another's.",
-      False),
+    P("sees", "object",
+      "What it re-reads of the room's reasoning on later turns — the "
+      "`sees` clause `text/render` documents. Off by default: a "
+      "scratchpad is written to be thrown away, and a conversation that "
+      "replays it by accident feeds on its own reasoning. `replay_thinking: "
+      "true`, the older boolean, reads as `own_thinking: \"full\"`.",
+      None, fields=(
+          P("own_thinking", "string | object",
+            "`\"none\"`, `\"full\"`, `{\"last_turns\": n}` or `{\"truncate_words\": n}`.", "none",
+            choices=("none", "full"), fields=_POLICY_FIELDS),
+          P("others_thinking", "string | object",
+            "The same grammar, for the other participants' reasoning.", "none",
+            choices=("none", "full"), fields=_POLICY_FIELDS),
+      )),
+)
+
+#: The `sees` clause, wherever a transcript is rendered for a participant.
+_SEES = P("sees", "object",
+          "What the participant re-reads of the room's reasoning: its own "
+          "scratchpad ahead of its own words, the others' ahead of theirs. "
+          "Each of `own_thinking` and `others_thinking` is `\"none\"` (the "
+          "default), `\"full\"`, `{\"last_turns\": n}` (only the n most recent "
+          "such turns) or `{\"truncate_words\": n}` (the first n words of "
+          "each). A variable, not a setting: `{\"$param\": \"sees\"}` and a "
+          "sweep over policies is one protocol.",
+          None, fields=(
+              P("own_thinking", "string | object", "The policy for its own reasoning.", "none",
+                choices=("none", "full"), fields=_POLICY_FIELDS),
+              P("others_thinking", "string | object", "The policy for everyone else's.", "none",
+                choices=("none", "full"), fields=_POLICY_FIELDS),
+          ))
+
+RENDER = Op(
+    name="text/render",
+    summary=(
+        "A transcript as one participant sees it: its own turns as "
+        "assistant, the others' as user, under a perspective and a `sees` "
+        "clause — the chat-shaped records a chat node sends."
+    ),
+    description="""\
+A conversation is a fold over turns — render the shared transcript for
+the participant whose turn it is, ask its model, append what it said —
+and this is the first step, cut out of `text/converse` so a conversation
+can be composed from `text/chat` rather than duplicated beside it.
+
+Every transcript on `transcripts` becomes one record: `messages` (`[{role,
+content}]`, what a chat node sends), `system` when given (with `{name}`,
+`{participants}`, `{others}`, `{turn}` filled in), and the transcript's
+coords plus `conversation` and `participant` — which is how `text/extend`
+knows which reply belongs to which transcript.
+
+**Perspective.** The participant's own messages become `assistant`;
+everyone else's become `user`, attributed by name
+(`others_as_user_attributed`) or not (`others_as_user_merged`); a scripted
+line (the opening) is never attributed. Consecutive user-side messages
+merge into one, because providers require strict alternation and merging
+is the honest way to give it to them — the alternative is reordering
+someone's words. A message on a channel the participant is not on (a
+judge's verdict) is not part of the room.
+
+**What it sees of the reasoning.** A model that marks its reasoning has
+that reasoning kept on the transcript and out of the message's `text`.
+`sees` says what comes back on a later turn: the participant's own
+scratchpad ahead of its own words; another's, marked `(thinking)`, ahead
+of theirs. The default replays nothing. Replaying is off-distribution —
+reasoning models are generally trained with their thinking discarded
+between turns — which is exactly why it is a variable here and not a
+setting: the question is what changes.
+""",
+    inputs=(
+        In("transcripts", "text/transcript",
+           "The conversations to render, one record each.", many=True),
+    ),
+    output=Output('records/record', collection=True, doc='One record per transcript: `id` (the conversation\'s), `messages` (`[{role, content}]`), `system` when given, `coords` (the transcript\'s, plus `conversation` and `participant`). The header carries `participant`, `perspective` and `sees` as resolved.'),
+    params=(
+        P("participant", "string", "Whose view: the participant's name."),
+        P("perspective", "string", "How the others' messages read.",
+          "others_as_user_attributed", choices=("others_as_user_attributed", "others_as_user_merged")),
+        _SEES,
+        P("channels", "list[string]", "The channels the participant is on.", ["main"]),
+        P("system", "string",
+          "A system prompt for the record, with `{name}`, `{participants}`, "
+          "`{others}` and `{turn}` filled in.",
+          None),
+    ),
+    example={"participant": "ana", "sees": {"own_thinking": {"last_turns": 1}}},
+    example_inputs={"transcripts": {"$ref": {"bench": "you/lab/debates"}}},
+)
+
+EXTEND = Op(
+    name="text/extend",
+    summary=(
+        "Each transcript with one more turn: the reply that names it, "
+        "spoken by the participant — the last step of a conversation's "
+        "fold."
+    ),
+    description="""\
+The reply on `replies` whose `coords.conversation` names a transcript is
+appended to it as `participant`'s turn. Reasoning the model marked is
+kept on the message (`thinking`) and out of its `text`, which is what
+the room hears; the reply's provider call rides along as `call`. Every
+other field of the transcript is kept.
+
+A transcript with two replies is two conversations, which is a map, not
+a turn: more than one reply per transcript is refused, as is a reply
+that names no conversation.
+""",
+    inputs=(
+        In("transcripts", "text/transcript", "The conversations so far.", many=True),
+        In("replies", "text/document",
+           "The replies — a chat node's documents over `text/render`'s "
+           "records, one per transcript.", many=True),
+    ),
+    output=Output('text/transcript', collection=True, doc='The same transcripts, each one message longer: `messages`, `participants` (the speaker added if new), `stopped`, `turns` and `text` for the browser.'),
+    params=(
+        P("participant", "string", "Who spoke: the participant's name."),
+    ),
+    example={"participant": "ana"},
+    example_inputs={"transcripts": {"$ref": {"bench": "you/lab/debates"}},
+                    "replies": {"$ref": {"bench": "you/lab/ana-replies"}}},
 )
 
 CHAT = Op(
@@ -318,10 +438,15 @@ Two models talking is not a special mode of `chat`; it is a list of
 **participants** plus three pieces of data.
 
 **Participants.** Each is `{name, model, system, tools?, temperature?,
-top_p?, max_tokens?, budget_usd?, channels?, perspective?,
-replay_thinking?}`. A system prompt
-may use `{name}`, `{participants}`, `{others}` and `{turn}`. Local and
-hosted models mix freely.
+top_p?, max_tokens?, budget_usd?, channels?, perspective?, sees?}`. A
+system prompt may use `{name}`, `{participants}`, `{others}` and `{turn}`.
+Local and hosted models mix freely. `sees` is `text/render`'s clause:
+what the participant re-reads of the room's reasoning.
+
+This op is the fold `text/render` → `text/chat` → `text/extend` run in
+one node, with a turn policy choosing the participant each time; it will
+become a stored protocol built from those three once the grammar has a
+fold.
 
 **The perspective map.** Every participant sees the same transcript with
 its own messages as `assistant` and everyone else's as `user` — attributed
@@ -351,7 +476,7 @@ One conversation runs per input record, or one in all when there are none;
            "placeholders in the opening. Without any, one conversation runs.",
            many=True, required=False),
     ),
-    output=Output('text/transcript', collection=True, doc='One item per conversation: `text` (the visible turns as prose), `turns` (`{role, text}`), and `metadata.transcript` — the full transcript with `messages` (each `{index, participant, role_as_seen, text, call?, tool_calls?, channel?}`), `participants`, `stopped_because` and `spend_usd`. The header carries `fidelity` and `spend`.'),
+    output=Output('text/transcript', collection=True, doc='One item per conversation: `messages` (each `{index, participant, role_as_seen, text, thinking?, call?, tool_calls?, channel?}`), `participants`, `stopped` (why it ended), `text` (the visible turns as prose) and `turns` (`{role, text}`) for the browser, `coords`, and `metadata.spend_usd`. The header carries `fidelity` and `spend`.'),
     params=(
         _BUDGET,
         P("turns", "object",
@@ -955,6 +1080,6 @@ arguments come from the call.
 )
 
 OPS: tuple[Op, ...] = (
-    CHAT, CONVERSATION, JUDGE, EVAL_HF_METRIC, EVAL_SUITE, FINETUNE_LORA,
+    CHAT, CONVERSATION, RENDER, EXTEND, JUDGE, EVAL_HF_METRIC, EVAL_SUITE, FINETUNE_LORA,
     MEASURE_ADAPTER, HF_PUSH_ADAPTER, MERGE, TOOLS_CALC, TOOLS_BENCH_LOOKUP,
 )

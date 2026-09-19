@@ -184,7 +184,7 @@ class TestToolsInAConversation:
              "provider_options": {"mock": {"tool_call": "calc"}}},
             {"name": "other", "model": {"provider": "mock", "model": "m"}},
         ]})
-        messages = out["items"][0]["metadata"]["transcript"]["messages"]
+        messages = out["items"][0]["messages"]
         asker = next(m for m in messages if m["participant"] == "asker")
         assert asker["call"]["tool_runs"][0]["tool"] == "calc"
         # The room saw an answer, not the plumbing.

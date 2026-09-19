@@ -279,6 +279,11 @@ def paired_delta(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]
     return out
 
 
+def _transcript_mod():
+    from mechbench_compute import transcript
+    return transcript
+
+
 def _group_key(record: Mapping[str, Any], by: Sequence[str]) -> tuple:
     """The grouping key, read from the record's coordinates and then from
     the record itself.
@@ -1039,6 +1044,10 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
         lambda inputs, params: group_stats(inputs["records"], params),
     "records/contrast":
         lambda inputs, params: contrast(inputs["records"], params),
+    "text/render":
+        lambda inputs, params: _transcript_mod().render_records(inputs, params),
+    "text/extend":
+        lambda inputs, params: _transcript_mod().extend(inputs, params),
     "records/tabulate":
         lambda inputs, params: table_from_records(inputs["records"], params),
     "records/union":

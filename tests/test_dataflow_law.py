@@ -183,9 +183,30 @@ CATALOG: dict[str, dict] = {
         "params": {}},
 }
 
+def _transcript_leaves(n=12, seed=11):
+    rng = random.Random(seed)
+    out = []
+    for i in range(n):
+        msgs = [{"index": 0, "participant": "user", "role_as_seen": "assistant", "text": f"opening {i}"}]
+        for k in range(1, 1 + rng.randint(1, 4)):
+            who = "ana" if k % 2 else "bo"
+            msgs.append({"index": k, "participant": who, "role_as_seen": "assistant",
+                         "text": f"{who} says {k}", **({"thinking": f"hm {k}"} if rng.random() < 0.5 else {})})
+        out.append({"id": f"c{i}", "kind": "text/transcript", "participants": ["ana", "bo"],
+                    "messages": msgs, "stopped": "", "coords": {"g": rng.choice(["a", "b"])}})
+    return out
+
+
+CATALOG["text/render"] = {
+    "leaves": _transcript_leaves(), "port": "transcripts",
+    "params": {"participant": "ana", "sees": {"own_thinking": {"last_turns": 1}}}}
+
 #: Pure blocks whose input is NOT a stream of leaf records — the law
 #: does not apply to them as written, and why.
 NOT_LEAF_STREAM: dict[str, str] = {
+    "text/extend":
+        "two streams aligned by conversation — transcripts and the replies "
+        "to them — the way records/zip aligns branches",
     "records/cross": "generator: builds leaves from params, consumes none",
     "records/cross": "generator (factor-cross alias)",
     "geometry/compare":

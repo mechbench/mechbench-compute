@@ -35,7 +35,7 @@ def run(**params):
 
 
 def transcript(out, i=0):
-    return out["items"][i]["metadata"]["transcript"]
+    return out["items"][i]
 
 
 class TestPerspective:
@@ -101,11 +101,11 @@ class TestTheCrossWiredPair:
         assert out["spend"]["calls"] == 4
         t = transcript(out)
         assert t["participants"] == ["claude", "gpt"]
-        assert t["stopped_because"] == "max_turns"
+        assert t["stopped"] == "max_turns"
         # The opening was scripted: nobody was asked, nothing was spent.
         assert "call" not in t["messages"][0]
         assert t["messages"][1]["call"]["provider"] == "mock"
-        assert t["spend_usd"] > 0
+        assert t["metadata"]["spend_usd"] > 0
 
     def test_the_transcript_is_a_document_collection_downstream(self):
         from mechbench_compute.blocks import PURE_BLOCKS
@@ -149,7 +149,7 @@ class TestGroupChatAndPolicies:
         out = run(participants=parts,
                   turns={"policy": "until_stop", "max_turns": 8,
                          "stop_phrases": ["final answer"]})
-        assert transcript(out)["stopped_because"] == "stop_phrase:final answer"
+        assert transcript(out)["stopped"] == "stop_phrase:final answer"
         assert out["spend"]["calls"] == 1
 
     def test_a_judge_stops_it_and_stays_out_of_the_room(self):
@@ -157,7 +157,7 @@ class TestGroupChatAndPolicies:
                       channels=["main", "judge"])
         out = run(turns={"policy": "until_judge", "max_turns": 8, "judge": judge})
         t = transcript(out)
-        assert t["stopped_because"] == "judge"
+        assert t["stopped"] == "judge"
         # The verdict is IN the transcript (a reader must see why it
         # stopped) but on its own channel, so it is not a turn.
         verdicts = [m for m in t["messages"] if m.get("channel") == "judge"]
