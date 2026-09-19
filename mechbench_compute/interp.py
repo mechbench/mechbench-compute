@@ -208,7 +208,8 @@ def ablate_layers(
     conditions: list[dict[str, Any]] = []
     damage_by_layer: dict[int, list[float]] = {i: [] for i in layers}
     for record in records:
-        ids = render(model, record).array
+        r = render(model, record)
+        ids = r.array
         base_lp = _last_logp(model.run(ids).logits)
         if on_item:
             on_item()
@@ -229,6 +230,12 @@ def ablate_layers(
             "id": record.get("id"),
             "target": S.token(model.tokenizer, tok),
             "baseline_logp": round(baseline, 4),
+            # How the prompt reached the model. A record with only
+            # `text` renders RAW — no chat template — and an instruct
+            # model completing raw text answers with function words. The
+            # target above was the only place that showed, as a symptom;
+            # this says it (task 000596).
+            "template": "chat" if r.chat else "raw",
         })
 
     return _K().collection(
@@ -772,7 +779,8 @@ def ablate_heads(
     sums = np.zeros((len(layers), n_heads), dtype=np.float64)
     metas: list[dict[str, Any]] = []
     for record in records:
-        ids = render(model, record).array
+        r = render(model, record)
+        ids = r.array
         base_lp = _last_logp(model.run(ids).logits)
         if on_item:
             on_item()
@@ -782,6 +790,7 @@ def ablate_heads(
             "id": record.get("id"),
             "target": S.token(model.tokenizer, tok),
             "baseline_logp": round(baseline, 4),
+            "template": "chat" if r.chat else "raw",
         })
         for li, layer in enumerate(layers):
             for head in range(n_heads):
@@ -856,7 +865,8 @@ def logit_attribution(
         interventions.append(Cap.per_head_out(per_head_layers))
     rows: list[dict[str, Any]] = []
     for record in records:
-        ids = render(model, record).array
+        r = render(model, record)
+        ids = r.array
         result = model.run(ids, interventions=interventions)
         lp = _last_logp(result.logits)
         tok, tracked = _target_of(model, record, params, lp)
@@ -915,6 +925,7 @@ def logit_attribution(
             coords=record.get("coords"),
             target=S.token(model.tokenizer, tok),
             contrast=S.token(model.tokenizer, ctok) if ctok is not None else None,
+            template="chat" if r.chat else "raw",
             per_head=per_head or None,
             additivity={
                 "summed": round(summed, 3),

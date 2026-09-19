@@ -13,6 +13,27 @@ nothing said so.
 
 ---
 
+## 0.108.0 — 2026-09-19
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ (An added field, not a changed number.)
+
+### Other
+
+- `intervene/ablate-layers`, `intervene/ablate-heads` and
+  `logits/attribute` record how each prompt reached the model:
+  `template: "chat"` or `"raw"`, on the condition. A record carrying
+  only `text` renders raw — no chat template — and an instruct model
+  completing raw text answers with function words. Six ablation sweeps
+  measured exactly that and nothing on the result said so; the target
+  token reading " the" was the only trace, a symptom. Now the result
+  says it.
+
 ## 0.107.2 — 2026-09-19
 
 ### Changes that raise

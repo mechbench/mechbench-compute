@@ -204,6 +204,34 @@ class TestAblateLayers:
         assert out["conditions"][0]["baseline_logp"] == pytest.approx(float(lp[tok]), abs=1e-4)
 
 
+class TestRenderingIsOnTheResult:
+    """A result says how its prompts reached the model (000596).
+
+    A record with only `text` renders RAW, with no chat template, and an
+    instruct model completing raw text answers with function words. Six
+    L23 runs measured exactly that, and nothing on the result said so —
+    the target token reading " the" was the only trace, a symptom. Now
+    the condition says `template: "raw"` in as many words.
+    """
+
+    def test_ablation_records_raw_and_chat(self):
+        model = StubModel()
+        out = interp.ablate_layers(
+            model,
+            [{"id": "doc", "text": "aa bbb"},
+             {"id": "cond", "user": "aa bbb"}],
+            {"layers": [0]})
+        by_id = {c["id"]: c["template"] for c in out["conditions"]}
+        assert by_id == {"doc": "raw", "cond": "chat"}
+
+    def test_template_chat_on_a_text_record_renders_as_chat(self):
+        model = StubModel()
+        out = interp.ablate_layers(
+            model, [{"id": "doc", "text": "aa bbb", "template": "chat"}],
+            {"layers": [0]})
+        assert out["conditions"][0]["template"] == "chat"
+
+
 class TestResidualVectors:
     def test_vectors_are_the_positions_residual(self):
         model = StubModel()
