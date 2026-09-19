@@ -13,6 +13,24 @@ nothing said so.
 
 ---
 
+## 0.107.1 — 2026-09-19
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- `activations/capture-tokens` reads the model's shape off `model.arch`,
+  as every other block does, and takes its surprisal from the capture's
+  OWN forward pass rather than a second one — half the work per record,
+  and no way for the two passes to disagree about the vectors' labels.
+  Both found by running it: 0.107.0's version never reached a model.
+
 ## 0.107.0 — 2026-09-19
 
 ### Changes that raise

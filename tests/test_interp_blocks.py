@@ -236,6 +236,55 @@ class TestResidualVectors:
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": "all"})
 
 
+class TestCaptureTokens:
+    """One vector per token, each carrying its own surprisal (000594)."""
+
+    def test_a_row_per_position_per_layer(self):
+        model = StubModel()
+        out = interp.capture_tokens(
+            model, [{"id": "c", "user": "aa bbb"}],
+            {"layers": [0, 1], "positions": "all"})
+        items = out["items"]
+        # "aa bbb" renders to 3 tokens (a leading 0), × 2 layers.
+        assert len(items) == 6
+        assert sorted({i["coords"]["position"] for i in items}) == [0, 1, 2]
+        assert sorted({i["space"]["layer"] for i in items}) == [0, 1]
+
+    def test_surprisal_rides_on_the_vector_and_position_zero_has_none(self):
+        model = StubModel()
+        out = interp.capture_tokens(
+            model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
+        by_pos = {i["coords"]["position"]: i["coords"] for i in out["items"]}
+        # A join by (record, position) afterwards is where an off-by-one
+        # would creep in; the coordinate is carried, not matched later.
+        assert "surprisal" not in by_pos[0]
+        assert isinstance(by_pos[1]["surprisal"], float)
+
+    def test_positions_narrow_and_every_subsamples(self):
+        model = StubModel()
+        after = interp.capture_tokens(
+            model, [{"id": "c", "user": "aa bbb ccc dddd"}],
+            {"layers": [0], "positions": {"after": 2}})
+        assert sorted({i["coords"]["position"] for i in after["items"]}) == [2, 3, 4]
+        every = interp.capture_tokens(
+            model, [{"id": "c", "user": "aa bbb ccc dddd"}],
+            {"layers": [0], "every": 2})
+        assert sorted({i["coords"]["position"] for i in every["items"]}) == [0, 2, 4]
+
+    def test_the_ceiling_refuses_and_names_the_levers(self, monkeypatch):
+        monkeypatch.setattr(interp, "MAX_TOKEN_VECTOR_FLOATS", 10)
+        with pytest.raises(ValueError, match="cap — capture fewer layers"):
+            interp.capture_tokens(StubModel(), [{"id": "c", "user": "a b c"}],
+                                  {"layers": "all"})
+
+    def test_one_forward_pass_per_record(self):
+        # The logits come from the capture's own run. A second pass would
+        # be slower and could disagree with the vectors it labels.
+        model = StubModel()
+        interp.capture_tokens(model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
+        assert model.runs == 1
+
+
 class TestPooledPositions:
     """Pooling over the sequence (000431).
 

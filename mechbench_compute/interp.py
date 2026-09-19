@@ -398,11 +398,11 @@ def capture_tokens(
     a chance to misalign them by one — the off-by-one that makes a
     surprisal probe fit the NEXT token's difficulty.
     """
-    layers = _resolve_layers(params.get("layers", "all"), model.n_layers)
+    layers = _resolve_layers(params.get("layers", "all"), model.arch.n_layers)
     point = P.normalize(str(params.get("point", "resid_post")))
     positions = params.get("positions", "all")
     every = max(1, int(params.get("every", 1)))
-    width = model.d_model
+    width = model.arch.d_model
 
     kept_per_record = []
     for record in records:
@@ -430,15 +430,18 @@ def capture_tokens(
     for record, r, idx in kept_per_record:
         ids = r.array
         result = model.run(ids, interventions=[cap])
-        # Surprisal of token i given everything before it. Position 0 has
-        # no predecessor and so has none — recorded as None rather than
-        # zero, which would be a confident prediction of the first token.
+        # Surprisal of token i given everything before it, from the SAME
+        # forward pass that produced the vectors — the logits are already
+        # in hand, and a second pass would be both slower and a chance
+        # for the two to disagree. Position 0 has no predecessor and so
+        # carries none: a zero there would read as a confident
+        # prediction of the first token.
         seq = list(r.ids)
-        rows_lp = model.head_logits(
-            model.trunk_hidden(mx.array([seq]))[:, :-1, :]).astype(mx.float32)
+        lg = result.logits[0, :-1, :].astype(mx.float32)
         tgt = mx.array(seq[1:])
-        lp = (mx.take_along_axis(rows_lp[0], tgt[:, None], axis=-1)[:, 0]
-              - mx.logsumexp(rows_lp[0], axis=-1))
+        lp = (mx.take_along_axis(lg, tgt[:, None], axis=-1)[:, 0]
+              - mx.logsumexp(lg, axis=-1))
+        mx.eval(lp)
         surp = -np.array(lp) / np.log(2.0)
         coords = _coords_of(record, params)
         for pos in idx:
