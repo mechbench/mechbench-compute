@@ -358,6 +358,12 @@ class Capture:
         )
 
     @staticmethod
+    def at(names: Iterable[str]) -> Intervention:
+        """Capture the named hook points, whatever they are — the
+        general form the point-specific constructors above spell out."""
+        return _Captures(names=tuple(str(n) for n in names))
+
+    @staticmethod
     def final_norm_scale() -> Intervention:
         """Capture the final RMSNorm's per-position scale, [B, S]
         (000142) — the denominator DLA's apply_ln needs."""

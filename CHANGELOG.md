@@ -13,6 +13,39 @@ nothing said so.
 
 ---
 
+## 0.115.0 — 2026-09-19
+
+### Changes that raise
+
+- `intervene/patch` refuses `method` outside `exact`/`attribution`,
+  and under `attribution` a `point` outside `resid_post`, `resid_pre`,
+  `attn_out`, `mlp_out`, by name.
+
+### Changes that alter results without raising
+
+- _None._ The exact trace is untouched; `method: "exact"` is the
+  default and `metric: "logit"` is an addition.
+
+### Other
+
+- **Attribution patching** (000606): `intervene/patch` with `method:
+  "attribution"` estimates every (layer, position) of the trace from
+  ONE forward and ONE backward pass — `mx.grad` through the hooked
+  forward, a zero delta added at every named activation, the metric's
+  gradient dotted with (clean − corrupt). Same grid, same sign, the
+  header's `method` says which ran. On a linear model it equals the
+  exact patch to 1e-3 (tested); on Gemma 4 E2B, a capital-city pair
+  under `logit`, eight of the exact trace's top ten cells are in the
+  estimate's top ten with Spearman 0.86 over the cells that matter,
+  and magnitudes 3–8× under on cells that flip the answer — a ranking,
+  not a measurement, and the docs say so. Also reads `attn_out` and
+  `mlp_out`.
+- `metric: "logit"` on `intervene/patch` — the raw logit, the most
+  nearly linear metric, the usual choice with attribution.
+- `Capture.at(names)`: the general capture constructor.
+
+---
+
 ## 0.114.0 — 2026-09-19
 
 ### Changes that raise

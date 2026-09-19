@@ -644,17 +644,29 @@ def patch_trace(
     positions is one unit)."""
     from mechbench_compute.interventions import Patch
 
-    point = P.residual(params.get("point"))
+    method = str(params.get("method", "exact"))
+    if method not in ("exact", "attribution"):
+        raise ValueError(f"unknown method {method!r}: 'exact' or 'attribution'")
+    if method == "exact":
+        point = P.residual(params.get("point"))
+    else:
+        point = P.normalize(params.get("point"))
+        if point not in _ATTRIBUTION_POINTS:
+            raise ValueError(
+                f"attribution reads {', '.join(_ATTRIBUTION_POINTS)}, not {point!r}")
     metric = str(params.get("metric", "logprob"))
-    if metric not in ("logprob", "prob"):
-        raise ValueError(f"unknown metric {metric!r}: 'logprob' or 'prob'")
+    if metric not in ("logprob", "prob", "logit"):
+        raise ValueError(f"unknown metric {metric!r}: 'logprob', 'prob' or 'logit'")
     layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
         raise ValueError("patch/trace needs at least one pair")
     if on_start:
-        on_start(len(records) * len(layers))
+        # An exact trace ticks per layer row; an attribution ticks once
+        # per pair — its rows arrive together.
+        on_start(len(records) * (len(layers) if method == "exact" else 1))
 
-    cap = Capture.residual(layers, point=P.side(point))
+    cap = (Capture.residual(layers, point=P.side(point)) if method == "exact"
+           else Capture.at([f"blocks.{layer}.{point}" for layer in layers]))
     pairs: list[dict[str, Any]] = []
     for record in records:
         clean, corrupt = _pair(record)
@@ -679,29 +691,40 @@ def patch_trace(
         # the target (the original step 09 used the clean top-1, which
         # guarantees it); 'logprob' registers recovery at ANY mass —
         # explicit rare targets measured exactly nothing in prob space
-        # on the first prod run.
-        def read(lp: np.ndarray, tok: int = tok) -> float:
+        # on the first prod run. 'logit' is the raw logit, which is what
+        # a first-order estimate is most nearly linear in.
+        def read(lp: np.ndarray, logits: np.ndarray | None = None, tok: int = tok) -> float:
+            if metric == "logit":
+                return float(logits[tok])
             return (float(np.exp(lp[tok])) if metric == "prob"
                     else float(lp[tok]))
 
-        p_clean_in_clean = read(clean_lp)
-        corrupt_lp = _last_logp(model.run(ids_corrupt).logits)
-        baseline = read(corrupt_lp)
+        def read_run(res) -> float:
+            return read(_last_logp(res.logits), _last_logits(res.logits))
 
-        recovery: list[list[float]] = []
+        p_clean_in_clean = read_run(clean_run)
+        corrupt_run = model.run(ids_corrupt)
+        baseline = read_run(corrupt_run)
+
         seq = n_corrupt
-        for layer in layers:
-            row: list[float] = []
-            for pos in range(seq):
-                patch = Patch.position(
-                    layer=layer, position=pos, source=clean_run.cache,
-                    point=point)
-                lp = _last_logp(
-                    model.run(ids_corrupt, interventions=[patch]).logits)
-                row.append(round(read(lp) - baseline, 5))
-            recovery.append(row)
+        if method == "attribution":
+            recovery = _attribution_grid(
+                model, ids_corrupt, layers, point, clean_run.cache, tok, metric)
             if on_item:
                 on_item()
+        else:
+            recovery = []
+            for layer in layers:
+                row: list[float] = []
+                for pos in range(seq):
+                    patch = Patch.position(
+                        layer=layer, position=pos, source=clean_run.cache,
+                        point=point)
+                    row.append(round(read_run(model.run(ids_corrupt, interventions=[patch]))
+                                     - baseline, 5))
+                recovery.append(row)
+                if on_item:
+                    on_item()
         tokens = [model.tokenizer.decode([int(t)])
                   for t in np.array(ids_corrupt).reshape(-1)]
         pairs.append(S.grid(
@@ -713,13 +736,74 @@ def patch_trace(
         "intervene/trace", pairs,
         point=point,
         metric=metric,
+        method=method,
         layers=layers,
         description=(
-            "Activation patching: p(clean answer) recovered when the "
-            "clean residual is patched into the corrupt run at each "
+            "Activation patching: the clean answer's metric recovered when "
+            "the clean activation is patched into the corrupt run at each "
             "(layer, position). Bright cells are where the fact lives."
+            if method == "exact" else
+            "Attribution patching: the recovery at every (layer, position) "
+            "estimated at first order from one backward pass — the gradient "
+            "of the metric on the corrupt run, dotted with the clean minus "
+            "corrupt activation. A ranking of where to patch, not the patch."
         ),
     )
+
+
+#: The points an attribution reads: every layer-scoped activation with a
+#: (batch, position, feature) layout, which is what a delta is added to.
+_ATTRIBUTION_POINTS = ("resid_post", "resid_pre", "attn_out", "mlp_out")
+
+
+def _last_logits(logits: mx.array) -> np.ndarray:
+    row = logits[0, -1, :].astype(mx.float32)
+    mx.eval(row)
+    return np.array(row)
+
+
+def _attribution_grid(model, ids_corrupt, layers: Sequence[int], point: str,
+                      clean_cache, tok: int, metric: str) -> list[list[float]]:
+    """Attribution patching (Nanda 2023; Syed, Rager & Conmy 2023): the
+    recovery at every (layer, position) at once, from ONE forward and
+    ONE backward pass over the corrupt prompt.
+
+    Every named activation gets a zero delta added by a hook; the
+    metric's gradient with respect to each delta is its gradient with
+    respect to the activation; and the patch's effect is estimated at
+    first order as that gradient dotted with (clean − corrupt). An exact
+    trace runs one forward per cell; this runs two for the grid, which
+    is what makes a circuit search over thousands of cells affordable —
+    and a first-order estimate, which is why it ranks cells rather than
+    measures them (a saturating metric is where it overshoots most;
+    `logit` is the most nearly linear).
+    """
+    names = [f"blocks.{layer}.{point}" for layer in layers]
+    # Shapes come from the clean capture, never assumed.
+    deltas = {n: mx.zeros(clean_cache[n].shape, dtype=mx.float32) for n in names}
+
+    def objective(ds):
+        hooks = {n: (lambda act, info, d=ds[n]: act + d.astype(act.dtype)) for n in names}
+        res = model.run(ids_corrupt, hooks=hooks)
+        row = res.logits[0, -1, :].astype(mx.float32)
+        if metric == "logit":
+            return row[tok]
+        lp = (row - mx.logsumexp(row))[tok]
+        return mx.exp(lp) if metric == "prob" else lp
+
+    grads = mx.grad(objective)(deltas)
+    mx.eval(*grads.values())
+    # The corrupt activations at the same points, for the difference:
+    # captured on their own pass so the differentiated one stays a
+    # function of the deltas alone.
+    corrupt_cache = model.run(ids_corrupt, capture=names).cache
+    grid: list[list[float]] = []
+    for n in names:
+        diff = clean_cache[n].astype(mx.float32) - corrupt_cache[n].astype(mx.float32)
+        cell = mx.sum(grads[n] * diff, axis=-1)[0]      # [positions]
+        mx.eval(cell)
+        grid.append([round(float(x), 5) for x in np.array(cell)])
+    return grid
 
 
 #: Attention matrices are quadratic in sequence length; refuse a

@@ -536,6 +536,31 @@ single patch restores the answer — are where the fact is carried.
 
 Pairs whose prompts tokenize to different lengths cannot be aligned and are
 reported as errors rather than silently shifted.
+
+### Exact, or estimated
+
+`method: "exact"` (the default) runs one forward pass per cell: a 42-layer
+model on a 40-token prompt is 1,680 passes per pair. `method:
+"attribution"` — attribution patching (Nanda 2023; Syed, Rager & Conmy
+2023) — estimates every cell from ONE forward and ONE backward pass over
+the corrupt prompt: the gradient of the metric with respect to each
+activation, dotted with the clean activation minus the corrupt one. The
+grid has the same shape and the same sign, so the two compare cell for
+cell with `records/subtract`; the header's `method` says which ran.
+
+An attribution is a first-order estimate, and the difference shows in
+two ways. Where the metric saturates — a log-probability near zero, a
+probability near one — the exact trace is a step (every cell that flips
+the answer scores the full recovery) and the estimate is graded; and a
+cell whose patch flips the answer outright is a large, nonlinear effect
+the estimate reads at a fraction of its size. What survives is the
+ranking: on Gemma 4 E2B, a capital-city pair under `metric: "logit"`
+(the raw logit, the most nearly linear — the usual choice with this
+method) puts eight of the exact trace's top ten cells in the estimate's
+top ten, with Spearman 0.86 over the cells that matter. Use it to find
+the cells worth patching, then patch them exactly. Attribution also reads
+`attn_out` and `mlp_out`, the sublayer outputs, where an exact trace reads
+only the residual stream.
 """,
     inputs=(
         In("records", "records/pair",
@@ -543,19 +568,26 @@ reported as errors rather than silently shifted.
            "own `tracked`.", many=True),
         ADAPTER,
     ),
-    output=Output('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` residual is patched in; `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures."),
+    output=Output('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` activation is patched in — measured under `method: \"exact\"`, estimated at first order under `\"attribution\"`; `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures. The header carries `method`, `point`, `metric`, `layers`."),
     params=(
         _LAYERS_ALL,
+        P("method", "string",
+          "`\"exact\"`: one forward pass per (layer, position), the patch "
+          "itself. `\"attribution\"`: every cell estimated from one forward "
+          "and one backward pass — a ranking of where to patch.",
+          "exact", choices=("exact", "attribution")),
         P("metric", "string",
           "What is recovered: `\"logprob\"` (the target's log-probability — "
-          "registers recovery at any probability mass) or `\"prob\"` (raw "
+          "registers recovery at any probability mass), `\"prob\"` (raw "
           "probability — only registers when the clean prompt puts real "
-          "mass on the target).",
-          "logprob", choices=("logprob", "prob")),
+          "mass on the target) or `\"logit\"` (the raw logit — the usual "
+          "choice with `attribution`, being the most nearly linear).",
+          "logprob", choices=("logprob", "prob", "logit")),
         P("point", "string",
-          "The residual point patched: `\"resid_post\"` (after the layer) or "
-          "`\"resid_pre\"` (before it).",
-          "resid_post", choices=("resid_post", "resid_pre"), value="point"),
+          "The point patched: `\"resid_post\"` (after the layer) or "
+          "`\"resid_pre\"` (before it); under `attribution` also "
+          "`\"attn_out\"` and `\"mlp_out\"`.",
+          "resid_post", choices=("resid_post", "resid_pre", "attn_out", "mlp_out"), value="point"),
         _tracked("the clean answer whose recovery is traced; defaults to the "
                 "clean prompt's top‑1"),
     ),
