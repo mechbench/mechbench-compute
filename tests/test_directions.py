@@ -45,6 +45,56 @@ class TestMake:
             d.make([0.0, 0.0], _space(0, 2), method="t")
 
 
+def _measured(layer=3, n=120, dim=8, seed=7, noise=0.05):
+    """Vectors carrying a number that really is written along one axis:
+    `vector = base + value * axis + noise`, the value on a coordinate."""
+    rng = np.random.default_rng(seed)
+    axis = rng.normal(size=dim)
+    axis /= np.linalg.norm(axis)
+    base = rng.normal(size=dim)
+    rows = []
+    for i in range(n):
+        value = float(rng.uniform(0.0, 10.0))
+        v = base + value * axis + rng.normal(scale=noise, size=dim)
+        rows.append({"id": f"t{i}", "layer": layer, "coords": {"surprisal": value},
+                     "vector": [float(x) for x in v]})
+    return {"kind": "residual_vectors", "point": "post", "model": "fake/m@r",
+            "rows": rows}, axis
+
+
+class TestRegression:
+    def test_recovers_the_axis_a_number_is_written_along(self):
+        v, axis = _measured()
+        x = d.from_regression(v, layer=3, target="surprisal")
+        assert x["kind"] == "direction/vector"
+        assert x["derivation"]["method"] == "ridge"
+        # The fitted weight vector points along the planted axis (either
+        # sign would be a fit; the value RISES along it, so it is this one).
+        assert _cos(x, d.make(axis, _space(3, 8), method="planted")) > 0.98
+        # And it says so: a direction that carries the signal scores on
+        # items it never saw.
+        assert x["derivation"]["r2_test"] > 0.9
+        assert x["derivation"]["n_train"] + x["derivation"]["n_test"] == 120
+
+    def test_noise_scores_near_zero_but_still_fits(self):
+        # A weight vector always exists. What separates a real direction
+        # from an artefact is how it does on held-out items.
+        rng = np.random.default_rng(3)
+        rows = [{"id": f"r{i}", "layer": 3, "coords": {"surprisal": float(rng.normal())},
+                 "vector": [float(x) for x in rng.normal(size=8)]} for i in range(60)]
+        v = {"kind": "residual_vectors", "point": "post", "model": "fake/m@r", "rows": rows}
+        x = d.from_regression(v, layer=3, target="surprisal")
+        assert x["derivation"]["r2_test"] < 0.5
+
+    def test_repeats_exactly_and_refuses_too_few(self):
+        v, _ = _measured()
+        a = d.from_regression(v, layer=3, target="surprisal", seed=11)
+        b = d.from_regression(v, layer=3, target="surprisal", seed=11)
+        assert a["vector"] == b["vector"] and a["derivation"] == b["derivation"]
+        with pytest.raises(ValueError, match="at least 8"):
+            d.from_regression(v, layer=3, target="not_a_coordinate")
+
+
 class TestProducers:
     def test_diff_of_means_points_from_neg_to_pos(self):
         v = _vectors()

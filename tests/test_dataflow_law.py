@@ -198,8 +198,8 @@ NOT_LEAF_STREAM: dict[str, str] = {
         "a tool handler: its input is one call's arguments, not a leaf stream",
     **{f"direction/{n}":
        "residual_vectors / direction records, not a leaf stream"
-       for n in ("fit", "decompose", "add", "average", "orthogonalize",
-                 "normalize", "project")},
+       for n in ("fit", "regress", "decompose", "add", "average",
+                 "orthogonalize", "normalize", "project")},
     # Trajectory readouts (task 000368) read ONE trajectory record —
     # rows are (item, step) points along an axis, not bench leaves —
     # the same footing as the direction algebra above.

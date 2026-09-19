@@ -104,6 +104,7 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "direction/average": [("directions.py", "block_average")],
     "direction/decompose": [("directions.py", "block_from_pca")],
     "direction/fit": [("directions.py", "block_from_vectors")],
+    "direction/regress": [("directions.py", "block_from_regression")],
     "direction/normalize": [("directions.py", "block_normalize")],
     "direction/orthogonalize": [("directions.py", "block_orthogonalize")],
     "direction/project": [("directions.py", "block_project")],

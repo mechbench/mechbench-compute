@@ -44,6 +44,7 @@ BLOCK_RESUME: dict[str, dict[str, Any]] = {
     "intervene/apply": {"level": "reproducible", "items": True},
     "direction/unembed": {"level": "reproducible", "items": False},
     "direction/fit": {"level": "reproducible", "items": False},
+    "direction/regress": {"level": "reproducible", "items": False},
     "direction/decompose": {"level": "reproducible", "items": False},
     "direction/add": {"level": "reproducible", "items": False},
     "direction/average": {"level": "reproducible", "items": False},

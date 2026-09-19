@@ -154,6 +154,74 @@ def from_vectors(vectors: Mapping[str, Any], *, layer: int, positive: str,
                        **_model_provenance(vectors, rows)})
 
 
+def from_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
+                    alphas: Sequence[float] | None = None, holdout: float = 0.2,
+                    seed: int = 0, point: str | None = None,
+                    source: str | None = None) -> dict[str, Any]:
+    """Ridge regression of the items' vectors against a continuous
+    coordinate; the fitted weight vector IS the direction (task 000586).
+
+    `from_vectors` answers "which way does THIS group lie from THAT
+    one" — two labels and a difference of centroids. Some signals are
+    not two groups: a token's surprisal, a passage's length, a score.
+    For those the question is which way the residual moves as the
+    quantity rises, and the answer is a regression, not a contrast.
+
+    The fit holds out a fixed fraction so the derivation can say how
+    much of the signal the direction actually carries: a weight vector
+    always exists, and R² on unseen items is what says whether it means
+    anything.
+    """
+    from sklearn.linear_model import RidgeCV
+
+    rows = _items_at(vectors, layer)
+    kept = [r for r in rows if _number_at(r, target) is not None]
+    if len(kept) < 8:
+        raise ValueError(
+            f"regression needs at least 8 items at layer {layer} carrying "
+            f"{target!r}; {len(kept)} of {len(rows)} have it")
+    x = np.array([r["vector"] for r in kept], dtype=np.float32)
+    y = np.array([_number_at(r, target) for r in kept], dtype=np.float32)
+
+    rng = np.random.default_rng(seed)
+    order = rng.permutation(len(kept))
+    n_test = max(1, int(round(len(kept) * float(holdout))))
+    test, train = order[:n_test], order[n_test:]
+    if len(train) < 2:
+        raise ValueError("holdout leaves too few items to fit")
+
+    grid = list(alphas) if alphas else [0.1, 1.0, 10.0, 100.0, 1e3, 1e4, 1e5, 1e6]
+    fit = RidgeCV(alphas=grid).fit(x[train], y[train])
+    pred = fit.predict(x[test])
+    r2_test = float(1.0 - np.sum((y[test] - pred) ** 2) /
+                    max(float(np.sum((y[test] - y[test].mean()) ** 2)), 1e-12))
+    r = (float(np.corrcoef(pred, y[test])[0, 1])
+         if len(test) > 1 and float(np.std(pred)) > 0 else 0.0)
+    return make(np.asarray(fit.coef_, dtype=np.float32),
+                _space_at(vectors, kept, point),
+                method="ridge", sources=[source] if source else [],
+                labels={"target": target},
+                extra={"alpha": float(fit.alpha_),
+                       "r2_train": round(float(fit.score(x[train], y[train])), 4),
+                       "r2_test": round(r2_test, 4),
+                       "pearson_test": round(r, 4),
+                       "n_items": len(kept), "n_train": int(len(train)),
+                       "n_test": int(len(test)), "seed": int(seed),
+                       **_model_provenance(vectors, kept)})
+
+
+def _number_at(row: Mapping[str, Any], name: str) -> float | None:
+    """The row's value for `name`, from its coordinates or its top level,
+    when that value is a number. None when it is absent or is not one."""
+    coords = row.get("coords")
+    v = (coords.get(name) if isinstance(coords, Mapping) else None)
+    if v is None:
+        v = row.get(name)
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return float(v)
+
+
 def from_pca(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
              axis: str = DEFAULT_AXIS, value: Any = None, point: str | None = None,
              source: str | None = None) -> dict[str, Any]:
@@ -312,6 +380,15 @@ def block_from_vectors(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> 
                         point=params.get("point"), source=params.get("source"))
 
 
+def block_from_regression(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    return from_regression(inputs.get("vectors"), layer=int(params["layer"]),
+                           target=str(params["target"]),
+                           alphas=params.get("alphas"),
+                           holdout=float(params.get("holdout", 0.2)),
+                           seed=int(params.get("seed", 0)),
+                           point=params.get("point"), source=params.get("source"))
+
+
 def block_from_pca(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     vectors = inputs.get("vectors")
     # `label` is the retired spelling of `value` on the `label` axis.
@@ -349,6 +426,7 @@ def block_project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[
 
 PURE_DIRECTION_BLOCKS = {
     "direction/fit": block_from_vectors,
+    "direction/regress": block_from_regression,
     "direction/decompose": block_from_pca,
     "direction/add": block_add,
     "direction/average": block_average,

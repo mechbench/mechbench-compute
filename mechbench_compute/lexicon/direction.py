@@ -96,6 +96,56 @@ to find a concept direction, and the one most steering results are built on.
     example_inputs={"vectors": {"$ref": {"bench": "you/lab/vectors"}}},
 )
 
+FROM_REGRESSION = Op(
+    name="direction/regress",
+    summary=(
+        "Make a direction by regressing residual vectors against a number the "
+        "items carry — the axis along which a measured quantity rises."
+    ),
+    description="""\
+`direction/fit` answers "which way does this group lie from that one": two
+labels, a difference of centroids. Some signals are not two groups. A
+token's surprisal, a passage's length, a judge's score — these are
+quantities, and the question is which way the residual moves as the
+quantity rises. That is a regression.
+
+Among the items at `layer`, those carrying a number on the `target`
+coordinate are fitted by ridge regression, choosing the penalty from
+`alphas` by cross-validation. The fitted weight vector, normalised, is the
+direction.
+
+A weight vector always exists, so the fit holds out `holdout` of the items
+and reports R² on them: `r2_test` is what says whether the direction
+carries the signal or the fit merely memorised the training rows. The
+derivation records the chosen `alpha`, both R²s, the correlation on the
+held-out items, and the split. The common `seed` param fixes which items
+are held out, so a fit repeats exactly.
+""",
+    inputs=(
+        In("vectors", "activations/vector",
+           "A collection of vectors with items at the chosen `layer`, each "
+           "carrying the `target` number among its coordinates.", many=True),
+    ),
+    output=Output('direction/vector', collection=False,
+                  doc='`derivation.method` is `"ridge"`, with `alpha`, `r2_train`, `r2_test`, `pearson_test`, `n_items`, `n_train`, `n_test` and `seed`.'),
+    params=(
+        P("layer", "int", "The layer whose items are fitted."),
+        P("target", "string",
+          "The coordinate holding the number to regress against. Items "
+          "without one are left out, and the count of those kept is on the "
+          "derivation."),
+        P("alphas", "list[float]",
+          "The ridge penalties to choose among, by cross-validation.",
+          [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]),
+        P("holdout", "float",
+          "The fraction of items held out of the fit, to score it.", 0.2),
+        _point(),
+        _source(),
+    ),
+    example={"layer": 21, "target": "surprisal"},
+    example_inputs={"vectors": {"$ref": {"bench": "you/lab/residuals"}}},
+)
+
 FROM_PCA = Op(
     name="direction/decompose",
     summary=(
@@ -289,6 +339,6 @@ reads.
 )
 
 OPS: tuple[Op, ...] = (
-    FROM_VECTORS, FROM_PCA, ADD, AVERAGE, ORTHOGONALIZE, NORMALIZE, PROJECT,
+    FROM_VECTORS, FROM_REGRESSION, FROM_PCA, ADD, AVERAGE, ORTHOGONALIZE, NORMALIZE, PROJECT,
     VOCAB,
 )
