@@ -139,6 +139,33 @@ def map_bound_names(node: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(bind) if isinstance(bind, Mapping) else frozenset()
 
 
+def _inner_ref_site(params: Mapping[str, Any], path: list[str]):
+    """Where a `$ref` under a map's `body` actually sits: `"port"` on a
+    body node's inputs, `(inner_op, inner_path)` in a body node's
+    params, None when the path is not under a body (000598)."""
+    if path[:2] != ["body", "nodes"] or len(path) < 4:
+        return None
+    body = params.get("body")
+    if not isinstance(body, Mapping) or not isinstance(body.get("nodes"), list):
+        return None
+    try:
+        inner = body["nodes"][int(path[2])]
+    except (IndexError, ValueError):
+        return None
+    if not isinstance(inner, Mapping) or not isinstance(inner.get("block"), str):
+        return None
+    where = path[3]
+    if where == "inputs":
+        return "port"
+    if where != "params":
+        return None
+    try:
+        inner_op = lexicon.BY_NAME.get(lexicon.resolve(inner["block"]))
+    except KeyError:
+        inner_op = None
+    return (inner_op, path[4:]) if inner_op is not None else None
+
+
 def check_refs(nodes: Mapping[str, Mapping[str, Any]],
                bound_params: Mapping[str, Any]) -> None:
     """Refuse a stored-object reference that sits where no declaration
@@ -152,7 +179,8 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
     """
     problems: list[str] = []
 
-    def walk(v: Any, nid: str, op: Any, path: list[str], local: frozenset[str]) -> None:
+    def walk(v: Any, nid: str, op: Any, params: Mapping[str, Any],
+             path: list[str], local: frozenset[str]) -> None:
         if is_param_ref(v):
             name = v["$param"]
             if path[:1] == ["body"] and name in local:
@@ -163,10 +191,18 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
             v = bound_params[name]
         if is_object_ref(v):
             source_of(v)
-            decl = _declared_at(op, path) if op else None
-            if op is not None and not (decl is not None and (decl.stored or decl.reference)):
+            # Under a map's `body` the $ref sits on one of the BODY's
+            # nodes, whose op — not the map's — says whether a stored
+            # object belongs there; on that node's inputs it is a port,
+            # and a port always does (000598).
+            site = _inner_ref_site(params, path)
+            if site == "port":
+                return
+            site_op, site_path = site if site else (op, path)
+            decl = _declared_at(site_op, site_path) if site_op else None
+            if site_op is not None and not (decl is not None and (decl.stored or decl.reference)):
                 problems.append(
-                    f"{nid}.{'.'.join(path)}: a $ref sits where {op.name} declares no "
+                    f"{nid}.{'.'.join(path)}: a $ref sits where {site_op.name} declares no "
                     f"stored object; wire it to a port, or pass the value")
             return
         if isinstance(v, Mapping):
@@ -177,16 +213,17 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
                     f"protocol writes {{\"$ref\": …}}")
                 return
             for k, x in v.items():
-                walk(x, nid, op, [*path, str(k)], local)
+                walk(x, nid, op, params, [*path, str(k)], local)
         elif isinstance(v, list):
             for i, x in enumerate(v):
-                walk(x, nid, op, [*path, str(i)], local)
+                walk(x, nid, op, params, [*path, str(i)], local)
 
     for nid, node in nodes.items():
         try:
             op = lexicon.BY_NAME.get(lexicon.resolve(node["block"]))
         except KeyError:
             op = None
-        walk(node.get("params") or {}, nid, op, [], map_bound_names(node))
+        params = node.get("params") or {}
+        walk(params, nid, op, params, [], map_bound_names(node))
     if problems:
         raise ValueError("references that cannot be resolved:\n  " + "\n  ".join(problems))

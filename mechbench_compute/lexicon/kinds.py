@@ -466,12 +466,12 @@ MST = Kind(
 
 READOUT = Kind(
     "intervene/readout",
-    "What one record's forward pass read out under one strength of an intervention: a next-token distribution, or captured activations.",
+    "What one record's forward pass read out under one strength of an intervention: a next-token distribution. A capture readout is instead an `activations/vector` collection, `factor` on each vector.",
     extends="logits/distribution",
     fields={"id": ID, "coords": COORDS,
             "factor": F("number", "The sweep factor; 0 is the control. For a steer sweep, the alpha."),
-            "position": F("integer", "For a capture: the position read."),
-            "captures": F("object", "For a capture: a collection of `activations/vector`, one per hook point, each in its own space.")},
+            "position": F("integer", "Before 0.110.0, for a capture: the position read."),
+            "captures": F("object", "Before 0.110.0, for a capture: a collection of `activations/vector`, one per hook point. A capture readout is now itself that collection.")},
     required=("id", "factor"),
     key=("id", "factor"),
     header={"spec": "The intervention items as run, with objects replaced by their provenance.",

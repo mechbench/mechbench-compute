@@ -42,7 +42,7 @@ Shared conventions, stated once here and referred to from the entries:
 
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Output, In, Op, P
+from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P
 from mechbench_compute.lexicon.common import (
     TARGET_TRANSFORM,
     TARGET_UNIFORM,
@@ -160,7 +160,8 @@ query vector, …), which **layers** and token **positions** it applies to, and
 an **op** to perform there. All items are applied together in one forward
 pass over each record, and the result is read out either as a **decision** —
 the next-token distribution at the last position — or as a **capture** — the
-raw activations at named points.
+raw activations at named points, which come out as an `activations/vector`
+collection exactly as `activations/capture` would emit them, `factor` on each.
 
 A `sweep` runs the whole spec at several strengths, and by default a
 strength‑0 **control** is added so every record has a baseline row to compare
@@ -190,7 +191,7 @@ against. The output has one row per record per sweep factor.
 | `strength` | float | `1.0` | The item's magnitude: the coefficient for `add`, the factor for `scale`, the bound for `clamp`, the angle in radians for `rotate`. Multiplied by each sweep factor. |
 | `direction` | direction | — | The direction for `add`, `project_out`, `clamp`, `rotate` and (optionally) `patch`. May instead arrive on the node's `direction` port, which fills every item that names none. |
 | `direction2` | direction | — | The second axis of the plane for `rotate`. |
-| `source` | collection | — | A collection of `activations/vector` — or a capture readout from another `intervene/apply` — supplying replacement activations for `mean`, `resample` and `patch`; items are matched to the item's layer (and point). May instead arrive on the node's `source` port. |
+| `source` | collection | — | A collection of `activations/vector` — a capture, intervened or not — supplying replacement activations for `mean`, `resample` and `patch`; items are matched to the item's layer (and point). May instead arrive on the node's `source` port. |
 | `row` | object | — | For `patch`: which row of `source` to write in, e.g. `{"index": 0}`. |
 | `condition` | object | — | Apply the item only at positions whose activation projects onto a direction above (or below) a threshold: `{"direction": …, "threshold": 0.0, "above": true}`. |
 | `seed` | int | the block's `seed` | The seed `resample` draws with. |
@@ -247,12 +248,15 @@ one item can zero every layer's `o_proj`.
         In("direction", "direction/vector",
            "A direction that fills any spec item without one.", required=False),
         In("source", "activations/vector | intervene/readout",
-           "A collection of `activations/vector`, or a capture readout from "
-           "another intervention, that fills any `mean`/`resample`/`patch` "
-           "item without one.", many=True, required=False),
+           "A collection of `activations/vector` — a capture, intervened or "
+           "not — that fills any `mean`/`resample`/`patch` item without one. "
+           "A capture readout stored before 0.110.0 is read too.",
+           many=True, required=False),
         ADAPTER,
     ),
-    output=Output('intervene/readout', collection=True, doc='One item per record per factor: `id`, `coords`, `factor`, and the readout — for a decision, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp}` for the tokens asked about); for a capture, `position` and `captures`, a collection of `activations/vector` with one item per hook point, each in its own `space` (at most 4096 values). The header carries `spec` (the list as run, with directions and sources replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf) and `sweep` (the factors, including `0.0` when a control was added).'),
+    output=Output('intervene/readout', collection=True,
+                  doc='For a decision readout, one item per record per factor: `id`, `coords`, `factor`, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp}` for the tokens asked about). A capture readout is a capture: an `activations/vector` collection with one item per record per factor per hook point — `id`, `coords`, `factor`, `position`, `token`, `space` (at most 4096 values) — the shape `activations/capture` emits, so `geometry/compare`, `direction/regress` and another intervention\'s `source` read it unchanged. Either way the header carries `spec` (the list as run, with directions and sources replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf), `sweep` (the factors, including `0.0` when a control was added) and `readout`.',
+                  otherwise=(Otherwise("activations/vector", collection=True, param="readout.type", equals="capture"),)),
     params=(
         P("spec", "list[object]",
           "The intervention items, applied together in one forward pass per "
@@ -276,8 +280,9 @@ one item can zero every layer's `o_proj`.
           "the last position. `{\"type\": \"capture\", \"points\": "
           "[\"blocks.14.resid_post\"], \"position\": \"last\"}` records the "
           "activation vectors at the named hook points instead — `position` "
-          "is a selector naming one position. A capture readout is itself "
-          "accepted as another intervention's `source`. `readout.top_k` "
+          "is a selector naming one position — and the result is then an "
+          "`activations/vector` collection, which any reader of a capture "
+          "(including another intervention's `source`) takes. `readout.top_k` "
           "overrides the `top_k` param.",
           {"type": "decision"}, fields=(
               P("type", "string", "`decision` reads the next-token distribution; `capture` reads activations.",

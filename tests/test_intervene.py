@@ -209,14 +209,29 @@ class TestRunReadout:
         out = iv.run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "project_out", "direction": d}],
                       "readout": {"kind": "capture", "points": ["blocks.2.resid_post"]}})
-        ctrl, done = out["items"]
-        # Captures are a collection of activations/vector, one per point,
-        # each in the space the hook name says.
-        cap_ctrl, cap_done = K.items_of(ctrl["captures"])[0], K.items_of(done["captures"])[0]
-        assert cap_ctrl["id"] == "blocks.2.resid_post"
+        # A capture readout IS a capture (000599): an activations/vector
+        # collection, one item per record per factor per point, in the
+        # space the hook name says, `factor` on each — the shape
+        # activations/capture emits, so geometry/compare reads it.
+        assert out["item_kind"] == "activations/vector"
+        assert out["readout"] == "capture" and out["points"] == ["blocks.2.resid_post"]
+        cap_ctrl, cap_done = out["items"]
+        assert cap_ctrl["id"] == "r1" and cap_done["id"] == "r1"
+        assert cap_ctrl["factor"] == 0.0 and cap_done["factor"] == 1.0
         assert cap_ctrl["space"]["layer"] == 2 and cap_ctrl["space"]["point"] == "resid_post"
         assert cap_ctrl["vector"][1] == 1.0
         assert abs(cap_done["vector"][1]) < 1e-6
+        assert "captures" not in cap_ctrl
+        # …and so a capture readout goes straight into geometry/compare,
+        # grouped by factor, separated on a record coordinate.
+        from mechbench_compute.similarity import geometry_similarity
+        two = iv.run(model, [{"id": "a", "user": "hi", "coords": {"sense": "x"}},
+                             {"id": "b", "user": "yo", "coords": {"sense": "y"}}],
+                     {"spec": [{"point": "resid_post", "layers": [2], "op": "scale", "strength": 2.0}],
+                      "readout": {"kind": "capture", "points": ["blocks.2.resid_post"]}})
+        sim = geometry_similarity({"items": two}, {"by": "factor", "axis": "sense"})
+        assert [g["group"] for g in sim["items"]] == ["factor=0.0", "factor=1.0"]
+        assert sim["items"][1]["labels"] == ["x", "y"]
 
     def test_a_capture_readout_is_a_source(self):
         # One intervention's capture patches into another: the captured
@@ -233,12 +248,28 @@ class TestRunReadout:
                                                    "points": ["blocks.2.resid_post"]}},
                      inputs={"source": captured})
         ctrl, patched = out["items"]
-        v_ctrl = np.array(K.items_of(ctrl["captures"])[0]["vector"])
-        v_src = np.array(K.items_of(captured["items"][0]["captures"])[0]["vector"])
-        v_patched = np.array(K.items_of(patched["captures"])[0]["vector"])
+        v_ctrl = np.array(ctrl["vector"])
+        v_src = np.array(captured["items"][0]["vector"])
+        v_patched = np.array(patched["vector"])
         assert np.allclose(v_patched, v_src, atol=1e-5)
         assert not np.allclose(v_patched, v_ctrl)
-        assert out["spec"][0]["source"]["item_kind"] == "intervene/readout"
+        assert out["spec"][0]["source"]["item_kind"] == "activations/vector"
+
+    def test_a_capture_readout_stored_before_0_110_is_still_a_source(self):
+        # The nested shape — one readout row per record, vectors under
+        # `captures` — is what older stored results carry; it is read.
+        model = _FakeModel()
+        vec = S.vector(np.array([5.0, 6.0, 7.0, 8.0], np.float32),
+                       S.space(model="fake", layer=2, point="resid_post", d=4), id="blocks.2.resid_post")
+        legacy = K.collection("intervene/readout", [
+            {"id": "r1", "factor": 1.0, "position": 1,
+             "captures": K.collection("activations/vector", [vec])}])
+        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+                     {"spec": [{"point": "resid_post", "layers": [2], "op": "mean"}],
+                      "control": False,
+                      "readout": {"type": "capture", "points": ["blocks.2.resid_post"]}},
+                     inputs={"source": legacy})
+        assert np.allclose(out["items"][0]["vector"], [5.0, 6.0, 7.0, 8.0], atol=1e-5)
 
     def test_direction_by_port_fills_the_spec(self):
         model = _FakeModel()
@@ -276,8 +307,8 @@ def test_real_project_out_zeroes_the_projection_at_the_point():
                   "readout": {"kind": "capture", "points": [f"blocks.{layer}.resid_post"]}})
     ctrl, done = out["items"]
     u = np.array(d["vector"], np.float32)
-    proj_ctrl = float(np.array(K.items_of(ctrl["captures"])[0]["vector"]) @ u)
-    proj_done = float(np.array(K.items_of(done["captures"])[0]["vector"]) @ u)
+    proj_ctrl = float(np.array(ctrl["vector"]) @ u)
+    proj_done = float(np.array(done["vector"]) @ u)
     assert abs(proj_ctrl) > 1.0 and abs(proj_done) < 0.05 * abs(proj_ctrl)
 
 

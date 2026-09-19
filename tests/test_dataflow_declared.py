@@ -194,6 +194,23 @@ def test_an_op_may_declare_that_it_wants_the_reference_itself(monkeypatch):
         dataflow.check_refs(nodes, {})
 
 
+def test_a_ref_inside_a_map_body_is_judged_by_the_body_nodes_op(fake_bench):
+    """A map's body is a graph; its nodes' $refs sit on THEIR declarations,
+    not on records/map's (000598). On a body node's inputs a $ref is a
+    port, and a port always takes one."""
+    body = {"nodes": [
+        {"id": "say", "block": "text/measure",
+         "params": {"mode": "items", "measures": {"$ref": {"bench": "lab/p/freqs"}}},
+         "inputs": {"documents": {"$ref": {"bench": "lab/p/draws"}}}}]}
+    nodes = {"each": {"block": "records/map", "params": {"body": body, "bind": {}}}}
+    with pytest.raises(ValueError, match=r"each\.body\.nodes\.0\.params\.measures: a \$ref sits where text/measure declares no") as err:
+        dataflow.check_refs(nodes, {})
+    # The port alone is never a problem: one refusal, and it names measures.
+    assert "documents" not in str(err.value)
+    del body["nodes"][0]["params"]["measures"]
+    dataflow.check_refs(nodes, {})
+
+
 # --- declared outputs are the run's results (000558) -----------------------
 
 TWO_NODES = {

@@ -319,8 +319,15 @@ def test_what_an_op_emits_instead_is_declared_against_the_node(op: Op) -> None:
         assert o.kind in BY_KIND, f"{op.name}: {o.kind} is not a declared kind"
         assert (o.param is None) != (o.port is None), f"{op.name}: name a param or a port, not both"
         if o.param is not None:
-            p = next((p for p in op.params if p.name == o.param), None)
-            assert p is not None, f"{op.name}: no param {o.param!r}"
+            # A dotted path names a field of a structured param
+            # (`readout.type`), the way `$param` paths and the dataflow
+            # checker's `_declared_at` already walk them (000599).
+            fields = list(op.params)
+            p = None
+            for key in o.param.split("."):
+                p = next((f for f in fields if f.name == key), None)
+                assert p is not None, f"{op.name}: no param {o.param!r}"
+                fields = list(p.fields)
             if p.choices:
                 assert o.equals in p.choices, f"{op.name}: {o.equals!r} is not a {o.param} choice"
         else:

@@ -77,6 +77,9 @@ def _source_items(source: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     if ik == "activations/vector":
         return list(K.items_of(source))
     if ik == "intervene/readout":
+        # A capture readout stored before 0.110.0 nested its vectors under
+        # each row's `captures`; since then a capture readout IS an
+        # `activations/vector` collection and takes the branch above.
         out: list[Mapping[str, Any]] = []
         for item in K.items_of(source):
             caps = item.get("captures")
@@ -435,20 +438,28 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
                 L = len(flat)
                 pidx = POS.one(readout.get("position", "last"), L, tokens=tokens,
                                record=record, prompt_len=L)
-                caps = []
+                # A capture under intervention IS a capture: one
+                # `activations/vector` per hook point, the shape
+                # `activations/capture` emits, so whatever reads a
+                # capture — `geometry/compare`, `direction/regress`,
+                # another intervention's `source` — reads this one too.
+                # `factor` rides on each vector, since a sweep's rows
+                # differ only by it (000599).
                 for p in points:
                     t = res.cache[p]
                     v = t[0, pidx] if t.ndim == 3 else t[0]
                     # bf16 has no numpy buffer protocol: cast first.
                     arr = np.array(v.astype(mx.float32)).reshape(-1)[:4096]
                     cl, cp = _hook_space(p)
-                    caps.append(S.vector(
+                    row = S.vector(
                         arr, S.space(model=mid, layer=cl, point=cp, d=int(arr.size)),
-                        id=p, coords=dict(record.get("coords", {})),
-                        token=S.token(model.tokenizer, flat[pidx])))
-                row = {"id": record.get("id"), "coords": dict(record.get("coords", {})),
-                       "factor": factor, "position": pidx,
-                       "captures": K.collection("activations/vector", caps)}
+                        id=record.get("id"), coords=dict(record.get("coords", {})),
+                        factor=factor, position=pidx,
+                        token=S.token(model.tokenizer, flat[pidx]))
+                    rows.append(row)
+                    if on_item:
+                        on_item(f"{key}:{p}", row)
+                continue
             rows.append(row)
             if on_item:
                 on_item(key, row)
@@ -463,11 +474,13 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
         what.append(f"{len(weight_items)} weight edit(s) for the run, "
                     f"restored after")
     return K.collection(
-        "intervene/readout", rows,
+        "activations/vector" if rk == "capture" else "intervene/readout", rows,
         spec=_wire_spec(filled),
         weights=weights_wire,
         sweep=factors,
         readout=rk,
+        **({"model": mid, "position": str(readout.get("position", "last")),
+            "points": [str(p) for p in readout.get("points", [])]} if rk == "capture" else {}),
         description=(
             f"{'; '.join(what)}. Factor 0 is the control; strengths scale "
             f"with the sweep factor."),

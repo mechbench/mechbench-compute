@@ -13,6 +13,40 @@ nothing said so.
 
 ---
 
+## 0.110.0 — 2026-09-19
+
+### Changes that raise
+
+- _None._ (A refusal is lifted, not added: a protocol the checker
+  wrongly refused before now runs.)
+
+### Changes that alter results without raising
+
+- **A capture readout from `intervene/apply` is now an
+  `activations/vector` collection** — one item per record per factor
+  per hook point, `factor` on each, the shape `activations/capture`
+  emits — where before it was an `intervene/readout` collection with
+  the vectors nested under each row's `captures`. The numbers are the
+  same; the shape is not. A protocol that read the nested shape by
+  hand (`items[i].captures`) reads `items` now. `source` still takes a
+  readout stored under the old shape. The reason: nothing downstream
+  could read the nested shape — not `geometry/compare`, not
+  `direction/regress` — so "intervene, then measure the geometry"
+  could not be composed from the ops (000599).
+
+### Other
+
+- A `$ref` inside a `records/map` body is judged by the BODY node's
+  declaration, not the map's. Before, a stored object on a body
+  node's input port — or on a body node's param that declares
+  `stored` — was refused as "a $ref sits where records/map declares no
+  stored object", which made a per-layer sweep that reads a fixed
+  corpus impossible to author. Now a `$ref` on a body node's inputs
+  is a port, and one in a body node's params is checked against that
+  op. Same fix in mechbench-models 0.36.0.
+
+---
+
 ## 0.109.0 — 2026-09-19
 
 ### Changes that raise
