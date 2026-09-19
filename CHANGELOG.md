@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## 0.112.1 — 2026-09-19
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ (An added header field.)
+
+### Other
+
+- `intervene/ablate-layers`, `intervene/ablate-heads` and
+  `logits/attribute` carry `n_off_top1` on the header: how many
+  conditions tracked a target the model would not itself have said
+  (each such condition already carries `own_top1`). The number a
+  reader checks before any Δ — three of the L23 sweeps tracked
+  `" Paris"` at baseline −20 under the chat template, and only their
+  per-condition fields said so.
+
+---
+
 ## 0.112.0 — 2026-09-19
 
 ### Changes that raise

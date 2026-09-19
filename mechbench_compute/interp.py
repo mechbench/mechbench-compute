@@ -266,6 +266,10 @@ def ablate_layers(
         points=points,
         layers=layers,
         n_conditions=len(records),
+        # How many targets the model would not itself have said: a sweep
+        # over the wrong spelling reads as a sweep, and this is the
+        # number a reader checks before reading any Δ.
+        n_off_top1=sum(1 for c in conditions if "own_top1" in c),
         conditions=conditions,
         aggregates={
             "mean_delta": [
@@ -831,6 +835,7 @@ def ablate_heads(
         "layers": layers,
         "n_heads": n_heads,
         "n_conditions": len(records),
+        "n_off_top1": sum(1 for c in metas if "own_top1" in c),
         "conditions": metas,
         "description": (
             "Mean Δ log p of the target with each single head zeroed — "
@@ -963,6 +968,7 @@ def logit_attribution(
         "logits/attribution", rows,
         apply_ln=apply_ln,
         layers=layers,
+        n_off_top1=sum(1 for r in rows if "own_top1" in r),
         components=["embed", *[f"L{i}" for i in layers]],
         description=(
             "Direct logit attribution: each component's contribution to "

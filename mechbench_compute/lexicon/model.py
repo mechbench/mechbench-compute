@@ -22,7 +22,8 @@ Shared conventions, stated once here and referred to from the entries:
   template ends the prompt at a turn boundary. The two are different
   tokens, and the wrong one measures a token the model was never going
   to say. Every condition reports the model's own top-1 beside a target
-  that differs from it, so the mismatch shows.
+  that differs from it, and the header counts them as `n_off_top1`:
+  read that number, and each condition's `baseline_logp`, before any Δ.
 * **Positions.** One selector wherever a position is chosen:
   `"last"`, `"all"`, a list of indices (negative from the end),
   `{"tokens": [...]}`, `{"range": [a, b]}`, `{"after": n}`,

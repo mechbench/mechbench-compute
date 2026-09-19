@@ -245,11 +245,15 @@ class TestOwnTop1BesideATarget:
         c = out["conditions"][0]
         assert "own_top1" in c and c["own_top1"]["id"] != c["target"]["id"]
         assert "logp" in c["own_top1"]
+        # …and the header counts them, so a sweep over the wrong spelling
+        # announces itself at the top (000609's lesson).
+        assert out["n_off_top1"] == 1
 
     def test_the_models_own_answer_is_not_flagged_against_itself(self):
         model = StubModel()
         out = interp.ablate_layers(model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
         assert "own_top1" not in out["conditions"][0]
+        assert out["n_off_top1"] == 0
 
 
 class TestResidualVectors:
