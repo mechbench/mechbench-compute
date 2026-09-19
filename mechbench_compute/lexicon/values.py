@@ -219,6 +219,7 @@ A selector names positions of a rendered sequence:
 | `{"tokens": ["x", "y"]}` | every position whose token text is one of the names |
 | `{"range": [a, b]}` | positions `a` … `b − 1`; a null or negative end reads as a slice |
 | `{"after": n}` | positions `n` … end |
+| `{"segment": "thinking"}` | a named span of the trace — see below |
 | `"subject"` | the last token of the record's `subject` string |
 | `"generated"` | from where generation began — the trace's span, or the end of the rendered prompt |
 
@@ -232,6 +233,19 @@ empty.
 Positions count over the rendered sequence: the chat template's own
 tokens are positions too, which is why `"last"` and `"generated"` are
 usually the right words and a bare index rarely is.
+
+`{"segment": role}` names a span the document itself declares. Generation
+writes `prompt` and `body` always, and `thinking` and `answer` when the
+model's own vocabulary declares reasoning delimiters — `<think>` and
+`</think>` are tokens in Qwen3's and the R1 distills' vocabularies, not
+prose they happen to write. So a capture may read the
+residual stream *while the model reasoned*, and a steer may act there
+and nowhere else, without any operation learning a new word.
+
+A document that has no such span refuses the selector and says which
+roles it does have. That is the point: a model which declares no
+delimiters, or wrote none this time, has no reasoning to read, and a
+capture aimed at it must not quietly return an answer instead.
 """,
 )
 

@@ -9,6 +9,8 @@ A selector names token positions of a rendered sequence:
     {"range": [a, b]}       positions a … b-1; negative or null ends as a
                             Python slice
     {"after": n}            positions n … end
+    {"segment": "thinking"} a named span of the trace — the roles a
+                            document's `segmentations` declare
     "subject"               the last token of the record's `subject` string
     "generated"             from where generation began — the trace's span,
                             else the end of the rendered prompt
@@ -30,6 +32,7 @@ from typing import Any
 SELECTOR_DOC = (
     '`"last"`, `"all"`, a list of indices (negative from the end), '
     '`{"tokens": [...]}`, `{"range": [a, b]}`, `{"after": n}`, '
+    '`{"segment": "thinking"}` (a named span of the trace), '
     '`"subject"` (the last token of the record\'s `subject` string) or '
     '`"generated"` (from where generation began).'
 )
@@ -43,14 +46,16 @@ def _slice(n: int, a: Any, b: Any) -> list[int]:
 
 def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
             record: Mapping[str, Any] | None = None,
-            prompt_len: int | None = None, gen_start: int | None = None) -> list[int]:
+            prompt_len: int | None = None, gen_start: int | None = None,
+            segmentations: Sequence[Mapping[str, Any]] | None = None) -> list[int]:
     """The positions `selector` names in a sequence of `n` tokens.
 
     `tokens` (the decoded pieces) serves `{"tokens": …}` and `"subject"`;
     `record` supplies `subject`; `gen_start` (from a trace) or
-    `prompt_len` (from the rendering) serves `"generated"`. Raises
-    `ValueError` for a selector that names nothing, or one this
-    sequence cannot answer.
+    `prompt_len` (from the rendering) serves `"generated"`;
+    `segmentations` (from a document's trace) serves
+    `{"segment": role}`. Raises `ValueError` for a selector that names
+    nothing, or one this sequence cannot answer.
     """
     if selector is None or selector == "last" or selector == "final":
         # `final` is the spelling from before the grammar was one.
@@ -78,6 +83,8 @@ def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
             return _slice(n, a, b)
         if "after" in selector:
             return _slice(n, selector["after"], None)
+        if "segment" in selector:
+            return _segment(selector["segment"], n, segmentations)
         if "tokens" in selector:
             if tokens is None:
                 raise ValueError("positions {\"tokens\": …} needs the decoded tokens")
@@ -90,6 +97,32 @@ def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
     if isinstance(selector, Sequence):
         return [(int(p) + n) % n for p in selector] if n else []
     raise ValueError(f"unknown positions {selector!r}: {SELECTOR_DOC}")
+
+
+def _segment(role: Any, n: int, segmentations: Sequence[Mapping[str, Any]] | None) -> list[int]:
+    """The positions of the span named `role`, from the document's named
+    spans. A document without it is refused WITH THE ROLES IT HAS: a
+    capture aimed at reasoning must not quietly read an answer, and the
+    reader deserves to know the document simply has no such span —
+    because the model declares no reasoning delimiters, or wrote none.
+    """
+    want = str(role)
+    have: list[str] = []
+    for seg_set in (segmentations or []):
+        for seg in (seg_set.get("segments") or []):
+            name = str(seg.get("role", ""))
+            have.append(name)
+            if name != want:
+                continue
+            a = max(0, min(int(seg.get("token_start", 0)), n))
+            b = max(a, min(int(seg.get("token_end", n)), n))
+            if a == b:
+                raise ValueError(f"segment {want!r} is empty in this sequence")
+            return list(range(a, b))
+    raise ValueError(
+        f"no {want!r} segment here"
+        + (f"; this document has {sorted(set(have))}" if have
+           else "; this document carries no named spans"))
 
 
 def one(selector: Any, n: int, **kw: Any) -> int:

@@ -37,6 +37,7 @@ from mechbench_schema import (
 )
 
 from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, Model, lexicon
+from mechbench_compute import thinking as THINK
 
 
 @dataclass
@@ -1341,6 +1342,16 @@ class ProtocolExecutor:
                              "token_end": len(full_ids)},
                         ],
                     }]
+                    # Where the model reasoned, when its own vocabulary
+                    # declares reasoning delimiters (task 000592). A
+                    # second segmentation beside the envelope, so a
+                    # reader that knows only `prompt`/`body` is
+                    # unaffected and a position selector can name the
+                    # thinking span.
+                    reasoning = THINK.segmentation(
+                        full_ids, start=len(ids), pair=THINK.delimiter_ids(tok))
+                    if reasoning is not None:
+                        item["segmentations"].append(reasoning)
                 items.append(item)
                 if on_item:
                     on_item(key, item)
