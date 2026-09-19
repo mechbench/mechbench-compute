@@ -96,15 +96,44 @@ def _judge_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = N
     return _chat_level({"model": (params or {}).get("judge", {}).get("model")})
 
 
+def _body_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = None) -> str:
+    """A map's or a fold's promise is its body's weakest node's (task
+    000617): a body of local generate nodes is reproducible, one with a
+    remote chat is exchangeable, one with a node that offers nothing is
+    a restart. Its items — one per record, one per step — are spooled
+    either way."""
+    body = (params or {}).get("body") or {}
+    nodes = body.get("nodes") if isinstance(body, Mapping) else None
+    if not nodes:
+        return "restart"
+    from mechbench_compute.blocks import PURE_BLOCKS
+
+    levels = []
+    for n in nodes:
+        if not isinstance(n, Mapping):
+            continue
+        block = _name(str(n.get("block", "")))
+        # A pure block is a function of its inputs: reproducible by
+        # construction, whatever the registry says of it.
+        levels.append("reproducible" if block in PURE_BLOCKS
+                      else resume_level(block, n.get("params") or {}, n.get("inputs") or {}))
+    return min(levels, key=lambda lv: _RANK.get(lv, 0)) if levels else "restart"
+
+
 DYNAMIC_LEVEL = {"text/chat": _chat_level,
                  "text/converse": _conversation_level,
-                 "eval/judge": _judge_level}
+                 "eval/judge": _judge_level,
+                 "records/map": _body_level,
+                 "records/fold": _body_level}
 
 BLOCK_RESUME["text/chat"] = {"level": "exchangeable", "items": True}
 BLOCK_RESUME["text/converse"] = {
     "level": "exchangeable", "items": True}
 # A judge is a chat node wearing a rubric: same promise, same items.
 BLOCK_RESUME["eval/judge"] = {"level": "exchangeable", "items": True}
+# A body's items are its records or its steps; the level is the body's.
+BLOCK_RESUME["records/map"] = {"level": "restart", "items": True}
+BLOCK_RESUME["records/fold"] = {"level": "restart", "items": True}
 
 
 def _name(block: str) -> str:

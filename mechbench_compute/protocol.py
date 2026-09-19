@@ -679,11 +679,12 @@ class ProtocolExecutor:
             expanded = False
             report()
             raw_params = node.get("params") or {}
-            if block == "records/map" and isinstance(raw_params.get("body"), Mapping):
-                # A map's body is the CHILD run's graph, holes and all:
-                # `$topic` is bound per record by `bind`, not by this run
-                # (task 000400). Resolving it here would refuse a hole
-                # that is not this protocol's to fill.
+            if block in ("records/map", "records/fold") and isinstance(raw_params.get("body"), Mapping):
+                # A map's or a fold's body is the CHILD run's graph,
+                # holes and all: `$topic` is bound per record by `bind`,
+                # `$participant` per step by `over`, not by this run
+                # (tasks 000400, 000617). Resolving it here would refuse
+                # a hole that is not this protocol's to fill.
                 params = resolve_params(
                     {k: v for k, v in raw_params.items() if k != "body"}, block)
                 params["body"] = raw_params["body"]
@@ -1003,6 +1004,12 @@ class ProtocolExecutor:
                         on_item=on_item, on_start=expand)
                 elif block == "records/map":
                     results[nid] = self._block_map(
+                        inputs, params, secrets=secrets, on_item=on_item,
+                        on_start=expand,
+                        bindings=bound_params if declared else bindings,
+                        **resume_kwargs)
+                elif block == "records/fold":
+                    results[nid] = self._block_fold(
                         inputs, params, secrets=secrets, on_item=on_item,
                         on_start=expand,
                         bindings=bound_params if declared else bindings,
@@ -1754,6 +1761,114 @@ class ProtocolExecutor:
             mapped={"records": len(records), "collect": collect,
                     "body_nodes": [n.get("id") for n in body.get("nodes", [])]},
             name=params.get("name"), description=params.get("description"))
+
+    def _block_fold(self, inputs, params, secrets=None, on_item=None,
+                    on_start=None, bindings=None, resume_items=None) -> Any:
+        """`records/fold` (task 000617): run a body step after step, each
+        step reading the state the last one wrote.
+
+        `records/map` runs its body once per record with no memory
+        between runs; a conversation, a refinement, an agentic round
+        is the other shape — the body's output at step t is its input
+        at step t + 1. The state enters the body on its `state` input
+        (an edge from `{"input": "state"}`), and leaves by the body
+        output named `output`. `over` binds one object of `$param`s per
+        step, cycled; `until.field` stops the fold when every state item
+        has that field set.
+
+        Every step is an item keyed by its index and spooled with the
+        state it produced, so an interrupted fold resumes at the step it
+        reached — the resume machinery treats steps exactly as it treats
+        a chat node's items. The body sees one state and nothing else.
+        """
+        from mechbench_compute import dataflow as dataflow_mod
+        from mechbench_compute.lexicon import kinds as K
+
+        state = inputs.get("state")
+        if state is None:
+            raise ValueError("records/fold needs a starting `state` on its port")
+        body = params.get("body")
+        if not isinstance(body, Mapping) or not body.get("nodes"):
+            raise ValueError(
+                "records/fold needs a `body`: a graph, with `nodes` and "
+                "`edges`, run once per step")
+        # A fold's body is a declared graph by construction: the state
+        # reaches it by an edge from `{"input": "state"}`, which only the
+        # declared form has.
+        body = {**body, "dataflow": dataflow_mod.DATAFLOW}
+        over = params.get("over")
+        if over is not None and not (isinstance(over, list)
+                                     and all(isinstance(o, Mapping) for o in over)):
+            raise ValueError("`over` is a list of objects, one per step")
+        over = [dict(o) for o in (over or [])]
+        steps = params.get("steps")
+        steps = len(over) if steps is None else int(steps)
+        if steps < 1:
+            raise ValueError("a fold runs at least one step: give `over` or `steps`")
+        if steps > len(over) and not over:
+            over = [{}]
+        until = params.get("until") or {}
+        stop_field = str(until["field"]) if isinstance(until, Mapping) and until.get("field") else None
+        want = params.get("output")
+        if on_start:
+            on_start(steps)
+
+        child = ProtocolExecutor(
+            on_download=self._on_download,
+            on_download_bytes=self._on_download_bytes,
+            limiter=self._limiter, budget=self._budget)
+        child._model, child._model_id = self._model, self._model_id
+
+        def says_stop(value: Any) -> bool:
+            items = K.items_of(value) if K.item_kind_of(value) else []
+            return bool(items) and all(bool(it.get(stop_field)) for it in items)
+
+        ran, stopped = 0, "steps"
+        for t in range(steps):
+            key = f"step:{t}"
+            if resume_items and key in resume_items:
+                state = resume_items[key]
+                ran += 1
+                if on_item:
+                    on_item(key, state, True)
+                if stop_field and says_stop(state):
+                    stopped = "until"
+                    break
+                continue
+            step_params = {**(bindings or {}), **over[t % len(over)], "step": t}
+            out = child.run(ProtocolSpec(
+                kind="pipeline", prompt="", model_id=None,
+                extra={"graph": body, "bindings": step_params,
+                       "params": step_params, "inputs": {"state": state}}),
+                secrets=secrets)
+            outputs = out.payload.get("outputs") or {}
+            if want:
+                chosen = outputs.get(str(want))
+                if chosen is None:
+                    raise ValueError(
+                        f"the body has no output {want!r}; it ends at "
+                        f"{', '.join(sorted(outputs)) or 'nothing'}")
+            elif len(outputs) == 1:
+                chosen = next(iter(outputs.values()))
+            else:
+                raise ValueError(
+                    f"the body ends at {len(outputs)} nodes "
+                    f"({', '.join(sorted(outputs))}); name one with `output`")
+            state = chosen
+            ran += 1
+            if on_item:
+                on_item(key, state, False)
+            if stop_field and says_stop(state):
+                stopped = "until"
+                break
+        self._model, self._model_id = child._model, child._model_id
+        if not isinstance(state, Mapping):
+            raise ValueError("the body's output is not a collection; a fold's state is one")
+        return {**dict(state),
+                "folded": {"steps": ran, "stopped": stopped,
+                           "body_nodes": [n.get("id") for n in body.get("nodes", [])]},
+                **({"name": params["name"]} if params.get("name") else {}),
+                **({"description": params["description"]} if params.get("description") else {})}
 
     def _run_remote_wave(self, nid, block, inputs, params, secrets, *,
                          nodes, edges, order, results, missing,

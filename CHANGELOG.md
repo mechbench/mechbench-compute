@@ -13,6 +13,37 @@ nothing said so.
 
 ---
 
+## 0.114.0 — 2026-09-19
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ (`records/map` and `records/fold` now report a resume level
+  derived from their body's weakest node, and spool their items — a map
+  offered `restart` before, so nothing that resumed changes.)
+
+### Other
+
+- **`records/fold`**: a body graph run step after step, each step
+  reading the state the last one wrote. The state arrives on the
+  `state` port (any collection), enters the body by an edge from
+  `{"input": "state"}`, leaves by the body's `output`; `over` binds one
+  object of `$param`s per step (cycled) and `step`; `until: {"field":
+  …}` ends the fold when every state item says so; the header's
+  `folded` says how many steps ran and why it ended. Each step is a
+  spooled item, so an interrupted fold resumes at the step it reached
+  (tested: two turns re-bought, not four, same content hash). A
+  conversation as `text/render` → `text/chat` → `text/extend` in a fold
+  says, turn for turn, what `text/converse` says on a four-turn round
+  robin (000617).
+- `text/extend` takes `stop_phrases` and `max_messages`, writing the
+  transcript's `stopped` — which a fold's `until` reads.
+
+---
+
 ## 0.113.0 — 2026-09-19
 
 ### Changes that raise

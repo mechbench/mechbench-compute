@@ -126,17 +126,27 @@ def wants_reference(block: str, name: str) -> bool:
 
 
 def map_bound_names(node: Mapping[str, Any]) -> frozenset[str]:
-    """The names a `records/map` node binds per record into its body
-    (`bind: {topic: "user"}`): a `{"$param": "topic"}` under `body` is
-    the map's, bound at each record, not the run's."""
+    """The names a node with a body binds itself into that body: a
+    `records/map`'s `bind` keys, per record (`bind: {topic: "user"}`);
+    a `records/fold`'s `over` keys, per step, and `step`. A
+    `{"$param": name}` under `body` naming one of these is the node's,
+    not the run's."""
     try:
         block = lexicon.resolve(node["block"])
     except KeyError:
         return frozenset()
-    if block != "records/map":
-        return frozenset()
-    bind = (node.get("params") or {}).get("bind")
-    return frozenset(bind) if isinstance(bind, Mapping) else frozenset()
+    params = node.get("params") or {}
+    if block == "records/map":
+        bind = params.get("bind")
+        return frozenset(bind) if isinstance(bind, Mapping) else frozenset()
+    if block == "records/fold":
+        over = params.get("over")
+        keys: set[str] = {"step"}
+        for step in (over if isinstance(over, list) else []):
+            if isinstance(step, Mapping):
+                keys.update(str(k) for k in step)
+        return frozenset(keys)
+    return frozenset()
 
 
 def _inner_ref_site(params: Mapping[str, Any], path: list[str]):

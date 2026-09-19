@@ -1,0 +1,187 @@
+"""`records/fold` (task 000617): a body run step after step, each step
+reading the state the last one wrote — and a conversation composed from
+it saying what `text/converse` says."""
+
+from __future__ import annotations
+
+import pytest
+
+from mechbench_compute import conversation as cv
+from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+
+
+def _run(graph, resume_items=None):
+    ex = ProtocolExecutor()
+    out = ex.run(ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
+    payload = out.payload if hasattr(out, "payload") else out
+    return payload["outputs"]
+
+
+def node(nid, block, params, inputs=None):
+    return {"id": nid, "block": block, "params": params, "inputs": inputs or {}}
+
+
+COUNTERS = {"kind": "collection", "item_kind": "records/record",
+            "items": [{"id": "a", "n": 0, "coords": {"g": "x"}}, {"id": "b", "n": 10, "coords": {"g": "y"}}]}
+
+#: A body that adds `$by` to every item's `n`: records/fill writes a
+#: templated field, records/rename moves it — the state grows by a step.
+STEP_BODY = {"nodes": [
+    node("bump", "records/fill", {"templates": {"m": "{n}"}}),
+], "edges": [{"from": {"input": "state"}, "to": {"node": "bump", "port": "records"}}]}
+
+
+class TestTheFold:
+    def test_the_state_threads_through_the_steps(self):
+        # A body that stamps the step index onto every item: after three
+        # steps the last stamp is 2, and the items are the same records.
+        body = {"nodes": [node("stamp", "records/fill", {"templates": {"stamp": {"$param": "step"}}})],
+                "edges": [{"from": {"input": "state"}, "to": {"node": "stamp", "port": "records"}}]}
+        out = _run({"dataflow": 2, "nodes": [
+            node("f", "records/fold", {"body": body, "steps": 3}, {"state": COUNTERS})], "edges": []})["f"]
+        assert [it["stamp"] for it in out["items"]] == ["2", "2"]
+        assert [it["id"] for it in out["items"]] == ["a", "b"]
+        assert out["folded"] == {"steps": 3, "stopped": "steps", "body_nodes": ["stamp"]}
+
+    def test_over_binds_per_step_and_cycles(self):
+        body = {"nodes": [node("who", "records/fill", {"templates": {"last": {"$param": "who"}}})],
+                "edges": [{"from": {"input": "state"}, "to": {"node": "who", "port": "records"}}]}
+        out = _run({"dataflow": 2, "nodes": [
+            node("f", "records/fold", {"body": body, "over": [{"who": "ana"}, {"who": "bo"}], "steps": 3},
+                 {"state": COUNTERS})], "edges": []})["f"]
+        assert out["items"][0]["last"] == "ana"             # step 2 cycles back to ana
+
+    def test_until_stops_when_every_item_says_so(self):
+        # Items say stop once their `done` field is set; a body that sets
+        # it on step 1 ends a five-step fold after two steps.
+        body = {"nodes": [node("mark", "records/fill", {"templates": {"done": {"$param": "flag"}}})],
+                "edges": [{"from": {"input": "state"}, "to": {"node": "mark", "port": "records"}}]}
+        out = _run({"dataflow": 2, "nodes": [
+            node("f", "records/fold", {"body": body, "steps": 5, "until": {"field": "done"},
+                                       "over": [{"flag": ""}, {"flag": "yes"}, {"flag": ""}]},
+                 {"state": COUNTERS})], "edges": []})["f"]
+        assert out["folded"]["stopped"] == "until" and out["folded"]["steps"] == 2
+
+    def test_refusals_by_name(self):
+        with pytest.raises(ValueError, match="needs an input on its 'state' port"):
+            _run({"dataflow": 2, "nodes": [node("f", "records/fold", {"body": STEP_BODY, "steps": 1})], "edges": []})
+        with pytest.raises(ValueError, match="at least one step"):
+            _run({"dataflow": 2, "nodes": [node("f", "records/fold", {"body": STEP_BODY, "steps": 0},
+                                                {"state": COUNTERS})], "edges": []})
+
+
+class TestAConversationIsAFold:
+    """render → chat → extend as a fold body, transcripts as the state,
+    participants as `over`: the four-turn round robin `text/converse`
+    runs, turn for turn, on the mock provider."""
+
+    MODEL = {"provider": "mock", "model": "mock-large"}
+
+    def _loop(self, turns):
+        return cv.run({"opening": ["Let's decide where to eat."],
+                       "turns": {"policy": "round_robin", "max_turns": turns},
+                       "budget_usd": 1.0, "id": "c1"},
+                      inputs={"participants": [{"name": "ana", "model": self.MODEL, "system": "Be {name}."},
+                                               {"name": "bo", "model": self.MODEL, "system": "Be {name}."}]})
+
+    def _fold_graph(self, turns, extra_extend=None):
+        start = {"kind": "collection", "item_kind": "text/transcript", "items": [
+            {"id": "c1", "kind": "text/transcript", "participants": ["ana", "bo"], "stopped": "",
+             "messages": [{"index": 0, "participant": "user", "role_as_seen": "assistant",
+                           "text": "Let's decide where to eat."}]}]}
+        body = {"nodes": [
+            node("view", "text/render", {"participant": {"$param": "participant"}, "system": "Be {name}."}),
+            node("say", "text/chat", {"model": self.MODEL, "max_tokens": 1024, "budget_usd": 1.0}),
+            node("next", "text/extend", {"participant": {"$param": "participant"}, **(extra_extend or {})}),
+        ], "edges": [
+            {"from": {"input": "state"}, "to": {"node": "view", "port": "transcripts"}},
+            {"from": {"node": "view"}, "to": {"node": "say", "port": "records"}},
+            {"from": {"input": "state"}, "to": {"node": "next", "port": "transcripts"}},
+            {"from": {"node": "say"}, "to": {"node": "next", "port": "replies"}},
+        ]}
+        return {"dataflow": 2, "nodes": [
+            node("talk", "records/fold",
+                 {"body": body, "over": [{"participant": "ana"}, {"participant": "bo"}],
+                  "steps": turns, "output": "next", "until": {"field": "stopped"}},
+                 {"state": start})], "edges": []}
+
+    def test_four_turns_are_the_loops_four_turns(self):
+        loop = self._loop(4)["items"][0]
+        fold = _run(self._fold_graph(4))["talk"]
+        assert fold["item_kind"] == "text/transcript" and fold["folded"]["steps"] == 4
+        [t] = fold["items"]
+        assert [m["participant"] for m in t["messages"]] == ["user", "ana", "bo", "ana", "bo"]
+        assert [m["text"] for m in t["messages"]] == [m["text"] for m in loop["messages"]]
+        assert t["participants"] == ["ana", "bo"] and t["turns"][-1]["role"] == "bo"
+
+    def test_a_stop_phrase_written_by_extend_ends_the_fold(self):
+        # The mock's words are deterministic; whatever ana says first,
+        # naming it as the stop phrase ends the conversation at turn 1.
+        first = self._loop(1)["items"][0]["messages"][1]["text"].split()[0]
+        fold = _run(self._fold_graph(6, {"stop_phrases": [first]}))["talk"]
+        assert fold["folded"] == {"steps": 1, "stopped": "until", "body_nodes": ["view", "say", "next"]}
+        assert fold["items"][0]["stopped"] == f"stop_phrase:{first}"
+
+
+class _Spool:
+    """The runner's spool, as tests/test_resume.py fakes it: items per
+    node, an interruption after N spooled items."""
+
+    def __init__(self, interrupt_after=None):
+        self.fingerprints, self.items, self.done = {}, {}, {}
+        self.interrupt_after, self.count = interrupt_after, 0
+
+    def on_node_start(self, nid, fp):
+        self.fingerprints[nid] = fp
+
+    def on_spool_item(self, nid, key, item):
+        self.items.setdefault(nid, {})[key] = item
+        self.count += 1
+        if self.interrupt_after is not None and self.count >= self.interrupt_after:
+            raise KeyboardInterrupt("simulated interruption")
+
+    def on_node_done(self, nid, path, fp):
+        self.done[nid] = (path, fp)
+
+    def executor(self):
+        return ProtocolExecutor(on_node_start=self.on_node_start, on_spool_item=self.on_spool_item,
+                                on_node_done=self.on_node_done)
+
+    def resume_map(self, nid):
+        return {nid: {"fingerprint": self.fingerprints[nid], "items": dict(self.items.get(nid, {}))}}
+
+
+class TestAFoldResumes:
+    def test_an_interrupted_conversation_resumes_at_the_step_it_reached(self, monkeypatch):
+        from mechbench_compute.providers import mock as mock_mod
+
+        made = []
+        real = mock_mod.MockTransport._text_for
+
+        def counting(self, req):
+            made.append(1)
+            return real(self, req)
+
+        monkeypatch.setattr(mock_mod.MockTransport, "_text_for", counting)
+        graph = TestAConversationIsAFold()._fold_graph(4)
+        spec = lambda: ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={"graph": graph})  # noqa: E731
+
+        full = _Spool()
+        reference = full.executor().run(spec())
+        assert len(made) == 4
+        # Interrupt after two turns; the spool holds their states.
+        made.clear()
+        partial = _Spool(interrupt_after=2)
+        with pytest.raises(KeyboardInterrupt):
+            partial.executor().run(spec())
+        assert len(made) == 2 and sorted(partial.items["talk"]) == ["step:0", "step:1"]
+        # Resumed: two more turns are bought, not four, and the transcript
+        # is the same one.
+        made.clear()
+        resumed = _Spool()
+        out = resumed.executor().run(spec(), resume=partial.resume_map("talk"))
+        assert len(made) == 2
+        ref_t = reference.payload["outputs"]["talk"]["items"][0]
+        out_t = out.payload["outputs"]["talk"]["items"][0]
+        assert [m["text"] for m in out_t["messages"]] == [m["text"] for m in ref_t["messages"]]
+        assert resumed.done["talk"][1] == full.done["talk"][1]

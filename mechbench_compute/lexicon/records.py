@@ -362,6 +362,89 @@ collect.
     example_inputs={"records": {"$ref": {"bench": "you/lab/topics"}}},
 )
 
+FOLD = Op(
+    name="records/fold",
+    summary=(
+        "Run a body graph step after step, each step reading the state the "
+        "last one wrote — the loop a conversation, a refinement or an "
+        "agentic round is made of — until the steps run out or the state "
+        "says stop."
+    ),
+    description="""\
+`records/map` runs a body once per record with no memory between runs;
+this runs it once per **step**, and what the body produces at step *t* is
+what it reads at step *t + 1*. The state arrives on the `state` port,
+enters the body on the body input named `state` (an edge `{"from":
+{"input": "state"}}`), and comes back out of the body's output named by
+`output` (or its one output). The final state is the result.
+
+**Steps.** `over` is a list of objects, one per step, cycled when `steps`
+is longer than it: each object's keys are `$param`s the body's nodes read
+that step — `[{"participant": "ana"}, {"participant": "bo"}]` with `steps:
+6` is a six-turn round robin. A body that needs no per-step values takes
+`steps` alone. The step's index is bound as `$step`.
+
+**Stopping.** `until: {"field": "stopped"}` ends the fold early when every
+item of the state has a non-empty value in that field — which is how a
+body says the conversation reached its stop phrase (`text/extend` writes
+`stopped`), the answer converged, or the tool loop finished. The header's
+`folded` says how many steps ran and why it ended.
+
+Every step is an item keyed by its index, so an interrupted fold resumes
+at the step it reached with the state it had. A body sees one state at a
+time and nothing else.
+
+The conversation: `text/render` → `text/chat` → `text/extend` as the
+body, transcripts as the state, participants as `over` — `text/converse`
+built from three ops and a loop.
+""",
+    inputs=(
+        In("state", "collection",
+           "The starting state: what the body reads at step 0 — any "
+           "collection, of whatever kind the body's `state` input takes.",
+           many=True),
+    ),
+    output=Output('records/record', collection=True, doc="The state after the last step — the body's `output` at that step, its kind whatever the body's output node emits — with `folded` on the header: `steps` (how many ran), `stopped` (`\"steps\"`, or `\"until\"` when the state said stop), `body_nodes`."),
+    params=(
+        P("body", "object",
+          "The graph to run per step — `{nodes, edges}`, the same shape a "
+          "protocol's graph has. An edge from `{\"input\": \"state\"}` "
+          "carries the state in; `output` names the node that carries it out.",
+          fields=(
+              P("nodes", "list[json]", "The body's nodes, as a protocol graph writes them."),
+              P("edges", "list[json]", "The body's edges.", []),
+          )),
+        P("over", "list[json]",
+          "One object per step, its keys the `$param`s the body reads that "
+          "step — open by design, since they are the body's names; cycled "
+          "when `steps` exceeds its length.",
+          None),
+        P("steps", "int",
+          "How many steps to run. Defaults to the length of `over`.",
+          None),
+        P("until", "object",
+          "Stop early when every state item has a non-empty value in "
+          "`field`.",
+          None, fields=(P("field", "string", "The state field that says stop."),)),
+        P("output", "string",
+          "Which of the body's terminal nodes carries the state out, when "
+          "it has more than one.",
+          None),
+    ),
+    example={"over": [{"participant": "ana"}, {"participant": "bo"}], "steps": 6,
+             "until": {"field": "stopped"}, "output": "next",
+             "body": {"nodes": [
+                 {"id": "view", "block": "text/render", "params": {"participant": {"$param": "participant"}}},
+                 {"id": "say", "block": "text/chat", "params": {"model": {"$param": "model"}}},
+                 {"id": "next", "block": "text/extend", "params": {"participant": {"$param": "participant"}}}],
+                      "edges": [
+                 {"from": {"input": "state"}, "to": {"node": "view", "port": "transcripts"}},
+                 {"from": {"node": "view"}, "to": {"node": "say", "port": "records"}},
+                 {"from": {"input": "state"}, "to": {"node": "next", "port": "transcripts"}},
+                 {"from": {"node": "say"}, "to": {"node": "next", "port": "replies"}}]}},
+    example_inputs={"state": {"$ref": {"bench": "you/lab/openings"}}},
+)
+
 PAIRED_DELTA = Op(
     name="records/subtract",
     summary=(
@@ -887,6 +970,7 @@ OPS: tuple[Op, ...] = (
     FACTOR_CROSS, TEMPLATE, RENAME, SELECT, UNION, ZIP, MAP, PAIRED_DELTA,
     GROUP_STATS,
     CONTRAST,
+    FOLD,
     TABLE_FROM_RECORDS, TEXT_STATS, REDUCE_SUM, REDUCE_TOP_K, REDUCE_HISTOGRAM,
     EVAL_EXPECTATION, VIZ_SPEC, VECTORS_SIMILARITY, VECTORS_MST,
 )

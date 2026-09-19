@@ -212,6 +212,8 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
     from mechbench_compute.lexicon import kinds as K
 
     participant = str(params["participant"])
+    stop_phrases = [str(x) for x in (params.get("stop_phrases") or []) if str(x)]
+    max_messages = params.get("max_messages")
     replies: dict[str, list[Mapping[str, Any]]] = {}
     for d in K.items_of(inputs.get("replies") or []):
         cid = (d.get("coords") or {}).get("conversation")
@@ -244,8 +246,19 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
         names = [str(n) for n in (t.get("participants") or [])]
         if participant not in names:
             names.append(participant)
-        items.append(transcript_item(cid, [*t["messages"], message], participants=names,
-                                     stopped=str(t.get("stopped") or ""),
+        # Why the conversation is over, when this turn ended it: a stop
+        # phrase in what was said, or the message cap reached. A fold's
+        # `until: {"field": "stopped"}` reads it.
+        stopped = str(t.get("stopped") or "")
+        messages = [*t["messages"], message]
+        if not stopped:
+            hit = next((ph for ph in stop_phrases if ph.lower() in said.lower()), None)
+            if hit is not None:
+                stopped = f"stop_phrase:{hit}"
+            elif max_messages is not None and len(messages) >= int(max_messages):
+                stopped = "max_messages"
+        items.append(transcript_item(cid, messages, participants=names,
+                                     stopped=stopped,
                                      coords=dict(t.get("coords") or {}),
                                      metadata=dict(t.get("metadata") or {})))
     return K.collection(TRANSCRIPT_KIND, items, fidelity="segments",

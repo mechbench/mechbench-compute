@@ -234,6 +234,10 @@ other field of the transcript is kept.
 A transcript with two replies is two conversations, which is a map, not
 a turn: more than one reply per transcript is refused, as is a reply
 that names no conversation.
+
+When the reply contains one of `stop_phrases`, or the transcript reaches
+`max_messages`, its `stopped` says so — and a `records/fold` with `until:
+{"field": "stopped"}` ends there.
 """,
     inputs=(
         In("transcripts", "text/transcript", "The conversations so far.", many=True),
@@ -244,8 +248,17 @@ that names no conversation.
     output=Output('text/transcript', collection=True, doc='The same transcripts, each one message longer: `messages`, `participants` (the speaker added if new), `stopped`, `turns` and `text` for the browser.'),
     params=(
         P("participant", "string", "Who spoke: the participant's name."),
+        P("stop_phrases", "list[string]",
+          "Phrases that end the conversation when the reply contains one "
+          "(case-insensitive): the transcript's `stopped` becomes "
+          "`stop_phrase:<phrase>`, which a fold's `until` reads.",
+          None),
+        P("max_messages", "int",
+          "The message count at which the transcript's `stopped` becomes "
+          "`max_messages`.",
+          None),
     ),
-    example={"participant": "ana"},
+    example={"participant": "ana", "stop_phrases": ["final answer"]},
     example_inputs={"transcripts": {"$ref": {"bench": "you/lab/debates"}},
                     "replies": {"$ref": {"bench": "you/lab/ana-replies"}}},
 )
