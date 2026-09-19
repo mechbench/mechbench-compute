@@ -30,8 +30,12 @@ class ActivationCache:
     KeyError you'd get from a vanilla dict.
     """
 
-    def __init__(self, data: dict[str, mx.array] | None = None):
+    def __init__(self, data: dict[str, mx.array] | None = None, *, offset: int = 0):
         self._data: dict[str, mx.array] = dict(data or {})
+        #: The sequence position of this forward's first token: 0 for a
+        #: whole-prompt pass, the KV cache's length for a decoding step.
+        #: Every HookInfo the forward dispatches carries it (000601).
+        self.offset: int = int(offset)
 
     def __getitem__(self, key: str) -> mx.array:
         if key not in self._data:
@@ -79,3 +83,12 @@ class ActivationCache:
         sample = list(self._data.keys())[:3]
         more = f", ... ({n - 3} more)" if n > 3 else ""
         return f"ActivationCache({n} keys: {sample}{more})"
+
+
+def kv_offset(kv_cache) -> int:
+    """How many tokens a KV cache already holds — the position the next
+    chunk begins at. 0 for no cache or an empty one (000601)."""
+    if not kv_cache:
+        return 0
+    first = next((c for c in kv_cache if c is not None), None)
+    return int(getattr(first, "offset", 0) or 0)

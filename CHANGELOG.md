@@ -13,6 +13,50 @@ nothing said so.
 
 ---
 
+## 0.111.0 — 2026-09-19
+
+### Changes that raise
+
+- `text/chat` refuses an intervention (inline `spec` items or the
+  `intervention` port) on a remote model, by name: there is no forward
+  pass to act on.
+
+### Changes that alter results without raising
+
+- _None._ A node with no intervention makes exactly the calls it made
+  before — the same prefill, the same sampler, the same bytes — and
+  `intervene/apply`'s numbers are unchanged; its `spec` item strengths
+  are scaled by the same arithmetic through a shared helper.
+
+### Other
+
+- **Generation under an intervention.** `text/generate` and
+  `text/chat` (local weights) take an intervention — inline `spec`
+  items in the grammar `intervene/apply` documents, or an
+  `intervene/spec` object on the new `intervention` port — live at
+  every forward pass the node runs: the prompt's prefill and then each
+  decoding step, with the same KV cache. `sweep`/`control` give one
+  set of samples per factor, `factor` a coordinate on every item, ids
+  `<record>-s<k>-f<factor>`; the header carries `spec`, `weights`,
+  `sweep`. Factor 0 is plain sampling and reproduces the un-intervened
+  sample byte for byte under the same seed.
+- **`intervene/spec`**, a kind: an intervention as an object on the
+  bench (`items`), wired to `intervene/apply`, `text/generate`,
+  `text/chat` — one declared intervention, several readouts — the
+  activation-side twin of the `adapter` port. `intervene/apply`'s
+  `spec` param is optional when the port fills it.
+- The hooked forwards take an external `kv_cache`, so a sequence runs
+  as chunks with hooks live at each; every `HookInfo` carries the
+  chunk's `offset`. Verified bit-identical to mlx's native cached
+  decode with no hook, and within mlx's own whole-vs-cached bf16 drift
+  under one. A spec's `positions` resolve over the whole sequence as
+  it grows (`"last"` is the token being produced, `{"tokens": [...]}`
+  matches a word once the model writes it, `"generated"` what it has
+  said); a word not yet written selects nothing while the sequence is
+  growing, and still refuses on a one-shot pass.
+
+---
+
 ## 0.110.0 — 2026-09-19
 
 ### Changes that raise

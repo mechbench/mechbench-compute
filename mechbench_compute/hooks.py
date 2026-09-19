@@ -33,11 +33,18 @@ class HookInfo:
         layer: The layer index for layer-scoped hooks; None for top-level hooks.
         point: The point name within the layer, e.g. 'mlp_out'. For top-level
             hooks, equal to the full name.
+        offset: How many tokens the KV cache already held when this forward
+            began — the sequence position of the activation's first token.
+            0 for a whole-prompt pass; during cached decoding each step is
+            a one-token chunk at offset len(prompt) + tokens generated so
+            far, and a hook that selects positions resolves them against
+            the whole sequence and subtracts this (000601).
     """
 
     name: str
     layer: Optional[int]
     point: str
+    offset: int = 0
 
 
 # A hook callback. The function receives the activation tensor and a HookInfo

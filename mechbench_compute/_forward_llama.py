@@ -34,7 +34,7 @@ from mlx_lm.models.base import create_attention_mask
 from mlx_lm.models.cache import make_prompt_cache
 
 from . import _arch
-from .cache import ActivationCache
+from .cache import ActivationCache, kv_offset
 from .hooks import HookFn, HookInfo, attn_internal_layers
 
 
@@ -49,7 +49,7 @@ def _dispatch(
 ) -> mx.array:
     fn = hooks.get(name)
     if fn is not None:
-        info = HookInfo(name=name, layer=layer, point=point)
+        info = HookInfo(name=name, layer=layer, point=point, offset=cache.offset)
         new = fn(activation, info)
         if new is not None:
             activation = new
@@ -136,6 +136,7 @@ def run_forward_llama(
     hooks: dict[str, HookFn] | None = None,
     capture: list[str] | None = None,
     arch: _arch.Arch | None = None,
+    kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
     """Run a single hook-aware forward pass through a Llama 3 model
     loaded via mlx-lm."""
@@ -145,11 +146,12 @@ def run_forward_llama(
         set(hooks.keys()) | capture_set, arch=arch,
     )
 
-    cache = ActivationCache()
+    cache = ActivationCache(offset=kv_offset(kv_cache))
     tm = model.model  # LlamaModel
 
     h = tm.embed_tokens(input_ids)
-    kv_cache = make_prompt_cache(model)
+    if kv_cache is None:
+        kv_cache = make_prompt_cache(model)
 
     # Per-layer hybrid attention masks (Llama 3.2 may use sliding window;
     # 3.1 8B is full-attention only, in which case swa_idx is None and

@@ -128,6 +128,44 @@ _SPEC_FIELDS = (
     P("rank", "int", "For a weight's `truncate`: how many singular directions to keep.", None),
 )
 
+#: The port every op that runs a forward pass may take: an intervention
+#: declared as an object, live at every position the pass visits — the
+#: activation-side twin of ADAPTER (000601).
+INTERVENTION = In("intervention", "intervene/spec",
+                  "An intervention declared as an object — its `items` are spec "
+                  "items in the grammar `intervene/apply` documents — applied "
+                  "during every forward pass this node runs. A `direction` or "
+                  "`source` an item needs arrives on the port of that name. "
+                  "Where the node also has an inline `spec` or `intervention` "
+                  "param, the param wins when both are given.",
+                  required=False)
+
+_DIRECTION_PORT = In("direction", "direction/vector",
+                     "A direction that fills any spec item without one.", required=False)
+
+_SOURCE_PORT = In("source", "activations/vector | intervene/readout",
+                  "A collection of `activations/vector` — a capture, intervened or "
+                  "not — that fills any `mean`/`resample`/`patch` item without one. "
+                  "A capture readout stored before 0.110.0 is read too.",
+                  many=True, required=False)
+
+#: The params an op that takes an intervention shares with `intervene/apply`.
+_SWEEP_PARAMS = (
+    P("sweep", "object",
+      "Strength factors to run the whole intervention at, as `{\"strength\": "
+      "[0.5, 1.0, 2.0]}`. Every item's `strength` is multiplied by the "
+      "factor, and each record gets one row (one set of samples, for a text "
+      "op) per factor.",
+      {"strength": [1.0]}, fields=(
+          P("strength", "list[float]", "The factors; `0` is the untouched model.", [1.0]),
+      )),
+    P("control", "bool",
+      "Add a factor‑0 run — the model untouched — to the sweep, so every "
+      "record has a baseline (`factor: 0.0`). Set `false` when the sweep "
+      "already contains `0` or no baseline is wanted.",
+      True),
+)
+
 _PROMPTS = In("records", "records/record",
               "The prompts, one per record; a record's prompt is its `user`, "
               "`prompt` or `text` field. A record may carry its own `tracked`.",
@@ -245,13 +283,9 @@ one item can zero every layer's `o_proj`.
            "its `user`, `prompt` or `text` field. A record may also carry its "
            "own `tracked`, which takes precedence over the param of the same "
            "name.", many=True),
-        In("direction", "direction/vector",
-           "A direction that fills any spec item without one.", required=False),
-        In("source", "activations/vector | intervene/readout",
-           "A collection of `activations/vector` — a capture, intervened or "
-           "not — that fills any `mean`/`resample`/`patch` item without one. "
-           "A capture readout stored before 0.110.0 is read too.",
-           many=True, required=False),
+        INTERVENTION,
+        _DIRECTION_PORT,
+        _SOURCE_PORT,
         ADAPTER,
     ),
     output=Output('intervene/readout', collection=True,
@@ -260,20 +294,10 @@ one item can zero every layer's `o_proj`.
     params=(
         P("spec", "list[object]",
           "The intervention items, applied together in one forward pass per "
-          "record. At least one is required; the fields are described under "
-          "*Spec items* above.", fields=_SPEC_FIELDS),
-        P("sweep", "object",
-          "Strength factors to run the whole spec at, as `{\"strength\": "
-          "[0.5, 1.0, 2.0]}`. Every item's `strength` is multiplied by the "
-          "factor, and each record gets one row per factor.",
-          {"strength": [1.0]}, fields=(
-              P("strength", "list[float]", "The factors; `0` is the untouched model.", [1.0]),
-          )),
-        P("control", "bool",
-          "Add a factor‑0 run — the model untouched — to the sweep, so every "
-          "record has a baseline row (`factor: 0.0`). Set `false` when the "
-          "sweep already contains `0` or no baseline is wanted.",
-          True),
+          "record; the fields are described under *Spec items* above. Or the "
+          "items arrive as an `intervene/spec` object on the `intervention` "
+          "port; one or the other is required.", None, fields=_SPEC_FIELDS),
+        *_SWEEP_PARAMS,
         P("readout", "object",
           "What to read after the intervened forward pass. "
           "`{\"type\": \"decision\"}` records the next-token distribution at "
@@ -876,16 +900,40 @@ closed is distinguishable from one that did.
 With `fidelity: "trace"` each item also keeps its token ids, character
 offsets and the prompt/body segmentation, which is what `score` needs to
 annotate it token by token.
+
+### Sampling under an intervention
+
+An intervention — inline `spec` items, or an `intervene/spec` object on
+the `intervention` port — is live at every forward pass the node runs: the prompt's prefill
+and then each decoding step, with the same KV cache. So "add the direction
+at layer 14 and read what the model then writes" is this node with one
+item, and a `sweep` over strengths is the same node producing one set of
+samples per factor, `factor` a coordinate on every item, which
+`text/measure`, `eval/judge` and `records/summarize` group by unchanged.
+Factor `0` (the `control`, on by default) is plain sampling: under the same
+seed it reproduces the un-intervened sample byte for byte.
 """,
     inputs=(
         In("records", "records/record",
            "Chat-shaped records: `user` (required), `system` and `prefill` "
            "(optional; the prefill is read only with `continue_prefill`), "
            "an `id`, and optionally `coords`.", many=True),
+        INTERVENTION,
+        _DIRECTION_PORT,
+        _SOURCE_PORT,
         ADAPTER,
     ),
-    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`."),
+    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`. Under an intervention, ids are `<record id>-s<k>-f<factor>`, every item carries `factor` in its `coords`, and the header carries `spec` (the items as run, objects replaced by their provenance), `weights` (parameter edits, when any) and `sweep` (the factors, `0.0` first when a control was added)."),
     params=(
+        P("spec", "list[object]",
+          "An intervention's items, applied at every forward pass — the "
+          "prompt, then every decoding step — in the grammar `intervene/apply` "
+          "documents under *Spec items*: `positions: \"last\"` is the token "
+          "being produced, `\"all\"` every token so far, `\"generated\"` what "
+          "the model has said. Or the items arrive as an `intervene/spec` on "
+          "the `intervention` port. Without either, plain sampling.",
+          None, fields=_SPEC_FIELDS),
+        *_SWEEP_PARAMS,
         P("n", "int", "How many completions to sample per record.", 1),
         P("start", "int",
           "The first sample index. Indices run `start` … `start + n − 1`; "

@@ -271,7 +271,8 @@ def cut_at_stop(text: str, stop_strings: Sequence[str]) -> str:
 def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
                              temperature=0.9, top_p=0.95, rng=None,
                              prefill=None, return_ids=False,
-                             stop_strings: Sequence[str] = ()):
+                             stop_strings: Sequence[str] = (),
+                             interventions=None):
     """Sample one completion with a KV cache: the prompt is encoded
     once (or reused via `prefill` — a (cache, last_row) pair from
     `distill.prefill_decision`, copied per call), then decoding feeds
@@ -285,6 +286,13 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
     `stop` does: the marker is not part of the returned text, and the
     ids returned are the ones that produced it (task 000509). The
     tokenizer's own turn-end tokens always end it, stop strings or not.
+
+    `interventions` (000601) run every decoding step through the hooked
+    forward with the same KV cache, so the spec is live at every token
+    the model produces; `prefill` must then have been made with the
+    same interventions (`prefill_decision(..., interventions=)`), or be
+    None. Each intervention with an `on_token` hears every produced
+    token, so its position selectors see the sequence grow.
     """
     import numpy as _np
 
@@ -299,8 +307,9 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
     # that straddles the boundary.
     window = (max(len(s) for s in stops) + 8) if stops else 0
 
+    ivs = list(interventions or [])
     if prefill is None:
-        prefill = _prefill(model, list(prompt_ids))
+        prefill = _prefill(model, list(prompt_ids), interventions=ivs)
     cache = _copy_prefix_cache(prefill[0])
     row = prefill[1]
 
@@ -318,9 +327,19 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
             if any(s in tail for s in stops):
                 hit_stop = True
                 break
-        o = lm(mx.array([[int(next_id)]]), cache=cache)
-        row = (o.logits if hasattr(o, "logits")
-               else o)[0, -1, :].astype(mx.float32)
+        if ivs:
+            grew = model.tokenizer.decode([int(next_id)])
+            for iv in ivs:
+                on_token = getattr(iv, "on_token", None)
+                if on_token is not None:
+                    on_token(grew)
+            res = model.run(mx.array([[int(next_id)]]), interventions=ivs,
+                            kv_cache=cache)
+            row = res.logits[0, -1, :].astype(mx.float32)
+        else:
+            o = lm(mx.array([[int(next_id)]]), cache=cache)
+            row = (o.logits if hasattr(o, "logits")
+                   else o)[0, -1, :].astype(mx.float32)
     text = model.tokenizer.decode(out_ids)
     if hit_stop:
         text = cut_at_stop(text, stops)

@@ -347,6 +347,7 @@ class Model:
         hooks: dict[str, HookFn] | None = None,
         capture: list[str] | None = None,
         interventions: list[Intervention] | None = None,
+        kv_cache=None,
     ) -> RunResult:
         """Run a forward pass with optional hook callbacks and tensor capture.
 
@@ -365,6 +366,11 @@ class Model:
                 that compile to hooks + capture. May be combined freely with
                 raw hooks/capture; when several callbacks target the same
                 point they chain in declaration order.
+            kv_cache: A KV cache from `prompt_cache()` to read and extend, so
+                a sequence runs as chunks — the prompt, then one token per
+                decoding step — with the hooks live at every chunk. Each
+                HookInfo carries the chunk's `offset` (000601). None runs
+                `input_ids` as a whole sequence with a fresh cache.
 
         Returns:
             RunResult(logits, cache).
@@ -385,7 +391,7 @@ class Model:
         }.get(self.arch.model_type, run_forward)
         logits, cache = forward(
             self._model, input_ids, hooks=final_hooks, capture=final_capture,
-            arch=self.arch,
+            arch=self.arch, kv_cache=kv_cache,
         )
         return RunResult(logits=logits, cache=cache)
 

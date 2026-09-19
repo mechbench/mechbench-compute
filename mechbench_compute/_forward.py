@@ -38,7 +38,7 @@ from mlx_vlm.models import cache as cache_mod
 from mlx_vlm.models.gemma4.language import logit_softcap
 
 from . import _arch
-from .cache import ActivationCache
+from .cache import ActivationCache, kv_offset
 from .hooks import HookFn, HookInfo, attn_internal_layers, mlp_internal_layers
 
 
@@ -58,7 +58,7 @@ def _dispatch(
     """
     fn = hooks.get(name)
     if fn is not None:
-        info = HookInfo(name=name, layer=layer, point=point)
+        info = HookInfo(name=name, layer=layer, point=point, offset=cache.offset)
         new = fn(activation, info)
         if new is not None:
             activation = new
@@ -251,6 +251,7 @@ def run_forward(
     hooks: dict[str, HookFn] | None = None,
     capture: list[str] | None = None,
     arch: _arch.Arch | None = None,
+    kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
     """Run a single forward pass through Gemma 4 E4B.
 
@@ -277,7 +278,9 @@ def run_forward(
         set(hooks.keys()) | capture_set, arch=arch,
     )
 
-    cache = ActivationCache()
+    # An external KV cache makes this one chunk of a longer sequence:
+    # its length is where the chunk begins, and every hook hears it.
+    cache = ActivationCache(offset=kv_offset(kv_cache))
     lm = model.language_model
     tm = lm.model  # Gemma4TextModel
 
@@ -297,7 +300,7 @@ def run_forward(
     # ((keys, values), offset), not via a deduplicated shared cache object.
     # Masks are built per-layer by the model's own _make_masks (text-only:
     # mm_token_type_ids=None → plain causal / sliding-causal strings).
-    kv_cache = list(cache_mod.make_prompt_cache(lm))
+    kv_cache = list(kv_cache if kv_cache is not None else cache_mod.make_prompt_cache(lm))
     kv_cache = kv_cache + [None] * (len(tm.layers) - len(kv_cache))
     masks = tm._make_masks(h, kv_cache, None)
     previous_kvs = tm.previous_kvs

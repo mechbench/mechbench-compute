@@ -47,7 +47,8 @@ def _slice(n: int, a: Any, b: Any) -> list[int]:
 def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
             record: Mapping[str, Any] | None = None,
             prompt_len: int | None = None, gen_start: int | None = None,
-            segmentations: Sequence[Mapping[str, Any]] | None = None) -> list[int]:
+            segmentations: Sequence[Mapping[str, Any]] | None = None,
+            absent: str = "error") -> list[int]:
     """The positions `selector` names in a sequence of `n` tokens.
 
     `tokens` (the decoded pieces) serves `{"tokens": …}` and `"subject"`;
@@ -55,7 +56,10 @@ def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
     `prompt_len` (from the rendering) serves `"generated"`;
     `segmentations` (from a document's trace) serves
     `{"segment": role}`. Raises `ValueError` for a selector that names
-    nothing, or one this sequence cannot answer.
+    nothing, or one this sequence cannot answer — except that with
+    `absent: "none"` a token or segment the sequence does not (yet)
+    contain selects nothing, which is the normal state of a sequence
+    still being written (000601). A malformed selector raises either way.
     """
     if selector is None or selector == "last" or selector == "final":
         # `final` is the spelling from before the grammar was one.
@@ -84,13 +88,20 @@ def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
         if "after" in selector:
             return _slice(n, selector["after"], None)
         if "segment" in selector:
-            return _segment(selector["segment"], n, segmentations)
+            try:
+                return _segment(selector["segment"], n, segmentations)
+            except ValueError:
+                if absent == "none":
+                    return []
+                raise
         if "tokens" in selector:
             if tokens is None:
                 raise ValueError("positions {\"tokens\": …} needs the decoded tokens")
             want = {str(t).strip().casefold() for t in selector["tokens"]}
             hit = [i for i, t in enumerate(tokens[:n]) if str(t).strip().casefold() in want]
             if not hit:
+                if absent == "none":
+                    return []
                 raise ValueError(f"none of {sorted(want)} among the prompt's tokens")
             return hit
         raise ValueError(f"unknown positions {selector!r}: {SELECTOR_DOC}")

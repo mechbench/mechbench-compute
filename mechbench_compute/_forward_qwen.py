@@ -30,7 +30,7 @@ from mlx_lm.models.base import create_attention_mask
 from mlx_lm.models.cache import make_prompt_cache
 
 from . import _arch
-from .cache import ActivationCache
+from .cache import ActivationCache, kv_offset
 from .hooks import HookFn, HookInfo, attn_internal_layers
 
 
@@ -45,7 +45,7 @@ def _dispatch(
 ) -> mx.array:
     fn = hooks.get(name)
     if fn is not None:
-        info = HookInfo(name=name, layer=layer, point=point)
+        info = HookInfo(name=name, layer=layer, point=point, offset=cache.offset)
         new = fn(activation, info)
         if new is not None:
             activation = new
@@ -133,6 +133,7 @@ def run_forward_qwen(
     hooks: dict[str, HookFn] | None = None,
     capture: list[str] | None = None,
     arch: _arch.Arch | None = None,
+    kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
     """Run a single hook-aware forward pass through a Qwen 2.x model
     loaded via mlx-lm."""
@@ -142,11 +143,12 @@ def run_forward_qwen(
         set(hooks.keys()) | capture_set, arch=arch,
     )
 
-    cache = ActivationCache()
+    cache = ActivationCache(offset=kv_offset(kv_cache))
     tm = model.model  # Qwen2Model
 
     h = tm.embed_tokens(input_ids)
-    kv_cache = make_prompt_cache(model)
+    if kv_cache is None:
+        kv_cache = make_prompt_cache(model)
     mask = create_attention_mask(h, kv_cache[0])
 
     for i, layer in enumerate(tm.layers):

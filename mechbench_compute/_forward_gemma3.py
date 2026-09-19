@@ -37,7 +37,7 @@ from mlx_vlm.models import cache as cache_mod
 from mlx_vlm.models.base import create_attention_mask
 
 from . import _arch
-from .cache import ActivationCache
+from .cache import ActivationCache, kv_offset
 from .hooks import HookFn, HookInfo, attn_internal_layers
 
 
@@ -52,7 +52,7 @@ def _dispatch(
 ) -> mx.array:
     fn = hooks.get(name)
     if fn is not None:
-        info = HookInfo(name=name, layer=layer, point=point)
+        info = HookInfo(name=name, layer=layer, point=point, offset=cache.offset)
         new = fn(activation, info)
         if new is not None:
             activation = new
@@ -144,6 +144,7 @@ def run_forward_gemma3(
     hooks: dict[str, HookFn] | None = None,
     capture: list[str] | None = None,
     arch: _arch.Arch | None = None,
+    kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
     """Run a single hook-aware forward pass through a Gemma 3 model."""
     hooks = dict(hooks or {})
@@ -152,14 +153,17 @@ def run_forward_gemma3(
         set(hooks.keys()) | capture_set, arch=arch,
     )
 
-    cache = ActivationCache()
+    # An external KV cache makes this one chunk of a longer sequence:
+    # its length is where the chunk begins, and every hook hears it.
+    cache = ActivationCache(offset=kv_offset(kv_cache))
     lm = model.language_model
     tm = lm.model  # Gemma3Model
 
     h = tm.embed_tokens(input_ids)
     h = h * mx.array(tm.config.hidden_size ** 0.5, mx.bfloat16).astype(h.dtype)
 
-    kv_cache = cache_mod.make_prompt_cache(lm)
+    if kv_cache is None:
+        kv_cache = cache_mod.make_prompt_cache(lm)
 
     pattern = tm.sliding_window_pattern
     # Mask construction matches mlx-vlm's gemma3 forward: globals get the

@@ -24,6 +24,8 @@ Everything here is deterministic given the spec and the records
 
 from __future__ import annotations
 
+import contextlib
+
 import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
@@ -160,8 +162,19 @@ class Spec:
                 for layer in self.layers]
 
     def build(self, layer: int | None, tokens: Sequence[str],
-              record: Mapping[str, Any] | None = None) -> Callable:
+              record: Mapping[str, Any] | None = None,
+              prompt_len: int | None = None, growing: bool = False) -> Callable:
+        """The hook for one layer. `tokens` is the WHOLE sequence the
+        positions resolve against — a list the caller may grow while
+        decoding (000601) — and `prompt_len` where the prompt ends, for
+        `"generated"`; None means the tokens as first given. `growing`
+        says the sequence is still being written, so a token the
+        selector names that has not arrived selects nothing rather than
+        refusing; a one-shot pass keeps the refusal, which is how a
+        misspelt token is caught."""
         pos_axis, head_axis, feat_axis = _LAYOUT[self.point]
+        fixed_prompt_len = len(tokens) if prompt_len is None else int(prompt_len)
+        absent = "none" if growing else "error"
         positions = self.positions
         heads, neurons = self.heads, self.neurons
         op, strength = self.op, self.strength
@@ -178,20 +191,28 @@ class Spec:
                 rows = _rows_matrix(self.source, layer)
         rng = self._rng
 
-        def _positions(L: int) -> list[int]:
-            # One grammar (positions.py); `L` is the tensor's own length at
-            # this point, which a key/value axis may differ in.
+        def _positions(L: int, offset: int) -> list[int]:
+            # One grammar (positions.py), resolved over the whole sequence
+            # seen so far — `offset` tokens already in the KV cache, then
+            # this chunk's `L` — and kept only where it falls inside the
+            # chunk, relative to it. A whole-prompt pass is the chunk at
+            # offset 0. `L` is the tensor's own length at this point,
+            # which a key/value axis may differ in.
+            n = offset + L
             try:
-                return POS.resolve(positions, L, tokens=list(tokens[:L]), record=record,
-                                   prompt_len=min(len(tokens), L))
+                sel = POS.resolve(positions, n, tokens=list(tokens[:n]), record=record,
+                                  prompt_len=min(fixed_prompt_len, n), absent=absent)
             except ValueError as e:
                 raise SpecError(str(e)) from None
+            return [p - offset for p in sel if offset <= p < n]
 
         def fn(act: mx.array, info) -> mx.array:
             shape = act.shape
             nd = len(shape)
             L = shape[pos_axis]
-            sel_pos = _positions(L)
+            sel_pos = _positions(L, int(getattr(info, "offset", 0) or 0))
+            if not sel_pos:
+                return act
 
             def axis_mask(axis: int, idx: Sequence[int]) -> mx.array:
                 m = np.zeros(shape[axis], dtype=bool)
@@ -266,16 +287,132 @@ class Spec:
         return fn
 
 
+class Compiled:
+    """A spec list parsed against a model: the activation items as
+    `Spec`s, the weight items as written, and the items as filled from
+    the ports — what lineage records."""
+
+    def __init__(self, specs: list[Spec], weight_items: list[dict[str, Any]],
+                 filled: list[dict[str, Any]]) -> None:
+        self.specs, self.weight_items, self.filled = specs, weight_items, filled
+
+
+def compile(model, items: Sequence[Mapping[str, Any]], *,
+            inputs: Mapping[str, Any] | None = None, seed: int = 0) -> Compiled:
+    """Parse spec items for `model`. Objects may arrive by edge: a
+    `direction` / `source` port in `inputs` fills any item that names none
+    of its own. An item that names a `parameter` edits a WEIGHT, not an
+    activation (task 000457): its scope is the node rather than the
+    forward pass — the tensor is changed, every record runs against the
+    changed model, and the original is reinstalled afterwards. The two
+    kinds compose, so they are separated here and applied in their own
+    scopes. Shared by `intervene/apply` and by the text ops that take an
+    intervention (000601)."""
+    inputs = inputs or {}
+    port_dir = inputs.get("direction")
+    port_src = inputs.get("source")
+    filled = []
+    for it in items:
+        it = dict(it)
+        if it.get("direction") is None and port_dir is not None:
+            it["direction"] = port_dir
+        if it.get("source") is None and port_src is not None and it.get("op") in ("mean", "resample", "patch"):
+            it["source"] = port_src
+        filled.append(it)
+    weight_items = [it for it in filled if it.get("parameter") is not None]
+    activation_items = [it for it in filled if it.get("parameter") is None]
+    specs = [Spec(it, n_layers=model.arch.n_layers, seed=int(seed)) for it in activation_items]
+    if not specs and not weight_items:
+        raise SpecError("an intervention needs a non-empty spec list")
+    return Compiled(specs, weight_items, filled)
+
+
+def spec_items(inline: Any, inputs: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """The spec items a node was given: its inline list when present,
+    else the `items` of an `intervene/spec` object on its `intervention`
+    port; [] when neither (000601)."""
+    if inline:
+        return [dict(it) for it in inline]
+    port = (inputs or {}).get("intervention")
+    if port is None:
+        return []
+    if not isinstance(port, Mapping) or not isinstance(port.get("items"), list):
+        raise SpecError("the `intervention` port takes an intervene/spec: "
+                        "an object with `items`, the spec items")
+    return [dict(it) for it in port["items"]]
+
+
+class Plan:
+    """What a text op runs under an intervention: the compiled specs,
+    the factors, and a way to make one record's live intervention per
+    factor. None of it when the node has no intervention."""
+
+    def __init__(self, compiled: Compiled, factors: list[float]) -> None:
+        self.compiled, self.factors = compiled, factors
+
+    @property
+    def specs(self) -> list[Spec]:
+        return self.compiled.specs
+
+    @property
+    def weight_items(self) -> list[dict[str, Any]]:
+        return self.compiled.weight_items
+
+    def live(self, factor: float, tokens: Sequence[str],
+             record: Mapping[str, Any] | None = None) -> list[SpecIntervention]:
+        """The interventions for one record at one factor: none at the
+        control factor, else the specs scaled, over a token list this
+        record's decoder grows."""
+        if factor == 0.0 or not self.specs:
+            return []
+        return [SpecIntervention(scaled(self.specs, factor), tokens, record, growing=True)]
+
+    def header(self) -> dict[str, Any]:
+        """What the result records: the items as run, the weight edits,
+        the sweep."""
+        return {"spec": _wire_spec(self.compiled.filled),
+                "weights": [dict(it) for it in self.weight_items] or None,
+                "sweep": list(self.factors)}
+
+
+def plan(model, params: Mapping[str, Any], inputs: Mapping[str, Any] | None) -> Plan | None:
+    """A text op's intervention, planned: None when the node names none."""
+    items = spec_items(params.get("spec"), inputs)
+    if not items:
+        return None
+    compiled = compile(model, items, inputs=inputs, seed=int(params.get("seed", 0)))
+    return Plan(compiled, sweep_factors(params))
+
+
+def sweep_factors(params: Mapping[str, Any]) -> list[float]:
+    """The strengths a node's `sweep` runs, with the factor-0 control
+    first unless `control` is false or 0 is already there."""
+    factors = [float(f) for f in (params.get("sweep") or {}).get("strength", [1.0])]
+    if bool(params.get("control", True)) and 0.0 not in factors:
+        factors = [0.0, *factors]
+    return factors
+
+
 class SpecIntervention:
     """An `Intervention` (as_hooks / as_captures) over a whole spec list
-    for one record's tokens."""
+    for one record's tokens.
+
+    `tokens` is the sequence the positions resolve against. A decoder
+    that runs the sequence in chunks — the prompt, then one token per
+    step — calls `on_token` with each token it produces, so a selector
+    like `{"tokens": ["lighthouse"]}` or `"generated"` sees the words
+    as they arrive (000601)."""
 
     def __init__(self, specs: Sequence[Spec], tokens: Sequence[str],
-                 record: Mapping[str, Any] | None = None) -> None:
+                 record: Mapping[str, Any] | None = None,
+                 prompt_len: int | None = None, growing: bool = False) -> None:
+        self.tokens: list[str] = list(tokens)
+        self.prompt_len = len(self.tokens) if prompt_len is None else int(prompt_len)
         self._hooks: dict[str, Callable] = {}
         for spec in specs:
             for layer, name in zip(spec.layers, spec.hook_names(), strict=True):
-                fn = spec.build(layer, tokens, record)
+                fn = spec.build(layer, self.tokens, record, prompt_len=self.prompt_len,
+                                growing=growing)
                 prev = self._hooks.get(name)
                 if prev is None:
                     self._hooks[name] = fn
@@ -290,6 +427,24 @@ class SpecIntervention:
 
     def as_captures(self) -> list[str]:
         return []
+
+    def on_token(self, token: str) -> None:
+        """The decoder produced one more token: the sequence grew."""
+        self.tokens.append(token)
+
+
+def scaled(specs: Sequence[Spec], factor: float) -> list[Spec]:
+    """The specs at one sweep factor: each strength multiplied. Factor 1
+    is the specs themselves."""
+    if factor == 1.0:
+        return list(specs)
+    out = []
+    for spec in specs:
+        s2 = Spec.__new__(Spec)
+        s2.__dict__.update(spec.__dict__)
+        s2.strength = spec.strength * factor
+        out.append(s2)
+    return out
 
 
 # --- the block ---------------------------------------------------------------------
@@ -314,6 +469,23 @@ def _wire_spec(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             w["condition"] = {**w["condition"], "direction": {"derivation": w["condition"]["direction"].get("derivation")}}
         out.append(w)
     return out
+
+
+@contextlib.contextmanager
+def edited(model, weight_items: Sequence[Mapping[str, Any]], factor: float):
+    """The model's weights edited by `weight_items` at `factor` for the
+    block's duration, and put back whatever happens inside — a run that
+    left a model edited would poison every later node in the job."""
+    if not weight_items or factor == 0.0:
+        yield
+        return
+    from mechbench_compute import weights as weights_mod
+
+    handle = weights_mod.edit_parameters(model.lm, weight_items, factor)
+    try:
+        yield
+    finally:
+        weights_mod.restore_parameters(model.lm, handle)
 
 
 def _order(records: Sequence[Mapping[str, Any]], factors: Sequence[float],
@@ -354,36 +526,13 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
     from mechbench_compute.interp import _last_logp
 
     inputs = inputs or {}
-    items = list(params.get("spec") or [])
+    items = spec_items(params.get("spec"), inputs)
     if not items:
-        raise SpecError("intervene needs a non-empty `spec` list")
-    # Objects may arrive by edge: a `direction` / `source` port fills any
-    # spec item that names none of its own.
-    port_dir = inputs.get("direction")
-    port_src = inputs.get("source")
-    filled = []
-    for it in items:
-        it = dict(it)
-        if it.get("direction") is None and port_dir is not None:
-            it["direction"] = port_dir
-        if it.get("source") is None and port_src is not None and it.get("op") in ("mean", "resample", "patch"):
-            it["source"] = port_src
-        filled.append(it)
-    seed = int(params.get("seed", 0))
-    # An item that names a `parameter` edits a WEIGHT, not an activation
-    # (task 000457). Its scope is the node rather than the forward pass:
-    # the tensor is changed, every record runs against the changed model,
-    # and the original is reinstalled afterwards. The two kinds compose —
-    # a spec may zero a weight and add a direction mid-forward — so they
-    # are separated here and applied in their own scopes.
-    weight_items = [it for it in filled if it.get("parameter") is not None]
-    filled = [it for it in filled if it.get("parameter") is None]
-    specs = [Spec(it, n_layers=model.arch.n_layers, seed=seed) for it in filled]
-    if not specs and not weight_items:
-        raise SpecError("intervene needs a non-empty `spec` list")
-    factors = [float(f) for f in (params.get("sweep") or {}).get("strength", [1.0])]
-    if bool(params.get("control", True)) and 0.0 not in factors:
-        factors = [0.0, *factors]
+        raise SpecError("intervene needs a non-empty `spec` list, or an "
+                        "intervene/spec on the `intervention` port")
+    compiled = compile(model, items, inputs=inputs, seed=int(params.get("seed", 0)))
+    specs, weight_items, filled = compiled.specs, compiled.weight_items, compiled.filled
+    factors = sweep_factors(params)
     readout = dict(params.get("readout") or {"type": "decision"})
     rk = str(readout.get("type") or readout.get("kind") or "decision")
     if rk not in ("decision", "capture"):
@@ -413,15 +562,7 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
             if factor == 0.0:
                 ivs: list[Any] = []
             else:
-                scaled = []
-                for spec in specs:
-                    s2 = spec
-                    if factor != 1.0:
-                        s2 = Spec.__new__(Spec)
-                        s2.__dict__.update(spec.__dict__)
-                        s2.strength = spec.strength * factor
-                    scaled.append(s2)
-                ivs = [SpecIntervention(scaled, tokens, record)]
+                ivs = [SpecIntervention(scaled(specs, factor), tokens, record)]
             if rk == "decision":
                 res = model.run(ids, interventions=ivs)
                 lp = _last_logp(res.logits)

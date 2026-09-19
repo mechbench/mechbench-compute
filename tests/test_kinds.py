@@ -77,9 +77,12 @@ def test_every_op_emits_a_declared_kind_or_nothing() -> None:
 def test_every_op_kind_is_emitted_by_some_op() -> None:
     emitted = {op.output.kind for op in L.OPS if op.output}
     # Ancestors and the container are declared for the lattice, not
-    # emitted directly; platform kinds are produced by the platform.
+    # emitted directly; platform kinds are produced by the platform; an
+    # authored input — a corpus, a word list, an intervention's spec —
+    # is written, not emitted.
     exempt = {COLLECTION, "records/record", "records/condition", "records/pair",
-              "logits/distribution", "activations/grid", "text/word-list"}
+              "logits/distribution", "activations/grid", "text/word-list",
+              "intervene/spec"}
     orphans = sorted(k.name for k in K.KINDS
                      if not k.platform and k.name not in emitted and k.name not in exempt)
     assert orphans == [], orphans

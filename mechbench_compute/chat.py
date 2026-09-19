@@ -141,9 +141,13 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
           tool_runs: Sequence[Any] = (),
           tool_errors: Sequence[Any] = (),
           sandbox_calls: Sequence[Any] = (),
-          sandbox_snapshot: Any = None) -> dict[str, Any]:
+          sandbox_snapshot: Any = None,
+          factor: float | None = None) -> dict[str, Any]:
+    coords = {**(rec.get("coords") or {}), "sample": k}
+    if factor is not None:
+        coords["factor"] = factor
     meta: dict[str, Any] = {
-        "coords": {**(rec.get("coords") or {}), "sample": k},
+        "coords": dict(coords),
         "model": model_wire,
     }
     if sampling:
@@ -172,7 +176,8 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
     # A document is a record: its coordinates sit on the item as every
     # other record's do (and under `metadata` as well, where the readers
     # of older collections look).
-    item = {"id": f"{rec.get('id')}-s{k}", "kind": ITEM_KIND, "text": text,
+    item = {"id": f"{rec.get('id')}-s{k}" + (f"-f{factor:g}" if factor is not None else ""),
+            "kind": ITEM_KIND, "text": text,
             "coords": dict(meta["coords"]), "metadata": meta}
     if params.get("keep_fields"):
         for f in params["keep_fields"]:
@@ -349,8 +354,8 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     )
 
 
-def run_local(model, ref, records, params, *, on_item=None, on_start=None,
-              resume_items=None) -> dict[str, Any]:
+def run_local(model, ref, records, params, *, inputs=None, on_item=None,
+              on_start=None, resume_items=None) -> dict[str, Any]:
     """The MLX path: the same block, the same output, sampled here.
 
     Multi-turn conversations render through the tokenizer's own chat
@@ -360,6 +365,7 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
     import numpy as _np
 
     from mechbench_compute import dialects
+    from mechbench_compute import intervene as intervene_mod
     from mechbench_compute import tools as tool_mod
     from mechbench_compute.distill import encode, prefill_decision
     from mechbench_compute.generate import sample_completion_cached
@@ -390,8 +396,13 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
     max_tokens = int(params.get("max_tokens", 1024))
     stop_strings = tuple(params.get("stop") or ())
     model_wire = ref.to_wire() if hasattr(ref, "to_wire") else ref
+    # An intervention (000601) makes the node a sweep: one set of replies
+    # per factor, `factor` a coordinate, weight edits scoped per factor.
+    # Without one the loop is the one it always was.
+    plan = intervene_mod.plan(model, params, inputs)
+    factors: list = plan.factors if plan else [None]
     if on_start:
-        on_start(len(recs) * n)
+        on_start(len(recs) * n * len(factors))
     items: list[dict[str, Any]] = []
     # Tool-call errors, reported and not merely counted. An individual
     # failure does not fail the run unless asked to: `on_tool_error`
@@ -403,85 +414,98 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
             f"on_tool_error must be 'record' or 'fail', not {on_tool_error!r}")
     tool_errors: list[dict[str, Any]] = []
     responses_with_calls = 0
-    for rec in recs:
-        req = build_request(rec, params, model=str(getattr(ref, "base", ref)),
-                            provider_options={})
-        box0 = tool_mod.toolbox_from(tool_specs, block_runner=block_runner)
-        hf_tools = [dialects.tool_to_hf(t) for t in box0.tools] if box0 else []
-        for k in range(start, start + n):
-            key = f"{rec.get('id')}:{k}"
-            if resume_items and key in resume_items:
-                items.append(resume_items[key])
+    for factor, rec in ((f, r) for f in factors for r in recs):
+        with intervene_mod.edited(model, plan.weight_items if plan else (), factor or 0.0):
+            req = build_request(rec, params, model=str(getattr(ref, "base", ref)),
+                                provider_options={})
+            box0 = tool_mod.toolbox_from(tool_specs, block_runner=block_runner)
+            hf_tools = [dialects.tool_to_hf(t) for t in box0.tools] if box0 else []
+            for k in range(start, start + n):
+                key = f"{rec.get('id')}:{k}" + (f":{factor:g}" if plan else "")
+                if resume_items and key in resume_items:
+                    items.append(resume_items[key])
+                    if on_item:
+                        on_item(key, resume_items[key], True)
+                    continue
+                rng = _np.random.default_rng(item_seed(seed, rec.get("id"), k))
+                box, session = _new_box(image, tool_specs, block_runner=block_runner)
+                turn = req
+                called_a_tool = False
+                for round_no in range(max_tool_rounds + 1):
+                    ids = encode(tok, render_conversation(
+                        tok, turn, tools=hf_tools, dialect=dialect))
+                    # Every round is its own sequence — a tool result
+                    # lengthens the prompt — so each gets a live
+                    # intervention over its own tokens (000601).
+                    if plan:
+                        prompt_tokens = [tok.decode([int(t)]) for t in ids]
+                        prefill = prefill_decision(
+                            model, ids, interventions=plan.live(factor, prompt_tokens, rec))
+                        live = plan.live(factor, prompt_tokens, rec)
+                    else:
+                        prefill, live = prefill_decision(model, ids), None
+                    text = sample_completion_cached(
+                        model, ids, max_tokens=max_tokens, temperature=temperature,
+                        top_p=top_p, rng=rng, prefill=prefill,
+                        stop_strings=stop_strings,
+                        **({"interventions": live} if plan else {}))
+                    if not box or round_no == max_tool_rounds:
+                        break
+                    # The call markup leaves the text: it goes back into
+                    # the transcript as a structured `tool_calls` entry,
+                    # and a model handed its own call twice answers with
+                    # nothing.
+                    # Only calls to tools we offered are stripped and
+                    # executed; an unknown name stays in the text so the
+                    # error can quote it.
+                    text, tool_calls = (dialect.parse(text, box.tools)
+                                        if dialect else (text, []))
+                    if not tool_calls:
+                        break
+                    called_a_tool = True
+                    results = [box.call(c) for c in tool_calls]
+                    turn = turn.with_messages([
+                        *turn.messages,
+                        pm.Message(role="assistant",
+                                   content=(pm.TextPart(text), *tool_calls)),
+                        pm.Message(role="tool", content=tuple(results)),
+                    ])
+                # A response that was reaching for a tool and produced no
+                # call is a NEAR MISS, not a plain answer. Counting them is
+                # the whole lesson of 000437: a correct call the parser did
+                # not recognize looked exactly like no call at all, across
+                # 320 generations, with nothing to notice.
+                item_errors: list[dict[str, Any]] = []
+                if box:
+                    # A tool that ran and raised is an error too, and was
+                    # previously only visible per-item in `tool_runs`.
+                    for r in box.runs:
+                        if r.error:
+                            item_errors.append(dialects.ToolError(
+                                "execution_failed", r.error, r.tool).to_wire())
+                    if called_a_tool:
+                        responses_with_calls += 1
+                    else:
+                        failed = dialects.call_error(text, box.tools, dialect)
+                        if failed is not None:
+                            item_errors.append(failed.to_wire())
+                if item_errors:
+                    if on_tool_error == "fail":
+                        raise RuntimeError(
+                            f"tool call failed on {rec.get('id')!r}: "
+                            f"{item_errors[0]['cause']} — {item_errors[0]['detail']}")
+                    tool_errors.extend({**e, "item": key} for e in item_errors)
+                item = _item(rec, k, text, model_wire=model_wire, params=params,
+                             tool_errors=item_errors,
+                             sampling={"temperature": temperature, "top_p": top_p,
+                                       "seed": seed, "index": k},
+                             tool_runs=[r.to_wire() for r in box.runs],
+                             sandbox_calls=(session.calls if session else ()),
+                             sandbox_snapshot=(session.final_wire() if session else None),
+                             factor=factor if plan else None)
+                items.append(item)
                 if on_item:
-                    on_item(key, resume_items[key], True)
-                continue
-            rng = _np.random.default_rng(item_seed(seed, rec.get("id"), k))
-            box, session = _new_box(image, tool_specs, block_runner=block_runner)
-            turn = req
-            called_a_tool = False
-            for round_no in range(max_tool_rounds + 1):
-                ids = encode(tok, render_conversation(
-                    tok, turn, tools=hf_tools, dialect=dialect))
-                text = sample_completion_cached(
-                    model, ids, max_tokens=max_tokens, temperature=temperature,
-                    top_p=top_p, rng=rng, prefill=prefill_decision(model, ids),
-                    stop_strings=stop_strings)
-                if not box or round_no == max_tool_rounds:
-                    break
-                # The call markup leaves the text: it goes back into
-                # the transcript as a structured `tool_calls` entry,
-                # and a model handed its own call twice answers with
-                # nothing.
-                # Only calls to tools we offered are stripped and
-                # executed; an unknown name stays in the text so the
-                # error can quote it.
-                text, tool_calls = (dialect.parse(text, box.tools)
-                                    if dialect else (text, []))
-                if not tool_calls:
-                    break
-                called_a_tool = True
-                results = [box.call(c) for c in tool_calls]
-                turn = turn.with_messages([
-                    *turn.messages,
-                    pm.Message(role="assistant",
-                               content=(pm.TextPart(text), *tool_calls)),
-                    pm.Message(role="tool", content=tuple(results)),
-                ])
-            # A response that was reaching for a tool and produced no
-            # call is a NEAR MISS, not a plain answer. Counting them is
-            # the whole lesson of 000437: a correct call the parser did
-            # not recognize looked exactly like no call at all, across
-            # 320 generations, with nothing to notice.
-            item_errors: list[dict[str, Any]] = []
-            if box:
-                # A tool that ran and raised is an error too, and was
-                # previously only visible per-item in `tool_runs`.
-                for r in box.runs:
-                    if r.error:
-                        item_errors.append(dialects.ToolError(
-                            "execution_failed", r.error, r.tool).to_wire())
-                if called_a_tool:
-                    responses_with_calls += 1
-                else:
-                    failed = dialects.call_error(text, box.tools, dialect)
-                    if failed is not None:
-                        item_errors.append(failed.to_wire())
-            if item_errors:
-                if on_tool_error == "fail":
-                    raise RuntimeError(
-                        f"tool call failed on {rec.get('id')!r}: "
-                        f"{item_errors[0]['cause']} — {item_errors[0]['detail']}")
-                tool_errors.extend({**e, "item": key} for e in item_errors)
-            item = _item(rec, k, text, model_wire=model_wire, params=params,
-                         tool_errors=item_errors,
-                         sampling={"temperature": temperature, "top_p": top_p,
-                                   "seed": seed, "index": k},
-                         tool_runs=[r.to_wire() for r in box.runs],
-                         sandbox_calls=(session.calls if session else ()),
-                         sandbox_snapshot=(session.final_wire() if session else None))
-            items.append(item)
-            if on_item:
-                on_item(key, item)
+                    on_item(key, item)
     from mechbench_compute.lexicon import kinds as K
 
     return K.collection(
@@ -489,6 +513,7 @@ def run_local(model, ref, records, params, *, on_item=None, on_start=None,
         name=params.get("name", "chat"),
         description=params.get("description", ""),
         fidelity="text",
+        **(plan.header() if plan else {}),
         # Reported even when zero: "no tool calls" and "no tool calls
         # and nobody tried" are different facts about a run.
         # Everything a reader needs to know about tool use, without

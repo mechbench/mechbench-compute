@@ -762,18 +762,28 @@ def first_token_metrics(lm, prompt_ids: list[int], tokenizer=None) -> dict:
     return out
 
 
-def prefill_decision(model, prompt_ids: list[int]):
+def prefill_decision(model, prompt_ids: list[int], *, interventions=None):
     """Encode a prompt once into a KV cache and return
     ``(cache, last_row)`` where ``last_row`` is the float32 logits row
     at the decision position (task 000253, on the 000227 cache
     machinery). One model call serves both the decision-token
     distribution read and, via ``expand_top_outcomes_cached``, every
     subsequent expansion forward.
+
+    With `interventions` the prompt runs through the hooked forward
+    instead, the hooks live over every prompt position, and the cache
+    holds what they left (000601). Without, the native forward: the
+    bytes an un-intervened sample has always had.
     """
     cache = model.prompt_cache()
-    lm = model.lm
-    o = lm(mx.array([prompt_ids]), cache=cache)
-    row = (o.logits if hasattr(o, "logits") else o)[0, -1, :].astype(mx.float32)
+    if interventions:
+        res = model.run(mx.array([prompt_ids]), interventions=list(interventions),
+                        kv_cache=cache)
+        row = res.logits[0, -1, :].astype(mx.float32)
+    else:
+        lm = model.lm
+        o = lm(mx.array([prompt_ids]), cache=cache)
+        row = (o.logits if hasattr(o, "logits") else o)[0, -1, :].astype(mx.float32)
     mx.eval(row)
     for c in cache:
         mx.eval([v for v in vars(c).values() if isinstance(v, mx.array)])

@@ -14,7 +14,8 @@ from mechbench_compute.lexicon._base import Output, In, Op, P
 from mechbench_compute.lexicon.common import TARGET_TRANSFORM as _TRANSFORM
 from mechbench_compute.lexicon.common import TARGET_UNIFORM as _UNIFORM
 from mechbench_compute.lexicon.common import TARGET_WEIGHTS as _WEIGHTS
-from mechbench_compute.lexicon.model import ADAPTER
+from mechbench_compute.lexicon.model import (
+    _DIRECTION_PORT, _SOURCE_PORT, _SPEC_FIELDS, _SWEEP_PARAMS, ADAPTER, INTERVENTION)
 
 _BUDGET = P("budget_usd", "float",
             "The most this node may spend on provider calls, in US dollars. "
@@ -165,6 +166,14 @@ each item records the model version that answered, the cost and the usage.
 A `cache` keeps a memo of remote calls by request hash, so re-running an
 unchanged node costs nothing; a `cassette` replays recorded responses
 without contacting the provider at all.
+
+**An intervention** — inline `spec` items, or an `intervene/spec` on the
+`intervention` port —
+is live at every forward pass a LOCAL model runs for this node, prefill
+and every decoding step alike, exactly as `text/generate` documents; a
+`sweep` gives one set of replies per factor. A remote model has no
+forward pass to intervene on, so an intervention on one is refused by
+name.
 """,
     inputs=(
         In("records", "records/record",
@@ -173,11 +182,20 @@ without contacting the provider at all.
         In("cassette", "provider/cassette",
            "Recorded responses to play back instead of calling the provider "
            "— for tests and exact reproduction.", required=False),
+        INTERVENTION,
+        _DIRECTION_PORT,
+        _SOURCE_PORT,
         ADAPTER,
     ),
     output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. The header carries `fidelity`, `spend` (calls, cost, cache hits) and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
     params=(
         _BUDGET,
+        P("spec", "list[object]",
+          "An intervention's items, applied at every forward pass of a local "
+          "model — see `text/generate`. Or an `intervene/spec` arrives on the "
+          "`intervention` port. Refused for a remote model.",
+          None, fields=_SPEC_FIELDS),
+        *_SWEEP_PARAMS,
         P("messages", "string | list[string | object]",
           "A conversation to send when a record has neither `messages` nor "
           "a `user` field.",

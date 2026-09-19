@@ -1263,107 +1263,128 @@ class ProtocolExecutor:
         continue_prefill = bool(params.get("continue_prefill", False))
         stop_strings = tuple(s for s in (params.get("stop") or ()) if s)
 
+        from mechbench_compute import intervene as intervene_mod
         from mechbench_compute.generate import offsets_by_cumulative_decode
 
+        # An intervention (000601) — inline items or an intervene/spec on
+        # the port — makes the node a sweep: one set of samples per
+        # factor, the factor a coordinate, weight edits scoped per
+        # factor. Without one, `factors` is a single None and the loop
+        # below is the one it always was, byte for byte.
+        plan = intervene_mod.plan(model, params, inputs)
+        factors: list = plan.factors if plan else [None]
+
         if on_start:
-            on_start(len(records) * n)
+            on_start(len(records) * n * len(factors))
         items = []
-        for rec in records:
-            lead = str(rec.get("prefill") or "") if continue_prefill else ""
-            r = render(model, dict(rec, prefill=lead))
-            rendered, ids = r.text, r.ids
-            prefill = prefill_decision(model, ids)
-            for k in range(start, start + n):
-                key = f"{rec['id']}:{k}"
-                if resume_items and key in resume_items:
-                    # Reproducible (epic 000320): this item is a pure
-                    # function of its key; the spooled copy IS what
-                    # this loop would produce. Same position, same
-                    # bytes.
-                    items.append(resume_items[key])
-                    if on_item:
-                        on_item(key, resume_items[key], True)
-                    continue
-                # The item rule (000258 am. 4), now in seeds.py (000402):
-                # a leaf's seed comes from its key, never its position.
-                rng = _np.random.default_rng(item_seed(seed, rec["id"], k))
-                text, out_ids = sample_completion_cached(
-                    model, ids, max_tokens=max_tokens,
-                    temperature=temperature, top_p=top_p, rng=rng,
-                    prefill=prefill, return_ids=True,
-                    stop_strings=stop_strings)
-                if stop_strings and any(s in tok.decode(out_ids) for s in stop_strings):
-                    ended = "stop"
-                elif len(out_ids) >= max_tokens:
-                    ended = "max_tokens"
-                else:
-                    ended = "end"
-                item = {
-                    "id": f"{rec['id']}-s{k}",
-                    "kind": "text/document",
-                    # The assistant's turn as it reads: the prefill it was
-                    # begun with, then what the model wrote.
-                    "text": lead + text,
-                    # A document is a record: coords on the item, and
-                    # under metadata where older readers look.
-                    "coords": {**rec.get("coords", {}), "sample": k},
-                    "metadata": {
-                        "coords": {**rec.get("coords", {}), "sample": k},
-                        "sampling": {"temperature": temperature,
-                                     "top_p": top_p, "seed": seed,
-                                     "index": k, "ended": ended,
-                                     **({"prefill": lead} if lead else {}),
-                                     **({"stop": list(stop_strings)} if stop_strings else {})},
-                        # The wire form, never the resolved object: the
-                        # object carries the adapter bytes (000488).
-                        "model": _wire_model(params.get("model")),
-                    },
-                }
-                if fidelity == "trace":
-                    full_ids = list(ids) + list(out_ids)
-                    offs, full_text = offsets_by_cumulative_decode(
-                        tok, full_ids)
-                    item["trace"] = {
-                        "token_ids": [int(t) for t in full_ids],
-                        "tokenizer": _tokenizer_id(params.get("model")),
-                        "text": full_text,
-                        "offsets": [[int(a), int(b)] for a, b in offs],
-                        "generation_spans": [{
-                            "token_start": len(ids),
-                            "token_end": len(full_ids),
-                            "model": _wire_model(params.get("model")),
-                            "temperature": temperature,
-                            "top_p": top_p,
-                            "seed": k,
-                        }],
-                    }
-                    item["segmentations"] = [{
-                        "schema_name": "envelope",
-                        "segments": [
-                            {"role": "prompt", "token_start": 0,
-                             "token_end": len(ids)},
-                            {"role": "body", "token_start": len(ids),
-                             "token_end": len(full_ids)},
-                        ],
-                    }]
-                    # Where the model reasoned, when its own vocabulary
-                    # declares reasoning delimiters (task 000592). A
-                    # second segmentation beside the envelope, so a
-                    # reader that knows only `prompt`/`body` is
-                    # unaffected and a position selector can name the
-                    # thinking span.
-                    reasoning = THINK.segmentation(
-                        full_ids, start=len(ids), pair=THINK.delimiter_ids(tok))
-                    if reasoning is not None:
-                        item["segmentations"].append(reasoning)
-                items.append(item)
-                if on_item:
-                    on_item(key, item)
+        for factor in factors:
+            with intervene_mod.edited(model, plan.weight_items if plan else (), factor or 0.0):
+                for rec in records:
+                    lead = str(rec.get("prefill") or "") if continue_prefill else ""
+                    r = render(model, dict(rec, prefill=lead))
+                    rendered, ids = r.text, r.ids
+                    # The prefill's hooks see the prompt's tokens; each
+                    # sample then gets its own live intervention, over a
+                    # token list its decoder grows.
+                    prompt_tokens = [tok.decode([int(t)]) for t in ids] if plan else []
+                    prefill = (prefill_decision(model, ids, interventions=plan.live(factor, prompt_tokens, rec))
+                               if plan else prefill_decision(model, ids))
+                    for k in range(start, start + n):
+                        key = f"{rec['id']}:{k}" + (f":{factor:g}" if plan else "")
+                        if resume_items and key in resume_items:
+                            # Reproducible (epic 000320): this item is a pure
+                            # function of its key; the spooled copy IS what
+                            # this loop would produce. Same position, same
+                            # bytes.
+                            items.append(resume_items[key])
+                            if on_item:
+                                on_item(key, resume_items[key], True)
+                            continue
+                        # The item rule (000258 am. 4), now in seeds.py (000402):
+                        # a leaf's seed comes from its key, never its position.
+                        rng = _np.random.default_rng(item_seed(seed, rec["id"], k))
+                        text, out_ids = sample_completion_cached(
+                            model, ids, max_tokens=max_tokens,
+                            temperature=temperature, top_p=top_p, rng=rng,
+                            prefill=prefill, return_ids=True,
+                            stop_strings=stop_strings,
+                            **({"interventions": plan.live(factor, prompt_tokens, rec)} if plan else {}))
+                        if stop_strings and any(s in tok.decode(out_ids) for s in stop_strings):
+                            ended = "stop"
+                        elif len(out_ids) >= max_tokens:
+                            ended = "max_tokens"
+                        else:
+                            ended = "end"
+                        coords = {**rec.get("coords", {}), "sample": k}
+                        if plan:
+                            coords["factor"] = factor
+                        item = {
+                            "id": f"{rec['id']}-s{k}" + (f"-f{factor:g}" if plan else ""),
+                            "kind": "text/document",
+                            # The assistant's turn as it reads: the prefill it was
+                            # begun with, then what the model wrote.
+                            "text": lead + text,
+                            # A document is a record: coords on the item, and
+                            # under metadata where older readers look.
+                            "coords": coords,
+                            "metadata": {
+                                "coords": dict(coords),
+                                "sampling": {"temperature": temperature,
+                                             "top_p": top_p, "seed": seed,
+                                             "index": k, "ended": ended,
+                                             **({"prefill": lead} if lead else {}),
+                                             **({"stop": list(stop_strings)} if stop_strings else {})},
+                                # The wire form, never the resolved object: the
+                                # object carries the adapter bytes (000488).
+                                "model": _wire_model(params.get("model")),
+                            },
+                        }
+                        if fidelity == "trace":
+                            full_ids = list(ids) + list(out_ids)
+                            offs, full_text = offsets_by_cumulative_decode(
+                                tok, full_ids)
+                            item["trace"] = {
+                                "token_ids": [int(t) for t in full_ids],
+                                "tokenizer": _tokenizer_id(params.get("model")),
+                                "text": full_text,
+                                "offsets": [[int(a), int(b)] for a, b in offs],
+                                "generation_spans": [{
+                                    "token_start": len(ids),
+                                    "token_end": len(full_ids),
+                                    "model": _wire_model(params.get("model")),
+                                    "temperature": temperature,
+                                    "top_p": top_p,
+                                    "seed": k,
+                                }],
+                            }
+                            item["segmentations"] = [{
+                                "schema_name": "envelope",
+                                "segments": [
+                                    {"role": "prompt", "token_start": 0,
+                                     "token_end": len(ids)},
+                                    {"role": "body", "token_start": len(ids),
+                                     "token_end": len(full_ids)},
+                                ],
+                            }]
+                            # Where the model reasoned, when its own vocabulary
+                            # declares reasoning delimiters (task 000592). A
+                            # second segmentation beside the envelope, so a
+                            # reader that knows only `prompt`/`body` is
+                            # unaffected and a position selector can name the
+                            # thinking span.
+                            reasoning = THINK.segmentation(
+                                full_ids, start=len(ids), pair=THINK.delimiter_ids(tok))
+                            if reasoning is not None:
+                                item["segmentations"].append(reasoning)
+                        items.append(item)
+                        if on_item:
+                            on_item(key, item)
         return lexicon.collection(
             "text/document", items,
             name=params.get("name", "generated"),
             description=params.get("description", ""),
-            fidelity=fidelity)
+            fidelity=fidelity,
+            **(plan.header() if plan else {}))
 
     def _block_judge(self, inputs, params, secrets=None, on_item=None,
                      on_start=None, resume_items=None):
@@ -1426,6 +1447,12 @@ class ProtocolExecutor:
             # never reaches a node's identity or its emitted params.
             params = {**params, "_block_runner": self._tool_block_runner(secrets)}
         if ref.is_endpoint:
+            # A remote model has no forward pass to intervene on (000601).
+            if params.get("spec") or inputs.get("intervention") is not None:
+                raise ValueError(
+                    "text/chat: an intervention needs local weights — a remote "
+                    "model has no forward pass to act on. Drop the intervention, "
+                    "or give the node a local model reference.")
             memo = self._open_memo(params)
             out = chat_mod.run_remote(
                 ref, records, params, secrets=secrets,
@@ -1572,6 +1599,7 @@ class ProtocolExecutor:
         model = self._model_loaded(params.get("model"))
         records = inputs.get("records") or []
         return chat_mod.run_local(model, params.get("model"), records, params,
+                                  inputs=inputs,
                                   on_item=on_item, on_start=on_start,
                                   resume_items=resume_items)
 
