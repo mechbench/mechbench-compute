@@ -107,3 +107,59 @@ class TestSelector:
     def test_one_refuses_a_span_of_many(self):
         with pytest.raises(ValueError, match="names 3 positions"):
             P.one({"segment": "thinking"}, 10, segmentations=self.SEGS)
+
+
+class TestThroughTheLoop:
+    """A conversation keeps each turn's reasoning and does not replay it
+    into the room (000592)."""
+
+    def _agent(self, name, **kw):
+        from mechbench_compute.conversation import Agent
+        return Agent.parse({"name": name, "model": "fake/m", **kw})
+
+    def _history(self):
+        from mechbench_compute.conversation import Message
+        return [
+            Message(index=0, participant="ana", text="four.",
+                    thinking="two plus two is four"),
+            Message(index=1, participant="bo", text="are you sure?"),
+        ]
+
+    def test_split_keeps_both_apart(self):
+        assert T.split_thought("<think>hmm</think>four") == ("hmm", "four")
+        # Never closed: no answer to separate, and the turn says so by
+        # keeping its text whole.
+        assert T.split_thought("<think>hmm and") == (None, "<think>hmm and")
+        assert T.split_thought("four") == (None, "four")
+
+    def test_the_room_hears_the_answer_not_the_scratchpad(self):
+        from mechbench_compute.conversation import render_for
+        view = render_for(self._agent("bo"), self._history(),
+                          perspective="others_as_user_merged")
+        said = "\n".join(str(part.text) for m in view for part in m.content)
+        assert "four." in said
+        assert "two plus two" not in said
+
+    def test_a_participant_never_sees_anothers_reasoning(self):
+        from mechbench_compute.conversation import render_for
+        # Even asking for replay only ever returns your OWN.
+        view = render_for(self._agent("bo", replay_thinking=True), self._history(),
+                          perspective="others_as_user_merged")
+        said = "\n".join(str(part.text) for m in view for part in m.content)
+        assert "two plus two" not in said
+
+    def test_its_own_comes_back_only_when_asked_for(self):
+        from mechbench_compute.conversation import render_for
+        plain = render_for(self._agent("ana"), self._history(),
+                           perspective="others_as_user_merged")
+        assert "two plus two" not in str(plain[0].content[0].text)
+        asked = render_for(self._agent("ana", replay_thinking=True), self._history(),
+                           perspective="others_as_user_merged")
+        assert "two plus two" in str(asked[0].content[0].text)
+
+    def test_the_transcript_records_it(self):
+        from mechbench_compute.conversation import Message
+        wire = Message(index=0, participant="ana", text="four.",
+                       thinking="two plus two").to_wire()
+        assert wire["thinking"] == "two plus two" and wire["text"] == "four."
+        assert "thinking" not in Message(index=0, participant="ana", text="hi").to_wire()

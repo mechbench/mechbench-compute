@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from mechbench_compute import chat as chat_mod
+from mechbench_compute import thinking as THINK
 from mechbench_compute import tools as tool_mod
 from mechbench_compute.providers import Budget, budget_from, make_transport
 from mechbench_compute.providers import limiter as pl
@@ -81,6 +82,12 @@ class Agent:
     budget_usd: float | None = None
     channels: tuple[str, ...] = (MAIN,)
     perspective: str | None = None
+    #: Whether this participant re-reads its OWN past reasoning on later
+    #: turns (task 000592). Off: a scratchpad is written to be thrown
+    #: away, and a conversation that replays it feeds on its own
+    #: reasoning without anyone having chosen that. Nobody ever sees
+    #: another participant's.
+    replay_thinking: bool = False
 
     @staticmethod
     def parse(value: Any, *, index: int = 0) -> Agent:
@@ -112,6 +119,7 @@ class Agent:
             budget_usd=raw.get("budget_usd"),
             channels=tuple(raw.get("channels") or (MAIN,)),
             perspective=raw.get("perspective"),
+            replay_thinking=bool(raw.get("replay_thinking", False)),
         )
 
     def is_endpoint(self) -> bool:
@@ -132,12 +140,18 @@ class Message:
     channel: str = MAIN
     tool_calls: tuple[Any, ...] = ()
     call: Mapping[str, Any] | None = None
+    #: What the participant reasoned before it spoke, when its model
+    #: marks reasoning (task 000592). Kept on the transcript and OUT of
+    #: `text`, which is what the room hears.
+    thinking: str | None = None
 
     def to_wire(self, *, role_as_seen: str = "assistant") -> dict[str, Any]:
         out: dict[str, Any] = {
             "index": self.index, "participant": self.participant,
             "role_as_seen": role_as_seen, "text": self.text,
         }
+        if self.thinking:
+            out["thinking"] = self.thinking
         if self.tool_calls:
             out["tool_calls"] = [dict(t) for t in self.tool_calls]
         if self.call is not None:
@@ -168,7 +182,12 @@ def render_for(agent: Agent, history: Sequence[Message], *,
         if m.channel not in seen:
             continue          # a judge's verdict is not part of the room
         if m.participant == agent.name:
-            turns.append(("assistant", m.text))
+            # Its own turn. The scratchpad comes back only if this
+            # participant asked for it; another's never does, whatever
+            # anyone asks (task 000592).
+            own = (f"{m.thinking}\n\n{m.text}"
+                   if agent.replay_thinking and m.thinking else m.text)
+            turns.append(("assistant", own))
             continue
         attributed = (perspective == "others_as_user_attributed"
                       and m.participant != SCRIPT_SPEAKER)
@@ -467,6 +486,7 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
                 history.append(Message(
                     index=turn, participant=str(spooled.get("participant", "")),
                     text=str(spooled.get("text", "")),
+                    thinking=spooled.get("thinking"),
                     channel=str(spooled.get("channel", MAIN)),
                     call=spooled.get("call")))
                 if on_item:
@@ -497,8 +517,9 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
                                 text=f"[summary of {len(dropped)} earlier turns] {text}",
                                 call=call), *kept]
             text, call, tool_calls = speak(speaker, kept, turn, rec, key)
-            message = Message(index=turn, participant=speaker.name, text=text,
-                              call=call, tool_calls=tuple(
+            thought, said = THINK.split_thought(text)
+            message = Message(index=turn, participant=speaker.name, text=said,
+                              thinking=thought, call=call, tool_calls=tuple(
                                   t.to_wire() for t in tool_calls))
             history.append(message)
             item = message.to_wire()

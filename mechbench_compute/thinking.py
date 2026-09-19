@@ -115,3 +115,27 @@ def answer_text(text: str, pair_text: tuple[str, str] = DELIMITERS[0]) -> str:
         return text
     b = text.find(close_s, a + len(open_s))
     return text if b == -1 else (text[:a] + text[b + len(close_s):]).lstrip()
+
+
+def split_thought(text: str, pair_text: tuple[str, str] = DELIMITERS[0]) -> tuple[str | None, str]:
+    """`(thinking, answer)` for a turn of generated text.
+
+    A conversation's transcript keeps both, and what the next turn SEES
+    is the answer: a participant's scratchpad is not the room's business,
+    and replaying it would let a conversation feed on its own reasoning
+    without anyone choosing that.
+
+    A thought that never closed leaves the text whole and `None` for the
+    thinking — there is no answer to separate, and pretending otherwise
+    would hide that the turn ran out of room.
+    """
+    open_s, close_s = pair_text
+    a = text.find(open_s)
+    if a == -1:
+        return None, text
+    b = text.find(close_s, a + len(open_s))
+    if b == -1:
+        return None, text
+    inner = text[a + len(open_s):b].strip()
+    rest = (text[:a] + text[b + len(close_s):]).lstrip()
+    return (inner or None), rest

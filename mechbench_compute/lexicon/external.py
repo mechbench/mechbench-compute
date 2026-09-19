@@ -121,6 +121,12 @@ _AGENT_FIELDS = (
     P("channels", "list[string]", "The channels it speaks and listens on.", ["main"]),
     P("perspective", "string", "How it sees the others' messages, overriding the node's default.",
       None, choices=("others_as_user_attributed", "others_as_user_merged")),
+    P("replay_thinking", "bool",
+      "Whether it re-reads its OWN reasoning on later turns. Off by "
+      "default: a scratchpad is written to be thrown away, and a "
+      "conversation that replays it feeds on its own reasoning without "
+      "anyone having chosen that. No participant ever sees another's.",
+      False),
 )
 
 CHAT = Op(
@@ -294,7 +300,8 @@ Two models talking is not a special mode of `chat`; it is a list of
 **participants** plus three pieces of data.
 
 **Participants.** Each is `{name, model, system, tools?, temperature?,
-top_p?, max_tokens?, budget_usd?, channels?, perspective?}`. A system prompt
+top_p?, max_tokens?, budget_usd?, channels?, perspective?,
+replay_thinking?}`. A system prompt
 may use `{name}`, `{participants}`, `{others}` and `{turn}`. Local and
 hosted models mix freely.
 
