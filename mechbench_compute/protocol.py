@@ -1021,6 +1021,10 @@ class ProtocolExecutor:
                     results[nid] = self._run_model_block(
                         self._block_residual_vectors, inputs, params,
                         on_item=on_item, on_start=expand)
+                elif block == "activations/capture-tokens":
+                    results[nid] = self._run_model_block(
+                        self._block_capture_tokens, inputs, params,
+                        on_item=on_item, on_start=expand)
                 elif block == "activations/contrast":
                     results[nid] = self._run_model_block(
                         self._block_residual_divergence, inputs, params,
@@ -1947,6 +1951,17 @@ class ProtocolExecutor:
         model = self._model_loaded(params.get("model"))
         records = lexicon.items_of(inputs.get("records") or [])
         return interp.residual_vectors(
+            model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_capture_tokens(self, inputs, params, on_item=None,
+                              on_start=None):
+        """activations/capture-tokens — one vector per token, each
+        carrying that token's own surprisal (task 000594)."""
+        from mechbench_compute import interp
+
+        model = self._model_loaded(params.get("model"))
+        records = lexicon.items_of(inputs.get("records") or [])
+        return interp.capture_tokens(
             model, records, params, on_item=on_item, on_start=on_start)
 
     def _block_residual_divergence(self, inputs, params, on_item=None,

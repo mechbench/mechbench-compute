@@ -631,6 +631,62 @@ layers or records.
     example_inputs={"records": {"$ref": {"bench": "you/lab/stories"}}},
 )
 
+CAPTURE_TOKENS = Op(
+    name="activations/capture-tokens",
+    requires="mlx-local",
+    summary=(
+        "Capture the residual-stream vector at EVERY position of each "
+        "prompt — one vector per token, each carrying that token's own "
+        "surprisal."
+    ),
+    description="""\
+`activations/capture` reads ONE position per record: a decision point, a
+subject, a span pooled into a single vector. Some questions are about the
+sequence itself — which way the residual moves as a token's surprisal
+rises, how a representation builds across a passage — and those need a
+row per token.
+
+Each vector carries its token's surprisal in bits, on the `surprisal`
+coordinate, because the forward pass that produced the vector already
+computed it. Joining the two afterwards by (record, position) would be
+awkward and a chance to misalign them by one — the off-by-one that makes
+a probe fit the NEXT token's difficulty. The first position of a sequence
+has no predecessor and so carries no surprisal, rather than a zero, which
+would read as a confident prediction of the first token.
+
+A per-token capture is a different order of magnitude from one vector per
+record, so it has its own ceiling and refuses beyond it, naming the
+levers: fewer layers, a narrower `positions` (a chat template's own
+tokens are rarely the question), a larger `every`, or fewer records.
+
+Fitted against the surprisal it carries, by `direction/regress`, this is
+the surprise-direction probe.
+""",
+    inputs=(
+        In("records", "records/record", "The prompts to read.", many=True),
+        In("adapter", "adapter/lora", "An adapter to fuse first.", required=False),
+    ),
+    output=Output('activations/vector', collection=True, doc='One item per record per kept position per layer, with `position` and `surprisal` among its coords and the token as `token`. The header carries `model`, `point`, `source`, `position` (the selector), `every`, `layers` and `d_model`.'),
+    params=(
+        _LAYERS_ALL,
+        _RESIDUAL_POINT,
+        P("positions", "selector",
+          f"Which positions to read: {_POSITIONS_DOC}. Unlike `capture`'s "
+          "single position, every position named is read.",
+          "all"),
+        P("every", "int",
+          "Take one position in n of those named — a way under the ceiling "
+          "that keeps the whole sequence's span rather than its first part.",
+          1),
+    ),
+    example={
+        "model": {"$param": "model"},
+        "layers": [21],
+        "positions": {"after": 20},
+    },
+    example_inputs={"records": {"$ref": {"bench": "you/lab/passages"}}},
+)
+
 LENS_POSITIONS = Op(
     name="logits/scan",
     requires="mlx-local",
@@ -1160,6 +1216,7 @@ whole model by accident.
 OPS: tuple[Op, ...] = (
     INTERVENE, ABLATE_LAYERS, ABLATE_HEADS, ATTENTION_PATTERNS,
     ATTRIBUTION_LOGITS, PATCH_TRACE, RESIDUALS_DIVERGENCE, RESIDUALS_VECTORS,
+    CAPTURE_TOKENS,
     LENS_POSITIONS, LENS_TRAJECTORY, STEER_INJECT,
     GENERATE, DECISION_READ, SCORE, TOKENIZE_STATS,
     CAPTURE_WEIGHTS, DECOMPOSE_WEIGHTS,

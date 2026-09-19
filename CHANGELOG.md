@@ -13,6 +13,29 @@ nothing said so.
 
 ---
 
+## 0.107.0 — 2026-09-19
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- `activations/capture-tokens`: the residual at EVERY position, one
+  vector per token, each carrying that token's own surprisal in bits.
+  `capture` reads one position per record; a question about the sequence
+  itself — which way the residual moves as surprisal rises — needs a row
+  per token, and there was no way to ask for one. The surprisal rides on
+  the vector because the forward pass already computed it: joining the
+  two afterwards by (record, position) is a chance to misalign them by
+  one, which is the off-by-one that makes a probe fit the NEXT token's
+  difficulty. Position 0 carries no surprisal rather than a zero. Its own
+  ceiling, 20M floats, with a refusal that names the levers.
+
 ## 0.106.0 — 2026-09-19
 
 ### Changes that raise

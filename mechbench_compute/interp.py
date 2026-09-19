@@ -370,6 +370,100 @@ def residual_vectors(
     )
 
 
+#: A per-token capture materialises one vector per (record, position,
+#: layer), which is a different order of magnitude from one per record:
+#: its own ceiling, higher than MAX_VECTOR_FLOATS and still a ceiling.
+MAX_TOKEN_VECTOR_FLOATS = 20_000_000
+
+
+def capture_tokens(
+    model,
+    records,
+    params,
+    *,
+    on_start=None,
+    on_item=None,
+):
+    """The residual at EVERY position, one vector per token (000594).
+
+    `capture` reads one position per record — a decision point, a
+    subject, a pooled span. Some questions are about the sequence
+    itself: which way the residual moves as a token's surprisal rises,
+    how a representation builds across a passage. Those need a row per
+    token, and there was no way to ask for one.
+
+    Each vector carries the token's own surprisal, in bits, because the
+    forward pass that produced the vector already computed it. Joining
+    the two afterwards, by (record, position), would be both awkward and
+    a chance to misalign them by one — the off-by-one that makes a
+    surprisal probe fit the NEXT token's difficulty.
+    """
+    layers = _resolve_layers(params.get("layers", "all"), model.n_layers)
+    point = P.normalize(str(params.get("point", "resid_post")))
+    positions = params.get("positions", "all")
+    every = max(1, int(params.get("every", 1)))
+    width = model.d_model
+
+    kept_per_record = []
+    for record in records:
+        r = render(model, record)
+        sel = dict(tokens=r.tokens(model.tokenizer), record=record,
+                   prompt_len=r.prompt_len)
+        idx = POS.resolve(positions, len(r.ids), **sel)[::every]
+        kept_per_record.append((record, r, idx))
+
+    total = sum(len(idx) for _, _, idx in kept_per_record) * len(layers) * width
+    if total > MAX_TOKEN_VECTOR_FLOATS:
+        raise ValueError(
+            f"{len(records)} records × {sum(len(i) for _, _, i in kept_per_record)} "
+            f"kept positions × {len(layers)} layers × {width} dims = {total} "
+            f"floats exceeds the {MAX_TOKEN_VECTOR_FLOATS} cap — capture "
+            "fewer layers, narrow `positions` (the chat template's own "
+            "tokens are rarely the question), raise `every` to take one "
+            "position in n, or capture fewer records")
+    if on_start:
+        on_start(len(records))
+
+    cap = Capture.residual(layers, point=P.side(point))
+    mid = S.model_id_of(model)
+    rows: list[dict[str, Any]] = []
+    for record, r, idx in kept_per_record:
+        ids = r.array
+        result = model.run(ids, interventions=[cap])
+        # Surprisal of token i given everything before it. Position 0 has
+        # no predecessor and so has none — recorded as None rather than
+        # zero, which would be a confident prediction of the first token.
+        seq = list(r.ids)
+        rows_lp = model.head_logits(
+            model.trunk_hidden(mx.array([seq]))[:, :-1, :]).astype(mx.float32)
+        tgt = mx.array(seq[1:])
+        lp = (mx.take_along_axis(rows_lp[0], tgt[:, None], axis=-1)[:, 0]
+              - mx.logsumexp(rows_lp[0], axis=-1))
+        surp = -np.array(lp) / np.log(2.0)
+        coords = _coords_of(record, params)
+        for pos in idx:
+            token = S.token(model.tokenizer, r.ids[pos])
+            bits = None if pos == 0 else round(float(surp[pos - 1]), 4)
+            for layer in layers:
+                t = result.cache[f"blocks.{layer}.{point}"]
+                v = t[0, pos, :].astype(mx.float32)
+                mx.eval(v)
+                rows.append(S.vector(
+                    np.array(v),
+                    S.space(model=mid, layer=layer, point=point, d=width),
+                    id=record.get("id"),
+                    coords={**coords, "position": int(pos),
+                            **({"surprisal": bits} if bits is not None else {})},
+                    token=token))
+        if on_item:
+            on_item()
+    return _K().collection(
+        "activations/vector", rows,
+        model=mid, point=point, source="resid",
+        position=str(positions), every=every, layers=layers, d_model=width,
+    )
+
+
 def residual_divergence(
     model,
     records: Sequence[Mapping[str, Any]],

@@ -83,6 +83,8 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
                                         ("interp.py", "lens_positions")],
     "activations/capture": [(P, "_block_residual_vectors"),
                                            ("interp.py", "residual_vectors")],
+    "activations/capture-tokens": [(P, "_block_capture_tokens"),
+                                   ("interp.py", "capture_tokens")],
     "activations/contrast": [(P, "_block_residual_divergence"),
                                               ("interp.py", "residual_divergence")],
     # --- pure blocks ---
