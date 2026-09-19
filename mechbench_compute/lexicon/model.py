@@ -15,8 +15,14 @@ Shared conventions, stated once here and referred to from the entries:
   record's own `tracked` takes precedence over the param. The first
   entry is the target — the token a sweep's Δ log p is taken on; with
   none named, the model's own top-1 for that prompt is. Each token is
-  tokenized as a continuation, so include the leading space where the
-  model would ("` Paris`", not "`Paris`").
+  tokenized as a continuation of the RENDERED prompt, so spell it the
+  way the model's next token is spelled there: after a raw prompt that
+  is usually "` Paris`" with its leading space; after a chat template's
+  assistant prefix it is usually "`Paris`" without one, because the
+  template ends the prompt at a turn boundary. The two are different
+  tokens, and the wrong one measures a token the model was never going
+  to say. Every condition reports the model's own top-1 beside a target
+  that differs from it, so the mismatch shows.
 * **Positions.** One selector wherever a position is chosen:
   `"last"`, `"all"`, a list of indices (negative from the end),
   `{"tokens": [...]}`, `{"range": [a, b]}`, `{"after": n}`,
@@ -72,9 +78,11 @@ def _tracked(what: str) -> P:
     return P("tracked", "map[string, string]",
              f"Tokens to follow by name, `{{\"answer\": \" Paris\"}}`; the first "
              f"is the target — {what}. Each is tokenized as a continuation "
-             "(include the leading space). A record's own `tracked` takes "
-             "precedence; with none named, the model's own top-1 prediction "
-             "for that prompt is the target.",
+             "of the rendered prompt: with a leading space after a raw prompt, "
+             "without one after a chat template's assistant prefix. A record's "
+             "own `tracked` takes precedence; with none named, the model's own "
+             "top-1 prediction for that prompt is the target, and a target "
+             "that differs from it is reported beside it.",
              None)
 
 

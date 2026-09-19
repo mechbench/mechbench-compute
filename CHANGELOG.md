@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## 0.109.0 — 2026-09-19
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ (An added field.)
+
+### Other
+
+- A condition whose tracked target is not the model's own top-1 now
+  carries `own_top1` — the token the model would have said, with its
+  log-probability — beside the target. A tracked target that differs
+  is often the point, so nothing refuses; but it is also how a
+  mis-spelled target hides. `tracked`'s guidance to "include the leading
+  space" was right for a raw prompt and wrong after a chat template's
+  assistant prefix, where `" Paris"` and `"Paris"` are different tokens;
+  the docs now say to spell the token as the rendered prompt's next
+  token is spelled.
+
 ## 0.108.0 — 2026-09-19
 
 ### Changes that raise

@@ -232,6 +232,26 @@ class TestRenderingIsOnTheResult:
         assert out["conditions"][0]["template"] == "chat"
 
 
+class TestOwnTop1BesideATarget:
+    """A tracked target that is not the model's answer is reported
+    beside the model's answer (000597)."""
+
+    def test_a_target_the_model_would_not_say_is_flagged(self):
+        model = StubModel()
+        # The stub's top-1 for "aa bbb" is id 3; track "q" (id 2) instead.
+        out = interp.ablate_layers(
+            model, [{"id": "c", "user": "aa bbb", "tracked": {"x": "q"}}],
+            {"layers": [0]})
+        c = out["conditions"][0]
+        assert "own_top1" in c and c["own_top1"]["id"] != c["target"]["id"]
+        assert "logp" in c["own_top1"]
+
+    def test_the_models_own_answer_is_not_flagged_against_itself(self):
+        model = StubModel()
+        out = interp.ablate_layers(model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
+        assert "own_top1" not in out["conditions"][0]
+
+
 class TestResidualVectors:
     def test_vectors_are_the_positions_residual(self):
         model = StubModel()

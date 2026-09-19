@@ -157,6 +157,28 @@ def _target_of(model, record: Mapping[str, Any], params: Mapping[str, Any],
     return int(np.argmax(lp)), tracked
 
 
+def _own_top1_if_different(model, tok: int, lp: np.ndarray | None) -> dict[str, Any]:
+    """`{"own_top1": token}` when the model's own top-1 under `lp` is not
+    the target being measured — empty when it is, or when there is no
+    baseline to ask (task 000597).
+
+    A tracked target that is not the model's answer is often the point
+    (measure THIS token's dependence), so this refuses nothing. But it
+    is also how a mis-tokenized target hides: `tracked` says to include
+    the leading space, which is right for a raw completion and wrong
+    after a chat template's assistant prefix, where `" Paris"` and
+    `"Paris"` are different tokens. A reader who sees the model's own
+    answer beside the target knows at a glance which case they are in.
+    """
+    if lp is None:
+        return {}
+    top = int(np.argmax(lp))
+    if top == tok:
+        return {}
+    return {"own_top1": {**S.token(model.tokenizer, top),
+                         "logp": round(float(lp[top]), 4)}}
+
+
 def _coords_of(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """The record's coordinates. A grouping is a coordinate; the retired
     `label` field is read as the `label` coordinate so older records
@@ -236,6 +258,7 @@ def ablate_layers(
             # target above was the only place that showed, as a symptom;
             # this says it (task 000596).
             "template": "chat" if r.chat else "raw",
+            **_own_top1_if_different(model, tok, base_lp),
         })
 
     return _K().collection(
@@ -791,6 +814,7 @@ def ablate_heads(
             "target": S.token(model.tokenizer, tok),
             "baseline_logp": round(baseline, 4),
             "template": "chat" if r.chat else "raw",
+            **_own_top1_if_different(model, tok, base_lp),
         })
         for li, layer in enumerate(layers):
             for head in range(n_heads):
@@ -926,6 +950,7 @@ def logit_attribution(
             target=S.token(model.tokenizer, tok),
             contrast=S.token(model.tokenizer, ctok) if ctok is not None else None,
             template="chat" if r.chat else "raw",
+            **_own_top1_if_different(model, tok, lp),
             per_head=per_head or None,
             additivity={
                 "summed": round(summed, 3),
