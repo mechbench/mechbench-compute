@@ -13,6 +13,51 @@ nothing said so.
 
 ---
 
+## 0.105.0 — 2026-09-19
+
+### Changes that raise
+
+- A position selector may name a span the document declares —
+  `{"segment": "thinking"}`. A document without that span is REFUSED,
+  and the refusal lists the roles it has: a capture aimed at a model's
+  reasoning must not quietly read its answer instead.
+
+### Changes that alter results without raising
+
+- A conversation's messages now carry `thinking` apart from `text`, and
+  the next turn is rendered from `text`. A participant whose model marks
+  its reasoning no longer feeds that reasoning back into the room; it
+  may ask for its own back with `replay_thinking`, and never sees
+  another participant's. Transcripts from earlier releases are
+  unaffected — they have no such spans.
+
+### Other
+
+- `direction/regress`: a direction fitted by ridge regression against a
+  number the items carry, with the penalty cross-validated and R² on
+  held-out items on the derivation. `direction/fit` answers "which way
+  does this group lie from that one"; a quantity — a token's surprisal,
+  a score — is not two groups.
+- `text/generate` writes a `reasoning` segmentation beside the envelope
+  when the model's own vocabulary declares reasoning delimiters
+  (`<think>` and `</think>` are tokens in Qwen3's and the R1 distills'
+  vocabularies, not prose they happen to write). A thought that never
+  closed is recorded as unterminated with no answer span.
+
+## 0.104.0 — 2026-09-19
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- Folded into 0.105.0 before release; see its notes.
+
 ## 0.103.1 — 2026-09-18
 
 ### Changes that raise
