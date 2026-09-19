@@ -13,6 +13,27 @@ nothing said so.
 
 ---
 
+## 0.106.0 — 2026-09-19
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- `records/summarize` (and its resume monoid) group by a field wherever
+  the record carries it — the coordinates first, then the record itself.
+  Grouping an ablation by `layer` produced ONE row keyed `null` before,
+  because the op writes the varying layer at the top level and only
+  coordinates were consulted; forty-two layers collapsed into a single
+  meaningless mean. The value field was already read from the top level,
+  so the asymmetry was the bug. A coordinate still wins over a top-level
+  field of the same name.
+
+### Other
+
+- _None._
+
 ## 0.105.0 — 2026-09-19
 
 ### Changes that raise

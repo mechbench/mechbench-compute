@@ -176,11 +176,13 @@ class GroupStats(Monoid):
         return {}
 
     def partial(self, records, params):
+        from mechbench_compute.blocks import _group_key
+
         by = params.get("by") or []
         f = params["value"]
         groups: dict[tuple, list[float]] = {}
         for r in records:
-            key = tuple(r.get("coords", {}).get(k) for k in by)
+            key = _group_key(r, by)
             groups.setdefault(key, []).append(float(r[f]))
         return {k: tuple(sorted(v)) for k, v in groups.items()}
 
