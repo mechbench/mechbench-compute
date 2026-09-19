@@ -410,10 +410,18 @@ A record without the value field is refused by name, because a mean over
 notices is wrong. When absent values are expected — a judge that could not
 be read, an unscored item — set `on_missing: "skip"` and the count of
 skipped records is reported on the table as `n_missing`.
+
+### How sure
+
+A mean over fifteen prompts is a point; `interval: 0.95` puts an interval
+around it — `lo` and `hi`, the percentile bootstrap of the mean over
+`resamples` redraws of the group's records under `seed` — so a peak in a
+sweep is a claim with a width, not a number. Whether two groups DIFFER is
+`records/contrast`'s question, which pairs the records first.
 """,
     inputs=(_RECORDS,),
     output=(
-        Output('records/table', collection=False, doc='One row per group with the `by` coordinates and `n`, `median`, `mean`, `min`, `max`, `share_negative`; `n_missing` when any were skipped.')
+        Output('records/table', collection=False, doc='One row per group with the `by` coordinates and `n`, `median`, `mean`, `min`, `max`, `share_negative`, plus `lo` and `hi` when an `interval` was asked; `n_missing` when any were skipped; the header\'s `interval` says the level, method, resamples and seed.')
     ),
     params=(
         P("value", "string",
@@ -426,9 +434,69 @@ skipped records is reported on the table as `n_missing`.
           "`\"error\"`: refuse a record without the field. `\"skip\"`: omit "
           "it and report how many were omitted.",
           "error", choices=("error", "skip")),
+        P("interval", "float",
+          "The level of a bootstrap interval on each group's mean — `0.95` "
+          "adds `lo` and `hi` to every row. None reports the point alone.",
+          None),
+        P("resamples", "int",
+          "How many bootstrap redraws the interval is read from.",
+          2000),
     ),
-    example={"value": "delta", "by": ["genre", "alpha"]},
+    example={"value": "delta", "by": ["genre", "alpha"], "interval": 0.95},
     example_inputs={"records": {"$ref": {"bench": "you/lab/deltas"}}},
+)
+
+CONTRAST = Op(
+    name="records/contrast",
+    summary=(
+        "The difference between two conditions' means of a field — a minus "
+        "b on one coordinate — with a paired bootstrap interval and how "
+        "often the sign held, one row per combination of the other "
+        "coordinates."
+    ),
+    description="""\
+`records/summarize` says what each condition's mean is; this says whether
+two of them differ. Name the coordinate (`on`) and its two values (`a`,
+`b`); every record on either side contributes its `value`, and the row
+reports `mean_a`, `mean_b`, their difference `diff`, the interval `lo`–`hi`
+at the given level, and `share_positive` — the fraction of bootstrap
+redraws in which the difference was above zero, which is how often the
+sign held.
+
+**Pair the records.** In a sweep the same prompts run under every
+condition, and a prompt that is hard is hard on both sides. `paired`
+names the field the two sides share — a prompt's `id`, usually — and the
+bootstrap then redraws PAIRS, so each record's own noise cancels the way
+it does in the data; only records present on both sides count, and `n`
+is their number. Without `paired`, the sides are redrawn independently,
+which is right when the two conditions ran on different records and
+wider than it needs to be when they did not.
+
+`by` names further coordinates to hold fixed: one row per combination
+of them, each its own contrast.
+""",
+    inputs=(_RECORDS,),
+    output=(
+        Output('records/table', collection=False, doc='One row per combination of the `by` coordinates: `on`, `a`, `b`, `n`, `mean_a`, `mean_b`, `diff`, `lo`, `hi`, `share_positive`. The header\'s `interval` says the level, method, whether it was paired, resamples and seed.')
+    ),
+    params=(
+        P("value", "string", "The numeric field compared."),
+        P("on", "string", "The coordinate (or top-level field) the two conditions differ on."),
+        P("a", "json", "The value of `on` on the first side; the difference is a minus b."),
+        P("b", "json", "The value of `on` on the second side."),
+        P("paired", "string",
+          "The field the two sides share, to redraw pairs — `\"id\"` when "
+          "the same records ran under both conditions. None redraws the "
+          "sides independently.",
+          None),
+        P("by", "list[string]",
+          "Coordinates to hold fixed: one row per combination.",
+          None),
+        P("interval", "float", "The level of the bootstrap interval.", 0.95),
+        P("resamples", "int", "How many bootstrap redraws the interval is read from.", 2000),
+    ),
+    example={"value": "delta_logp", "on": "layer", "a": 23, "b": 22, "paired": "id"},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/ablation"}}},
 )
 
 TABLE_FROM_RECORDS = Op(
@@ -818,6 +886,7 @@ reproduces its numbers reproduces its tree.
 OPS: tuple[Op, ...] = (
     FACTOR_CROSS, TEMPLATE, RENAME, SELECT, UNION, ZIP, MAP, PAIRED_DELTA,
     GROUP_STATS,
+    CONTRAST,
     TABLE_FROM_RECORDS, TEXT_STATS, REDUCE_SUM, REDUCE_TOP_K, REDUCE_HISTOGRAM,
     EVAL_EXPECTATION, VIZ_SPEC, VECTORS_SIMILARITY, VECTORS_MST,
 )

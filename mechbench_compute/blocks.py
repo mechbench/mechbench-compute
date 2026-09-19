@@ -31,6 +31,8 @@ Design rules these implement:
 
 from __future__ import annotations
 
+import math
+
 import random
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
@@ -293,11 +295,91 @@ def _group_key(record: Mapping[str, Any], by: Sequence[str]) -> tuple:
     return tuple(coords.get(k, record.get(k)) for k in by)
 
 
+def _field_of(record: Mapping[str, Any], name: str) -> Any:
+    """A field read the way `_group_key` reads one: coords first, then
+    the record itself."""
+    coords = record.get("coords") or {}
+    return coords[name] if name in coords else record.get(name)
+
+
+def _interval_of(params: Mapping[str, Any]) -> tuple[float, int, int] | None:
+    """(level, resamples, seed) when the node asks for an interval."""
+    level = params.get("interval")
+    if level is None:
+        return None
+    level = float(level)
+    if not 0.0 < level < 1.0:
+        raise ValueError(f"interval must be between 0 and 1 exclusive, not {level}")
+    return level, int(params.get("resamples", 2000)), int(params.get("seed", 0))
+
+
+def _bootstrap_mean(values: Sequence[float], level: float, resamples: int,
+                    seed: int) -> tuple[float, float]:
+    """A percentile bootstrap interval on the mean: the records
+    resampled with replacement `resamples` times under `seed`. A
+    single value's interval is the value itself."""
+    import numpy as np
+
+    # Sorted first: the draw is then a function of the multiset, not of
+    # the order the records arrived in — the law every pure block keeps.
+    v = np.sort(np.asarray(values, dtype=np.float64))
+    if v.size < 2:
+        return float(v[0]), float(v[0])
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, v.size, size=(int(resamples), v.size))
+    means = v[idx].mean(axis=1)
+    lo, hi = np.percentile(means, [50 * (1 - level), 50 * (1 + level)])
+    return float(lo), float(hi)
+
+
+def summary_rows(groups: Mapping[tuple, Sequence[float]], params: Mapping[str, Any]) -> dict[str, Any]:
+    """The `records/summarize` table from values grouped by the `by`
+    key — shared by the flat block and its monoid, so the two are the
+    same rows by construction. With `interval`, every row carries the
+    bootstrap `lo`/`hi` of its mean (000609)."""
+    from statistics import median
+
+    by = params.get("by") or []
+    value_field = params["value"]
+    interval = _interval_of(params)
+    rows = []
+    for key, vals in groups.items():
+        vals = list(vals)
+        row = {k: key[i] for i, k in enumerate(by)}
+        row.update({
+            "n": len(vals),
+            "median": round(median(vals), 4),
+            "mean": round(math.fsum(vals) / len(vals), 4),
+            "min": round(min(vals), 4),
+            "max": round(max(vals), 4),
+            "share_negative": round(sum(v < 0 for v in vals) / len(vals), 3),
+        })
+        if interval is not None:
+            lo, hi = _bootstrap_mean(vals, *interval)
+            row.update({"lo": round(lo, 4), "hi": round(hi, 4)})
+        rows.append(row)
+    stats = ["n", "median", "mean", "min", "max", "share_negative"]
+    if interval is not None:
+        stats += ["lo", "hi"]
+    columns = [{"name": k, "dtype": "string"} for k in by] + [
+        {"name": n, "dtype": "number"} for n in stats]
+    out = {"kind": "records/table",
+           "name": params.get("name", f"{value_field}-stats"),
+           "description": params.get("description", ""),
+           "row_axis": "condition", "columns": columns, "rows": rows}
+    if interval is not None:
+        level, resamples, seed = interval
+        out["interval"] = {"level": level, "method": "percentile-bootstrap",
+                           "of": "mean", "resamples": resamples, "seed": seed}
+    return out
+
+
 def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     """Group records by coords and summarize a numeric field into
     MetricTable-shaped rows. by: [coord names] ([] = one overall
     group); value: field name; stats fixed: n/median/mean/min/max +
-    share_negative (useful for deltas).
+    share_negative (useful for deltas), and with `interval` the
+    bootstrap `lo`/`hi` of the mean (000609).
 
     `on_missing` says what a record without the value field means:
     `error` (default) refuses by name, because a mean over the records
@@ -305,7 +387,6 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     notices is wrong; `skip` omits them and REPORTS the count, which is
     what a judged corpus needs — an unreadable verdict is not a zero
     (task 000356), and the rows that were dropped must be visible."""
-    from statistics import mean, median
     recs = _items(records)
     by = params.get("by") or []
     value_field = params["value"]
@@ -327,27 +408,105 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
                 f"count is then reported on the table.")
         key = _group_key(r, by)
         groups.setdefault(key, []).append(float(r[value_field]))
+    out = summary_rows(groups, params)
+    if n_missing:
+        out["n_missing"] = n_missing
+    return out
+
+
+def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
+    """`records/contrast` (000609): the difference between two
+    conditions' means of a field — `a` minus `b` on the coordinate `on`
+    — with a bootstrap interval, one row per combination of the other
+    `by` coordinates.
+
+    `paired` names the field the two conditions share (a prompt's `id`,
+    usually): the bootstrap then resamples PAIRS, so a record's own
+    noise cancels the way it does in the data, and only records present
+    on both sides count. Without it the two sides are resampled
+    independently. `share_positive` is the fraction of resamples whose
+    difference is above zero — how often the sign held."""
+    import numpy as np
+
+    recs = _items(records)
+    value_field = params["value"]
+    on = params["on"]
+    a_val, b_val = params["a"], params["b"]
+    by = [k for k in (params.get("by") or []) if k != on]
+    paired = params.get("paired")
+    level, resamples, seed = _interval_of({"interval": params.get("interval", 0.95),
+                                           "resamples": params.get("resamples", 2000),
+                                           "seed": params.get("seed", 0)})
+    sides: dict[tuple, dict[str, list[tuple[Any, float]]]] = {}
+    for r in recs:
+        side = _field_of(r, on)
+        if side == a_val:
+            which = "a"
+        elif side == b_val:
+            which = "b"
+        else:
+            continue
+        if value_field not in r or r[value_field] is None:
+            raise ValueError(f"contrast: record {r.get('id')!r} has no {value_field!r} field")
+        key = _group_key(r, by)
+        pair_key = _field_of(r, paired) if paired else None
+        sides.setdefault(key, {"a": [], "b": []})[which].append((pair_key, float(r[value_field])))
     rows = []
-    for key, vals in groups.items():
+    rng = np.random.default_rng(seed)
+    for key in sorted(sides, key=lambda k: tuple(str(x) for x in k)):
+        a_items, b_items = sides[key]["a"], sides[key]["b"]
+        if not a_items or not b_items:
+            raise ValueError(
+                f"contrast: {on}={a_val!r} and {on}={b_val!r} must both be present"
+                + (f" at {dict(zip(by, key))}" if by else ""))
+        if paired:
+            a_by = {k: v for k, v in a_items}
+            b_by = {k: v for k, v in b_items}
+            keys = sorted((k for k in a_by if k in b_by), key=str)
+            if not keys:
+                raise ValueError(
+                    f"contrast: no record's {paired!r} appears on both sides"
+                    + (f" at {dict(zip(by, key))}" if by else ""))
+            a = np.array([a_by[k] for k in keys]); b = np.array([b_by[k] for k in keys])
+            n = len(keys)
+            diffs = a - b
+            point = float(diffs.mean())
+            if n >= 2:
+                idx = rng.integers(0, n, size=(resamples, n))
+                boots = diffs[idx].mean(axis=1)
+            else:
+                boots = np.full(resamples, point)
+        else:
+            a = np.sort([v for _, v in a_items]); b = np.sort([v for _, v in b_items])
+            n = min(len(a), len(b))
+            point = float(a.mean() - b.mean())
+            if len(a) >= 2 and len(b) >= 2:
+                ia = rng.integers(0, len(a), size=(resamples, len(a)))
+                ib = rng.integers(0, len(b), size=(resamples, len(b)))
+                boots = a[ia].mean(axis=1) - b[ib].mean(axis=1)
+            else:
+                boots = np.full(resamples, point)
+        lo, hi = np.percentile(boots, [50 * (1 - level), 50 * (1 + level)])
         row = {k: key[i] for i, k in enumerate(by)}
         row.update({
-            "n": len(vals),
-            "median": round(median(vals), 4),
-            "mean": round(mean(vals), 4),
-            "min": round(min(vals), 4),
-            "max": round(max(vals), 4),
-            "share_negative": round(sum(v < 0 for v in vals) / len(vals), 3),
+            "on": on, "a": a_val, "b": b_val, "n": int(n),
+            "mean_a": round(float(a.mean()), 4), "mean_b": round(float(b.mean()), 4),
+            "diff": round(point, 4), "lo": round(float(lo), 4), "hi": round(float(hi), 4),
+            "share_positive": round(float((boots > 0).mean()), 3),
         })
         rows.append(row)
-    columns = [{"name": k, "dtype": "string"} for k in by] + [
-        {"name": n, "dtype": "number"}
-        for n in ("n", "median", "mean", "min", "max", "share_negative")
-    ]
+    columns = ([{"name": k, "dtype": "string"} for k in by]
+               + [{"name": "on", "dtype": "string"}, {"name": "a", "dtype": "string"},
+                  {"name": "b", "dtype": "string"}]
+               + [{"name": k, "dtype": "number"}
+                  for k in ("n", "mean_a", "mean_b", "diff", "lo", "hi", "share_positive")])
     return {"kind": "records/table",
-            "name": params.get("name", f"{value_field}-stats"),
+            "name": params.get("name", f"{value_field}-contrast"),
             "description": params.get("description", ""),
             "row_axis": "condition", "columns": columns, "rows": rows,
-            **({"n_missing": n_missing} if n_missing else {})}
+            "interval": {"level": level, "method": "percentile-bootstrap",
+                         "of": "difference of means", "paired": paired,
+                         "resamples": resamples, "seed": seed}}
 
 
 def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
@@ -878,6 +1037,8 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
         lambda inputs, params: _coll(paired_delta(inputs["records"], params)),
     "records/summarize":
         lambda inputs, params: group_stats(inputs["records"], params),
+    "records/contrast":
+        lambda inputs, params: contrast(inputs["records"], params),
     "records/tabulate":
         lambda inputs, params: table_from_records(inputs["records"], params),
     "records/union":

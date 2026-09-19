@@ -193,31 +193,10 @@ class GroupStats(Monoid):
         return out
 
     def finalize(self, p, params):
-        from statistics import median
+        from mechbench_compute.blocks import summary_rows
 
-        by = params.get("by") or []
-        value_field = params["value"]
-        rows = []
-        for key in sorted(p, key=lambda k: tuple(str(x) for x in k)):
-            vals = list(p[key])
-            row = {k: key[i] for i, k in enumerate(by)}
-            row.update({
-                "n": len(vals),
-                "median": round(median(vals), 4),
-                "mean": round(math.fsum(vals) / len(vals), 4),
-                "min": round(min(vals), 4),
-                "max": round(max(vals), 4),
-                "share_negative": round(sum(v < 0 for v in vals) / len(vals), 3),
-            })
-            rows.append(row)
-        columns = [{"name": k, "dtype": "string"} for k in by] + [
-            {"name": n, "dtype": "number"}
-            for n in ("n", "median", "mean", "min", "max", "share_negative")
-        ]
-        return {"kind": "records/table",
-                "name": params.get("name", f"{value_field}-stats"),
-                "description": params.get("description", ""),
-                "row_axis": "condition", "columns": columns, "rows": rows}
+        ordered = {key: list(p[key]) for key in sorted(p, key=lambda k: tuple(str(x) for x in k))}
+        return summary_rows(ordered, params)
 
 
 MONOIDS: dict[str, Callable[[], Monoid]] = {

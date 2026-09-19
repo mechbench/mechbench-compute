@@ -13,6 +13,38 @@ nothing said so.
 
 ---
 
+## 0.112.0 — 2026-09-19
+
+### Changes that raise
+
+- `records/summarize` refuses an `interval` outside (0, 1) by name.
+
+### Changes that alter results without raising
+
+- _None._ A `records/summarize` without `interval` produces the rows it
+  did, through one shared rows function for the flat block and its
+  monoid (the law suite checks the two agree, intervals included).
+
+### Other
+
+- **`records/summarize` carries an interval.** `interval: 0.95` adds
+  `lo` and `hi` to every row — the percentile bootstrap of the group's
+  mean over `resamples` redraws (2000) under `seed` — and the header
+  says the level, method, resamples and seed. A sweep's peak becomes a
+  claim with a width (000609).
+- **`records/contrast`**, a new op: the difference between two
+  conditions' means of a field — `a` minus `b` on one coordinate —
+  with a bootstrap interval, `share_positive` (how often the sign
+  held across redraws), one row per combination of the other `by`
+  coordinates. `paired` names the field the two sides share (a
+  prompt's `id`) so the bootstrap redraws PAIRS and a record's own
+  level cancels: on a synthetic sweep where the prompts' levels (sd 2)
+  swamp a 1.0 effect, the paired contrast resolves it to ±0.25 and the
+  unpaired one cannot. Both bootstraps are functions of the records'
+  multiset, not their order.
+
+---
+
 ## 0.111.0 — 2026-09-19
 
 ### Changes that raise

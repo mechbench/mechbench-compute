@@ -26,6 +26,7 @@ def _leaves(n=60, seed=0):
 class TestMonoidLaws:
     @pytest.mark.parametrize("block,params", [
         ("records/summarize", {"by": ["g"], "value": "delta"}),
+        ("records/summarize", {"by": ["g"], "value": "delta", "interval": 0.9, "resamples": 300}),
         ("records/total", {"value": "delta"}),
         ("records/rank", {"value": "score", "k": 5}),
         ("records/bin", {"value": "delta", "lo": -5, "hi": 5, "bins": 10}),
@@ -161,6 +162,10 @@ CATALOG: dict[str, dict] = {
         "leaves": _paired_leaves(),
         "params": {"match_on": ["item"], "baseline_where": {"arm": "base"},
                    "value": "delta"}},
+    "records/contrast": {
+        "leaves": _paired_leaves(),
+        "params": {"value": "delta", "on": "arm", "a": "test", "b": "base",
+                   "paired": "item", "resamples": 300}},
     "text/measure": {
         "leaves": _text_leaves(),
         "params": {"field": "text", "mode": "corpus", "measures": [
