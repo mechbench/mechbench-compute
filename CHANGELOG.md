@@ -13,6 +13,25 @@ nothing said so.
 
 ---
 
+## 0.107.2 — 2026-09-19
+
+### Changes that raise
+
+- `activations/capture-tokens` refuses at 7,000,000 floats, down from
+  20,000,000. The number is set by what the platform can STORE: a
+  canonical float costs ~8.3 bytes and the API refuses an object over
+  64 MiB, so a capture that passed the old check did the whole job and
+  then died at the emit — the worst place to learn a limit. The refusal
+  now says where the number comes from.
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- _None._
+
 ## 0.107.1 — 2026-09-19
 
 ### Changes that raise

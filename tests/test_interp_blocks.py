@@ -273,7 +273,7 @@ class TestCaptureTokens:
 
     def test_the_ceiling_refuses_and_names_the_levers(self, monkeypatch):
         monkeypatch.setattr(interp, "MAX_TOKEN_VECTOR_FLOATS", 10)
-        with pytest.raises(ValueError, match="cap — capture fewer layers"):
+        with pytest.raises(ValueError, match="cap .* capture fewer layers"):
             interp.capture_tokens(StubModel(), [{"id": "c", "user": "a b c"}],
                                   {"layers": "all"})
 

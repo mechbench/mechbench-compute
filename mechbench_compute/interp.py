@@ -371,9 +371,16 @@ def residual_vectors(
 
 
 #: A per-token capture materialises one vector per (record, position,
-#: layer), which is a different order of magnitude from one per record:
-#: its own ceiling, higher than MAX_VECTOR_FLOATS and still a ceiling.
-MAX_TOKEN_VECTOR_FLOATS = 20_000_000
+#: layer) — a different order of magnitude from one vector per record,
+#: so it has its own ceiling.
+#:
+#: The number is set by what the platform can STORE, not by taste. A
+#: canonical float costs about 8.3 bytes on the wire, and the API
+#: refuses an object over 64 MiB, so ~8.1M floats is the real wall.
+#: 0.107.x set this at 20M: the op then passed its own check, did the
+#: whole capture, and died at the emit — the worst place to learn a
+#: limit. A ceiling that does not bind is not a ceiling.
+MAX_TOKEN_VECTOR_FLOATS = 7_000_000
 
 
 def capture_tokens(
@@ -417,10 +424,11 @@ def capture_tokens(
         raise ValueError(
             f"{len(records)} records × {sum(len(i) for _, _, i in kept_per_record)} "
             f"kept positions × {len(layers)} layers × {width} dims = {total} "
-            f"floats exceeds the {MAX_TOKEN_VECTOR_FLOATS} cap — capture "
-            "fewer layers, narrow `positions` (the chat template's own "
-            "tokens are rarely the question), raise `every` to take one "
-            "position in n, or capture fewer records")
+            f"floats exceeds the {MAX_TOKEN_VECTOR_FLOATS} cap (a result "
+            "object may not exceed 64 MiB, and a float costs ~8.3 bytes "
+            "stored) — capture fewer layers, narrow `positions` (the chat "
+            "template's own tokens are rarely the question), raise `every` "
+            "to take one position in n, or capture fewer records")
     if on_start:
         on_start(len(records))
 
