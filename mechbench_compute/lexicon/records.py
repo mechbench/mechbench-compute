@@ -320,6 +320,12 @@ records already done are reused, the rest are run. The body sees one
 record and nothing else, which is also why chunking a map is the same
 map: there is no state between records to lose.
 
+`over` is the other way to give the stream: a list of values, or
+`{"range": [0, 42]}`, each becoming a record of one field named by `as`.
+`{"over": {"range": [0, 42]}, "as": "layer"}` runs the body once per
+layer with `{"$param": "layer"}` filled in — where before the integers
+had to be stored as a corpus first.
+
 `collect` says what comes back. `stream` (the default) flattens every
 invocation's output into one collection, each item's id prefixed with
 its record's and carrying a `mapped` coordinate; `first` keeps one item
@@ -329,8 +335,9 @@ collect.
 """,
     inputs=(
         In("records", "records/record",
-           "The stream to map over: one invocation of the body per record.",
-           many=True),
+           "The stream to map over: one invocation of the body per record. "
+           "`over` is the other way to give one.",
+           many=True, required=False),
     ),
     output=Output('records/record', collection=True, doc="Under `stream`, every invocation's items in one collection, each id prefixed `<record>:<item>` and carrying `coords.mapped`; under `first` or `all`, one item per record. The header's `mapped` says how many records ran, under which policy, and what the body's nodes were."),
     params=(
@@ -343,6 +350,15 @@ collect.
         P("bind", "map[string, string]",
           "Hole name → the record field that fills it, per record.",
           None),
+        P("over", "json",
+          "The values to map over, in place of the `records` port: a list, "
+          "or `{\"range\": [0, 42]}`. Each becomes a one-field record, so a "
+          "sweep over layers needs no corpus of integers stored first.",
+          None),
+        P("as", "string",
+          "What `over`'s value is called inside the body — the `$param` it "
+          "fills, and the coordinate it lands on.",
+          "value"),
         P("collect", "string",
           "`\"stream\"` (flatten every invocation's items), `\"first\"` "
           "(one item per record) or `\"all\"` (nest each invocation's items "

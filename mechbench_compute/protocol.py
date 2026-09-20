@@ -997,6 +997,10 @@ class ProtocolExecutor:
                     results[nid] = self._run_model_block(
                         self._block_logit_attribution, inputs, params,
                         on_item=on_item, on_start=expand)
+                elif block == "intervene/path":
+                    results[nid] = self._run_model_block(
+                        self._block_path_patch, inputs, params,
+                        on_item=on_item, on_start=expand)
                 elif block == "intervene/patch":
                     results[nid] = self._run_model_block(
                         self._block_patch_trace, inputs, params,
@@ -1720,6 +1724,30 @@ class ProtocolExecutor:
                 "`edges`, run once per record. A stored protocol by "
                 "reference is task 000393's; an inline body works now.")
         bind = dict(params.get("bind") or {})
+        over = params.get("over")
+        if over is not None:
+            # A map over plain values (000603): the values ARE the
+            # stream, so they become records here and everything below
+            # is the map it always was. A layers sweep needs no corpus
+            # of integers stored on the bench to iterate.
+            if records:
+                raise ValueError(
+                    "records/map takes `over` or a `records` port, not both: "
+                    "one stream per map")
+            name = str(params.get("as") or "value")
+            if isinstance(over, Mapping):
+                span = over.get("range")
+                if not (isinstance(span, (list, tuple)) and len(span) == 2):
+                    raise ValueError('`over` is a list of values or `{"range": [from, to]}`')
+                values: list[Any] = list(range(int(span[0]), int(span[1])))
+            elif isinstance(over, (list, tuple)):
+                values = list(over)
+            else:
+                raise ValueError('`over` is a list of values or `{"range": [from, to]}`')
+            if not values:
+                raise ValueError("`over` names no values: nothing to map")
+            records = [{"id": str(v), "coords": {name: v}, name: v} for v in values]
+            bind = {name: name, **bind}
         collect = str(params.get("collect", "stream"))
         if collect not in ("stream", "first", "all"):
             raise ValueError(
@@ -2068,6 +2096,16 @@ class ProtocolExecutor:
         records = lexicon.items_of(inputs.get("records") or [])
         return interp.logit_attribution(
             model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_path_patch(self, inputs, params, on_item=None, on_start=None):
+        """intervene/path (task 000607): a sender's effect through one
+        receiver, with everything between them held at its clean value —
+        the edge test a circuit claim stands on."""
+        from mechbench_compute import paths
+
+        model = self._model_loaded(params.get("model"))
+        records = lexicon.items_of(inputs.get("records") or [])
+        return paths.run(model, records, params, on_item=on_item, on_start=on_start)
 
     def _block_patch_trace(self, inputs, params, on_item=None,
                            on_start=None):

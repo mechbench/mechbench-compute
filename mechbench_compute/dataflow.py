@@ -138,7 +138,11 @@ def map_bound_names(node: Mapping[str, Any]) -> frozenset[str]:
     params = node.get("params") or {}
     if block == "records/map":
         bind = params.get("bind")
-        return frozenset(bind) if isinstance(bind, Mapping) else frozenset()
+        names = set(bind) if isinstance(bind, Mapping) else set()
+        if params.get("over") is not None:
+            # A map over plain values binds the name `as` gives it.
+            names.add(str(params.get("as") or "value"))
+        return frozenset(names)
     if block == "records/fold":
         over = params.get("over")
         keys: set[str] = {"step"}

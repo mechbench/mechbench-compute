@@ -589,6 +589,90 @@ Because additivity only holds over the whole stream, `layers` must be
     example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
 
+PATH_PATCH = Op(
+    name="intervene/path",
+    requires="mlx-local",
+    summary=(
+        "A sender's effect through ONE receiver — its output corrupted, "
+        "everything between the two held clean — which is how a circuit's "
+        "edges are established rather than its nodes."
+    ),
+    description="""\
+`intervene/patch` changes what every downstream component sees, so a head
+that "matters" may matter only because the thing it feeds matters. This
+asks the narrower question a circuit claim needs: does what THIS head
+writes reach THAT head's query, as opposed to reaching the answer by some
+other route (Wang et al. 2022; Goldowsky-Dill et al. 2023)?
+
+Per sender: the clean prompt runs with the sender's output replaced by
+its value on the corrupt prompt and **every component between the sender
+and the receiver frozen at its clean value**, so the only thing that
+changed at the receiver's input is what arrived along the path; the
+receiver's new output is then written into an otherwise clean run, where
+the metric is read. `delta` is the change from the clean baseline.
+
+A **sender** writes into the residual stream: a head's own contribution
+(`attn.per_head_out`, read before `o_proj` concatenates it, which is what
+makes one head separable from its neighbours), a whole layer's
+`attn_out`, or its `mlp_out`. `senders: "all-heads"` sweeps every head of
+every earlier layer; `"all-layers"` sweeps the two branches of each.
+
+A **receiver** reads: a head's `attn.q`, `attn.k` or `attn.v` — "which
+heads feed this one's query" — or `logits`, which asks what reaches the
+answer directly rather than through anything else. A receiver of `logits`
+needs one pass per sender instead of two.
+
+The pair is a record's `a` (clean) and `b` (corrupt), as
+`intervene/patch` takes them, and they must tokenize to the same length.
+Cost is two forward passes per sender per record (one for `logits`), so
+`all-heads` on a 35-layer model is a few hundred passes: find the
+candidates with `intervene/patch method: "attribution"` first, then
+establish the edges here.
+
+**Read the small numbers as zero.** A path effect is a narrow channel by
+construction, and most senders reach a given receiver not at all: on a
+factual pair through Gemma 4 E2B the median sender moves the answer's
+logit by exactly 0 and one moves it by 1.5. Below about a quarter of a
+logit the model's own bf16 arithmetic is the larger term, so use `logit`
+(the most nearly linear metric), a pair whose clean and corrupt answers
+are far apart, and treat a delta of that size as no path at all.
+""",
+    inputs=(
+        In("records", "records/pair",
+           "Pairs, each with prompt strings `a` (clean) and `b` (corrupt), "
+           "and optionally its own `tracked`.", many=True),
+        ADAPTER,
+    ),
+    output=Output('intervene/readout', collection=True,
+                  doc='One item per record per sender: `delta` (the change in the target\'s metric from the clean baseline), `value`, `cell` (the sender named), and `coords` carrying the sender\'s `layer`, `point` and `head` beside the receiver\'s `into_layer`, `into_point`, `into_head`. The header carries `metric`, `receiver`, `n_senders` and `target`.'),
+    params=(
+        P("receiver", "object",
+          "What reads: `{\"point\": \"attn.q\", \"layer\": 23, \"head\": 5}`, "
+          "or `{\"point\": \"logits\"}` for what reaches the answer directly.",
+          {"point": "logits"}, fields=(
+              P("point", "string", "Where it reads.", "logits",
+                choices=("attn.q", "attn.k", "attn.v", "logits")),
+              P("layer", "int", "Its layer; none for `logits`.", None),
+              P("head", "int", "Its head, at a point that has them.", None),
+          )),
+        P("senders", "json",
+          "`\"all-heads\"`, `\"all-layers\"`, one object `{point, layer, "
+          "head}`, or a list of them. Every sender must be earlier than the "
+          "receiver.",
+          "all-heads"),
+        P("metric", "string",
+          "What the delta is measured in: the target's log-probability, its "
+          "probability, or its raw logit.",
+          "logprob", choices=("logprob", "prob", "logit")),
+        _tracked("the answer whose path is traced; the clean prompt's top‑1 "
+                 "by default"),
+    ),
+    example={"model": {"$param": "model"},
+             "receiver": {"point": "attn.q", "layer": 23, "head": 5},
+             "senders": "all-heads", "metric": "logit"},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/pairs"}}},
+)
+
 PATCH_TRACE = Op(
     name="intervene/patch",
     requires="mlx-local",
@@ -1533,7 +1617,7 @@ whole model by accident.
 
 OPS: tuple[Op, ...] = (
     INTERVENE, ABLATE_LAYERS, ABLATE_HEADS, ATTENTION_PATTERNS,
-    ATTRIBUTION_LOGITS, PATCH_TRACE, RESIDUALS_DIVERGENCE, RESIDUALS_VECTORS,
+    ATTRIBUTION_LOGITS, PATCH_TRACE, PATH_PATCH, RESIDUALS_DIVERGENCE, RESIDUALS_VECTORS,
     CAPTURE_TOKENS, EXAMPLES,
     LENS_POSITIONS, LENS_TRAJECTORY, STEER_INJECT,
     GENERATE, DECISION_READ, SCORE, TOKENIZE_STATS,

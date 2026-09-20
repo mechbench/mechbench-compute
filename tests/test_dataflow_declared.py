@@ -352,3 +352,34 @@ def test_keep_takes_two_words(fake_bench):
     with pytest.raises(ValueError, match="keep must be 'all' or 'outputs'"):
         _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "some",
               "outputs": [{"name": "kept", "from": {"node": "picked"}}]})
+
+
+def test_a_map_over_plain_values_needs_no_corpus(fake_bench):
+    """`over` is the other way to give a map its stream (000603): the
+    values become one-field records, and the name `as` gives them is the
+    body's own `$param`."""
+    # The body's own records are literal; what varies is the `$param`
+    # the map binds per value.
+    body = {"nodes": [{"id": "say", "block": "records/fill",
+                       "params": {"templates": {"note": "layer {layer}"}},
+                       "inputs": {"records": [{"id": "x", "coords": {}, "values": {}}]}}],
+            "edges": []}
+    graph = {"dataflow": 2, "nodes": [
+        {"id": "sweep", "block": "records/map",
+         "params": {"over": {"range": [0, 3]}, "as": "layer", "body": body},
+         "inputs": {}}], "edges": []}
+    payload, _ = _run({"graph": graph, "params": {}, "inputs": {}})
+    items = payload["outputs"]["sweep"]["items"]
+    assert [it["coords"]["layer"] for it in items] == [0, 1, 2]
+    assert [it["coords"]["mapped"] for it in items] == ["0", "1", "2"]
+
+
+def test_a_map_takes_one_stream_or_the_other(fake_bench):
+    body = {"nodes": [{"id": "n", "block": "records/rename", "params": {"fields": {}}}],
+            "edges": []}
+    graph = {"dataflow": 2, "nodes": [
+        {"id": "sweep", "block": "records/map",
+         "params": {"over": [1, 2], "body": body},
+         "inputs": {"records": [{"id": "r"}]}}], "edges": []}
+    with pytest.raises(ValueError, match="not both"):
+        _run({"graph": graph, "params": {}, "inputs": {}})

@@ -104,6 +104,7 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "records/fold": [(P, "_block_fold")],
     "weights/circuit": [(P, "_block_weights_circuit"), ("weights.py", "head_circuits")],
     "activations/examples": [(P, "_block_examples"), ("interp.py", "examples")],
+    "intervene/path": [(P, "_block_path_patch"), ("paths.py", "run")],
     "text/measure": [("blocks.py", "text_stats")],
     "eval/expect": [("blocks.py", "eval_expectation")],
     "geometry/compare": [("similarity.py", "geometry_similarity")],

@@ -13,6 +13,45 @@ nothing said so.
 
 ---
 
+## 0.119.0 — 2026-09-20
+
+### Changes that raise
+
+- `intervene/path` refuses a sender that is not earlier than its
+  receiver, a point that cannot be one end or the other, a `head` on a
+  point that has none, and a pair whose prompts tokenize to different
+  lengths.
+- `records/map` refuses `over` together with a `records` port, and an
+  `over` that names no values.
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- **`intervene/path`** (000607): path patching — a sender's output
+  replaced by its corrupt value with every component BETWEEN it and
+  the receiver frozen at its clean value, so the only thing that
+  changed at the receiver is what arrived along that path; the
+  receiver's new output is then read in an otherwise clean run. Senders
+  are heads (`attn.per_head_out`, read before `o_proj` concatenates
+  them), whole branches, or the sweeps `"all-heads"` / `"all-layers"`;
+  receivers are a head's `attn.q`/`k`/`v` or the `logits`. Two passes
+  per sender, one for a `logits` receiver.
+  The docs say to read the small numbers as zero: on a factual pair
+  through E2B the median sender moves the answer's logit by exactly 0
+  and one moves it by 1.5, and below about a quarter of a logit bf16 is
+  the larger term. The test that says the freezing is right: a pair
+  whose corrupt prompt IS its clean one moves nothing.
+- **`records/map` takes `over`** (000603): a list of values, or
+  `{"range": [0, 42]}`, in place of the `records` port, each becoming a
+  one-field record named by `as` — so a sweep over layers needs no
+  corpus of integers stored first. The values are the stream; everything
+  else about a map is unchanged.
+
+---
+
 ## 0.118.0 — 2026-09-20
 
 ### Changes that raise
