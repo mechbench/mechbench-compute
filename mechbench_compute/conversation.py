@@ -169,12 +169,14 @@ class Message:
 
 
 def render_for(agent: Agent, history: Sequence[Message], *,
-               perspective: str) -> list[pm.Message]:
+               perspective: str,
+               participants: Sequence[str] | None = None) -> list[pm.Message]:
     """The shared transcript as THIS participant sees it — `transcript.render`
     over the messages' wire form, with the participant's channels and
     `sees` (task 000617: one rendering, shared with `text/render`)."""
     rendered = TR.render([m.to_wire() for m in history], participant=agent.name,
-                         channels=agent.channels, perspective=perspective, sees=agent.sees)
+                         channels=agent.channels, perspective=perspective, sees=agent.sees,
+                         participants=participants)
     # A conversation that opens with this participant has nothing to
     # answer; providers want a user turn first, so the system prompt
     # carries the instruction and an empty opening is refused upstream.
@@ -386,7 +388,8 @@ def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
         view = render_for(
             agent, history,
             perspective=str(overrides.get(agent.name)
-                            or agent.perspective or default_perspective))
+                            or agent.perspective or default_perspective),
+            participants=names)
         system = system_for(agent, turn=turn, participants=names, values=values)
         entry = transports.get(agent.name)
         if entry is None:

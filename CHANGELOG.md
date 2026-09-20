@@ -13,6 +13,30 @@ nothing said so.
 
 ---
 
+## 0.121.1 — 2026-09-20
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ Every existing transcript renders as it did: a scripted
+  opening is spoken by a name that is not in `participants`, which is
+  the new rule as it was the old one.
+
+### Other
+
+- **A scripted line is one nobody in the transcript's `participants`
+  said**, not one whose author is called `user`. `text/render` took the
+  reserved name from `text/converse` when it was cut out of it, and a
+  magic participant name is an assumption about who is in a
+  conversation — which an op should not hold. The transcript's own list
+  of participants is the rule now; a transcript that lists none falls
+  back to the reserved name, for the transcripts already stored.
+
+---
+
 ## 0.121.0 — 2026-09-20
 
 ### Changes that raise

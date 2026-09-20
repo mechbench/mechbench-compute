@@ -192,3 +192,29 @@ class TestATurnComposedFromChat:
         composed = outs["next"]["items"][0]["messages"][-1]
         assert loop_turn["text"].split() and composed["text"] == loop_turn["text"]
         assert composed["participant"] == "ana" and composed["index"] == 1
+
+
+class TestWhoIsScripted:
+    """A line nobody in `participants` said is scripted — an opening, an
+    injection — and is never attributed. The transcript's own list is
+    the rule; no participant name is special (Benji's principle: the
+    ops carry no assumptions about who is in a conversation)."""
+
+    HISTORY = [_msg(0, "narrator", "You are at a crossroads."),
+               _msg(1, "ana", "Left."), _msg(2, "bo", "Right.")]
+
+    def test_a_non_participant_is_not_attributed_whatever_it_is_called(self):
+        view = TR.render(self.HISTORY, participant="ana", participants=["ana", "bo"])
+        assert view[0]["content"] == "You are at a crossroads."      # scripted
+        assert view[2]["content"] == "bo: Right."                    # a participant
+
+    def test_a_participant_called_user_is_attributed_like_anyone_else(self):
+        history = [_msg(0, "user", "I think left."), _msg(1, "ana", "Left it is.")]
+        view = TR.render(history, participant="ana", participants=["user", "ana"])
+        assert view[0]["content"] == "user: I think left."
+
+    def test_a_transcript_that_lists_nobody_keeps_the_old_convention(self):
+        view = TR.render(self.HISTORY, participant="ana")
+        assert view[0]["content"] == "narrator: You are at a crossroads."
+        scripted = TR.render([_msg(0, "user", "hello"), _msg(1, "ana", "hi")], participant="ana")
+        assert scripted[0]["content"] == "hello"

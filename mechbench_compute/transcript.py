@@ -26,6 +26,8 @@ MAIN = "main"
 #: human-authored injection). It is never attributed in a rendering:
 #: "user: hello" would read as a participant called "user".
 SCRIPT_SPEAKER = "user"
+#: Kept for a transcript that does not say who its participants are.
+#: Where it does, the list is the rule and this name is not special.
 PERSPECTIVES = ("others_as_user_attributed", "others_as_user_merged")
 
 #: What a participant re-reads of the room's reasoning, by default:
@@ -89,13 +91,18 @@ def _shown(policy: Any, thinking: str | None, turns_back: int) -> str | None:
 
 def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
            channels: Sequence[str] = (MAIN,), perspective: str = "others_as_user_attributed",
-           sees: Mapping[str, Any] | None = None) -> list[dict[str, str]]:
+           sees: Mapping[str, Any] | None = None,
+           participants: Sequence[str] | None = None) -> list[dict[str, str]]:
     """The shared transcript as THIS participant sees it: `[{role,
     content}]`, the messages a chat node sends.
 
     Own messages become `assistant`; everyone else's become `user`,
-    attributed by name under the attributed perspective (a scripted
-    line never is). Consecutive user-side messages merge into one,
+    attributed by name under the attributed perspective. A line nobody
+    in `participants` said is a SCRIPTED one — an opening, an injection
+    — and is never attributed, because "user: hello" would read as a
+    participant called user. (A transcript that lists no participants
+    falls back to the reserved name itself.) Consecutive user-side
+    messages merge into one,
     because providers require strict alternation and merging is the
     honest way to give it to them — the alternative is reordering
     someone's words. A message on a channel this participant is not on
@@ -127,7 +134,8 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
             thought = _shown(sees["own_thinking"], m.get("thinking"), own_back[i])
             turns.append(("assistant", f"{thought}\n\n{text}" if thought else text))
             continue
-        attributed = perspective == "others_as_user_attributed" and who != SCRIPT_SPEAKER
+        spoke = who in set(participants) if participants else who != SCRIPT_SPEAKER
+        attributed = perspective == "others_as_user_attributed" and spoke
         thought = _shown(sees["others_thinking"], m.get("thinking"), others_back[i])
         line = f"{who}: {text}" if attributed else text
         if thought:
@@ -174,7 +182,7 @@ def render_records(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict
         cid = str(t.get("id"))
         names = [str(n) for n in (t.get("participants") or [])]
         messages = render(t["messages"], participant=participant, channels=channels,
-                          perspective=perspective, sees=sees)
+                          perspective=perspective, sees=sees, participants=names)
         coords = {**(t.get("coords") or {}), "conversation": cid, "participant": participant}
         row: dict[str, Any] = {"id": cid, "coords": coords, "messages": messages}
         if system:
