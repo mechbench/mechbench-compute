@@ -689,6 +689,17 @@ def table_from_records(records: Any,
             "rows": rows}
 
 
+#: What a chart may be drawn as. `heat` is a grid of cells — (layer,
+#: position) from a trace, (layer, head) from a head sweep — and
+#: `tokens` is a prompt's own tokens coloured by a number each carries.
+MARKS = ("bar", "line", "point", "heat", "tokens")
+
+#: How a value becomes colour. Diverging is centred on zero, which is how
+#: a change reads; sequential runs from the lowest value, which is how a
+#: magnitude reads. The default is chosen by whether the values cross zero.
+SCALES = ("diverging", "sequential")
+
+
 def viz_spec(records: Any, params: Mapping[str, Any],
                source_label: str | None = None) -> dict[str, Any]:
     """A chart as a bench object: how to present an upstream table, stored
@@ -703,18 +714,39 @@ def viz_spec(records: Any, params: Mapping[str, Any],
     enc = params.get("encoding") or {}
     x = enc.get("x") or params.get("x")
     y = enc.get("y") or params.get("y")
-    if not x or not y:
-        raise ValueError("viz/spec needs encoding.x and encoding.y")
     mark = params.get("mark", "bar")
-    if mark not in ("bar", "line", "point"):
+    if mark not in MARKS:
         raise ValueError(
-            f"records/plot mark must be 'bar', 'line' or 'point', not {mark!r}")
+            f"records/plot mark must be one of {', '.join(MARKS)}, not {mark!r}")
+    # A heat mark needs a third field — the cell's value — and a token
+    # strip needs the tokens and the number that colours them; neither
+    # is an x/y pair (000616).
+    value = enc.get("value") or params.get("value")
+    text = enc.get("text") or params.get("text")
+    if mark == "heat" and not (x and y and value):
+        raise ValueError("a heat mark needs encoding.x, encoding.y and encoding.value")
+    if mark == "tokens":
+        if not (text and value):
+            raise ValueError("a tokens mark needs encoding.text and encoding.value")
+    elif not (x and y):
+        raise ValueError("viz/spec needs encoding.x and encoding.y")
+    encoding: dict[str, Any] = {}
+    for name, field in (("x", x), ("y", y), ("series", enc.get("series")),
+                        ("value", value), ("text", text),
+                        ("lo", enc.get("lo") or params.get("lo")),
+                        ("hi", enc.get("hi") or params.get("hi"))):
+        if field:
+            encoding[name] = field
+    scale = params.get("scale")
+    if scale is not None and str(scale) not in SCALES:
+        raise ValueError(
+            f"records/plot scale must be one of {', '.join(SCALES)}, not {scale!r}")
     spec: dict[str, Any] = {
         "kind": "records/chart",
         "title": params.get("title", ""),
         "mark": mark,
-        "encoding": {"x": x, "y": y,
-                     **({"series": enc["series"]} if enc.get("series") else {})},
+        "encoding": encoding,
+        **({"scale": str(scale)} if scale else {}),
     }
     if source_label:
         spec["source"] = source_label

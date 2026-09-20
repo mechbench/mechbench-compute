@@ -13,6 +13,37 @@ nothing said so.
 
 ---
 
+## 0.120.0 — 2026-09-20
+
+### Changes that raise
+
+- `records/plot` refuses a `heat` mark without `encoding.value`, and a
+  `tokens` mark without `encoding.text` and `encoding.value`.
+
+### Changes that alter results without raising
+
+- _None._ A bar, line or point chart with the encoding it had is the
+  same spec.
+
+### Other
+
+- **The two marks interp's figures are made of** (000616).
+  `mark: "heat"` is a grid of cells — `encoding: {x, y, value}` — for
+  the (layer, position) of `intervene/patch`, the (layer, head) of
+  `intervene/ablate-heads` and `intervene/path`, the (layer, prompt) of
+  `logits/attribute`; `scale` centres the colour on zero for a change
+  and runs it from the lowest value for a magnitude, choosing by
+  whether the values cross zero. `mark: "tokens"` is a prompt's own
+  tokens coloured by a number each carries — a per-token surprisal, a
+  probe's projection, the window `activations/examples` brings back —
+  rendered as text so it wraps and can be read.
+- An `lo`/`hi` encoding draws the interval `records/summarize` reports
+  (000609) as a whisker beside the point it belongs to; rows without
+  one are skipped, so a summary with intervals and one without are the
+  same chart otherwise.
+
+---
+
 ## 0.119.0 — 2026-09-20
 
 ### Changes that raise

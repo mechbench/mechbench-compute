@@ -838,30 +838,68 @@ stored location, the spec references it (`source`) and the chart is drawn
 from the live data; otherwise the rows ride inline under `data.rows` and the
 spec is self-contained. Coordinates are flattened into each row so they can
 be encoded directly.
+
+### The two marks interp actually needs
+
+Half of this platform's figures are grids: (layer, position) from
+`intervene/patch`, (layer, head) from `intervene/ablate-heads` or
+`intervene/path`, (layer, prompt) from `logits/attribute`. That is
+`mark: "heat"` with `encoding: {x, y, value}` — one cell per row, the
+value its colour, `scale: "diverging"` centred on zero where the number
+is a change and `"sequential"` where it is a magnitude.
+
+The other half are token strips: a prompt's own tokens, each coloured by
+a number it carries — a per-token surprisal from
+`activations/capture-tokens`, a probe's projection, the window
+`activations/examples` brings back. That is `mark: "tokens"` with
+`encoding: {text, value}`, where `text` names the field holding the
+row's tokens.
+
+An `lo`/`hi` encoding draws the interval `records/summarize` reports
+beside the point it belongs to.
 """,
     inputs=(
         In("records", "collection | records/table",
            "The table, or any collection of items, to chart.", many=True),
     ),
-    output=Output('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`), and `source` or `data`.'),
+    output=Output('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`, `value`, `text`, `lo`, `hi` as the mark uses them), `scale` when given, and `source` or `data`.'),
     params=(
         P("encoding", "object",
-          "`{\"x\": field, \"y\": field, \"series\": field}` — which fields "
-          "go on which axis, and which splits the data into series.",
+          "Which field goes where. `x`/`y` for the point-shaped marks, "
+          "`series` to split into series, `value` for a heat cell or a "
+          "token's colour, `text` for the token strip's tokens, `lo`/`hi` "
+          "for an interval.",
           None, fields=(
               P("x", "string", "The field on the x axis.", None),
               P("y", "string", "The field on the y axis.", None),
               P("series", "string", "The field that splits the rows into series.", None),
+              P("value", "string", "The number a heat cell or a token takes its colour from.", None),
+              P("text", "string", "The field holding a row's tokens, for a token strip.", None),
+              P("lo", "string", "The interval's lower end.", None),
+              P("hi", "string", "The interval's upper end.", None),
           )),
         P("x", "string", "The x field; the same as `encoding.x`.", None),
         P("y", "string", "The y field; the same as `encoding.y`.", None),
-        P("mark", "string", "The mark: `\"bar\"`, `\"line\"`, `\"point\"`.", "bar", choices=("bar", "line", "point")),
+        P("value", "string", "The value field; the same as `encoding.value`.", None),
+        P("text", "string", "The tokens field; the same as `encoding.text`.", None),
+        P("lo", "string", "The lower end; the same as `encoding.lo`.", None),
+        P("hi", "string", "The upper end; the same as `encoding.hi`.", None),
+        P("mark", "string",
+          "`\"bar\"`, `\"line\"`, `\"point\"`, `\"heat\"` (a grid of cells) "
+          "or `\"tokens\"` (a prompt's tokens, coloured).",
+          "bar", choices=("bar", "line", "point", "heat", "tokens")),
+        P("scale", "string",
+          "How `value` becomes colour: `\"diverging\"` centres on zero (a "
+          "recovery, a Δ log p), `\"sequential\"` runs from the lowest "
+          "value. Diverging when the values cross zero, by default.",
+          None, choices=("diverging", "sequential")),
         P("title", "string", "The chart's title.", ""),
     ),
     example={
         "title": "Δ log p by layer",
         "mark": "line",
-        "encoding": {"x": "layer", "y": "mean", "series": "genre"},
+        "encoding": {"x": "layer", "y": "mean", "series": "genre",
+                     "lo": "lo", "hi": "hi"},
     },
     example_inputs={"records": {"$ref": {"bench": "you/lab/table"}}},
 )
