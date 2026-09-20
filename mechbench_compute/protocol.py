@@ -1107,17 +1107,20 @@ class ProtocolExecutor:
                     target = f"{result_base}/{names[0]}"
                 else:
                     target = f"{result_base}/{dataflow.INTERMEDIATES}/{nid}"
-                if tensors_mod.is_tensor(results[nid]):
+                to_emit = results[nid]
+                if tensors_mod.is_tensor(to_emit):
                     # The rows go up first as raw shards under the
                     # result's label (retry-as-resume: a shard already
                     # there with the same hash is not sent again), then
-                    # the header is emitted as the object itself.
-                    results[nid] = tensors_mod.upload(
-                        results[nid], target, lambda lab, path: bench.put_file(lab, path, kind="tensor_shard"),
+                    # the header is emitted as the object itself. The
+                    # in-memory result keeps its local shard dir: a
+                    # consumer in this job reads the rows from there.
+                    to_emit = tensors_mod.upload(
+                        to_emit, target, lambda lab, path: bench.put_file(lab, path, kind="tensor_shard"),
                         have=bench.list_prefix_hashes(target))
                 out = bench.emit(
                     target,
-                    results[nid],
+                    to_emit,
                     # Lineage names the inputs that EXIST. A node run
                     # under `on_missing` (000399) has an upstream that
                     # produced nothing and so stored nothing — there is
@@ -1143,7 +1146,7 @@ class ProtocolExecutor:
                 # A node declared as several outputs is stored under each
                 # name; the first is the one its consumers' lineage cites.
                 for also in names[1:]:
-                    bench.emit(f"{result_base}/{also}", results[nid],
+                    bench.emit(f"{result_base}/{also}", to_emit,
                                inputs=[out["path"]],
                                operation=lexicon.canonical_path(block),
                                params=_wire_params(params))

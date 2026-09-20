@@ -16,7 +16,7 @@ def _items(n, d=6, seed=0):
     rng = np.random.default_rng(seed)
     out = []
     for i in range(n):
-        out.append({"id": f"p{i // 3}", "vector": rng.normal(size=d).astype(np.float32),
+        out.append({"id": f"p{i // 3}", "vector": rng.normal(size=d).astype(np.float32), "n_tok": i,
                     "space": {"model": "m", "layer": i % 2, "point": "resid_post", "d": d},
                     "coords": {"position": i, "surprisal": round(float(rng.random()), 4), "topic": "t"},
                     "token": {"id": i, "text": f"w{i}"}})
@@ -140,3 +140,66 @@ class TestARegressionStreamsTheShards:
         assert cos > 0.99, cos
         assert out["derivation"]["r2_test"] > 0.95 and out["derivation"]["n_items"] == 600
         assert out["derivation"]["n_train"] + out["derivation"]["n_test"] == 600
+
+
+class TestTheExecutorMovesShards:
+    """A node that emits a tensor collection: its shards go up as raw
+    objects under the result's label and its header is emitted stripped
+    of the local path — while a consumer in the same job still reads
+    the rows from the local shards. And a $ref to a stored one is
+    materialized before its consumer runs."""
+
+    def test_emit_uploads_shards_and_the_consumer_reads_locally(self, tmp_path, monkeypatch):
+        from mechbench_compute import bench, blocks, interp
+        from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+
+        put, emitted = [], {}
+        monkeypatch.setattr(bench, "put_file", lambda label, path, **kw: put.append((label, path.name)) or {"sizeBytes": 1})
+        monkeypatch.setattr(bench, "list_prefix_hashes", lambda prefix: {})
+        monkeypatch.setattr(bench, "emit", lambda target, payload, **kw: emitted.__setitem__(target, payload) or {"path": target})
+
+        def fake_capture(model, records, params, on_item=None, on_start=None):
+            w = tensors.ShardWriter(tmp_path / "w", max_rows=4)
+            for it in _items(10):
+                w.add(it)
+            return tensors.collection("activations/vector", w.close(), model="m", layers=[0, 1])
+
+        monkeypatch.setattr(interp, "capture_tokens", fake_capture)
+        monkeypatch.setattr(ProtocolExecutor, "_model_loaded", lambda self, model_id: object())
+        monkeypatch.setattr(ProtocolExecutor, "_run_model_block",
+                            lambda self, fn, inputs, params, *a, **k: fn(inputs, params, *a, **k))
+        graph = {"dataflow": 2, "nodes": [
+            {"id": "cap", "block": "activations/capture-tokens", "params": {"model": "fake/m", "layers": [0, 1]},
+             "inputs": {"records": [{"id": "r", "user": "x"}]}},
+            {"id": "sum", "block": "records/summarize", "params": {"value": "n_tok", "by": []}, "inputs": {}},
+        ], "edges": [{"from": {"node": "cap"}, "to": {"node": "sum", "port": "records"}}]}
+        out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,
+                                                  extra={"graph": graph, "resultPath": "you/lab/results/j1"}))
+        # The consumer read all ten rows from the local shards…
+        assert out.payload["outputs"]["sum"]["rows"][0]["n"] == 10
+        # …the shards went up under the result's label…
+        assert [p[0] for p in put] == [f"you/lab/results/j1/cap/shards/shard-000{k}.safetensors" for k in range(3)]
+        # …and the emitted header carries the shards, not the local path.
+        header = emitted["you/lab/results/j1/cap"]
+        assert header["storage"] == "tensor" and len(header["shards"]) == 3 and "_shard_dir" not in header
+        assert header["items"] == []
+
+    def test_a_ref_to_a_stored_tensor_collection_is_materialized(self, tmp_path, monkeypatch):
+        from mechbench_compute import bench, blocks
+        from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+
+        w = tensors.ShardWriter(tmp_path / "w", max_rows=4)
+        for it in _items(10):
+            w.add(it)
+        stored = tensors.upload(tensors.collection("activations/vector", w.close()), "you/lab/big",
+                                lambda label, path: None)
+        files = {f"you/lab/big/shards/{s['name']}": (tmp_path / "w" / s["name"]).read_bytes() for s in stored["shards"]}
+        monkeypatch.setattr(bench, "fetch", lambda ref, with_meta=False: ({"payload": stored}, {"content_hash": "sha256:x"}))
+        monkeypatch.setattr(bench, "get_file_chunks", lambda label: [files[label]])
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "home")
+        graph = {"dataflow": 2, "nodes": [
+            {"id": "sum", "block": "records/summarize", "params": {"value": "n_tok", "by": []},
+             "inputs": {"records": {"$ref": {"bench": "you/lab/big"}}}}], "edges": []}
+        out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
+        assert out.payload["outputs"]["sum"]["rows"][0]["n"] == 10
+        assert (tmp_path / "home" / ".mechbench" / "tensors").exists()

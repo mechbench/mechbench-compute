@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## 0.116.1 — 2026-09-19
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- A node that emits a tensor collection keeps its local shards for the
+  consumers in the same job; only the emitted header is stripped of
+  the local path. 0.116.0 stripped the in-memory result too, so a
+  `direction/regress` downstream of the capture in one job failed
+  before it read a row (caught on the first live run).
+
+---
+
 ## 0.116.0 — 2026-09-19
 
 ### Changes that raise
