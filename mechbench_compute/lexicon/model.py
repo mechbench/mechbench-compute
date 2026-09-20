@@ -881,6 +881,10 @@ which layer and point to read, so a probe from `direction/classify` needs
 nothing further — or a `neuron` `{"layer": 14, "index": 2048}`, read at
 `mlp.act` unless `point` says otherwise.
 
+Each window carries `values` as well as `tokens` — every token's own
+projection, not only the winner's — which is what `records/plot` draws as
+a token strip.
+
 `sign` chooses the end: `"high"` (the default), `"low"` — the tokens that
 most oppose it, which is where a direction's meaning often becomes clear —
 or `"both"`. The header's `over` carries the corpus's own moments (count,
@@ -896,7 +900,7 @@ came from rather than as a bare number.
         ADAPTER,
     ),
     output=Output('records/record', collection=True,
-                  doc='One item per kept window: `value` (the projection at the exciting token), `token`, `text` (the window), `tokens` (its token strings), `hit` (the exciting token\'s index among them), `rank`, and `coords` with `record`, `position` and — under `sign: "both"` — `side`. The header carries `model`, `layer`, `point`, `window`, `sign`, `neuron` when one was named, and `over`: the corpus\'s `n_tokens`, `mean`, `sd`, `min`, `max`.'),
+                  doc='One item per kept window: `value` (the projection at the exciting token), `token`, `text` (the window), `tokens` (its token strings), `values` (each of their projections, so `records/plot mark: "tokens"` colours the whole window), `hit` (the exciting token\'s index among them), `rank`, and `coords` with `record`, `position` and — under `sign: "both"` — `side`. The header carries `model`, `layer`, `point`, `window`, `sign`, `neuron` when one was named, and `over`: the corpus\'s `n_tokens`, `mean`, `sd`, `min`, `max`.'),
     params=(
         P("k", "int", "How many windows to keep at each end.", 10),
         P("window", "int", "How many tokens either side of the exciting one.", 8),

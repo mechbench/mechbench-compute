@@ -13,6 +13,25 @@ nothing said so.
 
 ---
 
+## 0.120.1 — 2026-09-20
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ (An added field.)
+
+### Other
+
+- Each window `activations/examples` brings back carries `values` —
+  every one of its tokens' projections, not only the winner's — so
+  `records/plot mark: "tokens"` colours the whole window and the shape
+  of the rise into the exciting token is visible.
+
+---
+
 ## 0.120.0 — 2026-09-20
 
 ### Changes that raise

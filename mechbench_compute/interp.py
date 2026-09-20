@@ -613,6 +613,10 @@ def examples(
                     "token": toks[pos],
                     "text": "".join(toks[a:b]),
                     "tokens": list(toks[a:b]),
+                    # Every token of the window, not only the one that
+                    # won it: a token strip (000616) colours them all,
+                    # and the shape of the rise is the interesting part.
+                    "values": [round(float(v), 5) for v in values[a:b]],
                     "hit": int(pos - a)}
 
         # Only this record's best few can enter the running top, so the

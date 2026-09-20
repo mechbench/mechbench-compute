@@ -36,6 +36,10 @@ class TestExamples:
         assert first["coords"]["record"] in ("r0", "r1")
         assert first["tokens"][first["hit"]] == first["token"]
         assert first["text"] == "".join(first["tokens"])
+        # Every token of the window carries its own projection, so the
+        # strip colours the whole window and not just the winner.
+        assert len(first["values"]) == len(first["tokens"])
+        assert first["values"][first["hit"]] == first["value"]
         assert len(first["tokens"]) <= 3        # the hit and one either side
 
     def test_the_header_says_what_the_corpus_was_like(self):
