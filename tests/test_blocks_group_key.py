@@ -90,3 +90,26 @@ class TestChartMarks:
         assert "scale" not in spec
         with pytest.raises(ValueError, match="one of bar, line, point, heat, tokens"):
             blocks.viz_spec(self.ROWS, {"mark": "sparkline", "x": "layer", "y": "mean"})
+
+    GRID = {"kind": "collection", "item_kind": "intervene/trace", "items": [
+        {"id": "eiffel", "coords": {"topic": "landmark"}, "axes": ["layer", "position"],
+         "tokens": ["The", " Tower", " is"],
+         "measures": {"recovery": [[0.1, 0.2, 0.3], [1.0, 2.0, 3.0]]}},
+    ]}
+
+    def test_a_grid_becomes_one_row_per_cell(self):
+        """A trace reads out a grid because that is the shape a heat map
+        is; a chart takes rows, so the cells become them (000616)."""
+        spec = blocks.viz_spec(self.GRID, {"mark": "heat", "x": "position", "y": "layer",
+                                           "value": "recovery"})
+        rows = spec["data"]["rows"]
+        assert len(rows) == 6
+        assert rows[0] == {"id": "eiffel", "topic": "landmark", "layer": 0, "position": 0,
+                           "token": "The", "recovery": 0.1}
+        assert rows[4]["layer"] == 1 and rows[4]["position"] == 1 and rows[4]["recovery"] == 2.0
+
+    def test_what_is_not_a_grid_is_left_alone(self):
+        assert blocks.grid_rows({"id": "x", "value": 1}) is None
+        assert blocks.grid_rows({"id": "x", "axes": ["layer"], "measures": {}}) is None
+        spec = blocks.viz_spec(self.ROWS, {"mark": "bar", "x": "layer", "y": "mean"})
+        assert len(spec["data"]["rows"]) == 1

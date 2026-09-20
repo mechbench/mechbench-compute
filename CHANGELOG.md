@@ -13,7 +13,7 @@ nothing said so.
 
 ---
 
-## 0.120.1 — 2026-09-20
+## 0.121.0 — 2026-09-20
 
 ### Changes that raise
 
@@ -25,6 +25,14 @@ nothing said so.
 
 ### Other
 
+- **A grid's cells are rows to a chart.** `intervene/patch`,
+  `intervene/path`, `intervene/ablate-heads` and the lens read out
+  grids — named measures indexed by `axes` — because that is the shape
+  a heat map is, and `records/plot` takes rows; so a grid on the port
+  expands, one row per cell, the axes as fields and `token` beside
+  `position` where the grid carries them. The UI does the same
+  expansion when it draws from a live source, so a chart says the same
+  thing either way (000616).
 - Each window `activations/examples` brings back carries `values` —
   every one of its tokens' projections, not only the winner's — so
   `records/plot mark: "tokens"` colours the whole window and the shape
