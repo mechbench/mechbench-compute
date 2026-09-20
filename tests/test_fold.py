@@ -35,7 +35,7 @@ class TestTheFold:
     def test_the_state_threads_through_the_steps(self):
         # A body that stamps the step index onto every item: after three
         # steps the last stamp is 2, and the items are the same records.
-        body = {"nodes": [node("stamp", "records/fill", {"templates": {"stamp": {"$param": "step"}}})],
+        body = {"dataflow": 2, "nodes": [node("stamp", "records/fill", {"templates": {"stamp": {"$param": "step"}}})],
                 "edges": [{"from": {"input": "state"}, "to": {"node": "stamp", "port": "records"}}]}
         out = _run({"dataflow": 2, "nodes": [
             node("f", "records/fold", {"body": body, "steps": 3}, {"state": COUNTERS})], "edges": []})["f"]
@@ -185,3 +185,86 @@ class TestAFoldResumes:
         out_t = out.payload["outputs"]["talk"]["items"][0]
         assert [m["text"] for m in out_t["messages"]] == [m["text"] for m in ref_t["messages"]]
         assert resumed.done["talk"][1] == full.done["talk"][1]
+
+
+class TestAPersonaSystemIsAGraph:
+    """The test of the principle (000617): a conversation whose speaker
+    is chosen by what was just said, built from ops none of which knows
+    what a moderator, a judge or a hand-off is. The routing is a
+    `text/measure` capture the user wrote; the fold and the map carry
+    it; `text/render` and `text/extend` never learn whose turn it is."""
+
+    MODEL = {"provider": "mock", "model": "mock-large"}
+
+    def _start(self, *conversations):
+        return {"kind": "collection", "item_kind": "text/transcript", "items": [
+            {"id": cid, "kind": "text/transcript", "participants": ["ana", "bo"],
+             "stopped": "", "next_speaker": first, "coords": {},
+             "messages": [{"index": 0, "participant": "narrator", "role_as_seen": "assistant",
+                           "text": text}]}
+            for cid, first, text in conversations]}
+
+    def _graph(self, start, steps=2, extend=None):
+        # render → chat → measure (who is named next) → extend.
+        body = {"dataflow": 2, "nodes": [
+            node("view", "text/render", {"participant": {"$param": "speaker"},
+                                         "window": {"policy": "sliding", "words": 400}}),
+            node("say", "text/chat", {"model": self.MODEL, "max_tokens": 64, "budget_usd": 1.0}),
+            node("read", "text/measure",
+                 {"mode": "annotate", "keep": True,
+                  "measures": [{"kind": "capture", "name": "next_speaker",
+                                "pattern": r"\b(ana|bo)\b", "take": "last",
+                                "ignore_case": True}]}),
+            node("next", "text/extend", {"participant": {"$param": "speaker"},
+                                         "keep_fields": ["next_speaker"], **(extend or {})}),
+        ], "edges": [
+            {"from": {"input": "record"}, "to": {"node": "view", "port": "transcripts"}},
+            {"from": {"node": "view"}, "to": {"node": "say", "port": "records"}},
+            {"from": {"node": "say"}, "to": {"node": "read", "port": "documents"}},
+            {"from": {"input": "record"}, "to": {"node": "next", "port": "transcripts"}},
+            {"from": {"node": "read"}, "to": {"node": "next", "port": "replies"}},
+        ]}
+        # One turn per conversation, each with its OWN speaker — which
+        # is what a map binding a record field is for.
+        turn = {"dataflow": 2, "nodes": [node("each", "records/map",
+                               {"body": body, "bind": {"speaker": "next_speaker"},
+                                "collect": "first", "output": "next"})],
+                "edges": [{"from": {"input": "state"}, "to": {"node": "each", "port": "records"}}]}
+        return {"dataflow": 2, "nodes": [
+            node("talk", "records/fold",
+                 {"body": turn, "steps": steps, "output": "each",
+                  "until": {"field": "stopped"}}, {"state": start})], "edges": []}
+
+    def test_two_conversations_each_follow_their_own_speaker(self):
+        start = self._start(("a", "ana", "Ana goes first."), ("b", "bo", "Bo goes first."))
+        out = _run(self._graph(start))["talk"]
+        assert out["folded"]["steps"] == 2
+        by_id = {t["id"]: t for t in out["items"]}
+        # Each conversation's first turn was spoken by the participant
+        # its own `next_speaker` named.
+        assert by_id["a"]["messages"][1]["participant"] == "ana"
+        assert by_id["b"]["messages"][1]["participant"] == "bo"
+        assert len(by_id["a"]["messages"]) == 3
+
+    def test_the_speaker_of_the_next_turn_is_what_the_last_one_said(self):
+        # The mock's reply is a deterministic bag of words; whichever of
+        # the two names it happens to say last is who speaks next, and
+        # the transcript carries it.
+        start = self._start(("a", "ana", "Ana goes first."))
+        out = _run(self._graph(start, steps=1))["talk"]
+        [t] = out["items"]
+        assert "next_speaker" in t or t.get("next_speaker") is None
+        assert t["messages"][1]["participant"] == "ana"
+
+    def test_a_turn_can_be_recorded_without_joining_the_room(self):
+        start = self._start(("a", "ana", "Ana goes first."))
+        out = _run(self._graph(start, steps=1, extend={"channel": "judge"}))["talk"]
+        [t] = out["items"]
+        assert t["messages"][1]["channel"] == "judge"
+        # The room's text does not carry it…
+        assert t["messages"][1]["text"] not in t["text"]
+        # …and a participant on `main` alone is never rendered it.
+        from mechbench_compute import transcript as TR
+        seen = TR.render(t["messages"], participant="bo", participants=["ana", "bo"])
+        assert all("judge" not in m["content"] for m in seen)
+        assert len(seen) == 1

@@ -176,7 +176,7 @@ DOCUMENT = Kind(
 
 TRANSCRIPT = Kind(
     "text/transcript",
-    "One multi-party conversation: its messages in order, each with who said it and the role each side saw it as.",
+    "One multi-party conversation: its messages in order, each with who said it and the role each side saw it as. A record, so every op that reads records reads transcripts.",
     fields={
         "id": ID,
         "messages": F("array", "`{index, participant, role_as_seen, text, call?, tool_calls?, channel?}`, in order.", items={"type": "object"}),
@@ -185,6 +185,7 @@ TRANSCRIPT = Kind(
         "text": F("string", "The transcript rendered as text, for the browser.", **{"x-mechbench-text": True}),
     },
     required=("id", "messages"),
+    extends="records/record",
     key=("id",),
     header={"name": "A label for the collection.", "description": "Free text beside the name.",
             "spend": "What the run bought from providers."},

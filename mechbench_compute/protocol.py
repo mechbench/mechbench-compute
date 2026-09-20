@@ -1765,6 +1765,15 @@ class ProtocolExecutor:
         child._model, child._model_id = self._model, self._model_id
 
         items: list[dict[str, Any]] = []
+        # Under `stream` and `first` the items ARE the body's, so the
+        # collection is of the body's kind: a map over transcripts that
+        # produces transcripts emits transcripts, and the next node's
+        # port is satisfied by what it actually holds (000617).
+        out_kind: str | None = None
+        # What the body is handed one of: the stream's own kind, or a
+        # plain record when the values came from `over` or a bare list.
+        wired = inputs.get("records")
+        record_kind = (K.item_kind_of(wired) if isinstance(wired, Mapping) else None) or "records/record"
         for rec in records:
             key = str(rec.get("id"))
             if resume_items and key in resume_items:
@@ -1785,8 +1794,14 @@ class ProtocolExecutor:
             child_bound = {**(bindings or {}), **bound}
             out = child.run(ProtocolSpec(
                 kind="pipeline", prompt="", model_id=None,
+                # The record itself, for a body that needs more of it
+                # than `bind` can name: an edge from `{"input":
+                # "record"}` carries it, the way a fold's body takes its
+                # `state`. A declared body may read it; a legacy one
+                # never named it and is untouched.
                 extra={"graph": body, "bindings": child_bound,
-                       "params": child_bound}),
+                       "params": child_bound,
+                       "inputs": {"record": K.collection(record_kind, [rec])}}),
                 secrets=secrets)
             outputs = out.payload.get("outputs") or {}
             if want:
@@ -1801,6 +1816,8 @@ class ProtocolExecutor:
                 raise ValueError(
                     f"the body ends at {len(outputs)} nodes "
                     f"({', '.join(sorted(outputs))}); name one with `output`")
+            if collect != "all":
+                out_kind = out_kind or K.item_kind_of(chosen)
             if collect == "stream":
                 for sub in K.items_of(chosen):
                     item = dict(sub)
@@ -1821,7 +1838,7 @@ class ProtocolExecutor:
         # the parent's next node does not reload what is already resident.
         self._model, self._model_id = child._model, child._model_id
         return K.collection(
-            "records/record", items,
+            out_kind or "records/record", items,
             mapped={"records": len(records), "collect": collect,
                     "body_nodes": [n.get("id") for n in body.get("nodes", [])]},
             name=params.get("name"), description=params.get("description"))

@@ -942,10 +942,10 @@ def text_stats(inputs: Mapping[str, Any],
     for m in measures:
         kind = m.get("type") or m.get("kind")
         name = m.get("name") or kind
-        if kind not in ("pattern", "lexical", "corpus_frequency", "list"):
+        if kind not in ("pattern", "lexical", "corpus_frequency", "list", "capture"):
             raise ValueError(
                 f"text/measure: unknown measure type {kind!r}: one of "
-                "'pattern', 'lexical', 'corpus_frequency', 'list'")
+                "'pattern', 'lexical', 'corpus_frequency', 'list', 'capture'")
         if kind == "pattern":
             flags = re.IGNORECASE if m.get("ignore_case") else 0
             pats = [re.compile(pat, flags) for pat in m["patterns"]]
@@ -979,6 +979,34 @@ def text_stats(inputs: Mapping[str, Any],
                               "stat": stat,
                               "lowercase": lower,
                               "min_length": int(m.get("min_length", 1))}))
+        elif kind == "capture":
+            # One value, under the name asked for (000618). A `list`
+            # measure could already read it, as "the first item of a
+            # list this text said" — with five columns of list
+            # statistics and a `_first` suffix nobody wanted.
+            if not m.get("pattern"):
+                raise ValueError(
+                    f"text/measure measure {name!r}: a capture needs a `pattern`")
+            take = m.get("take", "first")
+            if take not in ("first", "last"):
+                raise ValueError(
+                    f"text/measure measure {name!r}: take is 'first' or "
+                    f"'last', not {take!r}")
+            as_ = m.get("as", "string")
+            if as_ not in ("string", "number"):
+                raise ValueError(
+                    f"text/measure measure {name!r}: `as` is 'string' or "
+                    f"'number', not {as_!r}")
+            on_missing = m.get("on_missing", "null")
+            if on_missing not in ("null", "error"):
+                raise ValueError(
+                    f"text/measure measure {name!r}: on_missing is 'null' or "
+                    f"'error', not {on_missing!r}")
+            compiled.append((name, kind, {
+                "pattern": re.compile(
+                    m["pattern"], re.IGNORECASE | re.DOTALL if m.get("ignore_case") else re.DOTALL),
+                "group": int(m.get("group", 1)),
+                "take": take, "as": as_, "on_missing": on_missing}))
         elif kind == "list":
             fold = bool(m.get("ignore_case", False))
             vocab = m.get("items")
@@ -1000,6 +1028,7 @@ def text_stats(inputs: Mapping[str, Any],
     # What the corpus said, item by item (000551): the vocabulary labels
     # an answer, it does not decide whether the answer counts.
     said: dict[str, dict[str, dict]] = {}
+    captured: dict[str, list[Any]] = {}
     corpus_words: list[str] = []
     for r in recs:
         text = str(r.get(field, ""))
@@ -1018,6 +1047,35 @@ def text_stats(inputs: Mapping[str, Any],
                 row[f"{name}_dup"] = (round(1.0 - distinct / len(words), 4)
                                       if words else 0.0)
                 corpus_words.extend(words)
+            elif kind == "capture":
+                found = list(cfg["pattern"].finditer(text))
+                hit = (found[-1] if cfg["take"] == "last" else found[0]) if found else None
+                value: Any = None
+                if hit is not None:
+                    group = cfg["group"] if hit.groups() else 0
+                    try:
+                        value = hit.group(group)
+                    except (IndexError, re.error):
+                        raise ValueError(
+                            f"text/measure measure {name!r}: the pattern has no "
+                            f"group {cfg['group']}") from None
+                if value is None and cfg["on_missing"] == "error":
+                    raise ValueError(
+                        f"text/measure measure {name!r}: {r.get('id')!r} says "
+                        "nothing the pattern matches. Set on_missing: 'null' if "
+                        "that is expected.")
+                if value is not None and cfg["as"] == "number":
+                    try:
+                        value = float(value)
+                    except ValueError:
+                        raise ValueError(
+                            f"text/measure measure {name!r}: {r.get('id')!r} "
+                            f"captured {value!r}, which is not a number") from None
+                    if value.is_integer():
+                        value = int(value)
+                if value is not None:
+                    row[name] = value
+                    captured.setdefault(name, []).append(value)
             elif kind == "list":
                 body: str | None = text
                 if cfg["extract"] is not None:
@@ -1104,6 +1162,22 @@ def text_stats(inputs: Mapping[str, Any],
                 summary[f"{name}_unknown_rate"] = (
                     round(sum(r[f"{name}_unknown"] for r in out) / n_items, 4)
                     if n_items else 0.0)
+        elif kind == "capture":
+            values = captured.get(name, [])
+            summary[f"{name}_captured"] = len(values)
+            summary[f"{name}_rate"] = round(len(values) / len(out), 4) if out else 0.0
+            numbers = [v for v in values if isinstance(v, (int, float))]
+            if numbers:
+                summary[f"{name}_mean"] = round(sum(numbers) / len(numbers), 4)
+            else:
+                # What the texts said, commonest first — the tally a
+                # captured label is usually wanted for.
+                counts: dict[str, int] = {}
+                for v in values:
+                    counts[str(v)] = counts.get(str(v), 0) + 1
+                summary[f"{name}_values"] = [
+                    {"value": v, "count": n} for v, n in
+                    sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
         elif kind == "lexical":
             summary[f"{name}_corpus_words"] = len(corpus_words)
             summary[f"{name}_corpus_distinct"] = len(set(corpus_words))

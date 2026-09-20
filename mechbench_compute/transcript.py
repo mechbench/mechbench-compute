@@ -74,6 +74,40 @@ def parse_sees(value: Any) -> dict[str, Any]:
     return out
 
 
+#: How a transcript is cut down to fit. `truncate_oldest` keeps the
+#: tail; `sliding` keeps the tail AND the opening turn, because the
+#: opening usually carries the task.
+WINDOW_POLICIES = ("none", "truncate_oldest", "sliding")
+
+
+def _words(messages: Sequence[Mapping[str, Any]]) -> int:
+    """A cheap length, in words: the window is a budget, not a
+    tokenizer, and a participant's own model is what would count."""
+    return max(1, sum(len(str(m.get("text", "")).split()) for m in messages))
+
+
+def windowed(messages: Sequence[Mapping[str, Any]],
+             window: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(kept, dropped) under a window policy. How much of a transcript a
+    participant sees is part of what it sees, which is why this belongs
+    beside the rendering and not in a loop (000617)."""
+    messages = [dict(m) for m in messages]
+    if not window:
+        return messages, []
+    kind = str(window.get("policy", "none"))
+    if kind not in WINDOW_POLICIES:
+        raise ValueError(
+            f"unknown window policy {kind!r} — one of {', '.join(WINDOW_POLICIES)}")
+    budget = int(window.get("words", 0))
+    if kind == "none" or budget <= 0 or not messages:
+        return messages, []
+    kept, dropped = list(messages), []
+    while len(kept) > 1 and _words(kept) > budget:
+        # `sliding` protects the opening turn as well as the tail.
+        dropped.append(kept.pop(1 if kind == "sliding" and len(kept) > 2 else 0))
+    return kept, dropped
+
+
 def _shown(policy: Any, thinking: str | None, turns_back: int) -> str | None:
     """The thinking a policy lets through for a message `turns_back`
     turns from the end of that speaker's (or the others') turns —
@@ -92,7 +126,8 @@ def _shown(policy: Any, thinking: str | None, turns_back: int) -> str | None:
 def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
            channels: Sequence[str] = (MAIN,), perspective: str = "others_as_user_attributed",
            sees: Mapping[str, Any] | None = None,
-           participants: Sequence[str] | None = None) -> list[dict[str, str]]:
+           participants: Sequence[str] | None = None,
+           window: Mapping[str, Any] | None = None) -> list[dict[str, str]]:
     """The shared transcript as THIS participant sees it: `[{role,
     content}]`, the messages a chat node sends.
 
@@ -117,6 +152,9 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
     sees = parse_sees(sees)
     seen = set(channels)
     visible = [m for m in messages if str(m.get("channel", MAIN)) in seen]
+    # What is beyond the window was not seen at all — dropped before the
+    # perspective is applied, so the turns that remain still alternate.
+    visible, _dropped = windowed(visible, window)
     # How many turns back each message is, among its own kind — the
     # speaker's own turns for `own_thinking`, everyone else's for
     # `others_thinking` — counted from the end.
@@ -176,13 +214,15 @@ def render_records(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict
     perspective = str(params.get("perspective") or "others_as_user_attributed")
     sees = parse_sees(params.get("sees"))
     channels = tuple(params.get("channels") or (MAIN,))
+    window = params.get("window")
     system = str(params.get("system") or "")
     rows = []
     for t in _transcripts(inputs.get("transcripts")):
         cid = str(t.get("id"))
         names = [str(n) for n in (t.get("participants") or [])]
         messages = render(t["messages"], participant=participant, channels=channels,
-                          perspective=perspective, sees=sees, participants=names)
+                          perspective=perspective, sees=sees, participants=names,
+                          window=window)
         coords = {**(t.get("coords") or {}), "conversation": cid, "participant": participant}
         row: dict[str, Any] = {"id": cid, "coords": coords, "messages": messages}
         if system:
@@ -191,6 +231,7 @@ def render_records(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict
         rows.append(row)
     return K.collection("records/record", rows, participant=participant,
                         perspective=perspective, sees=sees,
+                        **({"window": dict(window)} if window else {}),
                         description=f"Every transcript as {participant} sees it.")
 
 
@@ -220,6 +261,8 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
     from mechbench_compute.lexicon import kinds as K
 
     participant = str(params["participant"])
+    channel = str(params.get("channel") or MAIN)
+    keep_fields = [str(f) for f in (params.get("keep_fields") or [])]
     stop_phrases = [str(x) for x in (params.get("stop_phrases") or []) if str(x)]
     max_messages = params.get("max_messages")
     replies: dict[str, list[Mapping[str, Any]]] = {}
@@ -246,6 +289,10 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
             "index": len(t["messages"]), "participant": participant,
             "role_as_seen": "assistant", "text": said,
         }
+        if channel != MAIN:
+            # Recorded, but not part of the room: only a participant
+            # whose `channels` include this one will be rendered it.
+            message["channel"] = channel
         if thought:
             message["thinking"] = thought
         call = (d.get("metadata") or {}).get("call")
@@ -254,6 +301,11 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
         names = [str(n) for n in (t.get("participants") or [])]
         if participant not in names:
             names.append(participant)
+        known = {"id", "kind", "coords", "participants", "messages", "stopped",
+                 "text", "turns", "metadata"}
+        # The transcript's own carried fields stand until a reply
+        # replaces one.
+        standing = {k: v for k, v in t.items() if k not in known}
         # Why the conversation is over, when this turn ended it: a stop
         # phrase in what was said, or the message cap reached. A fold's
         # `until: {"field": "stopped"}` reads it.
@@ -265,8 +317,12 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
                 stopped = f"stop_phrase:{hit}"
             elif max_messages is not None and len(messages) >= int(max_messages):
                 stopped = "max_messages"
+        # What the reply said about itself, carried onto the transcript:
+        # a verdict, a rating, whose turn is next. The op does not know
+        # what any of them mean — it carries what it was told to.
+        carried = {**standing, **{f: d[f] for f in keep_fields if f in d}}
         items.append(transcript_item(cid, messages, participants=names,
-                                     stopped=stopped,
+                                     stopped=stopped, carried=carried,
                                      coords=dict(t.get("coords") or {}),
                                      metadata=dict(t.get("metadata") or {})))
     return K.collection(TRANSCRIPT_KIND, items, fidelity="segments",
@@ -276,13 +332,15 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
 def transcript_item(cid: str, messages: Sequence[Mapping[str, Any]], *,
                     participants: Sequence[str], stopped: str = "",
                     coords: Mapping[str, Any] | None = None,
-                    metadata: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                    metadata: Mapping[str, Any] | None = None,
+                    carried: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """One conversation as its kind declares it: `messages`,
     `participants` and `stopped` at the top level, `turns` and `text`
     (the visible turns) for the browser, and coords on the item as
     every record's are."""
     visible = [m for m in messages if str(m.get("channel", MAIN)) == MAIN]
     return {
+        **dict(carried or {}),
         "id": cid,
         "kind": TRANSCRIPT_KIND,
         "coords": dict(coords or {}),

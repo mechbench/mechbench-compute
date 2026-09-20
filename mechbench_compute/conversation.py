@@ -266,29 +266,27 @@ class TurnPolicy:
 
 def apply_window(history: list[Message], *, policy: Mapping[str, Any],
                  count_tokens) -> tuple[list[Message], list[Message]]:
-    """Fit the history into the window. Returns (kept, dropped).
+    """Fit the history into the window — `transcript.windowed` over the
+    messages' wire form, so there is one window and not two (000617).
 
-    `truncate_oldest` and `sliding` differ in what they protect: the
-    first keeps the tail, the second keeps the tail AND the opening
-    turn, because the opening usually carries the task.
+    `count_tokens` is read for the budget's units only; the policy's
+    `tokens` is the budget, and the cut itself is the shared one.
     """
+    if not history:
+        return history, []
     kind = str(policy.get("policy", "none"))
     if kind not in WINDOW_POLICIES:
         raise ValueError(
             f"unknown window policy {kind!r} — one of {WINDOW_POLICIES}")
-    if kind == "none" or not history:
-        return history, []
-    budget = int(policy.get("tokens", 0))
-    if budget <= 0:
-        return history, []
-    kept = list(history)
-    dropped: list[Message] = []
-    while len(kept) > 1 and count_tokens(kept) > budget:
-        if kind == "sliding" and len(kept) > 2:
-            dropped.append(kept.pop(1))     # keep the opening turn
-        else:
-            dropped.append(kept.pop(0))
-    return kept, dropped
+    # `summarize` cuts like `truncate_oldest`; what it does with the
+    # dropped turns — ask a model to summarise them — is this op's, not
+    # the window's.
+    window = {"policy": "truncate_oldest" if kind == "summarize" else kind,
+              "words": int(policy.get("tokens", 0))}
+    kept_wire, _dropped = TR.windowed([m.to_wire() for m in history], window)
+    kept_at = {int(m["index"]) for m in kept_wire}
+    kept = [m for m in history if m.index in kept_at]
+    return kept, [m for m in history if m.index not in kept_at]
 
 
 # --- the block ----------------------------------------------------------------------

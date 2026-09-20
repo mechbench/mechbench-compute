@@ -13,6 +13,68 @@ nothing said so.
 
 ---
 
+## 0.122.0 — 2026-09-20
+
+### Changes that raise
+
+- A `capture` measure refuses a missing `pattern`, a `take` other than
+  `first`/`last`, an `as` other than `string`/`number`, a value that
+  is not a number when one was asked for, and — under `on_missing:
+  "error"` — a text that matches nothing, naming the record.
+- `text/render` refuses a window policy outside `none`,
+  `truncate_oldest`, `sliding`.
+
+### Changes that alter results without raising
+
+- **`records/map` emits its BODY's item kind** under `stream` and
+  `first`, where it always said `records/record`. The items are the
+  same items; what the collection calls them is now what they are, so
+  a map over transcripts that produces transcripts satisfies a port
+  that wants transcripts. Under `all` — where each item nests a list —
+  it is a plain record as before.
+- `text/transcript` declares `extends: "records/record"`. It always
+  was one; now the lattice says so, and a transcript reaches every op
+  that reads records.
+- `text/extend`'s `replies` port takes `records/record` where it took
+  `text/document`. A document still fits; so now does a document a
+  `text/measure` has read something out of.
+
+### Other
+
+- **A `capture` measure** (000618): `{"kind": "capture", "name":
+  "rating", "pattern": …, "as": "number", "take": "last"}` writes one
+  field, under the name given, in `annotate` mode — a rating, a label,
+  a field of the JSON a local model wrote (where `json_mode` is
+  refused and the reply is only ever text). A `list` measure of one
+  thing could always read it, as `<name>_first` with five columns of
+  list statistics; this says what it is. In `corpus` mode it reports
+  how often it fired, the mean of the numbers or a tally of the
+  values.
+- **A map's body may take the record itself**, on an input named
+  `record`, the way a fold's body takes its `state` — so a body that
+  needs more of a record than `bind` can name has a port for it. A
+  body that never names it is untouched.
+- **`text/extend` takes a `channel`**, so a turn can be on the record
+  without being in the room, and **`keep_fields`**, carrying named
+  fields from the reply onto the transcript — a verdict, a rating,
+  whose turn is next. What they mean is the graph's business.
+- **`text/render` takes a `window`**: how much of a transcript a
+  participant sees, `truncate_oldest` or `sliding` (which keeps the
+  opening turn, because the opening carries the task). `text/converse`
+  now cuts with the same function, so there is one window and not two.
+- **A `$param` bound by a node inside a body is that node's**, however
+  deep: a `records/fold` whose step is a `records/map` binds per
+  record, two bodies down, and neither checker called it the
+  protocol's any more (compute and models both).
+
+With those, a conversation whose speaker is chosen by what was just
+said runs as a graph of ops none of which knows what a moderator, a
+judge or a hand-off is: `records/fold` → `records/map` →
+`text/render` → `text/chat` → `text/measure` → `text/extend`. The
+routing is the capture the user wrote.
+
+---
+
 ## 0.121.1 — 2026-09-20
 
 ### Changes that raise

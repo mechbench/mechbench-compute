@@ -339,7 +339,7 @@ collect.
            "`over` is the other way to give one.",
            many=True, required=False),
     ),
-    output=Output('records/record', collection=True, doc="Under `stream`, every invocation's items in one collection, each id prefixed `<record>:<item>` and carrying `coords.mapped`; under `first` or `all`, one item per record. The header's `mapped` says how many records ran, under which policy, and what the body's nodes were."),
+    output=Output('records/record', collection=True, doc="Under `stream`, every invocation's items in one collection, each id prefixed `<record>:<item>` and carrying `coords.mapped`; under `first` or `all`, one item per record. Under `stream` and `first` the collection takes the BODY's item kind — a map over transcripts that produces transcripts emits transcripts — and under `all`, where each item nests a list, it is a plain record. The header's `mapped` says how many records ran, under which policy, and what the body's nodes were."),
     params=(
         P("body", "object",
           "The graph to run per record — `{nodes, edges}`, the same shape a "
@@ -637,6 +637,16 @@ Each entry of `measures` is applied to every record's `text`:
 | `lexical` | `<name>_words`, `<name>_distinct`, `<name>_dup` (1 − distinct/words) | `lowercase` (default true), `min_length` |
 | `corpus_frequency` | `<name>`: the statistic over the reference frequency of the text's words; `<name>_coverage`: the fraction of words found in the table | `frequencies` (word → count, or wire a `frequencies` input), `stat`: `"mean_log10"` (rarer vocabulary ⇒ lower), `"mean"` or `"coverage"`, `lowercase`, `min_length` |
 | `list` | `<name>_parsed` (1 if the list was found), `<name>_items`, `<name>_distinct`, `<name>_duplicates`, `<name>_unknown` (items outside `items`, when given), `<name>_first`, `<name>_valid` (found, no duplicates, nothing unknown, and `count` items when given) | `separator` (default `", "`), `extract` (a regex whose first group is the list; the whole text without it), `items` (the vocabulary: a list, or a map's `weights` or `uniform`), `count`, `ignore_case` |
+| `capture` | `<name>`: the value the pattern's group held, absent when nothing matched | `pattern` (the regex), `group` (default 1; the whole match when the pattern has none), `as`: `"string"` or `"number"`, `take`: the `"first"` match or the `"last"`, `on_missing`: `"null"` or `"error"`, `ignore_case` |
+
+A **capture** is the one that reads a value out rather than counting or
+tallying: a rating the model wrote, a label it chose, a field of the JSON
+it produced — and a local model is the case that needs it, since
+`json_mode` is refused there and the reply is only ever text. The value
+lands under the name given, as a number when asked, so it can be bound
+into a `records/map`, grouped by `records/summarize` or plotted without a
+rename. (A `list` measure of one thing could always read it; it wrote
+`<name>_first` and five columns of list statistics to do so.)
 
 In `annotate` mode the output is the records with those fields added —
 ready for `records/select`, `records/summarize` or `trajectory/capture`. To
@@ -674,13 +684,30 @@ and "Steampunk Fantasy" are readable beside the names the map has.
           "table above.",
           None, fields=(
               P("type", "string", "Which measurement. One of `type` or `kind` is required.", None,
-                choices=("pattern", "lexical", "corpus_frequency", "list")),
+                choices=("pattern", "lexical", "corpus_frequency", "list", "capture")),
               P("kind", "string", "The older spelling of `type`; read when `type` is absent.", None,
-                choices=("pattern", "lexical", "corpus_frequency", "list")),
+                choices=("pattern", "lexical", "corpus_frequency", "list", "capture")),
               P("name", "string", "The field it writes; the type by default.", None),
               P("patterns", "list[string]", "For `pattern`: the regular expressions.", None),
+              P("pattern", "string",
+                "For `capture`: the regular expression whose group is the value.", None),
+              P("group", "int",
+                "For `capture`: which group of the pattern to take; the whole match when "
+                "the pattern has none.", 1),
+              P("as", "string",
+                "For `capture`: the type the value takes. A number that arrives as a string "
+                "reads fine in a table and then fails a summary.", "string",
+                choices=("string", "number")),
+              P("on_missing", "string",
+                "For `capture`: what a text that matches nothing means — the field is simply "
+                "absent, or the run stops and names the record.", "null",
+                choices=("null", "error")),
               P("where", "string", "For `pattern`: match anywhere, or only at the start.", "anywhere",
                 choices=("anywhere", "prefix")),
+              P("take", "string",
+                "For `capture`: which match to take when the text holds several. A hand-off "
+                "is the last, a header the first.", "first",
+                choices=("first", "last")),
               P("ignore_case", "bool", "For `pattern` and `list`: match without regard to case.", False),
               P("lowercase", "bool", "For `lexical` and `corpus_frequency`: lowercase words first.", True),
               P("min_length", "int", "For `lexical` and `corpus_frequency`: the shortest word counted.", 1),

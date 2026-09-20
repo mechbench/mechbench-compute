@@ -188,6 +188,12 @@ is the honest way to give it to them — the alternative is reordering
 someone's words. A message on a channel the participant is not on (a
 judge's verdict) is not part of the room.
 
+**How much it sees.** `window` cuts the transcript down when it has
+outgrown its budget — the tail alone, or the tail and the opening turn,
+which usually carries the task. What falls outside was not seen at all:
+it is dropped before the perspective is applied, so the turns that
+remain still alternate.
+
 **What it sees of the reasoning.** A model that marks its reasoning has
 that reasoning kept on the transcript and out of the message's `text`.
 `sees` says what comes back on a later turn: the participant's own
@@ -208,6 +214,22 @@ setting: the question is what changes.
           "others_as_user_attributed", choices=("others_as_user_attributed", "others_as_user_merged")),
         _SEES,
         P("channels", "list[string]", "The channels the participant is on.", ["main"]),
+        P("window", "object",
+          "How much of the transcript this participant sees, when it has "
+          "outgrown what it should be shown. How much is part of what — "
+          "which is why it is decided here and not by whoever runs the "
+          "turns.",
+          None, fields=(
+              P("policy", "string",
+                "`\"truncate_oldest\"` keeps the tail; `\"sliding\"` keeps the "
+                "tail and the opening turn, because the opening usually "
+                "carries the task; `\"none\"` keeps everything.",
+                "none", choices=("none", "truncate_oldest", "sliding")),
+              P("words", "int",
+                "The budget, in words. A window is a budget, not a "
+                "tokenizer: the participant's own model is what would count "
+                "tokens, and it is not here.", 0),
+          )),
         P("system", "string",
           "A system prompt for the record, with `{name}`, `{participants}`, "
           "`{others}` and `{turn}` filled in.",
@@ -238,16 +260,36 @@ that names no conversation.
 When the reply contains one of `stop_phrases`, or the transcript reaches
 `max_messages`, its `stopped` says so — and a `records/fold` with `until:
 {"field": "stopped"}` ends there.
+
+A turn recorded on a `channel` other than `main` is on the transcript but
+not in the room: only a participant whose `channels` name it will be
+rendered it. That is all a platform should know about a turn that is not
+for everyone — who reads it is the graph's business, not this op's.
 """,
     inputs=(
         In("transcripts", "text/transcript", "The conversations so far.", many=True),
-        In("replies", "text/document",
-           "The replies — a chat node's documents over `text/render`'s "
-           "records, one per transcript.", many=True),
+        In("replies", "records/record",
+           "The replies, one per transcript: a chat node's documents over "
+           "`text/render`'s records — or those documents after a "
+           "`text/measure` has read something out of them, which is how a "
+           "turn decides what happens next. Any record carrying `text` and "
+           "naming its conversation is a turn.", many=True),
     ),
     output=Output('text/transcript', collection=True, doc='The same transcripts, each one message longer: `messages`, `participants` (the speaker added if new), `stopped`, `turns` and `text` for the browser.'),
     params=(
         P("participant", "string", "Who spoke: the participant's name."),
+        P("channel", "string",
+          "Which channel the turn is recorded on. A turn off `main` is kept "
+          "on the transcript and shown only to a participant whose "
+          "`channels` include it — which is how a turn can be part of the "
+          "record without being part of the room.",
+          "main"),
+        P("keep_fields", "list[string]",
+          "Fields to carry from the reply onto the transcript — a verdict, "
+          "a rating, whose turn is next. What they mean is the graph's "
+          "business; this op carries what it is told to. A field the "
+          "transcript already has stands until a reply replaces it.",
+          None),
         P("stop_phrases", "list[string]",
           "Phrases that end the conversation when the reply contains one "
           "(case-insensitive): the transcript's `stopped` becomes "

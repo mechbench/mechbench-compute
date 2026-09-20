@@ -180,6 +180,31 @@ def _inner_ref_site(params: Mapping[str, Any], path: list[str]):
     return (inner_op, path[4:]) if inner_op is not None else None
 
 
+def bound_along(block: str, params: Mapping[str, Any], path: Sequence[str]) -> frozenset[str]:
+    """The names bound by the node AND by every body node the path passes
+    through. A body may hold another node with a body — a `records/fold`
+    whose step is a `records/map`, which is how a per-item binding
+    reaches a turn — and a `{"$param"}` down there is bound by whichever
+    of them named it, not by the protocol (000617)."""
+    names = set(map_bound_names({"block": block, "params": params}))
+    cursor: Mapping[str, Any] = params
+    i = 0
+    while i + 3 < len(path) and path[i] == "body" and path[i + 1] == "nodes" and path[i + 3] == "params":
+        body = cursor.get("body")
+        if not isinstance(body, Mapping) or not isinstance(body.get("nodes"), list):
+            break
+        try:
+            inner = body["nodes"][int(path[i + 2])]
+        except (IndexError, ValueError):
+            break
+        if not isinstance(inner, Mapping):
+            break
+        names |= set(map_bound_names(inner))
+        cursor = inner.get("params") or {}
+        i += 4
+    return frozenset(names)
+
+
 def check_refs(nodes: Mapping[str, Mapping[str, Any]],
                bound_params: Mapping[str, Any]) -> None:
     """Refuse a stored-object reference that sits where no declaration
@@ -194,10 +219,10 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
     problems: list[str] = []
 
     def walk(v: Any, nid: str, op: Any, params: Mapping[str, Any],
-             path: list[str], local: frozenset[str]) -> None:
+             path: list[str], local: Callable[[Sequence[str]], frozenset[str]]) -> None:
         if is_param_ref(v):
             name = v["$param"]
-            if path[:1] == ["body"] and name in local:
+            if path[:1] == ["body"] and name in local(path):
                 return
             if name not in bound_params:
                 problems.append(f"{nid}.{'.'.join(path)}: unbound param {name!r}")
@@ -238,6 +263,7 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
         except KeyError:
             op = None
         params = node.get("params") or {}
-        walk(params, nid, op, params, [], map_bound_names(node))
+        walk(params, nid, op, params, [],
+             lambda path, _p=params, _b=str(node.get("block", "")): bound_along(_b, _p, path))
     if problems:
         raise ValueError("references that cannot be resolved:\n  " + "\n  ".join(problems))
