@@ -69,26 +69,6 @@ def _chat_level(params: Mapping[str, Any]) -> str:
     return "exchangeable" if provider else "reproducible"
 
 
-def _conversation_level(params: Mapping[str, Any],
-                        inputs: Mapping[str, Any] | None = None) -> str:
-    """A conversation's promise is its weakest participant's (task
-    000339): the transcript so far is the state, so a local-only
-    conversation restores exactly; one remote participant makes the
-    whole thing exchangeable. The participants arrive on the node's
-    `participants` port — inline under its `inputs` when the level can
-    be known before the run; by edge, the weakest case is assumed."""
-    from mechbench_compute.lexicon import kinds as K
-
-    given = (inputs or {}).get("participants")
-    if given is None:
-        return "exchangeable"
-    for p in K.items_of(given):
-        model = p.get("model") if isinstance(p, Mapping) else None
-        if isinstance(model, Mapping) and model.get("provider"):
-            return "exchangeable"
-    return "state-restorable"
-
-
 #: Blocks whose level is a function of their params rather than a
 #: constant. Same gate either way: process identity still decides
 #: whether a partial is eligible at all.
@@ -121,14 +101,11 @@ def _body_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = No
 
 
 DYNAMIC_LEVEL = {"text/chat": _chat_level,
-                 "text/converse": _conversation_level,
                  "eval/judge": _judge_level,
                  "records/map": _body_level,
                  "records/fold": _body_level}
 
 BLOCK_RESUME["text/chat"] = {"level": "exchangeable", "items": True}
-BLOCK_RESUME["text/converse"] = {
-    "level": "exchangeable", "items": True}
 # A judge is a chat node wearing a rubric: same promise, same items.
 BLOCK_RESUME["eval/judge"] = {"level": "exchangeable", "items": True}
 # A body's items are its records or its steps; the level is the body's.

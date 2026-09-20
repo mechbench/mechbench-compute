@@ -190,7 +190,8 @@ TRANSCRIPT = Kind(
     header={"name": "A label for the collection.", "description": "Free text beside the name.",
             "spend": "What the run bought from providers."},
     renderer={"primitive": "chat", "field_map": {"messages": "messages"}},
-    doc="What `text/converse` writes: every message in order, each naming the participant who said it and "
+    doc="What a conversation writes — `text/render` → `text/chat` → `text/extend`, folded over turns: every "
+        "message in order, each naming the participant who said it and "
         "the role each side saw it as, with any tool calls it made. `stopped` records why the conversation ended "
         "— the turn cap, or a stop phrase — so a transcript that ended early says so itself.",
 )
@@ -237,17 +238,6 @@ TOKENIZATION = Kind(
         "pieces cannot be compared at one token, and a prefix whose own tokenization changes when an item "
         "follows it moves the decision point. The `gate`, when asked for, says whether every item met the "
         "expected depth, and names the ones that did not.",
-)
-
-AGENT = Kind(
-    "text/agent",
-    "A conversation participant: which model, what it was told, what it may call.",
-    fields={"name": F("string", "The participant's name."), "model": F("string", "Its model reference."),
-            "system": F("string", "Its system prompt."), "tools": F("array", "Tools it may call.", items={}),
-            "budget_usd": F("number", "Its own spending cap, for a hosted model.")},
-    required=("name", "model"),
-    key=("name",),
-    platform=True,
 )
 
 # --- logits ----------------------------------------------------------------------------
@@ -799,7 +789,6 @@ PLATFORM: tuple[Kind, ...] = (
     Kind("run/result", "A protocol run's result: every node's path, the manifest, the spend.", platform=True,
          doc="Written by the executor when a run completes: the stored object of every node, keyed by node id, "
              "with the manifest that fingerprints the run and what it spent."),
-    AGENT,
 )
 
 COLLECTION_KIND = Kind(
@@ -860,8 +849,6 @@ KIND_ALIASES: dict[str, tuple[str, bool]] = {
     "~canonical/kinds/lens-trajectory": ("logits/funnel", False),
     "~canonical/kinds/lens-trajectory/2": ("logits/funnel", False),
     "~canonical/kinds/condition-set": ("records/condition", True),
-    "~canonical/kinds/agent": ("text/agent", False),
-    "agent": ("text/agent", False),
     "~canonical/kinds/trajectory": ("trajectory/point", True),
     "~canonical/kinds/tokenizer-stats": ("text/tokenization", False),
     "~canonical/kinds/annotated-tokens": ("text/annotation", True),

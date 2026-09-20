@@ -13,6 +13,44 @@ nothing said so.
 
 ---
 
+## 0.123.0 — 2026-09-20
+
+### Changes that raise
+
+- **`text/converse` is retired, with no alias.** A protocol whose node
+  names `text/converse` (or the older `conversation` / `text/conversation`
+  spellings) is refused as an unknown block. A multi-party conversation
+  is now composed: `text/render` → `text/chat` → `text/extend` as a
+  `records/fold` body, transcripts as the state, participants as `over`.
+  Everything the op did that a platform should offer — the perspective
+  map, the `sees` clause, channels, scripted openings, stop phrases,
+  tool-carrying turns, windowing — is a param of one of those four ops.
+  Everything it did that a platform should NOT decide — who moderates,
+  who judges, what a summarizer is told — belongs to whoever builds the
+  conversation, and is now theirs to write.
+- The `text/agent` kind is retired with it. A participant was only ever
+  an argument to that one op; a conversation built from the four ops
+  names its participants in its own `over` list.
+
+### Changes that alter results without raising
+
+- `text/extend` now carries a turn's tool runs onto the message it
+  writes, as `call.tool_runs` — the shape the retired op wrote, so a
+  transcript still records what the turn did with the tools its chat
+  node offered. A turn that ran no tools is unchanged.
+
+### Other
+
+- The composition is held to the retired op's own answers: the four
+  turns it last produced (`tests/test_fold.py`) and the single turn it
+  last produced (`tests/test_transcript.py`) are frozen as data, and
+  the fold and the three-node pipeline have to reproduce them word for
+  word rather than merely run.
+- The composer drops its hand-built participant cards; a conversation's
+  participants are a fold's `over` list, edited like any other param.
+
+---
+
 ## 0.122.1 — 2026-09-20
 
 ### Changes that raise

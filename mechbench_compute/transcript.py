@@ -2,7 +2,7 @@
 
 A conversation is a fold over turns: render the shared transcript for
 the participant whose turn it is, ask that participant's model, append
-what it said. `text/converse` did all three inside one loop; these are
+what it said. A retired op did all three inside one loop; these are
 the two pieces of that loop that are not "ask the model" — `render`
 (transcript × participant → the messages a chat node sends) and
 `extend` (transcript × reply → transcript) — so a conversation can be
@@ -255,7 +255,8 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
     `replies` whose `coords.conversation` names it — spoken by
     `participant`. The reply's thinking (when its model marks
     reasoning) is kept on the message and out of its `text`, which is
-    what the room hears; its provider call rides along as `call`.
+    what the room hears; its provider call — with whatever tools the
+    turn ran — rides along as `call`.
     A conversation with two replies is two conversations, which is a
     map, not a turn: more than one reply per transcript is refused."""
     from mechbench_compute.lexicon import kinds as K
@@ -295,9 +296,17 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
             message["channel"] = channel
         if thought:
             message["thinking"] = thought
-        call = (d.get("metadata") or {}).get("call")
-        if call is not None:
-            message["call"] = dict(call)
+        meta = d.get("metadata") or {}
+        call = meta.get("call")
+        # What the turn actually did with the tools it was offered
+        # rides along on the provider call, so the transcript records
+        # the work and the room hears only the answer.
+        runs = meta.get("tool_runs") or []
+        if call is not None or runs:
+            message["call"] = {
+                **(dict(call) if call is not None else {}),
+                **({"tool_runs": [dict(r) for r in runs]} if runs else {}),
+            }
         names = [str(n) for n in (t.get("participants") or [])]
         if participant not in names:
             names.append(participant)

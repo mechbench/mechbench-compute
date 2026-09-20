@@ -6,6 +6,7 @@ import pytest
 
 from mechbench_compute import positions as P
 from mechbench_compute import thinking as T
+from mechbench_compute import transcript as TR
 
 
 class _Tok:
@@ -109,21 +110,19 @@ class TestSelector:
             P.one({"segment": "thinking"}, 10, segmentations=self.SEGS)
 
 
-class TestThroughTheLoop:
+class TestThroughTheTurn:
     """A conversation keeps each turn's reasoning and does not replay it
-    into the room (000592)."""
-
-    def _agent(self, name, **kw):
-        from mechbench_compute.conversation import Agent
-        return Agent.parse({"name": name, "model": "fake/m", **kw})
+    into the room (000592). `text/render` decides what comes back;
+    `text/extend` is what wrote it down."""
 
     def _history(self):
-        from mechbench_compute.conversation import Message
-        return [
-            Message(index=0, participant="ana", text="four.",
-                    thinking="two plus two is four"),
-            Message(index=1, participant="bo", text="are you sure?"),
-        ]
+        return [{"index": 0, "participant": "ana", "role_as_seen": "assistant",
+                 "text": "four.", "thinking": "two plus two is four"},
+                {"index": 1, "participant": "bo", "role_as_seen": "user",
+                 "text": "are you sure?"}]
+
+    def _said(self, view):
+        return "\n".join(str(m["content"]) for m in view)
 
     def test_split_keeps_both_apart(self):
         assert T.split_thought("<think>hmm</think>four") == ("hmm", "four")
@@ -133,33 +132,38 @@ class TestThroughTheLoop:
         assert T.split_thought("four") == (None, "four")
 
     def test_the_room_hears_the_answer_not_the_scratchpad(self):
-        from mechbench_compute.conversation import render_for
-        view = render_for(self._agent("bo"), self._history(),
-                          perspective="others_as_user_merged")
-        said = "\n".join(str(part.text) for m in view for part in m.content)
+        view = TR.render(self._history(), participant="bo",
+                         perspective="others_as_user_merged")
+        said = self._said(view)
         assert "four." in said
         assert "two plus two" not in said
 
     def test_a_participant_never_sees_anothers_reasoning(self):
-        from mechbench_compute.conversation import render_for
         # Even asking for replay only ever returns your OWN.
-        view = render_for(self._agent("bo", replay_thinking=True), self._history(),
-                          perspective="others_as_user_merged")
-        said = "\n".join(str(part.text) for m in view for part in m.content)
-        assert "two plus two" not in said
+        view = TR.render(self._history(), participant="bo",
+                         perspective="others_as_user_merged",
+                         sees={"own_thinking": "full"})
+        assert "two plus two" not in self._said(view)
 
     def test_its_own_comes_back_only_when_asked_for(self):
-        from mechbench_compute.conversation import render_for
-        plain = render_for(self._agent("ana"), self._history(),
-                           perspective="others_as_user_merged")
-        assert "two plus two" not in str(plain[0].content[0].text)
-        asked = render_for(self._agent("ana", replay_thinking=True), self._history(),
-                           perspective="others_as_user_merged")
-        assert "two plus two" in str(asked[0].content[0].text)
+        plain = TR.render(self._history(), participant="ana",
+                          perspective="others_as_user_merged")
+        assert "two plus two" not in self._said(plain)
+        asked = TR.render(self._history(), participant="ana",
+                          perspective="others_as_user_merged",
+                          sees={"own_thinking": "full"})
+        assert "two plus two" in self._said(asked)
 
     def test_the_transcript_records_it(self):
-        from mechbench_compute.conversation import Message
-        wire = Message(index=0, participant="ana", text="four.",
-                       thinking="two plus two").to_wire()
-        assert wire["thinking"] == "two plus two" and wire["text"] == "four."
-        assert "thinking" not in Message(index=0, participant="ana", text="hi").to_wire()
+        reply = {"id": "r", "text": "<think>two plus two</think>four.",
+                 "coords": {"conversation": "c1"}}
+        start = {"id": "c1", "kind": "text/transcript", "participants": ["ana"],
+                 "stopped": "", "messages": []}
+        out = TR.extend({"transcripts": [start], "replies": [reply]},
+                        {"participant": "ana"})
+        wrote = out["items"][0]["messages"][0]
+        assert wrote["thinking"] == "two plus two" and wrote["text"] == "four."
+        plain = TR.extend({"transcripts": [start],
+                           "replies": [{**reply, "text": "hi"}]},
+                          {"participant": "ana"})
+        assert "thinking" not in plain["items"][0]["messages"][0]

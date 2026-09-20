@@ -552,10 +552,10 @@ class Op:
     #: * `remote` — needs the network and the owner's credentials, but
     #:   no model: `adapter/publish` pushing to a hub.
     #: * `by-model` — whichever the `model` it is given needs: an
-    #:   endpoint makes it remote, a repo makes it local. Chat, converse
-    #:   and judge are the same operation either way, which is the point
-    #:   of them, and a single declared class would have to lie about
-    #:   one of the two.
+    #:   endpoint makes it remote, a repo makes it local. Chat and
+    #:   judge are the same operation either way, which is the point of
+    #:   them, and a single declared class would have to lie about one
+    #:   of the two.
     requires: str = "pure"
     example: dict[str, Any] | None = None
     example_inputs: dict[str, Any] | None = None

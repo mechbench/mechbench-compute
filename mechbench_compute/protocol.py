@@ -957,10 +957,6 @@ class ProtocolExecutor:
                     results[nid] = self._block_judge(
                         inputs, params, secrets=secrets, on_item=on_item,
                         on_start=expand, **resume_kwargs)
-                elif block == "text/converse":
-                    results[nid] = self._block_conversation(
-                        inputs, params, secrets=secrets, on_item=on_item,
-                        on_start=expand, **resume_kwargs)
                 elif block == "text/chat":
                     results[nid] = self._block_chat(
                         inputs, params, secrets=secrets, on_item=on_item,
@@ -1592,52 +1588,6 @@ class ProtocolExecutor:
                 summary.setdefault("cache", {})["store_error"] = str(e)[:200]
         return out
 
-    def _block_conversation(self, inputs, params, secrets=None, on_item=None,
-                            on_start=None, resume_items=None):
-        """text/converse (task 000339): participants,
-        a perspective map and a turn policy, as data. Remote
-        participants go through the transport; local ones sample here,
-        through the same chat template the chat block uses — so a
-        conversation can mix a frontier model and a local fine-tune."""
-        import numpy as _np
-
-        from mechbench_compute import chat as chat_mod
-        from mechbench_compute import conversation as cv
-        from mechbench_compute import model_ref as model_ref_mod
-        from mechbench_compute.distill import encode, prefill_decision
-        from mechbench_compute.generate import sample_completion_cached
-        from mechbench_compute.providers import messages as pm
-        from mechbench_compute.seeds import item_seed
-
-        seed = params.get("seed", 0)
-
-        def local_sampler(agent, system, view, *, key=""):
-            model = self._model_loaded(model_ref_mod.parse(agent.model))
-            req = pm.request({
-                "model": str(getattr(model_ref_mod.parse(agent.model), "base", "")),
-                "system": system,
-                "messages": [m.to_wire() for m in view],
-                "max_tokens": int(agent.max_tokens),
-            })
-            ids = encode(model.tokenizer,
-                         chat_mod.render_conversation(model.tokenizer, req))
-            rng = _np.random.default_rng(item_seed(seed, agent.name, 0)
-                                         if not key else
-                                         item_seed(seed, key, 0))
-            return sample_completion_cached(
-                model, ids, max_tokens=int(agent.max_tokens),
-                temperature=float(agent.temperature or 0.9),
-                top_p=float(agent.top_p or 0.95), rng=rng,
-                prefill=prefill_decision(model, ids))
-
-        if any((p.get("tools") if isinstance(p, dict) else None)
-               for p in lexicon.items_of(inputs.get("participants") or [])):
-            params = {**params, "_block_runner": self._tool_block_runner(secrets)}
-        return cv.run(params, inputs=inputs, secrets=secrets,
-                      limiter=self._limiter, job_budget=self._budget,
-                      local_sampler=local_sampler, on_item=on_item,
-                      on_start=on_start, resume_items=resume_items)
-
     def _block_chat_local(self, inputs, params, on_item=None, on_start=None,
                           resume_items=None):
         from mechbench_compute import chat as chat_mod
@@ -2025,20 +1975,16 @@ class ProtocolExecutor:
 
     def _dispatch_remote(self, block, inputs, params, secrets, *,
                          on_item=None, on_start=None, **resume_kwargs):
-        """The three blocks whose work is a provider's. Separate from the
+        """The blocks whose work is a provider's. Separate from the
         executor's big dispatch so a thread runs exactly this and nothing
         that touches the loop's bookkeeping."""
-        if block == "text/chat":
-            return self._block_chat(inputs, params, secrets=secrets,
-                                    on_item=on_item, on_start=on_start,
-                                    **resume_kwargs)
         if block == "eval/judge":
             return self._block_judge(inputs, params, secrets=secrets,
                                      on_item=on_item, on_start=on_start,
                                      **resume_kwargs)
-        return self._block_conversation(inputs, params, secrets=secrets,
-                                        on_item=on_item, on_start=on_start,
-                                        **resume_kwargs)
+        return self._block_chat(inputs, params, secrets=secrets,
+                                on_item=on_item, on_start=on_start,
+                                **resume_kwargs)
 
     def _block_capture_weights(self, inputs, params):
         """weights/capture (task 000457): the model's own parameters as
@@ -3186,7 +3132,7 @@ MISSING_POLICIES = ("fail", "skip", "placeholder")
 #: serial — a local model node MUST (one model in memory, one fused
 #: adapter at a time), and a pure block takes microseconds, where a
 #: thread would be pure risk for no gain.
-REMOTE_BLOCKS = ("text/chat", "eval/judge", "text/converse")
+REMOTE_BLOCKS = ("text/chat", "eval/judge")
 
 #: How many remote nodes may be in flight at once. The provider's own
 #: rate limiter (000344) bounds the requests WITHIN a node; this bounds

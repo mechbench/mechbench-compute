@@ -411,8 +411,8 @@ at the step it reached with the state it had. A body sees one state at a
 time and nothing else.
 
 The conversation: `text/render` → `text/chat` → `text/extend` as the
-body, transcripts as the state, participants as `over` — `text/converse`
-built from three ops and a loop.
+body, transcripts as the state, participants as `over` — a multi-party
+conversation is three ops and a loop, not an operation of its own.
 """,
     inputs=(
         In("state", "collection",

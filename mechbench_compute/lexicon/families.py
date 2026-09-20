@@ -37,9 +37,10 @@ node that the graph shows, not by telling every consumer where to look.
         "Generating text from a model and measuring what came out: documents, transcripts, their tokens and their statistics.",
         """\
 The generating operations sample from local weights or call a hosted
-model through the same node (`generate`, `chat`), or run several models
-in one conversation (`converse`); each writes a document or a
-transcript with the sampling and the cost recorded per item. The
+model through the same node (`generate`, `chat`); each writes a document
+with the sampling and the cost recorded per item. A conversation is
+those same nodes folded over turns: `render` shows one participant the
+room, `chat` asks it, `extend` appends what it said. The
 measuring operations read those back: `score` annotates every token
 with its surprisal under a model, `measure` counts patterns and
 vocabulary across a corpus, and `tokenize` measures how a tokenizer

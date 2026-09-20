@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import pytest
 
-from mechbench_compute import conversation as cv
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 
 
@@ -77,13 +76,6 @@ class TestAConversationIsAFold:
 
     MODEL = {"provider": "mock", "model": "mock-large"}
 
-    def _loop(self, turns):
-        return cv.run({"opening": ["Let's decide where to eat."],
-                       "turns": {"policy": "round_robin", "max_turns": turns},
-                       "budget_usd": 1.0, "id": "c1"},
-                      inputs={"participants": [{"name": "ana", "model": self.MODEL, "system": "Be {name}."},
-                                               {"name": "bo", "model": self.MODEL, "system": "Be {name}."}]})
-
     def _fold_graph(self, turns, extra_extend=None):
         start = {"kind": "collection", "item_kind": "text/transcript", "items": [
             {"id": "c1", "kind": "text/transcript", "participants": ["ana", "bo"], "stopped": "",
@@ -105,19 +97,46 @@ class TestAConversationIsAFold:
                   "steps": turns, "output": "next", "until": {"field": "stopped"}},
                  {"state": start})], "edges": []}
 
+    #: What `text/converse` said, the last time it was asked (compute
+    #: 0.122.1, mock provider, four turns of round robin). The op was
+    #: retired in 0.123.0; its answer is kept here as data, so the
+    #: composition that replaced it still has to reproduce it word for
+    #: word rather than merely run.
+    CONVERSE_SAID = [
+            {
+                    "participant": "user",
+                    "text": "Let's decide where to eat."
+            },
+            {
+                    "participant": "ana",
+                    "text": "glass sable meridian sable wick meridian"
+            },
+            {
+                    "participant": "bo",
+                    "text": "cadence ember quartz furrow lantern quartz"
+            },
+            {
+                    "participant": "ana",
+                    "text": "tide yarrow sable lantern tundra vellum marrow wick glass cadence harbor yarrow vellum wick vellum wick cadence"
+            },
+            {
+                    "participant": "bo",
+                    "text": "yarrow ledger salt lantern furrow tide"
+            }
+    ]
+
     def test_four_turns_are_the_loops_four_turns(self):
-        loop = self._loop(4)["items"][0]
         fold = _run(self._fold_graph(4))["talk"]
         assert fold["item_kind"] == "text/transcript" and fold["folded"]["steps"] == 4
         [t] = fold["items"]
         assert [m["participant"] for m in t["messages"]] == ["user", "ana", "bo", "ana", "bo"]
-        assert [m["text"] for m in t["messages"]] == [m["text"] for m in loop["messages"]]
+        assert [{"participant": m["participant"], "text": m["text"]} for m in t["messages"]] == self.CONVERSE_SAID
         assert t["participants"] == ["ana", "bo"] and t["turns"][-1]["role"] == "bo"
 
     def test_a_stop_phrase_written_by_extend_ends_the_fold(self):
         # The mock's words are deterministic; whatever ana says first,
         # naming it as the stop phrase ends the conversation at turn 1.
-        first = self._loop(1)["items"][0]["messages"][1]["text"].split()[0]
+        first = self.CONVERSE_SAID[1]["text"].split()[0]
         fold = _run(self._fold_graph(6, {"stop_phrases": [first]}))["talk"]
         assert fold["folded"] == {"steps": 1, "stopped": "until", "body_nodes": ["view", "say", "next"]}
         assert fold["items"][0]["stopped"] == f"stop_phrase:{first}"

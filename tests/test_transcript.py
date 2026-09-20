@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import pytest
 
-from mechbench_compute import conversation as cv
 from mechbench_compute import transcript as TR
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 
@@ -80,16 +79,6 @@ class TestRender:
         assert [m["role"] for m in view] == ["user", "assistant"]
         assert view[0]["content"] == "a\n\nbo: b\n\ncy: c"
 
-    def test_converse_renders_through_the_same_function(self):
-        agent = cv.Agent.parse({"name": "ana", "model": {"provider": "mock", "model": "m"},
-                                "sees": {"own_thinking": "full"}})
-        history = [cv.Message(0, "user", "hello everyone"),
-                   cv.Message(1, "ana", "four.", thinking="two plus two is four"),
-                   cv.Message(2, "bo", "are you sure?")]
-        theirs = cv.render_for(agent, history, perspective="others_as_user_attributed")
-        ours = TR.render([m.to_wire() for m in history], participant="ana", sees=agent.sees)
-        assert [(m.role, m.text()) for m in theirs] == [(m["role"], m["content"]) for m in ours]
-
 
 def _transcripts():
     return {"kind": "collection", "item_kind": "text/transcript", "items": [
@@ -154,10 +143,20 @@ class TestExtend:
                        "replies": [{"id": "r", "text": "x", "coords": {}}]}, {"participant": "bo"})
 
 
+#: What the retired `text/converse` said on this turn, the last time it
+#: was asked (compute 0.122.1, mock provider, one round-robin turn over
+#: the opening below, ana's system prompt "Be {name}."). The op is gone;
+#: its answer is kept as data, so the three nodes that replaced it have
+#: to reproduce it word for word rather than merely run.
+CONVERSE_TURN = {"participant": "ana", "index": 1,
+                 "text": "glass sable meridian sable wick meridian"}
+
+
 class TestATurnComposedFromChat:
     """render → chat → extend, on the mock provider (whose reply is a
-    pure function of the request), says exactly what text/converse says
-    on the same turn — the composition is the loop, cut into ops."""
+    pure function of the request), says exactly what the retired
+    `text/converse` said on the same turn — the composition is the loop,
+    cut into ops."""
 
     def _run(self, graph):
         out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,
@@ -167,15 +166,7 @@ class TestATurnComposedFromChat:
 
     def test_the_composed_turn_is_the_loops_turn(self):
         model = {"provider": "mock", "model": "mock-large"}
-        # One turn by the loop: an opening, then ana speaks once.
-        loop = cv.run({"opening": ["Let's decide where to eat."],
-                       "turns": {"policy": "round_robin", "max_turns": 1}, "budget_usd": 1.0,
-                       "id": "c1"},
-                      inputs={"participants": [{"name": "ana", "model": model, "system": "Be {name}."},
-                                               {"name": "bo", "model": model}]})
-        loop_turn = loop["items"][0]["messages"][-1]
-        assert loop_turn["participant"] == "ana"
-        # The same turn from three nodes over the same opening.
+        # The same turn from three nodes over the loop's own opening.
         start = {"kind": "collection", "item_kind": "text/transcript", "items": [
             {"id": "c1", "kind": "text/transcript", "participants": ["ana", "bo"], "stopped": "",
              "messages": [_msg(0, "user", "Let's decide where to eat.")]}]}
@@ -190,8 +181,9 @@ class TestATurnComposedFromChat:
             {"from": {"node": "say"}, "to": {"node": "next", "port": "replies"}},
         ]})
         composed = outs["next"]["items"][0]["messages"][-1]
-        assert loop_turn["text"].split() and composed["text"] == loop_turn["text"]
-        assert composed["participant"] == "ana" and composed["index"] == 1
+        assert composed["text"] == CONVERSE_TURN["text"]
+        assert composed["participant"] == CONVERSE_TURN["participant"]
+        assert composed["index"] == CONVERSE_TURN["index"]
 
 
 class TestWhoIsScripted:

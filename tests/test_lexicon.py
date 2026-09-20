@@ -344,8 +344,8 @@ class TestWhatAnOperationNeeds:
 
     def test_the_operations_that_run_either_side_are_the_remote_blocks(self) -> None:
         """`by-model` and the executor's own idea of what may be remote
-        are one fact. Chat, converse and judge are the same operation
-        whichever side answers, which is the point of them."""
+        are one fact. Chat and judge are the same operation whichever
+        side answers, which is the point of them."""
         from mechbench_compute.protocol import REMOTE_BLOCKS
 
         assert {op.name for op in lexicon.OPS if op.requires == "by-model"} == set(REMOTE_BLOCKS)

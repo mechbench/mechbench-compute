@@ -1,5 +1,6 @@
 """Tools as blocks (task 000340): the toolbox, the two first tools,
-local parsing, and the tool loop in chat and conversation nodes.
+local parsing, and the tool loop in a chat node — including the turn of
+a conversation, which is a chat node with a transcript on either side.
 
 Nothing here spends: remote tool calls come from the mock, which emits
 a tool call on demand.
@@ -10,7 +11,6 @@ from __future__ import annotations
 import pytest
 
 from mechbench_compute import chat as chat_mod
-from mechbench_compute import conversation as cv
 from mechbench_compute import model_ref as mr
 from mechbench_compute import tools as T
 from mechbench_compute.providers import messages as pm
@@ -173,19 +173,28 @@ class TestTheRemoteToolLoop:
 
 
 class TestToolsInAConversation:
-    def test_a_participant_may_carry_tools_and_the_transcript_records_them(self):
-        out = cv.run({
-            "opening": ["What is 6*7?"],
-            "turns": {"policy": "round_robin", "max_turns": 2},
-            "budget_usd": 1.0,
-        }, inputs={"participants": [
-            {"name": "asker", "model": {"provider": "mock", "model": "m"},
-             "tools": ["calc"],
-             "provider_options": {"mock": {"tool_call": "calc"}}},
-            {"name": "other", "model": {"provider": "mock", "model": "m"}},
-        ]})
-        messages = out["items"][0]["messages"]
-        asker = next(m for m in messages if m["participant"] == "asker")
+    """A participant with tools is a chat node with tools, between a
+    `text/render` and a `text/extend`. The transcript records what the
+    turn ran; the room hears the answer."""
+
+    def test_a_turn_may_call_tools_and_the_transcript_records_them(self):
+        from mechbench_compute import transcript as TR
+
+        start = {"id": "c1", "kind": "text/transcript", "participants": ["asker", "other"],
+                 "stopped": "",
+                 "messages": [{"index": 0, "participant": "other", "role_as_seen": "user",
+                               "text": "What is 6*7?"}]}
+        view = TR.render_records({"transcripts": [start]}, {"participant": "asker"})
+        said = chat_mod.run_remote(
+            mr.parse({"provider": "mock", "model": "mock-large"}),
+            view["items"],
+            {"model": {"provider": "mock", "model": "mock-large"},
+             "budget_usd": 1.0, "tools": ["calc"],
+             "provider_options": {"mock": {"tool_call": "calc"}}})
+        out = TR.extend({"transcripts": [start], "replies": said},
+                        {"participant": "asker"})
+        asker = out["items"][0]["messages"][-1]
+        assert asker["participant"] == "asker"
         assert asker["call"]["tool_runs"][0]["tool"] == "calc"
         # The room saw an answer, not the plumbing.
         assert all("tool_code" not in t["text"] for t in out["items"][0]["turns"])

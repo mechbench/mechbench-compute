@@ -109,41 +109,6 @@ _POLICY_FIELDS = (
     P("truncate_words", "int", "Replay the first n words of each.", None),
 )
 
-#: A model in a conversation that is not a participant: a moderator, a
-#: judge, a summarizer. The same fields a participant has.
-_AGENT_FIELDS = (
-    P("name", "string", "What the others call it. Defaults to `participant-N`.", None),
-    P("model", "model", "The model it runs on."),
-    P("system", "string",
-      "Its system prompt; `{name}`, `{participants}`, `{others}`, `{turn}` and "
-      "the record's fields are filled in.",
-      ""),
-    P("tools", "list[string | object]", "Tools it may call.", [],
-      choices=("calc", "bench.lookup"), fields=_TOOL_FIELDS),
-    P("provider_options", "map[string, map[string, json]]", _PROVIDER_OPTIONS_DOC, None),
-    P("temperature", "float", "Sampling temperature; the provider's default when unset.", None),
-    P("top_p", "float", "Nucleus sampling threshold; the provider's default when unset.", None),
-    P("max_tokens", "int", "The longest reply, in tokens.", 1024),
-    P("budget_usd", "float", "Its own spend cap, within the node's.", None),
-    P("channels", "list[string]", "The channels it speaks and listens on.", ["main"]),
-    P("perspective", "string", "How it sees the others' messages, overriding the node's default.",
-      None, choices=("others_as_user_attributed", "others_as_user_merged")),
-    P("sees", "object",
-      "What it re-reads of the room's reasoning on later turns — the "
-      "`sees` clause `text/render` documents. Off by default: a "
-      "scratchpad is written to be thrown away, and a conversation that "
-      "replays it by accident feeds on its own reasoning. `replay_thinking: "
-      "true`, the older boolean, reads as `own_thinking: \"full\"`.",
-      None, fields=(
-          P("own_thinking", "string | object",
-            "`\"none\"`, `\"full\"`, `{\"last_turns\": n}` or `{\"truncate_words\": n}`.", "none",
-            choices=("none", "full"), fields=_POLICY_FIELDS),
-          P("others_thinking", "string | object",
-            "The same grammar, for the other participants' reasoning.", "none",
-            choices=("none", "full"), fields=_POLICY_FIELDS),
-      )),
-)
-
 #: The `sees` clause, wherever a transcript is rendered for a participant.
 _SEES = P("sees", "object",
           "What the participant re-reads of the room's reasoning: its own "
@@ -170,8 +135,8 @@ RENDER = Op(
     description="""\
 A conversation is a fold over turns — render the shared transcript for
 the participant whose turn it is, ask its model, append what it said —
-and this is the first step, cut out of `text/converse` so a conversation
-can be composed from `text/chat` rather than duplicated beside it.
+and this is the first step. A conversation is therefore composed from
+`text/chat`, not a second kind of chat beside it.
 
 Every transcript on `transcripts` becomes one record: `messages` (`[{role,
 content}]`, what a chat node sends), `system` when given (with `{name}`,
@@ -250,8 +215,9 @@ EXTEND = Op(
 The reply on `replies` whose `coords.conversation` names a transcript is
 appended to it as `participant`'s turn. Reasoning the model marked is
 kept on the message (`thinking`) and out of its `text`, which is what
-the room hears; the reply's provider call rides along as `call`. Every
-other field of the transcript is kept.
+the room hears; the reply's provider call rides along as `call`, with
+`call.tool_runs` when the turn used the tools its chat node offered.
+Every other field of the transcript is kept.
 
 A transcript with two replies is two conversations, which is a map, not
 a turn: more than one reply per transcript is refused, as is a reply
@@ -478,132 +444,6 @@ name.
         "cache": True,
     },
     example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
-)
-
-CONVERSATION = Op(
-    name="text/converse",
-    requires="by-model",
-    summary=(
-        "Run a multi-party conversation between model participants — each "
-        "seeing the shared transcript from its own side — under a declared "
-        "turn policy, context-window policy and budget."
-    ),
-    description="""\
-Two models talking is not a special mode of `chat`; it is a list of
-**participants** plus three pieces of data.
-
-**Participants.** Each is `{name, model, system, tools?, temperature?,
-top_p?, max_tokens?, budget_usd?, channels?, perspective?, sees?}`. A
-system prompt may use `{name}`, `{participants}`, `{others}` and `{turn}`.
-Local and hosted models mix freely. `sees` is `text/render`'s clause:
-what the participant re-reads of the room's reasoning.
-
-This op is the fold `text/render` → `text/chat` → `text/extend` run in
-one node, with a turn policy choosing the participant each time; it will
-become a stored protocol built from those three once the grammar has a
-fold.
-
-**The perspective map.** Every participant sees the same transcript with
-its own messages as `assistant` and everyone else's as `user` — attributed
-by name (`others_as_user_attributed`) or merged anonymously
-(`others_as_user_merged`). Nobody is deceived; the roles are rendered per
-viewer, and the transcript records who produced each message *and* the role
-each side saw.
-
-**The turn policy** (`turns`): `round_robin`; `speaker_names_next` (the
-speaker hands off by naming someone); `moderator` (a moderator agent
-chooses); `until_judge` (a judge agent, on its own channel, says when it is
-finished); `until_stop` (a stop phrase). All bounded by `max_turns`.
-
-**The window policy** (`window`): when the transcript outgrows `tokens`,
-`truncate_oldest`, `sliding` (keep the opening turn too) or `summarize`
-(a model call with its own cost).
-
-One conversation runs per input record, or one in all when there are none;
-`{field}` in an `opening` line takes the record's value.
-""",
-    inputs=(
-        In("participants", "text/agent",
-           "The agents, at least two, with unique names — see above. Usually "
-           "given inline.", many=True),
-        In("records", "records/record",
-           "One conversation per record; its fields fill `{field}` "
-           "placeholders in the opening. Without any, one conversation runs.",
-           many=True, required=False),
-    ),
-    output=Output('text/transcript', collection=True, doc='One item per conversation: `messages` (each `{index, participant, role_as_seen, text, thinking?, call?, tool_calls?, channel?}`), `participants`, `stopped` (why it ended), `text` (the visible turns as prose) and `turns` (`{role, text}`) for the browser, `coords`, and `metadata.spend_usd`. The header carries `fidelity` and `spend`.'),
-    params=(
-        _BUDGET,
-        P("turns", "object",
-          "`{\"policy\": \"round_robin\", \"max_turns\": 6, "
-          "\"stop_phrases\": [...], \"moderator\": agent, \"judge\": "
-          "agent}` — who speaks next and when it stops.",
-          None, fields=(
-              P("policy", "string", "Who speaks next.", "round_robin",
-                choices=("round_robin", "speaker_names_next", "moderator", "until_judge", "until_stop")),
-              P("max_turns", "int", "The most participant turns the conversation runs.", 6),
-              P("stop_phrases", "list[string]",
-                "End when the last message contains one of these, ignoring case — under any policy.", []),
-              P("moderator", "object", "For `moderator`: the model that chooses who speaks.", None,
-                fields=_AGENT_FIELDS),
-              P("judge", "object", "For `until_judge`: the model that says when the conversation is done.",
-                None, fields=_AGENT_FIELDS),
-          )),
-        P("perspective", "object",
-          "`{\"default\": \"others_as_user_attributed\", \"overrides\": "
-          "{name: perspective}}` — how each participant sees the others.",
-          None, fields=(
-              P("default", "string", "How every participant sees the others' messages.",
-                "others_as_user_attributed",
-                choices=("others_as_user_attributed", "others_as_user_merged")),
-              P("overrides", "map[string, string]", "Participant name → the perspective it sees instead.",
-                None, choices=("others_as_user_attributed", "others_as_user_merged")),
-          )),
-        P("window", "object",
-          "`{\"policy\": \"none\" | \"truncate_oldest\" | \"sliding\" | "
-          "\"summarize\", \"tokens\": n, \"summarizer\": agent}` — what to "
-          "do when the transcript outgrows the context.",
-          None, fields=(
-              P("policy", "string", "What to drop or condense when the transcript outgrows `tokens`.",
-                "none", choices=("none", "truncate_oldest", "sliding", "summarize")),
-              P("tokens", "int",
-                "The transcript's ceiling, counted in whitespace-separated words. `0` never windows.", 0),
-              P("summarizer", "object", "For `summarize`: the model that condenses the dropped turns.",
-                None, fields=_AGENT_FIELDS),
-          )),
-        P("opening", "list[string | object]",
-          "Scripted lines the conversation starts with: a string (spoken by "
-          "the script, unattributed) or `{\"participant\": name, \"text\": "
-          "…}`. Nothing is spent on them.",
-          None, fields=(
-              P("participant", "string", "Who says it; `user` is the unattributed script.", "user"),
-              P("text", "string", "The line; `{field}` takes the record's value.", ""),
-          )),
-        P("max_tool_rounds", "int",
-          "How many times one participant's turn may call tools and be "
-          "asked again.",
-          3),
-        P("id", "string",
-          "The conversation's id when there are no input records.",
-          "conversation"),
-        P("base_url", "string",
-          "Send every participant's requests to this endpoint instead of "
-          "the provider's default.",
-          None),
-    ),
-    example={
-        "budget_usd": 2.0,
-        "opening": ["Is a lighthouse a building or a machine?"],
-        "turns": {"policy": "round_robin", "max_turns": 6},
-    },
-    example_inputs={
-        "participants": [
-            {"name": "Ada", "model": {"provider": "anthropic", "model": "claude-sonnet-5"},
-             "system": "You are Ada. You are debating {others}.", "budget_usd": 1.0},
-            {"name": "Ben", "model": "google/gemma-3-4b-it",
-             "system": "You are Ben. Disagree politely."},
-        ],
-    },
 )
 
 JUDGE = Op(
@@ -1090,8 +930,8 @@ TOOLS_CALC = Op(
     description="""\
 The expression is parsed and refused if it contains anything but numeric
 literals and `+ - * / // % **` (and parentheses): a tool a model can steer
-must not be an evaluator. Offered to a `chat` or `converse` node by
-naming `"calc"` in its `tools`; the model's call supplies `arguments:
+must not be an evaluator. Offered to a `chat` node by naming `"calc"`
+in its `tools`; the model's call supplies `arguments:
 {expression}`. A tool has no input ports — its arguments come from the
 call.
 """,
@@ -1114,7 +954,7 @@ TOOLS_BENCH_LOOKUP = Op(
     ),
     description="""\
 Returns the object's payload, or one field of it when the call names a
-`field`. Offered to a `chat` or `converse` node as `"bench.lookup"`;
+`field`. Offered to a `chat` node as `"bench.lookup"`;
 the model's call supplies `arguments: {path, field?}`. Every fetch is
 recorded on the item that made it. A tool has no input ports — its
 arguments come from the call.
@@ -1135,6 +975,6 @@ arguments come from the call.
 )
 
 OPS: tuple[Op, ...] = (
-    CHAT, CONVERSATION, RENDER, EXTEND, JUDGE, EVAL_HF_METRIC, EVAL_SUITE, FINETUNE_LORA,
+    CHAT, RENDER, EXTEND, JUDGE, EVAL_HF_METRIC, EVAL_SUITE, FINETUNE_LORA,
     MEASURE_ADAPTER, HF_PUSH_ADAPTER, MERGE, TOOLS_CALC, TOOLS_BENCH_LOOKUP,
 )

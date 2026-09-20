@@ -58,8 +58,6 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "text/chat": [(P, "_block_chat"), (P, "_block_chat_local"),
                               ("chat.py", "run_remote"), ("chat.py", "run_local")],
     "eval/judge": [(P, "_block_judge"), ("judge.py", "run")],
-    "text/converse": [(P, "_block_conversation"),
-                                      ("conversation.py", "run")],
     "intervene/apply": [(P, "_block_intervene"), ("intervene.py", "run")],
     "direction/unembed": [(P, "_block_direction_vocab"),
                                          ("directions.py", "vocab_projection")],
