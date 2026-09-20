@@ -1301,17 +1301,18 @@ class ProtocolExecutor:
 
         # An intervention (000601) — inline items or an intervene/spec on
         # the port — makes the node a sweep: one set of samples per
-        # factor, the factor a coordinate, weight edits scoped per
-        # factor. Without one, `factors` is a single None and the loop
-        # below is the one it always was, byte for byte.
+        # cell, its axes coordinates, weight edits scoped per strength.
+        # Without one, `cells` is a single None and the loop below is the
+        # one it always was, byte for byte.
         plan = intervene_mod.plan(model, params, inputs)
-        factors: list = plan.factors if plan else [None]
+        cells: list = plan.cells if plan else [None]
 
         if on_start:
-            on_start(len(records) * n * len(factors))
+            on_start(len(records) * n * len(cells))
         items = []
-        for factor in factors:
-            with intervene_mod.edited(model, plan.weight_items if plan else (), factor or 0.0):
+        for cell in cells:
+            with intervene_mod.edited(model, plan.weight_items if plan else (),
+                                      cell.factor if plan else 0.0):
                 for rec in records:
                     lead = str(rec.get("prefill") or "") if continue_prefill else ""
                     r = render(model, dict(rec, prefill=lead))
@@ -1320,10 +1321,10 @@ class ProtocolExecutor:
                     # sample then gets its own live intervention, over a
                     # token list its decoder grows.
                     prompt_tokens = [tok.decode([int(t)]) for t in ids] if plan else []
-                    prefill = (prefill_decision(model, ids, interventions=plan.live(factor, prompt_tokens, rec))
+                    prefill = (prefill_decision(model, ids, interventions=plan.live(cell, prompt_tokens, rec))
                                if plan else prefill_decision(model, ids))
                     for k in range(start, start + n):
-                        key = f"{rec['id']}:{k}" + (f":{factor:g}" if plan else "")
+                        key = f"{rec['id']}:{k}" + (f":{cell.slug}" if plan else "")
                         if resume_items and key in resume_items:
                             # Reproducible (epic 000320): this item is a pure
                             # function of its key; the spooled copy IS what
@@ -1341,7 +1342,7 @@ class ProtocolExecutor:
                             temperature=temperature, top_p=top_p, rng=rng,
                             prefill=prefill, return_ids=True,
                             stop_strings=stop_strings,
-                            **({"interventions": plan.live(factor, prompt_tokens, rec)} if plan else {}))
+                            **({"interventions": plan.live(cell, prompt_tokens, rec)} if plan else {}))
                         if stop_strings and any(s in tok.decode(out_ids) for s in stop_strings):
                             ended = "stop"
                         elif len(out_ids) >= max_tokens:
@@ -1350,9 +1351,9 @@ class ProtocolExecutor:
                             ended = "end"
                         coords = {**rec.get("coords", {}), "sample": k}
                         if plan:
-                            coords["factor"] = factor
+                            coords.update(cell.axes)
                         item = {
-                            "id": f"{rec['id']}-s{k}" + (f"-f{factor:g}" if plan else ""),
+                            "id": f"{rec['id']}-s{k}" + (f"-{cell.slug}" if plan else ""),
                             "kind": "text/document",
                             # The assistant's turn as it reads: the prefill it was
                             # begun with, then what the model wrote.
@@ -1657,7 +1658,7 @@ class ProtocolExecutor:
                          resume_items=None):
         """intervene/apply (task 000366): the declarative
         points × operations grammar with a decision or capture readout.
-        Items are (record, sweep factor); spooled items are reused in
+        Items are (record, sweep cell); spooled items are reused in
         canonical order under a matching fingerprint."""
         from mechbench_compute import intervene as intervene_mod
 
@@ -1675,7 +1676,8 @@ class ProtocolExecutor:
                                 on_item=_on_item, on_start=on_start)
         if reuse:
             # Reproducible: a spooled row IS the row this loop produced.
-            out["items"] = [reuse.get(f"{r['id']}:{r['factor']}", r) for r in out["items"]]
+            out["items"] = [reuse.get(f"{r['id']}:{r.get('cell') or r.get('factor')}", r)
+                            for r in out["items"]]
         return out
 
     def _block_map(self, inputs, params, *, secrets=None, on_item=None,

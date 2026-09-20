@@ -1176,7 +1176,7 @@ def steer_inject(
     return _K().collection(
         "intervene/readout", out_rows,
         layer=layer,
-        sweep=alphas,
+        sweep={"strength": alphas},
         readout="decision",
         direction={
             "axis": axis,

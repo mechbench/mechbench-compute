@@ -740,7 +740,7 @@ class TestSteerInject:
         assert getattr(add, "layer_idx", None) == 2
         rows = out["items"]
         assert [r["factor"] for r in rows] == [0.0, 4.0]
-        assert out["sweep"] == [0.0, 4.0]
+        assert out["sweep"] == {"strength": [0.0, 4.0]}
         assert out["direction"]["axis"] == "label"
         assert len(rows[0]["top"]) == 5
         assert set(rows[0]["top"][0]) == {"token", "p", "logp"}

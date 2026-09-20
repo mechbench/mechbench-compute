@@ -145,7 +145,7 @@ class TestTheBlock:
         out = _run({"spec": [ITEM], "sweep": {"strength": [1.0, 2.0]}})
         # Factor 0 (the control) first, then 1 and 2: one prefill and
         # two samples each; the control runs with no intervention.
-        assert out["sweep"] == [0.0, 1.0, 2.0]
+        assert out["sweep"] == {"strength": [0.0, 1.0, 2.0]}
         by_factor = [seen[i:i + 3] for i in range(0, 9, 3)]
         assert [c["ivs"] for c in by_factor[0]] == [None, [], []] or all(not c["ivs"] for c in by_factor[0])
         for chunk in by_factor[1:]:
@@ -162,7 +162,7 @@ class TestTheBlock:
     def test_the_spec_may_arrive_as_an_object_on_the_port(self, seen):
         spec = {"kind": "intervene/spec", "items": [ITEM]}
         out = _run({"control": False}, inputs={"intervention": spec})
-        assert out["sweep"] == [1.0]
+        assert out["sweep"] == {"strength": [1.0]}
         assert all(c["ivs"] and isinstance(c["ivs"][0], iv.SpecIntervention) for c in seen)
 
     def test_the_scaled_strength_reaches_the_hook(self):
@@ -277,3 +277,53 @@ class TestTheHookedForwardRunsInChunks:
         assert same == plain
         # And the intervention's token list grew with the sample.
         assert len(live[0].tokens) > len(toks)
+
+
+class TestChatUnderAnIntervention:
+    """`text/chat` on local weights takes an intervention too (000601),
+    and sweeps its axes (000602) — the path `text/generate`'s tests did
+    not cover, which is how it went a release without one."""
+
+    def _run(self, params, monkeypatch):
+        from mechbench_compute import chat as chat_mod
+        from mechbench_compute import distill, generate
+        from mechbench_compute import model_ref as mr
+
+        seen = []
+
+        class FakeTok:
+            def apply_chat_template(self, turns, tokenize=False, add_generation_prompt=True, **kw):
+                return " | ".join(f"{t['role']}:{t['content']}" for t in turns)
+
+            def decode(self, ids):
+                return "".join(chr(i + 96) for i in ids)
+
+        class FakeModel:
+            tokenizer = FakeTok()
+            arch = _Arch()
+
+        monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
+        monkeypatch.setattr(distill, "prefill_decision",
+                            lambda m, ids, interventions=None: seen.append(("prefill", interventions)) or None)
+        monkeypatch.setattr(generate, "sample_completion_cached",
+                            lambda *a, interventions=None, **k: seen.append(("sample", interventions)) or "said")
+        out = chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
+                                 [{"id": "q0", "user": "a question", "coords": {"topic": "t"}}],
+                                 {"n": 1, "seed": 3, **params})
+        return out, seen
+
+    def test_without_one_the_calls_are_unchanged(self, monkeypatch):
+        out, seen = self._run({}, monkeypatch)
+        assert [s[1] for s in seen] == [None, None]
+        assert [i["id"] for i in out["items"]] == ["q0-s0"]
+        assert "factor" not in out["items"][0]["coords"]
+
+    def test_a_layer_sweep_gives_one_set_of_replies_per_cell(self, monkeypatch):
+        out, seen = self._run({"spec": [{"point": "resid_post", "op": "zero"}],
+                               "sweep": {"layers": [1, 2]}}, monkeypatch)
+        assert [i["id"] for i in out["items"]] == ["q0-s0-control", "q0-s0-layer1", "q0-s0-layer2"]
+        assert [i["coords"].get("layer") for i in out["items"]] == [None, 1, 2]
+        assert [i["coords"]["factor"] for i in out["items"]] == [0.0, 1.0, 1.0]
+        # The control asked for nothing; each cell had its own live spec.
+        assert [bool(s[1]) for s in seen] == [False, False, True, True, True, True]
+        assert out["sweep"] == {"strength": [0.0, 1.0], "layers": [1, 2]}

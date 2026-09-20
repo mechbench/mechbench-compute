@@ -13,6 +13,61 @@ nothing said so.
 
 ---
 
+## 0.117.0 — 2026-09-20
+
+### Changes that raise
+
+- A `sweep` axis that is not `strength`, `layers`, `heads`, `positions`
+  or `neurons` is refused by name, as is an axis whose values are not a
+  non-empty list, and a `sweep_over` that names something else.
+- `except` without a set to invert, or on a whole-model point;
+  `pattern` on a point with no source axis, or without `from`; `from`
+  on an item whose op is not `patch`.
+
+### Changes that alter results without raising
+
+- **`op: "zero"` at `attn.scores` now writes −∞**, not 0. A score of
+  zero is a score; what removes an edge before the softmax is −∞. A
+  protocol that zeroed scores measured a reweighting, not a cut, and
+  its numbers change.
+- **The header's `sweep` is the axes as run**, `{"strength": [0.0,
+  1.0], "layers": [21, 22]}`, where it was a bare list of factors —
+  on `intervene/apply` and on `intervene/steer`, which now speak the
+  same shape.
+- `intervene/readout`'s key is `(id, factor, cell)`. A row of a
+  strength-only sweep carries no `cell`, so those collections sort
+  exactly as before.
+
+### Other
+
+- **A sweep varies any spec axis** (000602): `layers`, `heads`,
+  `positions` and `neurons` beside `strength`, several axes forming a
+  cartesian product run with strength outermost. Each becomes a
+  coordinate — `layer`, `head`, `position`, `neuron` — so a sweep is
+  summarised, compared and plotted on the axis it varied, and the
+  control runs ONCE however many cells there are. A row of a
+  multi-axis sweep names its cell (`layer=23`, `factor=2/layer=23`,
+  `control`). An item's `sweep_over` restricts which axes vary it. A
+  layer sweep is one node where it was a `records/map` over a corpus
+  of integers. `text/generate` and `text/chat` sweep the same way.
+- **The complement of a set** (000604): `except: true` inverts an
+  item's `layers`, `heads` or `neurons` — every head of a layer but
+  these — which is how a circuit's completeness is measured where the
+  direct ablation measures its faithfulness.
+- **An attention edge** (000612): at `attn.scores` and `attn.weights`,
+  `pattern: {"from": selector, "to": selector}` acts on the edge from
+  source positions to destination positions rather than on whole rows.
+  Zeroing at `attn.weights` renormalises the rows that lost mass
+  (`renormalize: false` leaves them short).
+- **A patch reads where `from` says** (000605): `from: {"layer": 8,
+  "point": …}` takes the row from another layer than the one it is
+  written into — the patchscope's move, and with `text/generate`'s
+  intervention port the whole patchscope in one graph.
+- `text/chat` under an intervention has a test: the path 000601 shipped
+  without one, and it had gone stale.
+
+---
+
 ## 0.116.1 — 2026-09-19
 
 ### Changes that raise

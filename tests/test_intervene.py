@@ -190,7 +190,7 @@ class TestRunReadout:
                                 "strength": 10.0, "direction": d}],
                       "sweep": {"strength": [1.0]}, "top_k": 2},
                      on_item=lambda k, row: items.append(k))
-        assert out["item_kind"] == "intervene/readout" and out["sweep"] == [0.0, 1.0]
+        assert out["item_kind"] == "intervene/readout" and out["sweep"] == {"strength": [0.0, 1.0]}
         assert items == ["r1:0.0", "r1:1.0"]
         ctrl, steered = out["items"]
         assert ctrl["factor"] == 0.0 and steered["factor"] == 1.0
@@ -372,7 +372,7 @@ class TestWeightItems:
         out = iv.run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"parameter": "layers.0.self_attn.o_proj",
                                 "op": "zero"}], "top_k": 2})
-        assert out["sweep"] == [0.0, 1.0]
+        assert out["sweep"] == {"strength": [0.0, 1.0]}
         ctrl, edited = out["items"]
         assert ctrl["factor"] == 0.0 and edited["factor"] == 1.0
         # The control saw the untouched model; the edited row did not.
@@ -414,3 +414,70 @@ class TestWeightItems:
                               "op": "zero"}], "control": False})
         assert np.array_equal(self._weight(model), before), \
             "a failed run left the model edited"
+
+
+class TestSweepAxes:
+    """A sweep varies any spec field, not only strength (000602): the
+    axes are a cartesian product, each a coordinate on the rows."""
+
+    REC = {"id": "r1", "user": "hi"}
+    ZERO = {"point": "resid_post", "op": "zero"}
+
+    def test_a_layer_sweep_is_one_node(self):
+        out = iv.run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"layers": [1, 2, 3]}})
+        assert out["sweep"] == {"strength": [0.0, 1.0], "layers": [1, 2, 3]}
+        rows = out["items"]
+        assert [r.get("cell") for r in rows] == ["control", "layer=1", "layer=2", "layer=3"]
+        assert [r["coords"].get("layer") for r in rows] == [None, 1, 2, 3]
+        assert [r["factor"] for r in rows] == [0.0, 1.0, 1.0, 1.0]
+        # The stub's logits read blocks.2.resid_post, so only that cell moved.
+        ctrl, l1, l2, l3 = rows
+        assert l1["top"][0]["token"] == ctrl["top"][0]["token"]
+        assert l3["top"][0]["token"] == ctrl["top"][0]["token"]
+        assert l2["top"][0]["token"] != ctrl["top"][0]["token"]
+
+    def test_the_control_runs_once_however_many_cells(self):
+        out = iv.run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"layers": [0, 1, 2, 3]}})
+        assert sum(1 for r in out["items"] if r["factor"] == 0.0) == 1
+
+    def test_strength_by_layers_is_the_product_strength_outermost(self):
+        out = iv.run(_FakeModel(), [self.REC],
+                     {"spec": [{"point": "resid_post", "op": "scale", "strength": 0.5}],
+                      "sweep": {"strength": [1, 2], "layers": [1, 2]}, "control": False})
+        assert [r["cell"] for r in out["items"]] == [
+            "factor=1/layer=1", "factor=1/layer=2", "factor=2/layer=1", "factor=2/layer=2"]
+        assert out["sweep"] == {"strength": [1.0, 2.0], "layers": [1, 2]}
+
+    def test_a_capture_readout_carries_the_axis_too(self):
+        out = iv.run(_FakeModel(), [self.REC],
+                     {"spec": [self.ZERO], "sweep": {"layers": [[1], [2], [3]]},
+                      "readout": {"type": "capture", "points": ["blocks.2.resid_post"]}})
+        rows = out["items"]
+        assert out["item_kind"] == "activations/vector" and len(rows) == 4
+        assert [r["coords"].get("layer") for r in rows] == [None, 1, 2, 3]
+        ctrl, l1, l2, l3 = rows
+        assert np.allclose(l1["vector"], ctrl["vector"]) and np.allclose(l3["vector"], ctrl["vector"])
+        assert np.allclose(l2["vector"], 0.0) and not np.allclose(ctrl["vector"], 0.0)
+
+    def test_grouped_layers_read_as_one_coordinate(self):
+        out = iv.run(_FakeModel(), [self.REC],
+                     {"spec": [self.ZERO], "sweep": {"layers": [[0, 1], [2, 3]]}, "control": False})
+        assert [r["coords"]["layer"] for r in out["items"]] == ["0+1", "2+3"]
+
+    def test_sweep_over_restricts_which_items_an_axis_touches(self):
+        compiled = iv.compile(_FakeModel(), [
+            {"point": "resid_post", "layers": [0], "op": "zero", "sweep_over": ["strength"]},
+            {"point": "resid_post", "op": "scale", "strength": 0.5}])
+        [cell] = iv.sweep_cells({"sweep": {"layers": [3]}, "control": False})
+        fixed, swept = compiled.at(cell)
+        assert fixed.layers == [0]          # its own layer stands
+        assert swept.layers == [3]          # and this one follows the axis
+
+    def test_refusals_name_the_axes(self):
+        with pytest.raises(iv.SpecError, match="cannot vary depth"):
+            iv.run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"depth": [1]}})
+        with pytest.raises(iv.SpecError, match="non-empty list"):
+            iv.run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"layers": []}})
+        with pytest.raises(iv.SpecError, match="sweep_over"):
+            iv.run(_FakeModel(), [self.REC],
+                   {"spec": [{**self.ZERO, "sweep_over": ["depth"]}], "sweep": {"layers": [1]}})

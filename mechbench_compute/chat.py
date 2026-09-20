@@ -142,10 +142,10 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
           tool_errors: Sequence[Any] = (),
           sandbox_calls: Sequence[Any] = (),
           sandbox_snapshot: Any = None,
-          factor: float | None = None) -> dict[str, Any]:
+          cell: Any = None) -> dict[str, Any]:
     coords = {**(rec.get("coords") or {}), "sample": k}
-    if factor is not None:
-        coords["factor"] = factor
+    if cell is not None:
+        coords.update(cell.axes)
     meta: dict[str, Any] = {
         "coords": dict(coords),
         "model": model_wire,
@@ -176,7 +176,7 @@ def _item(rec: Mapping[str, Any], k: int, text: str, *,
     # A document is a record: its coordinates sit on the item as every
     # other record's do (and under `metadata` as well, where the readers
     # of older collections look).
-    item = {"id": f"{rec.get('id')}-s{k}" + (f"-f{factor:g}" if factor is not None else ""),
+    item = {"id": f"{rec.get('id')}-s{k}" + (f"-{cell.slug}" if cell is not None else ""),
             "kind": ITEM_KIND, "text": text,
             "coords": dict(meta["coords"]), "metadata": meta}
     if params.get("keep_fields"):
@@ -397,12 +397,12 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     stop_strings = tuple(params.get("stop") or ())
     model_wire = ref.to_wire() if hasattr(ref, "to_wire") else ref
     # An intervention (000601) makes the node a sweep: one set of replies
-    # per factor, `factor` a coordinate, weight edits scoped per factor.
+    # per cell, its axes coordinates, weight edits scoped per strength.
     # Without one the loop is the one it always was.
     plan = intervene_mod.plan(model, params, inputs)
-    factors: list = plan.factors if plan else [None]
+    cells: list = plan.cells if plan else [None]
     if on_start:
-        on_start(len(recs) * n * len(factors))
+        on_start(len(recs) * n * len(cells))
     items: list[dict[str, Any]] = []
     # Tool-call errors, reported and not merely counted. An individual
     # failure does not fail the run unless asked to: `on_tool_error`
@@ -414,14 +414,15 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
             f"on_tool_error must be 'record' or 'fail', not {on_tool_error!r}")
     tool_errors: list[dict[str, Any]] = []
     responses_with_calls = 0
-    for factor, rec in ((f, r) for f in factors for r in recs):
-        with intervene_mod.edited(model, plan.weight_items if plan else (), factor or 0.0):
+    for cell, rec in ((c, r) for c in cells for r in recs):
+        with intervene_mod.edited(model, plan.weight_items if plan else (),
+                                  cell.factor if plan else 0.0):
             req = build_request(rec, params, model=str(getattr(ref, "base", ref)),
                                 provider_options={})
             box0 = tool_mod.toolbox_from(tool_specs, block_runner=block_runner)
             hf_tools = [dialects.tool_to_hf(t) for t in box0.tools] if box0 else []
             for k in range(start, start + n):
-                key = f"{rec.get('id')}:{k}" + (f":{factor:g}" if plan else "")
+                key = f"{rec.get('id')}:{k}" + (f":{cell.slug}" if plan else "")
                 if resume_items and key in resume_items:
                     items.append(resume_items[key])
                     if on_item:
@@ -440,8 +441,8 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                     if plan:
                         prompt_tokens = [tok.decode([int(t)]) for t in ids]
                         prefill = prefill_decision(
-                            model, ids, interventions=plan.live(factor, prompt_tokens, rec))
-                        live = plan.live(factor, prompt_tokens, rec)
+                            model, ids, interventions=plan.live(cell, prompt_tokens, rec))
+                        live = plan.live(cell, prompt_tokens, rec)
                     else:
                         prefill, live = prefill_decision(model, ids), None
                     text = sample_completion_cached(
@@ -502,7 +503,7 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                              tool_runs=[r.to_wire() for r in box.runs],
                              sandbox_calls=(session.calls if session else ()),
                              sandbox_snapshot=(session.final_wire() if session else None),
-                             factor=factor if plan else None)
+                             cell=cell if plan else None)
                 items.append(item)
                 if on_item:
                     on_item(key, item)

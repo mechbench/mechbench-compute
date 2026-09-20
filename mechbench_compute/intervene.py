@@ -25,6 +25,7 @@ Everything here is deterministic given the spec and the records
 from __future__ import annotations
 
 import contextlib
+import json
 
 import math
 from collections.abc import Callable, Mapping, Sequence
@@ -42,6 +43,10 @@ OPS = ("zero", "mean", "resample", "patch", "add", "scale", "clamp",
        "project_out", "rotate")
 
 _GLOBAL_POINTS = frozenset({"embed", "final_norm", "logits"})
+
+#: "the selector this item already names" — a sentinel, because None is
+#: a selector (`positions: null` is `"last"`).
+_SAME = object()
 
 
 class SpecError(ValueError):
@@ -131,6 +136,48 @@ class Spec:
         self.positions = item.get("positions", "last")
         self.heads = None if item.get("heads") is None else _as_list(item["heads"])
         self.neurons = None if item.get("neurons") is None else _as_list(item["neurons"])
+        # `except` inverts the sets this item names — everything BUT
+        # these layers, heads or neurons — which is how a circuit's
+        # completeness is measured against its faithfulness (000604).
+        # Layers invert here, where the count is known; heads and
+        # neurons invert in the hook, where the tensor's own axis says
+        # how many there are.
+        self.excepted = bool(item.get("except", False))
+        if self.excepted:
+            named = [k for k in ("layers", "heads", "neurons") if item.get(k) is not None]
+            if point in _GLOBAL_POINTS:
+                raise SpecError(
+                    f"`except` inverts a set of layers, heads or neurons; point "
+                    f"{point!r} has none — it occurs once per forward pass")
+            if not named:
+                raise SpecError(
+                    "`except` needs a set to invert: name `layers`, `heads` or "
+                    "`neurons` on the item")
+            if item.get("layers") is not None and layers != "all":
+                keep = {int(x) for x in self.layers}
+                self.layers = [i for i in range(n_layers) if i not in keep]
+        # A `patch` may take its row from ANOTHER layer or point — the
+        # patchscope's move, reading a hidden state by writing it where
+        # a different prompt would read it (000605).
+        self.patch_from = item.get("from")
+        if self.patch_from is not None:
+            if op != "patch":
+                raise SpecError("`from` names where a `patch` reads; this item's op is "
+                                f"{op!r}")
+            if not isinstance(self.patch_from, Mapping):
+                raise SpecError("`from` is an object: {layer, point}")
+        # An attention edge: which SOURCE positions the selected
+        # destinations may attend to (000612).
+        self.pattern = item.get("pattern")
+        if self.pattern is not None:
+            if point not in ("attn.scores", "attn.weights"):
+                raise SpecError(
+                    f"`pattern` names an attention edge; point {point!r} has no "
+                    "source axis — one of 'attn.scores', 'attn.weights'")
+            if not isinstance(self.pattern, Mapping) or "from" not in self.pattern:
+                raise SpecError('`pattern` is `{"from": selector, "to": selector}`; '
+                                "`from` is required")
+        self.renormalize = bool(item.get("renormalize", True))
         self.strength = float(item.get("strength", 1.0))
         self.seed = int(item.get("seed", seed))
         self.direction = (dirs.as_array(item["direction"])
@@ -183,15 +230,19 @@ class Spec:
         # per-position replacement rows for mean / resample / patch
         rows = None
         if self.source is not None:
+            src_layer, src_point = layer, self.point
+            if self.patch_from is not None:
+                src_layer = self.patch_from.get("layer", layer)
+                src_point = self.patch_from.get("point", self.point)
             try:
-                rows = _rows_matrix(self.source, layer, self.point)
+                rows = _rows_matrix(self.source, src_layer, src_point)
             except SpecError:
                 # A source captured at another point still serves an op
                 # that only needs vectors of the right width.
-                rows = _rows_matrix(self.source, layer)
+                rows = _rows_matrix(self.source, src_layer)
         rng = self._rng
 
-        def _positions(L: int, offset: int) -> list[int]:
+        def _positions(L: int, offset: int, selector: Any = _SAME) -> list[int]:
             # One grammar (positions.py), resolved over the whole sequence
             # seen so far — `offset` tokens already in the KV cache, then
             # this chunk's `L` — and kept only where it falls inside the
@@ -199,8 +250,9 @@ class Spec:
             # offset 0. `L` is the tensor's own length at this point,
             # which a key/value axis may differ in.
             n = offset + L
+            want = positions if selector is _SAME else selector
             try:
-                sel = POS.resolve(positions, n, tokens=list(tokens[:n]), record=record,
+                sel = POS.resolve(want, n, tokens=list(tokens[:n]), record=record,
                                   prompt_len=min(fixed_prompt_len, n), absent=absent)
             except ValueError as e:
                 raise SpecError(str(e)) from None
@@ -214,20 +266,33 @@ class Spec:
             if not sel_pos:
                 return act
 
-            def axis_mask(axis: int, idx: Sequence[int]) -> mx.array:
+            def axis_mask(axis: int, idx: Sequence[int], invert: bool = False) -> mx.array:
                 m = np.zeros(shape[axis], dtype=bool)
                 m[list(idx)] = True
+                if invert:
+                    m = ~m
                 view = [1] * nd
                 view[axis] = shape[axis]
                 return mx.array(m).reshape(view)
 
-            mask = axis_mask(pos_axis, sel_pos)
+            if self.pattern is not None:
+                # An edge: the destinations attend along the position
+                # axis, the sources sit on the feature (key) axis, which
+                # counts the whole sequence and so takes no offset.
+                to_sel = (sel_pos if "to" not in self.pattern
+                          else _positions(L, int(getattr(info, "offset", 0) or 0), self.pattern["to"]))
+                from_sel = _positions(shape[feat_axis], 0, self.pattern["from"])
+                if not to_sel or not from_sel:
+                    return act
+                mask = axis_mask(pos_axis, to_sel) & axis_mask(feat_axis, from_sel)
+            else:
+                mask = axis_mask(pos_axis, sel_pos)
+                if neurons is not None:
+                    mask = mask & axis_mask(feat_axis, neurons, invert=self.excepted)
             if heads is not None:
                 if head_axis is None:
                     raise SpecError(f"point {self.point!r} has no head axis")
-                mask = mask & axis_mask(head_axis, heads)
-            if neurons is not None:
-                mask = mask & axis_mask(feat_axis, neurons)
+                mask = mask & axis_mask(head_axis, heads, invert=self.excepted)
 
             def along_feat(v: mx.array) -> mx.array:
                 view = [1] * nd
@@ -245,7 +310,10 @@ class Spec:
                 mask = mask & cmask
 
             if op == "zero":
-                new = mx.zeros_like(act)
+                # At a score, zero is a SCORE of zero, not a cut: what
+                # removes an edge before the softmax is −inf (000612).
+                new = (mx.full(shape, float("-inf"), act.dtype)
+                       if self.point == "attn.scores" else mx.zeros_like(act))
             elif op == "scale":
                 new = act * strength
             elif op == "add":
@@ -282,7 +350,16 @@ class Spec:
                 new = mx.broadcast_to(along_feat(mx.array(vec)), shape)
             else:  # pragma: no cover
                 raise SpecError(op)
-            return mx.where(mask, new, act)
+            out = mx.where(mask, new, act)
+            if (self.point == "attn.weights" and op == "zero" and self.renormalize):
+                # A cut edge's mass has to go somewhere: the rows that
+                # lost one are renormalised, the rest are left untouched
+                # rather than divided by a rounded 1.
+                f = out.astype(mx.float32)
+                total = mx.sum(f, axis=feat_axis, keepdims=True)
+                touched = mx.sum(mask.astype(mx.float32), axis=feat_axis, keepdims=True) > 0
+                out = mx.where(touched, (f / mx.maximum(total, 1e-9)).astype(act.dtype), out)
+            return out
 
         return fn
 
@@ -290,11 +367,35 @@ class Spec:
 class Compiled:
     """A spec list parsed against a model: the activation items as
     `Spec`s, the weight items as written, and the items as filled from
-    the ports — what lineage records."""
+    the ports — what lineage records. `at(cell)` re-parses the items
+    with a sweep cell's fields overridden (000602)."""
 
     def __init__(self, specs: list[Spec], weight_items: list[dict[str, Any]],
-                 filled: list[dict[str, Any]]) -> None:
+                 filled: list[dict[str, Any]], *,
+                 activation_items: Sequence[Mapping[str, Any]] = (),
+                 n_layers: int = 0, seed: int = 0) -> None:
         self.specs, self.weight_items, self.filled = specs, weight_items, filled
+        self.activation_items = [dict(it) for it in activation_items]
+        self.n_layers, self.seed = int(n_layers), int(seed)
+
+    def at(self, cell: Cell) -> list[Spec]:
+        """The specs this cell runs: each item with the cell's fields
+        set — unless the item's `sweep_over` names a smaller set of axes
+        — and every strength multiplied by the cell's factor."""
+        if not cell.overrides:
+            return scaled(self.specs, cell.factor)
+        out: list[Spec] = []
+        for item, spec in zip(self.activation_items, self.specs, strict=True):
+            axes = item.get("sweep_over")
+            applies = {a: v for a, v in cell.overrides.items()
+                       if axes is None or a in axes}
+            if not applies:
+                out.extend(scaled([spec], cell.factor))
+                continue
+            out.extend(scaled(
+                [Spec({**item, **applies}, n_layers=self.n_layers, seed=self.seed)],
+                cell.factor))
+        return out
 
 
 def compile(model, items: Sequence[Mapping[str, Any]], *,
@@ -321,10 +422,19 @@ def compile(model, items: Sequence[Mapping[str, Any]], *,
         filled.append(it)
     weight_items = [it for it in filled if it.get("parameter") is not None]
     activation_items = [it for it in filled if it.get("parameter") is None]
+    for it in activation_items:
+        over = it.get("sweep_over")
+        if over is None:
+            continue
+        if not isinstance(over, (list, tuple)) or any(a not in SWEEP_AXES for a in over):
+            raise SpecError(
+                f"`sweep_over` names sweep axes ({', '.join(SWEEP_AXES)}), "
+                f"not {over!r}")
     specs = [Spec(it, n_layers=model.arch.n_layers, seed=int(seed)) for it in activation_items]
     if not specs and not weight_items:
         raise SpecError("an intervention needs a non-empty spec list")
-    return Compiled(specs, weight_items, filled)
+    return Compiled(specs, weight_items, filled, activation_items=activation_items,
+                    n_layers=model.arch.n_layers, seed=int(seed))
 
 
 def spec_items(inline: Any, inputs: Mapping[str, Any] | None) -> list[dict[str, Any]]:
@@ -344,11 +454,17 @@ def spec_items(inline: Any, inputs: Mapping[str, Any] | None) -> list[dict[str, 
 
 class Plan:
     """What a text op runs under an intervention: the compiled specs,
-    the factors, and a way to make one record's live intervention per
-    factor. None of it when the node has no intervention."""
+    the sweep's cells, and a way to make one record's live intervention
+    per cell. None of it when the node has no intervention."""
 
-    def __init__(self, compiled: Compiled, factors: list[float]) -> None:
-        self.compiled, self.factors = compiled, factors
+    def __init__(self, compiled: Compiled, cells: list[Cell],
+                 sweep: Mapping[str, Any] | None = None) -> None:
+        self.compiled, self.cells = compiled, cells
+        self._sweep = dict(sweep or {})
+
+    @property
+    def factors(self) -> list[float]:
+        return [c.factor for c in self.cells]
 
     @property
     def specs(self) -> list[Spec]:
@@ -358,21 +474,31 @@ class Plan:
     def weight_items(self) -> list[dict[str, Any]]:
         return self.compiled.weight_items
 
-    def live(self, factor: float, tokens: Sequence[str],
+    def live(self, cell: Cell, tokens: Sequence[str],
              record: Mapping[str, Any] | None = None) -> list[SpecIntervention]:
-        """The interventions for one record at one factor: none at the
-        control factor, else the specs scaled, over a token list this
-        record's decoder grows."""
-        if factor == 0.0 or not self.specs:
+        """The interventions for one record in one cell: none in the
+        control, else the cell's specs, over a token list this record's
+        decoder grows."""
+        if cell.factor == 0.0 or not self.specs:
             return []
-        return [SpecIntervention(scaled(self.specs, factor), tokens, record, growing=True)]
+        return [SpecIntervention(self.compiled.at(cell), tokens, record, growing=True)]
 
     def header(self) -> dict[str, Any]:
         """What the result records: the items as run, the weight edits,
-        the sweep."""
+        the sweep as run."""
         return {"spec": _wire_spec(self.compiled.filled),
                 "weights": [dict(it) for it in self.weight_items] or None,
-                "sweep": list(self.factors)}
+                "sweep": sweep_as_run(self._sweep, self.cells)}
+
+
+def sweep_as_run(sweep: Mapping[str, Any], cells: Sequence[Cell]) -> dict[str, Any]:
+    """The header's record of a sweep: every axis and the values it took,
+    strength including the control's 0 when one was added."""
+    out: dict[str, Any] = {"strength": list(dict.fromkeys(c.factor for c in cells))}
+    for axis in SWEEP_AXES:
+        if axis != "strength" and axis in sweep:
+            out[axis] = list(sweep[axis])
+    return out
 
 
 def plan(model, params: Mapping[str, Any], inputs: Mapping[str, Any] | None) -> Plan | None:
@@ -381,16 +507,124 @@ def plan(model, params: Mapping[str, Any], inputs: Mapping[str, Any] | None) -> 
     if not items:
         return None
     compiled = compile(model, items, inputs=inputs, seed=int(params.get("seed", 0)))
-    return Plan(compiled, sweep_factors(params))
+    return Plan(compiled, sweep_cells(params), params.get("sweep") or {})
+
+
+#: The spec fields a sweep may vary, in the order the product runs them,
+#: and the coordinate each one becomes on the result (000602). `strength`
+#: is the outermost, because a weight edit is applied once per strength
+#: and every cell under it runs against the edited model.
+SWEEP_AXES: dict[str, str] = {"strength": "factor", "layers": "layer",
+                              "heads": "head", "positions": "position",
+                              "neurons": "neuron"}
+
+
+def _axis_coord(value: Any) -> Any:
+    """What a swept value reads as on the result: a scalar as itself, a
+    one-element list as its element (so `layers: [[0],[1]]` gives 0 and
+    1), anything else as a compact label — a coordinate is grouped on,
+    so it must be a value a group key can hold."""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (list, tuple)):
+        if len(value) == 1:
+            return _axis_coord(value[0])
+        return "+".join(str(_axis_coord(v)) for v in value)
+    if isinstance(value, Mapping):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return str(value)
+
+
+class Cell:
+    """One cell of a sweep: the strength factor, the spec fields it
+    overrides, and the coordinates it puts on every row it produces."""
+
+    def __init__(self, factor: float, overrides: Mapping[str, Any],
+                 coords: Mapping[str, Any], label: str | None) -> None:
+        self.factor = float(factor)
+        self.overrides = dict(overrides)
+        #: The axis coordinates beside `factor` — `layer`, `head`, …
+        self.coords = dict(coords)
+        #: A one-word name for the cell, when the sweep runs axes beyond
+        #: strength; None when it does not, so a strength-only sweep's
+        #: rows are identified by `factor` exactly as they always were.
+        self.label = label
+
+    @property
+    def key(self) -> str:
+        return self.label or f"{self.factor}"
+
+    @property
+    def slug(self) -> str:
+        """The cell in an id: `f1` for a strength-only sweep, as it has
+        always been; `layer0`, `factor2-layer3` when other axes run."""
+        if not self.label:
+            return f"f{self.factor:g}"
+        return self.label.replace("=", "").replace("/", "-")
+
+    @property
+    def axes(self) -> dict[str, Any]:
+        """Every coordinate this cell puts on a row, `factor` included."""
+        return {"factor": self.factor, **self.coords}
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"Cell(factor={self.factor}, overrides={self.overrides})"
+
+
+def sweep_cells(params: Mapping[str, Any]) -> list[Cell]:
+    """The cells a node's `sweep` runs: the cartesian product of its
+    axes in `SWEEP_AXES` order, with the untouched-model control first
+    unless `control` is false or a strength of 0 is already named.
+
+    A sweep over `strength` alone is the sweep this op has always run —
+    one cell per factor, `factor` the only coordinate. Any other axis
+    (`layers`, `heads`, `positions`, `neurons`) sets that field on every
+    spec item it applies to, and becomes a coordinate of its own, so a
+    layer sweep is one node and one result where it used to be a
+    `records/map` over a corpus of integers (000602).
+    """
+    sweep = params.get("sweep") or {}
+    if not isinstance(sweep, Mapping):
+        raise SpecError("`sweep` is an object of axes: "
+                        f"{', '.join(SWEEP_AXES)}")
+    unknown = [k for k in sweep if k not in SWEEP_AXES]
+    if unknown:
+        raise SpecError(
+            f"`sweep` cannot vary {', '.join(sorted(unknown))}; the axes are "
+            f"{', '.join(SWEEP_AXES)}")
+    for axis, values in sweep.items():
+        if not isinstance(values, (list, tuple)) or not values:
+            raise SpecError(f"`sweep.{axis}` is a non-empty list of values")
+    strengths = [float(f) for f in sweep.get("strength", [1.0])]
+    others = [(a, list(sweep[a])) for a in SWEEP_AXES if a != "strength" and a in sweep]
+
+    cells: list[Cell] = []
+    for factor in strengths:
+        # itertools.product over the non-strength axes, in axis order.
+        combos: list[list[tuple[str, Any]]] = [[]]
+        for axis, values in others:
+            combos = [[*c, (axis, v)] for c in combos for v in values]
+        for combo in combos:
+            overrides = {axis: value for axis, value in combo}
+            coords = {SWEEP_AXES[axis]: _axis_coord(value) for axis, value in combo}
+            label = None
+            if others:
+                parts = ([f"factor={factor:g}"] if "strength" in sweep else [])
+                parts += [f"{SWEEP_AXES[a]}={coords[SWEEP_AXES[a]]}" for a, _ in combo]
+                label = "/".join(parts)
+            cells.append(Cell(factor, overrides, coords, label))
+    if bool(params.get("control", True)) and not any(c.factor == 0.0 for c in cells):
+        # The control is the model untouched, which is one run however
+        # many axes the sweep has: an unintervened forward pass does not
+        # depend on the layer the intervention would have named.
+        cells = [Cell(0.0, {}, {}, "control" if others else None), *cells]
+    return cells
 
 
 def sweep_factors(params: Mapping[str, Any]) -> list[float]:
-    """The strengths a node's `sweep` runs, with the factor-0 control
-    first unless `control` is false or 0 is already there."""
-    factors = [float(f) for f in (params.get("sweep") or {}).get("strength", [1.0])]
-    if bool(params.get("control", True)) and 0.0 not in factors:
-        factors = [0.0, *factors]
-    return factors
+    """The strengths a node's `sweep` runs — `sweep_cells` read by a
+    caller that varies nothing else."""
+    return [c.factor for c in sweep_cells(params)]
 
 
 class SpecIntervention:
@@ -488,32 +722,35 @@ def edited(model, weight_items: Sequence[Mapping[str, Any]], factor: float):
         weights_mod.restore_parameters(model.lm, handle)
 
 
-def _order(records: Sequence[Mapping[str, Any]], factors: Sequence[float],
+def _order(records: Sequence[Mapping[str, Any]], cells: Sequence[Cell],
            weight_items: Sequence[Mapping[str, Any]], model):
-    """(record, factor) pairs, with any weight edits in scope.
+    """(record, cell) pairs, with any weight edits in scope.
 
     Without weight items this is the loop it always was: record outer,
-    factor inner. With them the factor goes outside, because a weight
+    cell inner. With them the strength goes outside, because a weight
     edit is applied once for every record that runs under it — and the
-    edit is undone before the next factor, and before the generator
+    edit is undone before the next strength, and before the generator
     returns, whatever happens in between. A run that left a model edited
     would poison every later node in the job, which is the failure this
-    `finally` exists for.
+    `finally` exists for. `sweep_cells` orders strength outermost, so
+    the cells sharing one are contiguous and each edit is made once.
     """
     if not weight_items:
         for record in records:
-            for factor in factors:
-                yield record, factor
+            for cell in cells:
+                yield record, cell
         return
 
     from mechbench_compute import weights as weights_mod
 
-    for factor in factors:
+    for factor in dict.fromkeys(c.factor for c in cells):
         handle = ([] if factor == 0.0
                   else weights_mod.edit_parameters(model.lm, weight_items, factor))
         try:
             for record in records:
-                yield record, factor
+                for cell in cells:
+                    if cell.factor == factor:
+                        yield record, cell
         finally:
             weights_mod.restore_parameters(model.lm, handle)
 
@@ -532,7 +769,7 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
                         "intervene/spec on the `intervention` port")
     compiled = compile(model, items, inputs=inputs, seed=int(params.get("seed", 0)))
     specs, weight_items, filled = compiled.specs, compiled.weight_items, compiled.filled
-    factors = sweep_factors(params)
+    cells = sweep_cells(params)
     readout = dict(params.get("readout") or {"type": "decision"})
     rk = str(readout.get("type") or readout.get("kind") or "decision")
     if rk not in ("decision", "capture"):
@@ -541,7 +778,7 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
     if not records:
         raise SpecError("intervene needs at least one record")
     if on_start:
-        on_start(len(records) * len(factors))
+        on_start(len(records) * len(cells))
 
     from mechbench_compute.interp import _tracked_ids
     from mechbench_compute.lexicon import kinds as K
@@ -553,22 +790,28 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
     # and an SVD per record would be absurd. So the factor is the outer
     # loop when there are weight items, and the record loop is the same
     # body either way.
-    for record, factor in _order(records, factors, weight_items, model):
+    for record, cell in _order(records, cells, weight_items, model):
             ids = render(model, record).array
             flat = [int(t) for t in np.array(ids).reshape(-1)]
             tokens = [model.tokenizer.decode([t]) for t in flat]
             tracked = _tracked_ids(model, record, tracked=params.get("tracked"))
-            key = f"{record.get('id')}:{factor}"
+            factor = cell.factor
+            key = f"{record.get('id')}:{cell.key}"
+            # The cell's axes ride on every row it produces: `factor` as
+            # it always has, and a coordinate per other swept axis, so a
+            # layer sweep groups on `layer` (000602).
+            coords = {**record.get("coords", {}), **cell.coords}
+            named = {"cell": cell.label} if cell.label else {}
             if factor == 0.0:
                 ivs: list[Any] = []
             else:
-                ivs = [SpecIntervention(scaled(specs, factor), tokens, record)]
+                ivs = [SpecIntervention(compiled.at(cell), tokens, record)]
             if rk == "decision":
                 res = model.run(ids, interventions=ivs)
                 lp = _last_logp(res.logits)
                 row: dict[str, Any] = {
-                    "id": record.get("id"), "coords": dict(record.get("coords", {})),
-                    "factor": factor,
+                    "id": record.get("id"), "coords": dict(coords),
+                    "factor": factor, **named,
                     **S.distribution(lp, model.tokenizer, top_k=top_k, tracked=tracked),
                 }
             else:
@@ -594,8 +837,8 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
                     cl, cp = _hook_space(p)
                     row = S.vector(
                         arr, S.space(model=mid, layer=cl, point=cp, d=int(arr.size)),
-                        id=record.get("id"), coords=dict(record.get("coords", {})),
-                        factor=factor, position=pidx,
+                        id=record.get("id"), coords=dict(coords),
+                        factor=factor, position=pidx, **named,
                         token=S.token(model.tokenizer, flat[pidx]))
                     rows.append(row)
                     if on_item:
@@ -618,7 +861,7 @@ def run(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
         "activations/vector" if rk == "capture" else "intervene/readout", rows,
         spec=_wire_spec(filled),
         weights=weights_wire,
-        sweep=factors,
+        sweep=sweep_as_run(params.get("sweep") or {}, cells),
         readout=rk,
         **({"model": mid, "position": str(readout.get("position", "last")),
             "points": [str(p) for p in readout.get("points", [])]} if rk == "capture" else {}),

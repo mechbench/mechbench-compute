@@ -121,7 +121,34 @@ _SPEC_FIELDS = (
           P("threshold", "float", "The projection's threshold.", 0.0),
           P("above", "bool", "Act above the threshold; `false` acts below it.", True),
       )),
+    P("except", "bool",
+      "Invert the sets this item names — every layer, head or neuron BUT "
+      "those — which measures a circuit's completeness where the direct "
+      "ablation measures its faithfulness.",
+      False),
+    P("from", "object",
+      "For `patch`: where the row is read, when that is not where it is "
+      "written — the patchscope's move.", None, fields=(
+          P("layer", "int", "The source layer."),
+          P("point", "string", "The source point; the item's own by default.", None, value="point"),
+      )),
+    P("pattern", "object",
+      "At `attn.scores` or `attn.weights`: the attention EDGE to act on — "
+      "which source positions the selected destinations may attend to.",
+      None, fields=(
+          P("from", "selector", "The source (key) positions."),
+          P("to", "selector", "The destination (query) positions; the item's `positions` by default.", None),
+      )),
+    P("renormalize", "bool",
+      "At `attn.weights`, after zeroing: rescale the rows that lost mass so "
+      "they sum to one again. The rows that lost none are left as they are.",
+      True),
     P("seed", "int", "The seed `resample` draws with; the node's `seed` by default.", None),
+    P("sweep_over", "list[string]",
+      "Which of the node's sweep axes vary THIS item — `[\"layers\"]` sweeps "
+      "this item's layers and leaves its strength alone. Every axis, by "
+      "default.",
+      None, choices=("strength", "layers", "heads", "positions", "neurons")),
     P("side", "string",
       "For a weight's `project_out`: the side facing the residual stream, where the module's "
       "name does not imply it.",
@@ -153,17 +180,29 @@ _SOURCE_PORT = In("source", "activations/vector | intervene/readout",
 #: The params an op that takes an intervention shares with `intervene/apply`.
 _SWEEP_PARAMS = (
     P("sweep", "object",
-      "Strength factors to run the whole intervention at, as `{\"strength\": "
-      "[0.5, 1.0, 2.0]}`. Every item's `strength` is multiplied by the "
-      "factor, and each record gets one row (one set of samples, for a text "
-      "op) per factor.",
+      "The axes to vary, each a list of values the spec items' field of "
+      "that name takes in turn: `{\"strength\": [0.5, 1.0, 2.0]}` scales "
+      "every item's `strength`; `{\"layers\": [0, 1, 2]}` runs the spec at "
+      "each layer; `heads`, `positions` and `neurons` likewise. Several "
+      "axes are a cartesian product, run with `strength` outermost, and "
+      "each becomes a coordinate on every row — `factor`, `layer`, `head`, "
+      "`position`, `neuron` — so a sweep is summarised, compared and "
+      "plotted on the axis it varied.",
       {"strength": [1.0]}, fields=(
           P("strength", "list[float]", "The factors; `0` is the untouched model.", [1.0]),
+          P("layers", "list[json]",
+            "The layers, one cell each: `[0, 1, 2]`, or `[[0,1],[2,3]]` for "
+            "groups. The coordinate is the layer, or `0+1` for a group.", None),
+          P("heads", "list[json]", "The attention heads, one cell each.", None),
+          P("positions", "list[selector]", "The position selectors, one cell each.", None),
+          P("neurons", "list[json]", "The feature indices, one cell each.", None),
       )),
     P("control", "bool",
       "Add a factor‑0 run — the model untouched — to the sweep, so every "
-      "record has a baseline (`factor: 0.0`). Set `false` when the sweep "
-      "already contains `0` or no baseline is wanted.",
+      "record has a baseline (`factor: 0.0`). One run however many axes "
+      "the sweep has: an unintervened pass does not depend on the layer "
+      "the intervention would have named. Set `false` when the sweep "
+      "already contains a strength of `0` or no baseline is wanted.",
       True),
 )
 
@@ -202,9 +241,14 @@ the next-token distribution at the last position — or as a **capture** — the
 raw activations at named points, which come out as an `activations/vector`
 collection exactly as `activations/capture` would emit them, `factor` on each.
 
-A `sweep` runs the whole spec at several strengths, and by default a
-strength‑0 **control** is added so every record has a baseline row to compare
-against. The output has one row per record per sweep factor.
+A `sweep` runs the whole spec at several strengths — and at several
+layers, heads, positions or neurons: each axis is a list of values the
+items' field of that name takes in turn, several axes form a cartesian
+product, and every axis becomes a coordinate on the rows it produced. By
+default a strength‑0 **control** is added, one run, so every record has a
+baseline to compare against. The output has one row per record per sweep
+cell. A `records/map` over a corpus of integers is no longer how a layer
+sweep is written.
 
 ### Spec items
 
@@ -233,6 +277,10 @@ against. The output has one row per record per sweep factor.
 | `source` | collection | — | A collection of `activations/vector` — a capture, intervened or not — supplying replacement activations for `mean`, `resample` and `patch`; items are matched to the item's layer (and point). May instead arrive on the node's `source` port. |
 | `row` | object | — | For `patch`: which row of `source` to write in, e.g. `{"index": 0}`. |
 | `condition` | object | — | Apply the item only at positions whose activation projects onto a direction above (or below) a threshold: `{"direction": …, "threshold": 0.0, "above": true}`. |
+| `except` | bool | `false` | Invert the sets this item names: every layer, head or neuron BUT these. |
+| `from` | object | — | For `patch`: `{"layer": 8, "point": "resid_post"}` — where the row is READ, when that differs from where it is written. |
+| `pattern` | object | — | At `attn.scores`/`attn.weights`: `{"from": selector, "to": selector}` — the attention edge, source to destination. |
+| `renormalize` | bool | `true` | At `attn.weights`: rescale a row that lost mass so it sums to one again. |
 | `seed` | int | the block's `seed` | The seed `resample` draws with. |
 
 The ops:
@@ -251,6 +299,33 @@ The ops:
 
 The older `intervene/ablate-layers` and `intervene/ablate-heads` and `intervene/steer` operations are special cases of this
 grammar.
+
+### Ablating the complement
+
+`except: true` inverts the sets an item names. `{"heads": [3, 7],
+"layers": [23], "except": true}` zeroes every head of layer 23 BUT 3 and 7:
+where the direct ablation asks whether the named components are necessary
+(faithfulness), its complement asks whether they are sufficient
+(completeness), and a circuit claim wants both. It needs a set to invert,
+and a whole-model point (`embed`, `logits`) has none.
+
+### Cutting an attention edge
+
+`positions` selects where an intervention acts; at `attn.scores` and
+`attn.weights` a **`pattern`** selects the EDGE — `{"from": {"tokens":
+["Paris"]}, "to": "last"}` is what the last position reads from the
+subject, and zeroing it is the direct test of an attention-mediated
+story. At `attn.scores`, `op: "zero"` writes −∞, because a score of zero
+is a score and not a cut; at `attn.weights` it writes zero and
+renormalises the rows that lost mass (`renormalize: false` leaves them
+short, which is the ablation some papers mean).
+
+### Reading one layer into another
+
+A `patch` reads its row from the layer it writes to. `from: {"layer": 8}`
+reads there instead, which is the patchscope: take a hidden state from one
+prompt's layer 8 and write it into an explanation prompt's layer 20, then
+see what the model says about it.
 
 ### Editing a weight instead of an activation
 
