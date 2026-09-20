@@ -637,7 +637,7 @@ Each entry of `measures` is applied to every record's `text`:
 | `lexical` | `<name>_words`, `<name>_distinct`, `<name>_dup` (1 − distinct/words) | `lowercase` (default true), `min_length` |
 | `corpus_frequency` | `<name>`: the statistic over the reference frequency of the text's words; `<name>_coverage`: the fraction of words found in the table | `frequencies` (word → count, or wire a `frequencies` input), `stat`: `"mean_log10"` (rarer vocabulary ⇒ lower), `"mean"` or `"coverage"`, `lowercase`, `min_length` |
 | `list` | `<name>_parsed` (1 if the list was found), `<name>_items`, `<name>_distinct`, `<name>_duplicates`, `<name>_unknown` (items outside `items`, when given), `<name>_first`, `<name>_valid` (found, no duplicates, nothing unknown, and `count` items when given) | `separator` (default `", "`), `extract` (a regex whose first group is the list; the whole text without it), `items` (the vocabulary: a list, or a map's `weights` or `uniform`), `count`, `ignore_case` |
-| `capture` | `<name>`: the value the pattern's group held, absent when nothing matched | `pattern` (the regex), `group` (default 1; the whole match when the pattern has none), `as`: `"string"` or `"number"`, `take`: the `"first"` match or the `"last"`, `on_missing`: `"null"` or `"error"`, `ignore_case` |
+| `capture` | `<name>`: the value the pattern's group held, absent when nothing matched | `pattern` (the regex), `group` (default 1; the whole match when the pattern has none), `as`: `"string"` or `"number"`, `take`: the `"first"` match or the `"last"`, `on_missing`: `"null"` or `"error"`, `items` (a vocabulary, which canonicalises the value), `ignore_case` |
 
 A **capture** is the one that reads a value out rather than counting or
 tallying: a rating the model wrote, a label it chose, a field of the JSON
@@ -721,7 +721,10 @@ and "Steampunk Fantasy" are readable beside the names the map has.
                 "For `list`: a regular expression locating the list in the text — its first "
                 "group, or its whole match.", None),
               P("items", "list[string] | object",
-                "For `list`: the vocabulary, a list or a map with `weights` or `uniform`. "
+                "For `list` and `capture`: the vocabulary, a list or a map with `weights` or `uniform`. "
+                "A capture with one both constrains and canonicalises — a text that says `Ana` "
+                "captures the `ana` the vocabulary spells, which is what the value is compared "
+                "against downstream — and a match outside it is no match. "
                 "A stored word list may be given by reference.", None,
                 fields=(TARGET_UNIFORM, TARGET_WEIGHTS), stored="text/word-list"),
               P("count", "int", "For `list`: how many items a valid list has.", None),

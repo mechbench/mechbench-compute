@@ -1002,10 +1002,20 @@ def text_stats(inputs: Mapping[str, Any],
                 raise ValueError(
                     f"text/measure measure {name!r}: on_missing is 'null' or "
                     f"'error', not {on_missing!r}")
+            fold = bool(m.get("ignore_case", False))
+            vocab = m.get("items")
             compiled.append((name, kind, {
                 "pattern": re.compile(
-                    m["pattern"], re.IGNORECASE | re.DOTALL if m.get("ignore_case") else re.DOTALL),
+                    m["pattern"], re.IGNORECASE | re.DOTALL if fold else re.DOTALL),
                 "group": int(m.get("group", 1)),
+                # A vocabulary both constrains and CANONICALISES: a text
+                # that says "Ana" captures the `ana` the vocabulary
+                # spells, which is what the value is compared against
+                # downstream. A match outside it is no match.
+                "vocab": ({(k.casefold() if fold else k): k
+                           for k in _vocabulary_of(name, vocab)}
+                          if vocab is not None else None),
+                "fold": fold,
                 "take": take, "as": as_, "on_missing": on_missing}))
         elif kind == "list":
             fold = bool(m.get("ignore_case", False))
@@ -1059,6 +1069,9 @@ def text_stats(inputs: Mapping[str, Any],
                         raise ValueError(
                             f"text/measure measure {name!r}: the pattern has no "
                             f"group {cfg['group']}") from None
+                if value is not None and cfg["vocab"] is not None:
+                    value = cfg["vocab"].get(
+                        str(value).casefold() if cfg["fold"] else str(value))
                 if value is None and cfg["on_missing"] == "error":
                     raise ValueError(
                         f"text/measure measure {name!r}: {r.get('id')!r} says "

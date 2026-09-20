@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## 0.122.1 — 2026-09-20
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._ (A capture without `items` behaves as it did in 0.122.0.)
+
+### Other
+
+- A `capture` measure takes `items`, the vocabulary a `list` measure
+  takes, and a vocabulary both constrains and CANONICALISES: a text
+  that says `Ana` captures the `ana` the vocabulary spells, and a
+  match outside it is no match. Found in the first live use — a
+  conversation routed by a captured name bound a participant called
+  `Ana` who was not the `ana` in the transcript's participants, and
+  rendered every turn as a stranger's.
+
+---
+
 ## 0.122.0 — 2026-09-20
 
 ### Changes that raise
