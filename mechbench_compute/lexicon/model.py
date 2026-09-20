@@ -725,9 +725,15 @@ has no predecessor and so carries no surprisal, rather than a zero, which
 would read as a confident prediction of the first token.
 
 A per-token capture is a different order of magnitude from one vector per
-record, so it has its own ceiling and refuses beyond it, naming the
-levers: fewer layers, a narrower `positions` (a chat template's own
-tokens are rarely the question), a larger `every`, or fewer records.
+record. As JSON it has a ceiling — a stored object may not exceed 64 MiB —
+and `storage: "json"` refuses beyond it, naming the levers: fewer layers,
+a narrower `positions` (a chat template's own tokens are rarely the
+question), a larger `every`, or fewer records. `storage: "tensor"` has no
+such ceiling: the rows are written as safetensors shards beside the
+object (`<label>/shards/…`), the object itself is the header with the
+shards named, and a reader takes the rows one shard at a time — a
+hundred thousand tokens at a layer is an ordinary capture. `"auto"`, the
+default, is json under the ceiling and tensor above it.
 
 Fitted against the surprisal it carries, by `direction/regress`, this is
 the surprise-direction probe.
@@ -736,7 +742,7 @@ the surprise-direction probe.
         In("records", "records/record", "The prompts to read.", many=True),
         In("adapter", "adapter/lora", "An adapter to fuse first.", required=False),
     ),
-    output=Output('activations/vector', collection=True, doc='One item per record per kept position per layer, with `position` and `surprisal` among its coords and the token as `token`. The header carries `model`, `point`, `source`, `position` (the selector), `every`, `layers` and `d_model`.'),
+    output=Output('activations/vector', collection=True, doc='One item per record per kept position per layer, with `position` and `surprisal` among its coords and the token as `token`. The header carries `model`, `point`, `source`, `position` (the selector), `every`, `layers` and `d_model`; under tensor storage also `storage: "tensor"`, `shards` (name, rows, size, sha256 each), `n_items` and `d`, with `items` empty — the rows are the shards.'),
     params=(
         _LAYERS_ALL,
         _RESIDUAL_POINT,
@@ -748,6 +754,11 @@ the surprise-direction probe.
           "Take one position in n of those named — a way under the ceiling "
           "that keeps the whole sequence's span rather than its first part.",
           1),
+        P("storage", "string",
+          "`\"json\"`: the rows in the object, under the ceiling. "
+          "`\"tensor\"`: the rows as shards beside it, no ceiling. "
+          "`\"auto\"`: json under the ceiling, tensor above.",
+          "auto", choices=("auto", "json", "tensor")),
     ),
     example={
         "model": {"$param": "model"},

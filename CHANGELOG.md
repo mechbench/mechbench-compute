@@ -13,6 +13,51 @@ nothing said so.
 
 ---
 
+## 0.116.0 — 2026-09-19
+
+### Changes that raise
+
+- `activations/capture-tokens` refuses `storage` outside
+  `auto`/`json`/`tensor` by name. Under `json` the ceiling refuses as
+  before; under `auto` (the new default) it no longer refuses — the
+  rows go to shards.
+
+### Changes that alter results without raising
+
+- **`direction/regress` chooses its alpha on the holdout, not by
+  RidgeCV's generalised cross-validation**, and fits by the normal
+  equations in two streaming passes rather than sklearn's solver. The
+  direction and the fit statistics move within numerical tolerance
+  for the same alpha; the alpha chosen may differ, and with it
+  `r2_test`. The surprise-direction result (`l23-30-surprise-direction`)
+  is a candidate for re-run under this release.
+
+### Other
+
+- **The tensor store** (000613): a collection whose rows live in
+  safetensors shards beside the object. The header keeps `storage:
+  "tensor"`, `shards` (name, rows, size, sha256), `n_items`, `d`, with
+  `items` empty; shards are raw objects under `<label>/shards/`,
+  uploaded and fetched by the streaming paths a checkpoint's files
+  use, verified by hash, cached under `~/.mechbench/tensors`.
+  `items_of` on such a collection is a lazy sequence — one shard in
+  memory at a time — so a reader that iterates streams and one that
+  builds a matrix chooses to. The executor materialises a `$ref` to
+  one before its consumer runs and uploads a result's shards before
+  emitting its header (retry-as-resume: a shard already stored with
+  the same hash is not sent again). Numeric per-item fields are
+  columns (float64, integers recorded as such); the rest is a JSON
+  table in the shard's header.
+- `activations/capture-tokens` writes shards under `storage:
+  "tensor"` (or `auto` above the JSON ceiling): a hundred thousand
+  tokens at a layer is an ordinary capture.
+- `direction/regress` streams: two passes over the rows, never the
+  matrix — a million-token capture costs the memory of a thousand.
+- A top-level key beginning with `_` is local state and never part of
+  an object's identity (`content_hash`).
+
+---
+
 ## 0.115.0 — 2026-09-19
 
 ### Changes that raise

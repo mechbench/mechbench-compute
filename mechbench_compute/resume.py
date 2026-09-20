@@ -178,9 +178,13 @@ def satisfies(offered: str, required: str) -> bool:
 def content_hash(value: Any) -> str:
     """sha256 of the canonical CBOR of a value — the same bytes the
     bench stores, so an upstream node's identity here equals its
-    identity there."""
+    identity there. A top-level key beginning with `_` is local state
+    (a tensor collection's shard directory, 000613), never stored and
+    never part of the identity."""
     from mechbench_schema import dump_canonical
 
+    if isinstance(value, Mapping) and any(str(k).startswith("_") for k in value):
+        value = {k: v for k, v in value.items() if not str(k).startswith("_")}
     return hashlib.sha256(dump_canonical(value)).hexdigest()
 
 

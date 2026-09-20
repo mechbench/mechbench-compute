@@ -323,11 +323,32 @@ class TestCaptureTokens:
             {"layers": [0], "every": 2})
         assert sorted({i["coords"]["position"] for i in every["items"]}) == [0, 2, 4]
 
-    def test_the_ceiling_refuses_and_names_the_levers(self, monkeypatch):
+    def test_the_ceiling_refuses_json_and_names_the_levers(self, monkeypatch):
         monkeypatch.setattr(interp, "MAX_TOKEN_VECTOR_FLOATS", 10)
         with pytest.raises(ValueError, match="cap .* capture fewer layers"):
             interp.capture_tokens(StubModel(), [{"id": "c", "user": "a b c"}],
-                                  {"layers": "all"})
+                                  {"layers": "all", "storage": "json"})
+
+    def test_above_the_ceiling_auto_writes_shards(self, monkeypatch):
+        # The rows go to shards beside the object (000613): the result
+        # is the header, its items empty, and read back through
+        # items_of they are the same rows the json form would carry.
+        from mechbench_compute import tensors
+        from mechbench_compute.lexicon import kinds as K
+
+        monkeypatch.setattr(interp, "MAX_TOKEN_VECTOR_FLOATS", 10)
+        out = interp.capture_tokens(StubModel(), [{"id": "c", "user": "aa bbb"}], {"layers": [0, 1]})
+        assert tensors.is_tensor(out) and out["items"] == [] and out["n_items"] == 6
+        assert [s["rows"] for s in out["shards"]] == [6] and out["d"] == D_MODEL
+        rows = list(K.items_of(out))
+        monkeypatch.setattr(interp, "MAX_TOKEN_VECTOR_FLOATS", 10_000)
+        plain = interp.capture_tokens(StubModel(), [{"id": "c", "user": "aa bbb"}],
+                                      {"layers": [0, 1], "storage": "json"})["items"]
+        assert len(rows) == len(plain) == 6
+        for a, b in zip(rows, plain):
+            assert a["id"] == b["id"] and a["space"] == b["space"] and a["token"] == b["token"]
+            assert a["coords"] == b["coords"]
+            assert np.allclose(a["vector"], b["vector"])
 
     def test_one_forward_pass_per_record(self):
         # The logits come from the capture's own run. A second pass would

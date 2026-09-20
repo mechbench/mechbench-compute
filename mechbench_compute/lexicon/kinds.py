@@ -805,13 +805,20 @@ COLLECTION_KIND = Kind(
     "The one container: items of one kind, identified by the kind's key, sorted by that key when stored, with the header fields the kind declares.",
     fields={"item_kind": F("string", "The kind of every item."),
             "key": F("array", "The item fields that identify an item.", items={"type": "string"}),
-            "items": F("array", "The items.", items={"type": "object"})},
+            "items": F("array", "The items.", items={"type": "object"}),
+            "storage": F("string", "`\"tensor\"` when the items live in shards beside the object rather than in `items`."),
+            "shards": F("array", "Under tensor storage: `{name, rows, size, sha256}` per shard, in order.", items={"type": "object"}),
+            "n_items": F("integer", "Under tensor storage: how many rows the shards hold."),
+            "d": F("integer", "Under tensor storage: the rows' width.")},
     required=("item_kind", "key", "items"),
     doc="Every plural result is this one shape. The item kind declares the `key` — the fields that identify an "
         "item — and its header, the collection-level facts that ride with the items (a model, a metric, a "
         "pass rate). Items are sorted by key before the object is hashed, so the same items in any order are "
         "the same object; order that matters is a property of the key (`step`, `layer`), never of the "
-        "container. A port declared as `collection` takes any collection at all.",
+        "container. A port declared as `collection` takes any collection at all. A collection too large for "
+        "one object — a per-token capture of a hundred thousand tokens — keeps its header here with "
+        "`storage: \"tensor\"` and `items` empty, and its rows in safetensors shards stored beside it under "
+        "`<label>/shards/`; a reader takes them one shard at a time.",
 )
 
 KINDS: tuple[Kind, ...] = (
@@ -1019,6 +1026,12 @@ def items_of(obj: Any) -> list[Any]:
     if not isinstance(obj, Mapping):
         raise ValueError("not a collection: a list or a mapping was expected")
     k = obj.get("kind")
+    if k == COLLECTION and obj.get("storage") == "tensor":
+        # The rows live in shards (000613): a lazy sequence over them,
+        # one shard in memory at a time. `list()` is the reader's choice.
+        from mechbench_compute import tensors
+
+        return tensors.items_of(obj)  # type: ignore[return-value]
     if k == COLLECTION and isinstance(obj.get("items"), list):
         return list(obj["items"])
     if isinstance(k, str) and k in _LEGACY_ITEMS_FIELD:

@@ -278,7 +278,10 @@ class ProtocolExecutor:
         from mechbench_compute.blocks import PURE_BLOCKS
         from mechbench_compute.seeds import hardware_class
 
+        from pathlib import Path
+
         from mechbench_compute import dataflow
+        from mechbench_compute import tensors as tensors_mod
 
         extra = spec.extra or {}
         graph = extra.get("graph") or {}
@@ -340,7 +343,19 @@ class ProtocolExecutor:
                 raise ValueError(
                     f"pinned object {ref!r} resolved to {got!r}, "
                     f"expected sha256 {want!r}")
-            return fetched.get("payload", fetched) if isinstance(fetched, dict) else fetched
+            payload = fetched.get("payload", fetched) if isinstance(fetched, dict) else fetched
+            if tensors_mod.is_tensor(payload):
+                # A tensor collection's rows are shards beside it
+                # (000613): fetched into the cache, verified, and the
+                # consumer reads them one shard at a time. The same
+                # progress callbacks a checkpoint's fetch uses.
+                if self._on_download is not None:
+                    self._on_download(str(ref), None)
+                payload = tensors_mod.materialize(
+                    payload, str(ref), bench.get_file_chunks,
+                    Path.home() / ".mechbench" / "tensors",
+                    on_bytes=self._on_download_bytes)
+            return payload
 
         def stored_inputs_of(node):
             """The bench objects a node reads by reference, in the order it
@@ -1092,6 +1107,14 @@ class ProtocolExecutor:
                     target = f"{result_base}/{names[0]}"
                 else:
                     target = f"{result_base}/{dataflow.INTERMEDIATES}/{nid}"
+                if tensors_mod.is_tensor(results[nid]):
+                    # The rows go up first as raw shards under the
+                    # result's label (retry-as-resume: a shard already
+                    # there with the same hash is not sent again), then
+                    # the header is emitted as the object itself.
+                    results[nid] = tensors_mod.upload(
+                        results[nid], target, lambda lab, path: bench.put_file(lab, path, kind="tensor_shard"),
+                        have=bench.list_prefix_hashes(target))
                 out = bench.emit(
                     target,
                     results[nid],

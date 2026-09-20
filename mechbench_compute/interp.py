@@ -454,21 +454,38 @@ def capture_tokens(
         kept_per_record.append((record, r, idx))
 
     total = sum(len(idx) for _, _, idx in kept_per_record) * len(layers) * width
-    if total > MAX_TOKEN_VECTOR_FLOATS:
+    # Where the rows go (000613): `"json"` is the collection as it always
+    # was, under the cap a stored object can hold; `"tensor"` writes the
+    # rows to shards beside the object, with no cap but disk; `"auto"`
+    # is json under the cap and tensor above it.
+    storage = str(params.get("storage", "auto"))
+    if storage not in ("auto", "json", "tensor"):
+        raise ValueError(f"storage is 'auto', 'json' or 'tensor', not {storage!r}")
+    if storage == "auto":
+        storage = "tensor" if total > MAX_TOKEN_VECTOR_FLOATS else "json"
+    if storage == "json" and total > MAX_TOKEN_VECTOR_FLOATS:
         raise ValueError(
             f"{len(records)} records × {sum(len(i) for _, _, i in kept_per_record)} "
             f"kept positions × {len(layers)} layers × {width} dims = {total} "
             f"floats exceeds the {MAX_TOKEN_VECTOR_FLOATS} cap (a result "
             "object may not exceed 64 MiB, and a float costs ~8.3 bytes "
-            "stored) — capture fewer layers, narrow `positions` (the chat "
-            "template's own tokens are rarely the question), raise `every` "
-            "to take one position in n, or capture fewer records")
+            "stored) — set `storage: \"tensor\"` to write the rows as shards, "
+            "capture fewer layers, narrow `positions` (the chat template's "
+            "own tokens are rarely the question), raise `every` to take one "
+            "position in n, or capture fewer records")
     if on_start:
         on_start(len(records))
 
     cap = Capture.residual(layers, point=P.side(point))
     mid = S.model_id_of(model)
     rows: list[dict[str, Any]] = []
+    writer = None
+    if storage == "tensor":
+        import tempfile
+
+        from mechbench_compute import tensors
+
+        writer = tensors.ShardWriter(tempfile.mkdtemp(prefix="mechbench-tensor-"))
     for record, r, idx in kept_per_record:
         ids = r.array
         result = model.run(ids, interventions=[cap])
@@ -493,20 +510,26 @@ def capture_tokens(
                 t = result.cache[f"blocks.{layer}.{point}"]
                 v = t[0, pos, :].astype(mx.float32)
                 mx.eval(v)
-                rows.append(S.vector(
+                row = S.vector(
                     np.array(v),
                     S.space(model=mid, layer=layer, point=point, d=width),
                     id=record.get("id"),
                     coords={**coords, "position": int(pos),
                             **({"surprisal": bits} if bits is not None else {})},
-                    token=token))
+                    token=token)
+                if writer is not None:
+                    writer.add(row)
+                else:
+                    rows.append(row)
         if on_item:
             on_item()
-    return _K().collection(
-        "activations/vector", rows,
-        model=mid, point=point, source="resid",
-        position=str(positions), every=every, layers=layers, d_model=width,
-    )
+    header = dict(model=mid, point=point, source="resid",
+                  position=str(positions), every=every, layers=layers, d_model=width)
+    if writer is not None:
+        from mechbench_compute import tensors
+
+        return tensors.collection("activations/vector", writer.close(), **header)
+    return _K().collection("activations/vector", rows, **header)
 
 
 def residual_divergence(
