@@ -476,3 +476,75 @@ def ov_circuit(
         circuit_type="OV", layer=layer, head=head,
         kv_group=spec.kv_group, components=components,
     )
+
+
+# --- composition between heads (task 000610) -------------------------------------
+
+
+def _fro(a: np.ndarray) -> float:
+    return float(np.sqrt(np.sum(a * a)))
+
+
+def _fro_of_product(a: np.ndarray, b: np.ndarray) -> float:
+    """||A B||_F without forming A B: tr((AᵀA)(B Bᵀ)), which is two
+    [k, k] products where the product itself would be [m, n]. For a
+    head's OV circuit (2560×2560 from 256-wide slices) that is the
+    difference between 1.7 GFLOP and 0.17."""
+    left = a.T @ a          # [k, k]
+    right = b @ b.T         # [k, k]
+    return float(np.sqrt(max(float(np.sum(left * right)), 0.0)))
+
+
+def composition_score(reader: np.ndarray, spec_out: "HeadSpec") -> float:
+    """How much of what a head WRITES lands in what a later head READS
+    (Elhage et al. 2021): ‖W_read · W_OV‖_F ⁄ (‖W_read‖_F · ‖W_OV‖_F),
+    with W_OV = W_O·W_V of the writing head.
+
+    `reader` is the later head's W_Q, W_K or W_V — the map from the
+    residual stream into that head — which makes the score Q-, K- or
+    V-composition. 0 is "nothing this head writes reaches that input";
+    the scale is set by chance, which for random matrices of these
+    shapes is roughly 1/√min(d).
+    """
+    # ‖reader · W_O · W_V‖_F, associated so no [d_model, d_model] is built.
+    inner = reader @ spec_out.W_O           # [head_dim_r, head_dim_w]
+    numerator = _fro(inner @ spec_out.W_V)  # [head_dim_r, d_model]
+    denominator = _fro(reader) * _fro_of_product(spec_out.W_O, spec_out.W_V)
+    return float(numerator / denominator) if denominator > 0 else 0.0
+
+
+def head_composition(
+    model, layer: int, head: int, *,
+    source_layers: Optional[Sequence[int]] = None,
+    kinds: Sequence[str] = ("q", "k", "v"),
+) -> list[dict]:
+    """Q-, K- and V-composition of every earlier head with this one:
+    one row per (source head, kind), the score and where it came from.
+
+    Only earlier layers can compose: a head reads a residual stream the
+    later layers have not written to yet.
+    """
+    unknown = [k for k in kinds if k not in ("q", "k", "v")]
+    if unknown:
+        raise ValueError(f"composition kinds are q, k, v — not {', '.join(unknown)}")
+    layers = (list(range(layer)) if source_layers is None
+              else [int(x) for x in source_layers])
+    late = [x for x in layers if x >= layer]
+    if late:
+        raise ValueError(
+            f"a head at layer {layer} can only compose with earlier layers; "
+            f"{sorted(late)} are not earlier")
+    dest = get_head_spec(model, layer, head)
+    readers = {"q": dest.W_Q, "k": dest.W_K, "v": dest.W_V}
+    rows: list[dict] = []
+    for src_layer in layers:
+        for src_head in range(dest.n_heads):
+            src = get_head_spec(model, src_layer, src_head)
+            for kind in kinds:
+                rows.append({
+                    "id": f"L{src_layer}H{src_head}->L{layer}H{head}:{kind}",
+                    "coords": {"layer": src_layer, "head": src_head, "kind": kind,
+                               "into_layer": layer, "into_head": head},
+                    "score": round(composition_score(readers[kind], src), 5),
+                })
+    return rows

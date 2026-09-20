@@ -203,3 +203,90 @@ class TestBlocks:
         assert rm.resume_level("direction/add") == "reproducible"
         assert rm.resume_level("intervene/apply") == "reproducible"
         assert rm.item_resumable("intervene/apply")
+
+
+class TestClassify:
+    """A probe per layer (task 000608): the direction that separates a
+    label, and how much of it a held-out item shows."""
+
+    D = 8
+
+    def _corpus(self, planted_at=6, flat_at=2, n=40, seed=0):
+        rng = np.random.default_rng(seed)
+        axis = rng.normal(size=self.D)
+        axis /= np.linalg.norm(axis)
+        items = []
+        for layer, sep in ((flat_at, 0.0), (planted_at, 3.0)):
+            for i in range(n):
+                cls = "dusk" if i % 2 else "dawn"
+                v = rng.normal(size=self.D) + (sep if cls == "dawn" else -sep) * axis
+                items.append({**S.vector(v.astype(np.float32),
+                                        S.space(model="m", layer=layer, point="resid_post", d=self.D),
+                                        id=f"p{i}", coords={"sense": cls}),
+                              "kind": "activations/vector"})
+        return {"kind": "collection", "item_kind": "activations/vector", "items": items}, axis
+
+    def test_the_curve_says_where_the_label_becomes_decodable(self):
+        corpus, axis = self._corpus()
+        out = d.from_classification(corpus, axis="sense", seed=1)
+        assert out["item_kind"] == "direction/vector" and out["axis"] == "sense"
+        by_layer = {it["coords"]["layer"]: it for it in out["items"]}
+        assert sorted(by_layer) == [2, 6]
+        flat, planted = by_layer[2], by_layer[6]
+        assert planted["accuracy_test"] == 1.0 and planted["over_baseline"] > 0.4
+        assert flat["accuracy_test"] <= flat["baseline"] + 0.2
+        # …and the probe that decodes IS the planted axis.
+        cos = abs(float(np.asarray(planted["vector"]) @ axis))
+        assert cos > 0.9, cos
+        assert planted["auc"] == 1.0 and planted["derivation"]["method"] == "logistic"
+
+    def test_one_direction_for_two_labels_pointing_at_the_positive(self):
+        corpus, _ = self._corpus()
+        [it] = [i for i in d.from_classification(corpus, axis="sense")["items"]
+                if i["coords"]["layer"] == 6]
+        made = it["derivation"]
+        assert {made["positive"], made["negative"]} == {"dawn", "dusk"} and made["axis"] == "sense"
+        assert it["coords"]["label"] == made["positive"]
+
+    def test_three_labels_give_one_probe_each_against_the_rest(self):
+        rng = np.random.default_rng(4)
+        items = []
+        for i in range(60):
+            cls = ["a", "b", "c"][i % 3]
+            centre = np.zeros(self.D)
+            centre[i % 3] = 4.0
+            v = rng.normal(size=self.D) * 0.4 + centre
+            items.append({**S.vector(v.astype(np.float32),
+                                     S.space(model="m", layer=3, point="resid_post", d=self.D),
+                                     id=f"p{i}", coords={"topic": cls}), "kind": "activations/vector"})
+        out = d.from_classification({"kind": "collection", "item_kind": "activations/vector",
+                                        "items": items}, axis="topic", seed=2)
+        assert [it["coords"]["label"] for it in out["items"]] == ["a", "b", "c"]
+        assert all(it["derivation"]["negative"] == "rest" for it in out["items"])
+        assert all(it["accuracy_test"] > 0.8 for it in out["items"])
+
+    def test_it_refuses_what_it_cannot_answer(self):
+        corpus, _ = self._corpus(n=40)
+        with pytest.raises(ValueError, match="no items carry"):
+            d.from_classification(corpus, axis="nothing")
+        one_label = {"kind": "collection", "item_kind": "activations/vector",
+                     "items": [{**S.vector(np.ones(self.D, np.float32),
+                                           S.space(model="m", layer=1, point="resid_post", d=self.D),
+                                           id=f"p{i}", coords={"sense": "same"}),
+                                "kind": "activations/vector"} for i in range(10)]}
+        with pytest.raises(ValueError, match="needs two labels"):
+            d.from_classification(one_label, axis="sense")
+        few = {"kind": "collection", "item_kind": "activations/vector",
+               "items": corpus["items"][:4]}
+        with pytest.raises(ValueError, match="at least 8 labelled"):
+            d.from_classification(few, axis="sense")
+
+    def test_a_selected_probe_is_a_direction_an_intervention_takes(self):
+        corpus, _ = self._corpus()
+        out = d.from_classification(corpus, axis="sense")
+        one = {"kind": "collection", "item_kind": "direction/vector",
+               "items": [it for it in out["items"] if it["coords"]["layer"] == 6]}
+        # A collection of exactly one direction IS that direction.
+        assert d.as_array(one).shape == (self.D,)
+        with pytest.raises(ValueError, match="collection of 2"):
+            d.as_array(out)

@@ -96,6 +96,66 @@ to find a concept direction, and the one most steering results are built on.
     example_inputs={"vectors": {"$ref": {"bench": "you/lab/vectors"}}},
 )
 
+CLASSIFY = Op(
+    name="direction/classify",
+    summary=(
+        "Fit a linear probe at every layer — the direction that separates "
+        "one label from the rest — and report how much of it a held-out "
+        "item shows, over the majority baseline."
+    ),
+    description="""\
+`direction/fit` takes the difference of two centroids: an answer that
+always exists and never says how good it is. A probe is the same question
+asked so that it can be wrong. The items at each space are split, a
+logistic boundary is fitted on one part, and its accuracy is read on the
+part it never saw — beside `baseline`, the share of the commonest label,
+which is what answering without looking would score.
+
+Run at every layer, the accuracies are a curve: WHERE a distinction
+becomes linearly decodable, which is the standard probing result and the
+thing one difference of centroids cannot produce. Plot it with
+`records/plot x: "layer", y: "accuracy_test"`, or find the layer with
+`records/rank value: "accuracy_test", k: 1`.
+
+Two labels give one direction per space, pointing from the negative label
+towards the positive. More give one per label, each against the rest
+(`negative: "rest"`), all sharing the space's accuracy and each with its
+own `auc`. Every item is an ordinary `direction/vector`, so the probe that
+decodes best is the direction to steer along or project out — select it
+and wire it into `intervene/apply`.
+
+A probe needs at least eight labelled items at a space and both labels on
+each side of the split; it refuses by name rather than reporting a number
+nobody should read.
+""",
+    inputs=(
+        In("vectors", "activations/vector",
+           "Labelled vectors: items carrying the `axis` value among their "
+           "coordinates, at one or more spaces.", many=True),
+    ),
+    output=Output('direction/vector', collection=True,
+                  doc='One item per space per label: a direction with `coords` (`layer`, `label`, `head` when heads differ), the headline scores at the top level (`accuracy_test`, `accuracy_train`, `baseline`, `over_baseline`, `confidence_test`, `auc`, `n_items`, `n_train`, `n_test`) so a table and a chart read them, and the whole fit in `derivation` (`method: "logistic"`, `positive`, `negative`, `classes`, `C`, `seed`). The header carries `axis`, `method`, `holdout` and `seed`.'),
+    params=(
+        P("axis", "string",
+          "The coordinate holding the label to separate. Items without one "
+          "are left out.",
+          "label"),
+        P("layers", "list[int]",
+          "Which layers to probe. Every layer the items carry, by default.",
+          None),
+        P("holdout", "float",
+          "The fraction of items held out of each fit, to score it.", 0.2),
+        P("C", "float",
+          "The inverse regularisation strength of the logistic fit: smaller "
+          "is a stronger prior that the boundary is simple.",
+          1.0),
+        _point(),
+        _source(),
+    ),
+    example={"axis": "sense", "holdout": 0.25},
+    example_inputs={"vectors": {"$ref": {"bench": "you/lab/residuals"}}},
+)
+
 FROM_REGRESSION = Op(
     name="direction/regress",
     summary=(
@@ -339,6 +399,7 @@ reads.
 )
 
 OPS: tuple[Op, ...] = (
+    CLASSIFY,
     FROM_VECTORS, FROM_REGRESSION, FROM_PCA, ADD, AVERAGE, ORTHOGONALIZE, NORMALIZE, PROJECT,
     VOCAB,
 )

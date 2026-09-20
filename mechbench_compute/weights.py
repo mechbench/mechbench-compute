@@ -652,3 +652,104 @@ def measure_adapter(payload: Mapping[str, Any],
         name=params.get("name"),
         description=params.get("description"),
     )
+
+
+# --- a head's circuits, read from the weights alone (task 000610) -----------------
+
+
+def head_circuits(model, params: Mapping[str, Any] | None = None,
+                  on_item=None, on_start=None) -> dict[str, Any]:
+    """What a head does, read from its weights and the vocabulary — no
+    forward pass, no corpus (task 000610).
+
+    `ov`: the top singular components of W_O·W_V, each an input
+    direction (tokens that trigger it) paired with an output direction
+    (tokens it then promotes). A copying head shows the same tokens on
+    both sides.
+
+    `qk`: the same for W_Qᵀ·W_K — the query tokens a component looks
+    for, and the key tokens it matches. Positional terms are not in it:
+    RoPE is applied to the activations, not the weights.
+
+    `composition`: how much of what each earlier head WRITES lands in
+    what this head READS, as Q-, K- or V-composition — which is how one
+    names the heads that feed a head before patching any of them.
+    """
+    from mechbench_compute import head_weights as hw
+    from mechbench_compute.lexicon import kinds as K
+
+    params = dict(params or {})
+    which = str(params.get("circuit", "ov"))
+    if which not in ("ov", "qk", "composition"):
+        raise ValueError(f"circuit is 'ov', 'qk' or 'composition', not {which!r}")
+    n_layers, n_heads = model.arch.n_layers, model.arch.n_heads
+    head = params.get("head")
+
+    if which == "composition":
+        if not isinstance(head, Mapping) or "layer" not in head:
+            raise ValueError(
+                'composition reads INTO one head: name it, `head: {"layer": 12, "index": 3}`')
+        rows = hw.head_composition(
+            model, int(head["layer"]), int(head.get("index", 0)),
+            source_layers=params.get("layers"),
+            kinds=tuple(params.get("kinds") or ("q", "k", "v")))
+        if on_start:
+            on_start(len(rows))
+        if on_item:
+            for _ in rows:
+                on_item()
+        return K.collection(
+            "records/record", rows, circuit="composition",
+            into={"layer": int(head["layer"]), "index": int(head.get("index", 0))},
+            model=str(getattr(model, "model_id", "") or ""),
+            description=(
+                "Q-, K- and V-composition of each earlier head with this one: "
+                "how much of what it writes lands in what this head reads."))
+
+    if isinstance(head, Mapping):
+        pairs = [(int(head["layer"]), int(head.get("index", 0)))]
+    else:
+        layers = ([int(x) for x in params["layers"]] if params.get("layers") is not None
+                  else list(range(n_layers)))
+        heads = ([int(x) for x in params["heads"]] if params.get("heads") is not None
+                 else list(range(n_heads)))
+        pairs = [(lay, h) for lay in layers for h in heads]
+    for lay, h in pairs:
+        if not 0 <= lay < n_layers or not 0 <= h < n_heads:
+            raise ValueError(
+                f"layer {lay} head {h} is outside this model ({n_layers} layers, "
+                f"{n_heads} heads)")
+    components = int(params.get("components", 3))
+    top_k = int(params.get("top_k", 10))
+    if on_start:
+        on_start(len(pairs))
+
+    def _tokens(pairs_):
+        return [{"token": t, "score": round(float(v), 5)} for t, v in pairs_]
+
+    analyse = hw.ov_circuit if which == "ov" else hw.qk_circuit
+    rows = []
+    for lay, h in pairs:
+        got = analyse(model, lay, h, k_tokens=top_k, n_components=components)
+        for comp in got.components:
+            rows.append({
+                "id": f"L{lay}H{h}:{comp.rank}",
+                "coords": {"layer": lay, "head": h, "rank": comp.rank, "circuit": which},
+                "strength": round(float(comp.strength), 5),
+                # For `ov`: what it writes, and what triggers the write.
+                # For `qk`: what the query looks for, and what the key
+                # matches. The names say which side, not which meaning.
+                "left": _tokens(comp.left_tokens),
+                "right": _tokens(comp.right_tokens),
+                "kv_group": got.kv_group,
+            })
+        if on_item:
+            on_item()
+    return K.collection(
+        "records/record", rows, circuit=which, components=components, top_k=top_k,
+        model=str(getattr(model, "model_id", "") or ""),
+        description=(
+            "The top singular components of each head's "
+            + ("W_O·W_V: the tokens that trigger a write, and the tokens it writes."
+               if which == "ov" else
+               "W_Qᵀ·W_K: the query tokens a component looks for, and the keys it matches.")))

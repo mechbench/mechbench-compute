@@ -776,6 +776,67 @@ layers or records.
     example_inputs={"records": {"$ref": {"bench": "you/lab/stories"}}},
 )
 
+EXAMPLES = Op(
+    name="activations/examples",
+    requires="mlx-local",
+    summary=(
+        "The corpus windows whose token most excites a direction or a "
+        "neuron — what turns it on, in context — with the corpus never "
+        "held."
+    ),
+    description="""\
+The first thing anyone asks of a direction, a neuron or a feature is what
+turns it on, and the answer is a handful of windows out of a corpus of any
+size. Every record is run once, every token projected onto the direction
+(or read off the neuron), and only the best `k` windows are kept: the
+memory is `k × window`, not the corpus, so this is the op to point at a
+hundred thousand tokens.
+
+Name what to excite once: a `direction` on the port — whose own space says
+which layer and point to read, so a probe from `direction/classify` needs
+nothing further — or a `neuron` `{"layer": 14, "index": 2048}`, read at
+`mlp.act` unless `point` says otherwise.
+
+`sign` chooses the end: `"high"` (the default), `"low"` — the tokens that
+most oppose it, which is where a direction's meaning often becomes clear —
+or `"both"`. The header's `over` carries the corpus's own moments (count,
+mean, sd, min, max), so a window's value can be read against the field it
+came from rather than as a bare number.
+""",
+    inputs=(
+        In("records", "records/record", "The corpus to search.", many=True),
+        In("direction", "direction/vector",
+           "The direction to excite; its space says where to read. A "
+           "collection carrying exactly one direction is that direction.",
+           required=False),
+        ADAPTER,
+    ),
+    output=Output('records/record', collection=True,
+                  doc='One item per kept window: `value` (the projection at the exciting token), `token`, `text` (the window), `tokens` (its token strings), `hit` (the exciting token\'s index among them), `rank`, and `coords` with `record`, `position` and — under `sign: "both"` — `side`. The header carries `model`, `layer`, `point`, `window`, `sign`, `neuron` when one was named, and `over`: the corpus\'s `n_tokens`, `mean`, `sd`, `min`, `max`.'),
+    params=(
+        P("k", "int", "How many windows to keep at each end.", 10),
+        P("window", "int", "How many tokens either side of the exciting one.", 8),
+        P("sign", "string",
+          "Which end: `\"high\"`, `\"low\"`, or `\"both\"` (which marks each "
+          "window's `side`).",
+          "high", choices=("high", "low", "both")),
+        P("neuron", "object",
+          "The neuron to excite, in place of a direction.", None, fields=(
+              P("layer", "int", "Its layer."),
+              P("index", "int", "Its index along the feature axis."),
+          )),
+        P("layer", "int",
+          "Which layer to read, when the direction does not say.", None),
+        P("point", "string",
+          "Where to read: the direction's own point by default, `mlp.act` "
+          "for a neuron.",
+          None, value="point"),
+    ),
+    example={"model": {"$param": "model"}, "k": 5, "window": 6, "sign": "both"},
+    example_inputs={"records": {"$ref": {"bench": "you/lab/passages"}},
+                    "direction": {"$ref": {"bench": "you/lab/surprise-axis"}}},
+)
+
 CAPTURE_TOKENS = Op(
     name="activations/capture-tokens",
     requires="mlx-local",
@@ -1333,6 +1394,83 @@ the adapter's own deltas and needs no model at all.
              "spectrum": 8},
 )
 
+HEAD_CIRCUIT = Op(
+    name="weights/circuit",
+    requires="mlx-local",
+    summary=(
+        "What a head does, read from its own weights and the vocabulary: "
+        "the OV circuit it writes through, the QK circuit it looks with, "
+        "and how much of each earlier head lands in what it reads."
+    ),
+    description="""\
+Everything else in `intervene` and `activations` watches a model run. This
+reads the weights, and runs nothing: no corpus, no forward pass, no
+sampling. It is how a head is NAMED before it is patched — "L23H5 copies
+the subject token", "L12H2 feeds L23H5's query" — which is the step a
+circuit story usually skips and then cannot defend.
+
+**`ov`** takes the top singular components of W_O·W_V, the map from what
+the head attends to onto what it writes into the residual stream. Each
+component pairs an input direction with an output direction, and both are
+read through the embedding as tokens: `right` are the tokens that trigger
+the component, `left` the tokens it then promotes. A copying head shows
+the same tokens on both sides; an induction head shows the token that
+FOLLOWED them.
+
+**`qk`** does the same for W_Qᵀ·W_K: `left` are the query tokens a
+component looks for, `right` the key tokens it matches. Position is not in
+it — RoPE is applied to the activations, not the weights — so a head that
+attends by position alone shows nothing here, which is itself the finding.
+
+**`composition`** reads INTO one head (`head: {"layer": 23, "index": 5}`)
+and scores every head of the earlier layers against it: ‖W_read·W_OV‖ over
+‖W_read‖·‖W_OV‖, with `W_read` the destination's W_Q, W_K or W_V — Q-, K-
+and V-composition (Elhage et al. 2021). A high score means what that head
+writes reaches this head's query, key or value; it is a bound on the
+influence, not a demonstration of it, and `intervene/path` is what
+demonstrates. The scale is set by chance: read the scores against their own
+median, not against zero.
+
+Every row is an ordinary record, so `records/rank value: "strength"` finds
+the strongest components and `records/select where: {"kind": "q"}` the
+query-side composers.
+""",
+    inputs=(ADAPTER,),
+    output=Output('records/record', collection=True,
+                  doc='For `ov` and `qk`, one item per (layer, head, component): `coords` (`layer`, `head`, `rank`, `circuit`), `strength` (the singular value), `left` and `right` (each `{token, score}`), `kv_group`. For `composition`, one per (source head, kind): `coords` (`layer`, `head`, `kind`, `into_layer`, `into_head`) and `score`. The header carries `circuit`, the model, and `into` or `components`/`top_k`.'),
+    params=(
+        P("circuit", "string",
+          "`\"ov\"` (what the head writes, and what triggers it), `\"qk\"` "
+          "(what it looks for, and what matches) or `\"composition\"` (how "
+          "much of each earlier head reaches this one).",
+          "ov", choices=("ov", "qk", "composition")),
+        P("head", "object",
+          "One head: `{\"layer\": 23, \"index\": 5}`. Required for "
+          "`composition`, which reads into it; for `ov` and `qk` it names "
+          "the single head to read, where `layers`/`heads` name a set.",
+          None, fields=(
+              P("layer", "int", "Its layer."),
+              P("index", "int", "Its index within the layer.", 0),
+          )),
+        P("layers", "list[int]",
+          "For `ov`/`qk`: which layers' heads to read, every layer by "
+          "default. For `composition`: which earlier layers to score, all "
+          "of them by default.",
+          None),
+        P("heads", "list[int]",
+          "For `ov`/`qk`: which heads of each layer, all by default.", None),
+        P("kinds", "list[string]",
+          "For `composition`: which of the destination's inputs to score.",
+          ["q", "k", "v"], choices=("q", "k", "v")),
+        P("components", "int",
+          "For `ov`/`qk`: how many singular components per head.", 3),
+        P("top_k", "int",
+          "For `ov`/`qk`: how many tokens to read off each direction.", 10),
+    ),
+    example={"model": {"$param": "model"}, "circuit": "ov",
+             "head": {"layer": 23, "index": 5}, "components": 2},
+)
+
 DECOMPOSE_WEIGHTS = Op(
     name="weights/decompose",
     requires="mlx-local",
@@ -1396,8 +1534,8 @@ whole model by accident.
 OPS: tuple[Op, ...] = (
     INTERVENE, ABLATE_LAYERS, ABLATE_HEADS, ATTENTION_PATTERNS,
     ATTRIBUTION_LOGITS, PATCH_TRACE, RESIDUALS_DIVERGENCE, RESIDUALS_VECTORS,
-    CAPTURE_TOKENS,
+    CAPTURE_TOKENS, EXAMPLES,
     LENS_POSITIONS, LENS_TRAJECTORY, STEER_INJECT,
     GENERATE, DECISION_READ, SCORE, TOKENIZE_STATS,
-    CAPTURE_WEIGHTS, DECOMPOSE_WEIGHTS,
+    CAPTURE_WEIGHTS, DECOMPOSE_WEIGHTS, HEAD_CIRCUIT,
 )

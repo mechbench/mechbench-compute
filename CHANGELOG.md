@@ -13,6 +13,56 @@ nothing said so.
 
 ---
 
+## 0.118.0 — 2026-09-20
+
+### Changes that raise
+
+- `direction/classify` refuses a space with one label, fewer than eight
+  labelled items, or a split that leaves one label on a side — by name,
+  rather than reporting an accuracy nobody should read.
+- `weights/circuit` refuses a `composition` without the head it reads
+  into, and a source layer that is not earlier than it.
+- `activations/examples` refuses naming both a `direction` and a
+  `neuron`, or neither.
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- **`direction/classify`** (000608): a linear probe at every space —
+  the direction that separates a label from the rest, and its accuracy
+  on items it never saw, beside the majority baseline it has to beat.
+  The accuracies across layers are the curve that says where something
+  becomes linearly decodable, which one difference of centroids cannot
+  produce. Two labels give one direction per space; more give one per
+  label against the rest. Every item is an ordinary `direction/vector`
+  with the headline scores at the top level, so `records/plot x:
+  "layer", y: "accuracy_test"` is the figure and the probe that decodes
+  best is the direction to steer along.
+- **`weights/circuit`** (000610): what a head does, read from its own
+  weights and the vocabulary and running nothing — the `ov` circuit
+  (what triggers a write, and what it writes), the `qk` circuit (what a
+  query looks for, and what matches), and `composition` (how much of
+  each earlier head lands in this head's query, key or value). The
+  composition score is computed by association — ‖(W_Q·W_O)·W_V‖ rather
+  than forming a d_model × d_model product — so a layer of sources
+  scores in a tenth of a second. It surfaces `head_weights.py`, which
+  had been in the tree since before the lexicon with no op to reach it.
+- **`activations/examples`** (000615): the corpus windows whose token
+  most excites a direction or a neuron, keeping `k × window` and never
+  the corpus. `sign: "both"` brings back the opposing end too, and the
+  header carries the corpus's own moments so a window's value reads
+  against the field it came from. A probe from `direction/classify`
+  wires straight in: fit colour-vs-animal on twelve words, point it at
+  two sentences, and the colour words come back (tested on E2B).
+- A collection carrying exactly one direction IS that direction:
+  `direction/classify` emits a probe per layer, and selecting one from
+  it now wires into `intervene/apply` without unwrapping.
+
+---
+
 ## 0.117.0 — 2026-09-20
 
 ### Changes that raise

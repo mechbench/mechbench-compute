@@ -1032,6 +1032,10 @@ class ProtocolExecutor:
                 elif block == "weights/capture":
                     results[nid] = self._run_model_block(
                         self._block_capture_weights, inputs, params)
+                elif block == "weights/circuit":
+                    results[nid] = self._run_model_block(
+                        self._block_weights_circuit, inputs, params,
+                        on_item=on_item, on_start=expand)
                 elif block == "weights/decompose":
                     results[nid] = self._run_model_block(
                         self._block_decompose_weights, inputs, params)
@@ -1042,6 +1046,10 @@ class ProtocolExecutor:
                 elif block == "activations/capture":
                     results[nid] = self._run_model_block(
                         self._block_residual_vectors, inputs, params,
+                        on_item=on_item, on_start=expand)
+                elif block == "activations/examples":
+                    results[nid] = self._run_model_block(
+                        self._block_examples, inputs, params,
                         on_item=on_item, on_start=expand)
                 elif block == "activations/capture-tokens":
                     results[nid] = self._run_model_block(
@@ -1999,6 +2007,16 @@ class ProtocolExecutor:
             model.lm, params,
             model_wire=ref.to_wire() if hasattr(ref, "to_wire") else ref)
 
+    def _block_weights_circuit(self, inputs, params, on_item=None, on_start=None):
+        """weights/circuit (task 000610): what a head does, read from its
+        own weights and the vocabulary — the OV and QK circuits, and the
+        composition of earlier heads with this one. No forward pass."""
+        from mechbench_compute import weights as weights_mod
+
+        model = self._model_loaded(params.get("model"))
+        return weights_mod.head_circuits(model, params, on_item=on_item,
+                                         on_start=on_start)
+
     def _block_decompose_weights(self, inputs, params):
         """weights/decompose (task 000457): a parameter's principal
         directions in the residual stream, as directions the direction
@@ -2123,6 +2141,17 @@ class ProtocolExecutor:
         records = lexicon.items_of(inputs.get("records") or [])
         return interp.residual_vectors(
             model, records, params, on_item=on_item, on_start=on_start)
+
+    def _block_examples(self, inputs, params, on_item=None, on_start=None):
+        """activations/examples (task 000615) — the corpus windows that
+        most excite a direction or a neuron, the corpus never held."""
+        from mechbench_compute import interp
+
+        model = self._model_loaded(params.get("model"))
+        records = lexicon.items_of(inputs.get("records") or [])
+        return interp.examples(model, records, params,
+                               direction=inputs.get("direction"),
+                               on_item=on_item, on_start=on_start)
 
     def _block_capture_tokens(self, inputs, params, on_item=None,
                               on_start=None):
