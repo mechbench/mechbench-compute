@@ -186,11 +186,14 @@ def _imports(src: str) -> dict[str, str]:
         if isinstance(n, ast.ImportFrom) and (n.module or "").startswith("mechbench_compute"):
             tail = (n.module or "").split(".")
             for a in n.names:
-                out[a.asname or a.name] = tail[-1] if len(tail) > 1 else a.name
+                # The whole path under the package, so a module inside a
+                # subpackage resolves to its file rather than to a
+                # top-level module that happens to share its last name.
+                out[a.asname or a.name] = "/".join(tail[1:]) if len(tail) > 1 else a.name
         elif isinstance(n, ast.Import):
             for a in n.names:
                 if a.name.startswith("mechbench_compute."):
-                    out[a.asname or a.name.split(".")[-1]] = a.name.split(".")[-1]
+                    out[a.asname or a.name.split(".")[-1]] = "/".join(a.name.split(".")[1:])
     return out
 
 
@@ -241,6 +244,13 @@ def names_read(sites: list[tuple[str, str | None]], var: str = "params",
                 continue
             node = syms.get(sym)
             if node is None:
+                # Not defined here, but perhaps imported here: follow a
+                # re-export to where the definition is. A module that
+                # hands on a name it took from elsewhere is a hop, not a
+                # dead end.
+                origin = _imports(src).get(sym)
+                if origin is not None:
+                    stack.append((origin, sym, depth + 1))
                 continue
             body = ast.get_source_segment(src, node) or ""
             if bodies is not None:

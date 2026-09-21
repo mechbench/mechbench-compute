@@ -46,6 +46,7 @@ class Def:
     end: int
     kind: str           # function | class | assign | method | registry | declaration
     refs: set[str] = field(default_factory=set)
+    attr_refs: set[tuple[str, str]] = field(default_factory=set)   # (alias, attribute)
     users: set[str] = field(default_factory=set)   # operations that reach it
 
     @property
@@ -62,6 +63,7 @@ class Module:
         self.defs: dict[str, Def] = {}
         self.methods: dict[str, Def] = {}
         self.registry: dict[str, tuple[str, ast.expr]] = {}   # op -> (table, value node)
+        self._bindings()
         self._index()
 
     def _lead(self, lineno: int) -> int:
@@ -75,6 +77,32 @@ class Module:
     def _names(self, node: ast.AST) -> set[str]:
         return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
 
+    def _attrs(self, node: ast.AST) -> set[tuple[str, str]]:
+        return {(n.value.id, n.attr) for n in ast.walk(node)
+                if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
+
+    def _bindings(self) -> None:
+        """What this file takes from the package's other modules: a name
+        imported from one (`from mechbench_compute.interp import _pair`)
+        and an alias for one (`from mechbench_compute import interp`),
+        wherever in the file the import sits — the executor imports
+        lazily, inside the method that needs it."""
+        self.imported: dict[str, tuple[str, str]] = {}
+        self.aliases: dict[str, str] = {}
+        for n in ast.walk(self.tree):
+            if isinstance(n, ast.ImportFrom) and n.level == 0 and n.module:
+                if n.module == "mechbench_compute":
+                    for a in n.names:
+                        self.aliases[a.asname or a.name] = f"{a.name}.py"
+                elif n.module.startswith("mechbench_compute."):
+                    rel = n.module.split(".", 1)[1].replace(".", "/") + ".py"
+                    for a in n.names:
+                        self.imported[a.asname or a.name] = (rel, a.name)
+            elif isinstance(n, ast.Import):
+                for a in n.names:
+                    if a.name.startswith("mechbench_compute.") and a.asname:
+                        self.aliases[a.asname] = a.name.split(".", 1)[1].replace(".", "/") + ".py"
+
     def _index(self) -> None:
         for node in self.tree.body:
             first = node.lineno
@@ -83,14 +111,14 @@ class Module:
             first = self._lead(first)
             end = node.end_lineno or node.lineno
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                self.defs[node.name] = Def(self.rel, node.name, first, end, "function", self._names(node))
+                self.defs[node.name] = Def(self.rel, node.name, first, end, "function", self._names(node), self._attrs(node))
             elif isinstance(node, ast.ClassDef):
-                self.defs[node.name] = Def(self.rel, node.name, first, end, "class", self._names(node))
+                self.defs[node.name] = Def(self.rel, node.name, first, end, "class", self._names(node), self._attrs(node))
                 for sub in node.body:
                     if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         s = self._lead(min([sub.lineno] + [d.lineno for d in sub.decorator_list]))
                         self.methods[sub.name] = Def(self.rel, sub.name, s, sub.end_lineno or sub.lineno,
-                                                     "method", self._names(sub))
+                                                     "method", self._names(sub), self._attrs(sub))
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 for t in targets:
@@ -192,13 +220,35 @@ def analyse() -> Analysis:
                 pieces[op].append(Def(m.rel, f"<{table}[{op!r}]>", value.lineno, value.end_lineno or value.lineno,
                                       "registry", names))
 
+    def edges(d: Def) -> list[Def]:
+        """The definitions `d` needs, in its own file or in another of
+        the files being taken apart."""
+        m = mods[d.file]
+        out: list[Def] = []
+        for r in d.refs:
+            if r in m.defs and r not in m.hosts:
+                out.append(m.defs[r])
+            elif r in m.imported:
+                rel, orig = m.imported[r]
+                if rel in mods and orig in mods[rel].defs and orig not in mods[rel].hosts:
+                    out.append(mods[rel].defs[orig])
+        for alias, attr in d.attr_refs:
+            rel = m.aliases.get(alias)
+            if rel in mods and attr in mods[rel].defs and attr not in mods[rel].hosts:
+                out.append(mods[rel].defs[attr])
+        return out
+
     for op, roots in pieces.items():
-        for root in roots:
-            m = mods[root.file]
-            seeds = {root.name} if root.name in m.defs else set()
-            seeds |= {r for r in root.refs if r in m.defs}
-            for name in m.closure(seeds):
-                m.defs[name].users.add(op)
+        seen: set[int] = set()
+        stack = list(roots)
+        while stack:
+            cur = stack.pop()
+            if id(cur) in seen:
+                continue
+            seen.add(id(cur))
+            if cur.kind not in ("method", "registry"):
+                cur.users.add(op)
+            stack.extend(edges(cur))
 
     placement: dict[str, list[Def]] = defaultdict(list)
     for op, roots in pieces.items():

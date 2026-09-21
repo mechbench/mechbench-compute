@@ -39,10 +39,19 @@ def patch_trace(model, records, params):  # the mechanism, callable on its own
 - **`MONOID`**, when the operation can be computed in chunks: the class
   that reduces them. Its presence is the declaration.
 
-Helpers follow their users. A helper one operation uses lives in that
-operation's file. One shared within a family lives in
-`ops/<family>/_common.py`. One shared across families lives in
-`ops/_common.py`.
+An operation's file holds what only that operation uses. What several
+operations share stays in a module named for what it is:
+`mechbench_compute/intervene.py` is the intervention grammar, which
+`intervene/apply`, `intervene/steer` and `text/generate` all compile
+specs with; `mechbench_compute/chat.py` is what `text/chat` and
+`eval/judge` both talk to a model through. An operation's file imports
+from those by name, so the import line says what the shared thing is.
+
+There is deliberately no `_common.py`. Filing shared code by *who uses
+it* rather than *what it is* was tried first and measured: once the
+dependencies between modules were followed honestly, one grab-bag came
+to 1,614 lines and 62 definitions — the file this layout exists to
+prevent, under a name that says nothing.
 
 ## What `ctx` offers
 
