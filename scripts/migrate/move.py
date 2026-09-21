@@ -31,6 +31,36 @@ LENT = ("on_item", "on_start", "on_checkpoint", "resume_items", "resume_state",
         "secrets", "input_paths", "bindings", "result_base")
 HEADER = "from __future__ import annotations\n"
 
+#: The one name a declaration file and a mechanism file bind to different
+#: things: `P` is the param constructor in the lexicon, and three
+#: mechanism modules alias `points as P`. An operation's file holds both,
+#: so the declaration's spelling wins and the alias is respelled where it
+#: is used, at its AST positions.
+RESPELL = {"P": ("from mechbench_compute import points as P",
+                 "hookpoints", "from mechbench_compute import points as hookpoints")}
+
+
+def respelled(mod: Module, d: Def) -> tuple[list[str], set[str]]:
+    """`d`'s source lines with any respelling applied, and the import
+    statements that respelling needs."""
+    table = import_table(mod)
+    lines = mod.text[d.start - 1:d.end]
+    needs: set[str] = set()
+    node = next((n for n in mod.tree.body if (n.end_lineno or 0) == d.end and n.lineno <= d.end
+                 and n.lineno >= d.start), None)
+    if node is None:
+        return lines, needs
+    reps = []
+    for old_name, (bound_as, new_name, stmt) in RESPELL.items():
+        if table.get(old_name) != bound_as:
+            continue
+        for n in ast.walk(node):
+            if isinstance(n, ast.Name) and n.id == old_name:
+                reps.append((n.lineno, n.col_offset, n.end_col_offset, new_name))
+        if reps:
+            needs.add(stmt)
+    return (splice(lines, d.start, reps) if reps else lines), needs
+
 
 def dotted(rel: str) -> str:
     return "mechbench_compute." + rel[:-3].replace("/", ".")
@@ -215,6 +245,8 @@ def move(op_names: list[str], dry: bool) -> None:
     dest_of = a.dest_of()
     notes: list[str] = []
     new_text: dict[str, list[str]] = defaultdict(list)      # dest -> blocks
+    tails: dict[str, list[str]] = defaultdict(list)         # dest -> blocks that must come last
+    extra_imports: dict[str, set[str]] = defaultdict(set)
     sources: dict[str, set[str]] = defaultdict(set)         # dest -> source files
     wanted: dict[str, set[tuple[str, str]]] = defaultdict(set)
     removed: dict[str, list[tuple[int, int]]] = defaultdict(list)
@@ -228,7 +260,7 @@ def move(op_names: list[str], dry: bool) -> None:
         roots = a.pieces[op]
         travelling = [d for m in a.mods.values() for d in m.defs.values() if op in d.users]
         # The contract first, then the entry point, then the mechanism.
-        ordered = ([d for d in travelling if d.kind in ("assign", "declaration") and d.file.startswith("lexicon/")]
+        ordered = ([d for d in travelling if d.file.startswith("lexicon/")]
                    + [r for r in roots if r.kind in ("method", "registry")]
                    + [d for d in travelling if not d.file.startswith("lexicon/")])
         entry_made = False
@@ -248,7 +280,8 @@ def move(op_names: list[str], dry: bool) -> None:
             if d.kind == "registry":
                 table, value = m.registry[op]
                 if table == "MONOIDS":
-                    new_text[dest].append(f"MONOID = {ast.get_source_segment(m.src, value)}\n")
+                    # Last in the file: it names a class defined below the entry point.
+                    tails[dest].append(f"MONOID = {ast.get_source_segment(m.src, value)}\n")
                 elif not entry_made:
                     new_text[dest].append(run_from_registry(m, d, value, notes))
                     entry_made = True
@@ -260,7 +293,9 @@ def move(op_names: list[str], dry: bool) -> None:
             where = dest_of[(d.file, d.name)]
             if any(d is x for x, _ in moved_defs[d.file]):
                 continue
-            block = "\n".join(m.text[d.start - 1:d.end]) + "\n"
+            lines, needs = respelled(m, d)
+            extra_imports[where] |= needs
+            block = "\n".join(lines) + "\n"
             if d.kind == "declaration":
                 block = re.sub(rf"^{re.escape(d.name)}\b", "OP", block, count=1, flags=re.M)
             new_text[where].append(block)
@@ -276,6 +311,8 @@ def move(op_names: list[str], dry: bool) -> None:
 
     # ---- write the new files ------------------------------------------------
     outputs: dict[str, str] = {}
+    for dest, late in tails.items():
+        new_text[dest].extend(late)
     for dest, blocks in new_text.items():
         path = PKG / dest
         existing = path.read_text() if path.exists() else ""
@@ -291,6 +328,10 @@ def move(op_names: list[str], dry: bool) -> None:
                     lines.add(f"from {dotted(dest_of[(src, name)])} import {name}")
         for src, name in wanted[dest]:
             lines.add(f"from {dotted(dest_of[(src, name)])} import {name}")
+        lines |= extra_imports[dest]
+        for old_name, (bound_as, _new, _stmt) in RESPELL.items():
+            if extra_imports[dest]:
+                lines.discard(bound_as)
         already = set(re.findall(r"^(?:from|import) .*$", existing, re.M))
         fresh = sorted(ln for ln in lines if ln not in already)
         if existing:
@@ -320,10 +361,11 @@ def move(op_names: list[str], dry: bool) -> None:
                 tail = re.sub(rf"\b{name}\b,?[ \t]*", "", tail, count=1)
             text = (joined[:start] + tail).split("\n")
         if back:
-            last = max((i for i, ln in enumerate(text) if re.match(r"(from|import) ", ln)), default=0)
-            # past a parenthesised import's closing line
-            while last + 1 < len(text) and not re.match(r"\S", text[last + 1] or " ") and text[last].rstrip().endswith(("(", ",")):
-                last += 1
+            # After the last top-level import, found in the syntax tree:
+            # a parenthesised import spans lines, and its last line is
+            # not one that starts with `from`.
+            tops = [n for n in ast.parse("\n".join(text)).body if isinstance(n, (ast.Import, ast.ImportFrom))]
+            last = (max(n.end_lineno or n.lineno for n in tops) - 1) if tops else 0
             stmts = [f"from {dotted(where)} import (  # noqa: F401 - moved; see docs/OPS_LAYOUT.md\n    "
                      + ",\n    ".join(sorted(names)) + ",\n)" for where, names in sorted(back.items())]
             text = text[:last + 1] + stmts + text[last + 1:]
@@ -343,7 +385,26 @@ def move(op_names: list[str], dry: bool) -> None:
         if rel.startswith("ops/") and not init.exists():
             init.write_text("")
         path.write_text(text)
+    repoint_sites(op_names)
     verify(verbatim, a)
+
+
+def repoint_sites(op_names: list[str]) -> None:
+    """The params gate reads each operation's code where SITES says it
+    is. A moved operation is every function in its own file."""
+    path = ROOT / "tests" / "test_block_params.py"
+    text = path.read_text()
+    for op in op_names:
+        rel = op_path(op)
+        tree = ast.parse((PKG / rel).read_text())
+        fns = [n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))]
+        fns.sort(key=lambda n: n != "run")
+        sites = ",\n        ".join(f'("{rel}", "{fn}")' for fn in fns)
+        entry = f'    "{op}": [\n        {sites}],\n'
+        text, n = re.subn(rf'^    "{re.escape(op)}": \[.*?\)\],\n', entry, text, count=1, flags=re.M | re.S)
+        if n != 1:
+            print(f"   !! {op}: no SITES entry found to repoint")
+    path.write_text(text)
 
 
 def verify(verbatim: list[tuple[Def, str]], a) -> None:
@@ -365,6 +426,9 @@ def verify(verbatim: list[tuple[Def, str]], a) -> None:
             bad += 1
             continue
         od, nd = ast.dump(old), ast.dump(new)
+        for old_name, (bound_as, new_name, _stmt) in RESPELL.items():
+            if import_table(a.mods[d.file]).get(old_name) == bound_as:
+                od = od.replace(f"Name(id='{old_name}'", f"Name(id='{new_name}'")
         if d.kind == "declaration":
             od = od.replace(f"id='{d.name}'", "id='OP'", 1)
         if od != nd:

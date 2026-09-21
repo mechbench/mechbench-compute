@@ -210,12 +210,15 @@ def analyse() -> Analysis:
             if not d.users:
                 continue
             families = {u.split("/")[0] for u in d.users}
+            # What several declarations share and what several mechanisms
+            # share have different readers, so they are different files.
+            shared = "_params.py" if d.file.startswith("lexicon/") else "_common.py"
             if len(d.users) == 1:
                 dest = op_path(next(iter(d.users)))
             elif len(families) == 1:
-                dest = f"ops/{next(iter(families))}/_common.py"
+                dest = f"ops/{next(iter(families))}/{shared}"
             else:
-                dest = "ops/_common.py"
+                dest = f"ops/{shared}"
             placement[dest].append(d)
     return Analysis(mods, pieces, placement, problems)
 
@@ -231,8 +234,8 @@ def main() -> None:
         return
 
     sizes = {dest: sum(d.lines for d in ds) for dest, ds in placement.items()}
-    op_files = {k: v for k, v in sizes.items() if not k.endswith("_common.py")}
-    commons = {k: v for k, v in sizes.items() if k.endswith("_common.py")}
+    op_files = {k: v for k, v in sizes.items() if not k.rsplit("/", 1)[-1].startswith("_")}
+    commons = {k: v for k, v in sizes.items() if k.rsplit("/", 1)[-1].startswith("_")}
     ordered = sorted(op_files.values())
     print(f"{len(op_files)} operation files   median {ordered[len(ordered)//2]} lines   "
           f"largest {ordered[-1]}   total {sum(ordered)}")
