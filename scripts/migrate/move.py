@@ -114,6 +114,27 @@ def respelled(mod: Module, d: Def) -> tuple[list[str], set[str]]:
     return (splice(lines, d.start, reps) if reps else lines), needs
 
 
+def with_registry_imports(mod: Module, d: Def, lines: list[str]) -> list[str]:
+    """A helper that names a registry table (`MONOIDS.get(block)`) needs
+    the table, which stays in the module the helper left — and that
+    module imports the helper back, so the import has to be lazy, first
+    thing inside the function. The verifier ignores package imports, so
+    the definition still proves identical."""
+    from plan import REGISTRY_NAMES
+    tables = sorted(d.refs & REGISTRY_NAMES)
+    if not tables or d.kind != "function":
+        return lines
+    node = next((n for n in mod.tree.body if isinstance(n, ast.FunctionDef) and n.name == d.name), None)
+    if node is None:
+        return lines
+    first = node.body[0]
+    if isinstance(first, ast.Expr) and isinstance(getattr(first, "value", None), ast.Constant) and len(node.body) > 1:
+        first = node.body[1]
+    i = first.lineno - d.start
+    indent = len(lines[i]) - len(lines[i].lstrip())
+    return lines[:i] + [" " * indent + f"from {dotted(mod.rel)} import {', '.join(tables)}"] + lines[i:]
+
+
 def signature_end(text: list[str]) -> tuple[int, int]:
     """(line index, column) just past the colon that ends a `def` header."""
     depth = 0
@@ -171,6 +192,11 @@ def run_from_method(mod: Module, d: Def, dest: str, dest_of: dict[tuple[str, str
                 reps.append((n.lineno, n.col_offset, n.end_col_offset, f"ctx.{n.id}"))
             elif n.id == "self":
                 reps.append((n.lineno, n.col_offset, n.end_col_offset, "ctx.executor"))
+            elif n.id in mod.hosts:
+                # `ProtocolExecutor(...)` inside the executor's own method
+                # is "another one of me"; from outside it is the kind of
+                # executor that lent the context.
+                reps.append((n.lineno, n.col_offset, n.end_col_offset, "type(ctx.executor)"))
     body = splice(mod.text[d.start - 1:d.end], d.start, reps)
     lead = node.lineno - d.start          # comment lines above the def
     i, col = signature_end(body[lead:])
@@ -319,7 +345,7 @@ def move(op_names: list[str], dry: bool) -> None:
                 lines, needs = respelled(m, d)      # a declaration shares this file
                 extra_imports[where] |= needs
             else:
-                lines = m.text[d.start - 1:d.end]
+                lines = with_registry_imports(m, d, m.text[d.start - 1:d.end])
             block = "\n".join(lines) + "\n"
             if d.kind == "declaration":
                 block = re.sub(rf"^{re.escape(d.name)}\b", "OP", block, count=1, flags=re.M)
