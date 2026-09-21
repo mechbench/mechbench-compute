@@ -435,13 +435,13 @@ class TestGroupStatsMissingValues:
     def test_a_missing_value_refuses_by_name_by_default(self):
         import pytest
 
-        from mechbench_compute.blocks import group_stats
+        from mechbench_compute.ops.records.summarize import group_stats
 
         with pytest.raises(ValueError, match="record 'b' has no 'score'"):
             group_stats(JUDGED_ROWS, {"by": ["arm"], "value": "score"})
 
     def test_skip_omits_them_and_reports_the_count(self):
-        from mechbench_compute.blocks import group_stats
+        from mechbench_compute.ops.records.summarize import group_stats
 
         out = group_stats(JUDGED_ROWS, {"by": ["arm"], "value": "score",
                                           "on_missing": "skip"})
@@ -449,7 +449,7 @@ class TestGroupStatsMissingValues:
         assert {r["arm"]: r["n"] for r in out["rows"]} == {"x": 1, "y": 1}
 
     def test_a_clean_table_says_nothing_about_missing(self):
-        from mechbench_compute.blocks import group_stats
+        from mechbench_compute.ops.records.summarize import group_stats
 
         out = group_stats(JUDGED_ROWS[:1], {"by": ["arm"], "value": "score"})
         assert "n_missing" not in out
@@ -502,7 +502,7 @@ class TestASummaryOverAGrid:
     ]}
 
     def test_one_row_per_position_with_the_best_cell_as_max(self):
-        from mechbench_compute.blocks import group_stats
+        from mechbench_compute.ops.records.summarize import group_stats
 
         out = group_stats(self.TRACE, {"by": ["position"], "value": "share"})
         by_pos = {r["position"]: r for r in out["rows"]}
@@ -511,7 +511,7 @@ class TestASummaryOverAGrid:
 
     def test_the_monoid_reads_the_same_cells(self):
         from mechbench_compute import reduce as rd
-        from mechbench_compute.blocks import group_stats
+        from mechbench_compute.ops.records.summarize import group_stats
 
         params = {"by": ["country", "position"], "value": "share"}
         flat = group_stats(self.TRACE, params)

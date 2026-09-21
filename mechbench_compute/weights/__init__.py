@@ -60,6 +60,17 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
+from mechbench_compute.weights.constants import RESIDUAL_SIDE, _SCOPE  # noqa: F401
+from mechbench_compute.weights.coords_of import _coords_of  # noqa: F401
+from mechbench_compute.weights.direction_of import _direction_of  # noqa: F401
+from mechbench_compute.weights.edit_parameters import WEIGHT_OPS, edit_parameters  # noqa: F401
+from mechbench_compute.weights.module_of import _module_of  # noqa: F401
+from mechbench_compute.weights.parameter_names import parameter_names  # noqa: F401
+from mechbench_compute.weights.pattern import _pattern  # noqa: F401
+from mechbench_compute.weights.project_out import _project_out  # noqa: F401
+from mechbench_compute.weights.restore_parameters import restore_parameters  # noqa: F401
+from mechbench_compute.weights.select_points import select_points  # noqa: F401
+from mechbench_compute.weights.truncate import _truncate  # noqa: F401
 
 #: A capture refuses more values than this, as an activation capture
 #: does: the reduced forms are the point, and one 262144×1536 embedding
@@ -72,76 +83,6 @@ MAX_VALUES = 2_000_000
 #: tensor is 2.3 billion of them), so the reductions run in row blocks
 #: of about this size.
 _STAT_BLOCK_VALUES = 16_000_000
-
-#: The scope every parameter name in an MLX model carries. A point may
-#: be written with or without it; `layers.12.…` is what a person types
-#: and what an adapter's keys use.
-_SCOPE = "model."
-
-
-def parameter_names(lm: Any) -> dict[str, Any]:
-    """`{name: tensor}` for every parameter of a loaded text decoder,
-    named as the module tree names it (`layers.12.self_attn.q_proj.
-    weight`), the `model.` scope stripped."""
-    from mlx.utils import tree_flatten
-
-    out: dict[str, Any] = {}
-    for name, arr in tree_flatten(lm.parameters()):
-        out[name.removeprefix(_SCOPE)] = arr
-    return out
-
-
-def _pattern(point: str) -> re.Pattern[str]:
-    """A parameter point as a matcher. `*` stands for one segment, so
-    `layers.*.mlp.down_proj` is every layer's down projection; anything
-    else is literal. A point that names a MODULE matches its parameters
-    (`…q_proj` matches `…q_proj.weight`)."""
-    body = re.escape(point).replace(r"\*", r"[^.]+")
-    return re.compile(rf"^{body}(\.[^.]+)?$")
-
-
-def select_points(names: Iterable[str], points: Any) -> list[str]:
-    """The parameter names a node's `points` selects, in model order.
-
-    `"all"` is every parameter, which is a lot (540 tensors on a 4B
-    model) — useful for a stats sweep, never for values.
-    """
-    have = list(names)
-    if points in (None, "all"):
-        return have
-    if isinstance(points, str):
-        points = [points]
-    wanted: list[str] = []
-    for p in points:
-        raw = str(p)
-        bare = raw.removeprefix(_SCOPE)
-        matcher = _pattern(bare)
-        hit = [n for n in have if matcher.match(n)]
-        if not hit:
-            raise ValueError(
-                f"no parameter matches {raw!r}. A point names the module "
-                f"tree — `layers.12.self_attn.q_proj`, `embed_tokens`, "
-                f"`layers.*.mlp.down_proj` — and this model carries "
-                f"{len(have)} parameters, e.g. {', '.join(have[:3])}.")
-        wanted += [n for n in hit if n not in wanted]
-    return [n for n in have if n in set(wanted)]
-
-
-def _coords_of(name: str) -> dict[str, Any]:
-    """What a parameter's name says about where it is."""
-    parts = name.split(".")
-    coords: dict[str, Any] = {}
-    if parts[0] == "layers" and len(parts) > 2 and parts[1].isdigit():
-        coords["layer"] = int(parts[1])
-        rest = parts[2:]
-        if len(rest) > 1 and rest[0] in ("self_attn", "mlp"):
-            coords["container"] = rest[0]
-            coords["projection"] = rest[1]
-        coords["module"] = ".".join(parts[:-1]) if len(parts) > 2 else name
-    else:
-        coords["module"] = ".".join(parts[:-1]) or name
-    coords["parameter"] = parts[-1]
-    return coords
 
 
 def parameter_stats(arr: Any, *, spectrum: int = 0) -> dict[str, Any]:
@@ -248,24 +189,6 @@ def capture_weights(lm: Any, params: Mapping[str, Any] | None = None,
     )
 
 
-#: Which side of a projection is the residual stream, and the point the
-#: model reads or writes it at. A weight's singular vectors live in two
-#: spaces — its input's and its output's — and only one of them is a
-#: space anything else in the platform can talk about: `q_proj`'s rows
-#: are questions asked OF the residual stream, `o_proj`'s columns are
-#: what it writes INTO it. The other side is head or hidden space, where
-#: a direction means nothing to an unembedding or to another layer.
-RESIDUAL_SIDE: dict[str, tuple[str, str]] = {
-    "q_proj": ("in", "attn.in_norm"),
-    "k_proj": ("in", "attn.in_norm"),
-    "v_proj": ("in", "attn.in_norm"),
-    "o_proj": ("out", "attn_out"),
-    "gate_proj": ("in", "mlp.in_norm"),
-    "up_proj": ("in", "mlp.in_norm"),
-    "down_proj": ("out", "mlp_out"),
-}
-
-
 def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
                       *, model_wire: Any = None) -> dict[str, Any]:
     """`weights/decompose`: a parameter's principal directions, in the
@@ -351,141 +274,6 @@ def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
         name=params.get("name"),
         description=params.get("description"),
     )
-
-
-#: What an intervention may do to a parameter. Deliberately fewer than
-#: the activation ops: an edit to a weight lasts for the whole node, so
-#: each of these has to be a statement about the model rather than about
-#: one forward pass.
-WEIGHT_OPS: tuple[str, ...] = ("zero", "scale", "project_out", "truncate")
-
-
-def _module_of(lm: Any, name: str) -> tuple[Any, str]:
-    """`(module, attribute)` for a parameter name, so the tensor can be
-    written back where it came from."""
-    parts = name.split(".")
-    node = getattr(lm, "model", lm)
-    for part in parts[:-1]:
-        node = node[int(part)] if part.isdigit() else getattr(node, part)
-    return node, parts[-1]
-
-
-def edit_parameters(lm: Any, items: Sequence[Mapping[str, Any]],
-                    factor: float = 1.0) -> list[tuple[str, Any]]:
-    """Apply weight edits in place; return the handle that undoes them.
-
-    The contract is `lora.fuse`'s, for the same reason: the ORIGINAL
-    tensors are kept and reinstalled, never recomputed backwards. An
-    edit that re-derived the old weight by inverting the new one would
-    not round-trip in bf16, and a run whose model is subtly not the one
-    it started with is the worst kind of wrong — it still produces
-    numbers.
-
-    `factor` scales every edit, so a sweep is the same spec at several
-    strengths.
-    """
-    import mlx.core as mx
-
-    tensors = parameter_names(lm)
-    handle: list[tuple[str, Any]] = []
-    for item in items:
-        point = str(item.get("parameter") or item.get("point") or "")
-        names = select_points(tensors, [point])
-        op = str(item.get("op", "zero"))
-        if op not in WEIGHT_OPS:
-            raise ValueError(
-                f"unknown weight op {op!r}; one of {', '.join(WEIGHT_OPS)}. "
-                f"(The activation ops act during a forward pass; a parameter "
-                f"edit lasts for the node.)")
-        strength = float(item.get("strength", 1.0)) * float(factor)
-        for name in names:
-            module, attr = _module_of(lm, name)
-            before = getattr(module, attr)
-            handle.append((name, before))
-            w = before.astype(mx.float32)
-            if op == "zero":
-                after = mx.zeros_like(w)
-            elif op == "scale":
-                after = w * strength
-            elif op == "project_out":
-                after = _project_out(w, item, name, strength)
-            else:
-                after = _truncate(w, item, name)
-            setattr(module, attr, after.astype(before.dtype))
-    mx.eval([getattr(*_module_of(lm, n)) for n, _ in handle])
-    return handle
-
-
-def restore_parameters(lm: Any, handle: Sequence[tuple[str, Any]]) -> None:
-    """Undo `edit_parameters` by reinstalling the tensors it kept."""
-    import mlx.core as mx
-
-    for name, before in reversed(list(handle)):
-        module, attr = _module_of(lm, name)
-        setattr(module, attr, before)
-    if handle:
-        mx.eval([getattr(*_module_of(lm, n)) for n, _ in handle])
-
-
-def _direction_of(item: Mapping[str, Any], name: str) -> np.ndarray:
-    from mechbench_compute import directions as dirs
-
-    d = item.get("direction")
-    if d is None:
-        raise ValueError(
-            f"op 'project_out' on {name} needs a `direction` — the thing to "
-            "take out of what this module reads or writes.")
-    v = np.asarray(dirs.as_array(d), dtype=np.float32)
-    n = float(np.linalg.norm(v))
-    if n == 0:
-        raise ValueError(f"the direction given for {name} is all zeros")
-    return v / n
-
-
-def _project_out(w: Any, item: Mapping[str, Any], name: str,
-                 strength: float) -> Any:
-    """Take a direction out of the side of this weight that faces the
-    residual stream: what the module writes (left) or what it reads
-    (right). `strength` 1.0 removes it entirely; 0.5 halves it."""
-    import mlx.core as mx
-
-    v = _direction_of(item, name)
-    coords = _coords_of(name)
-    known = RESIDUAL_SIDE.get(str(coords.get("projection")))
-    side = str(item.get("side") or (known[0] if known else ""))
-    if side not in ("in", "out"):
-        raise ValueError(
-            f"which side of {name} is the direction in? Its residual side is "
-            f"not known, so say `side: \"in\"` (what it reads) or "
-            f"`side: \"out\"` (what it writes).")
-    dim = w.shape[0] if side == "out" else w.shape[1]
-    if len(v) != dim:
-        raise ValueError(
-            f"the direction is {len(v)} wide and {name}'s {side} side is "
-            f"{dim}: a direction only removes from the space it lives in.")
-    u = mx.array(v)[:, None] if side == "out" else mx.array(v)[None, :]
-    # W − s·(uuᵀ)W on the output side, W − s·W(vvᵀ) on the input side.
-    return w - float(strength) * ((u @ (u.T @ w)) if side == "out"
-                                  else ((w @ u.T) @ u))
-
-
-def _truncate(w: Any, item: Mapping[str, Any], name: str) -> Any:
-    """Keep the top `rank` singular directions of this weight and drop
-    the rest — how much of the module survives being low-rank."""
-    import mlx.core as mx
-
-    rank = item.get("rank")
-    if rank is None:
-        raise ValueError(f"op 'truncate' on {name} needs a `rank`")
-    rank = int(rank)
-    if w.ndim != 2:
-        raise ValueError(f"{name} is not a matrix; there is nothing to truncate")
-    arr = np.array(w, dtype=np.float32)
-    if rank >= min(arr.shape):
-        return w
-    u, sv, vt = np.linalg.svd(arr, full_matrices=False)
-    kept = (u[:, :rank] * sv[:rank]) @ vt[:rank]
-    return mx.array(kept)
 
 
 def adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str], dict[str, np.ndarray]]:

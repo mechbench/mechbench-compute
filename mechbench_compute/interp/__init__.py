@@ -40,6 +40,14 @@ from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
 from mechbench_compute.distill import encode, render
 from mechbench_compute.interventions import Ablate, Capture
+from mechbench_compute.interp.k import _K  # noqa: F401
+from mechbench_compute.interp.last_logp import _last_logp  # noqa: F401
+from mechbench_compute.interp.pair import _pair  # noqa: F401
+from mechbench_compute.interp.render_text import _render_text  # noqa: F401
+from mechbench_compute.interp.resolve_layers import _resolve_layers  # noqa: F401
+from mechbench_compute.interp.target_of import _target_of  # noqa: F401
+from mechbench_compute.interp.target_token_id import _target_token_id  # noqa: F401
+from mechbench_compute.interp.tracked_ids import _tracked_ids  # noqa: F401
 
 #: Refuse vector payloads past this many floats — a mistyped layer list
 #: must not emit a gigabyte of CBOR. ~16 MB of float64 at the cap.
@@ -69,92 +77,6 @@ def _ablation_points(spec: Any) -> list[str]:
             f"intervene/ablate-layers zeroes a sub-layer output — one or more of "
             f"{sorted(_ABLATE_AT)} — not {bad or spec!r}")
     return out
-
-
-def _K():
-    from mechbench_compute.lexicon import kinds as K
-    return K
-
-
-def _last_logp(logits: mx.array) -> np.ndarray:
-    last = logits[0, -1, :].astype(mx.float32)
-    lp = last - mx.logsumexp(last)
-    mx.eval(lp)
-    return np.array(lp)
-
-
-def _resolve_layers(spec: Any, n_layers: int) -> list[int]:
-    """"all", an int, or a list of ints — validated against the arch."""
-    if spec in (None, "all"):
-        return list(range(n_layers))
-    layers = [int(spec)] if isinstance(spec, int) else [int(x) for x in spec]
-    bad = [i for i in layers if not 0 <= i < n_layers]
-    if bad:
-        raise ValueError(
-            f"layers {bad} out of range for this model (n_layers={n_layers})"
-        )
-    return layers
-
-
-def _render_text(model, record: Mapping[str, Any], text: str) -> mx.array:
-    """One side of a pair, rendered as the pair's record says (raw unless
-    it carries `template: "chat"`)."""
-    return render(model, {"id": record.get("id"), "text": text,
-                          "template": record.get("template")}).array
-
-
-def _target_token_id(model, target: str) -> int:
-    """The first token of `target`, tokenized raw as a continuation."""
-    flat = encode(model.tokenizer, target)
-    # skip BOS-like specials the tokenizer prepends
-    specials = set(getattr(model.tokenizer, "all_special_ids", []) or [])
-    for t in flat:
-        if t not in specials:
-            return int(t)
-    raise ValueError(f"target {target!r} tokenized to specials only")
-
-
-def _tracked_ids(model, record: Mapping[str, Any], *,
-                 tracked: Mapping[str, Any] | None = None) -> dict[str, int]:
-    """The tokens a read reports on, by name: `tracked` (name → token
-    string), the record's own field taking precedence over the op's
-    param, in declaration order — the first entry is the target a
-    sweep's delta is taken on. A record written before the spellings
-    were one may still carry `target`, `outcomes`, `tracks` or `track`;
-    those are read after `tracked`, each token under its own text."""
-    out: dict[str, int] = {}
-
-    def put(name: Any, text: Any) -> None:
-        if str(name) not in out:
-            out[str(name)] = _target_token_id(model, str(text))
-
-    for name, text in dict(record.get("tracked") or tracked or {}).items():
-        put(name, text)
-    if record.get("target"):
-        put(record["target"], record["target"])
-    for o in list(record.get("outcomes") or []):
-        put(o, o)
-    for name, text in dict(record.get("tracks") or {}).items():
-        put(name, text)
-    if record.get("track"):
-        put(record["track"], record["track"])
-    return out
-
-
-def _target_of(model, record: Mapping[str, Any], params: Mapping[str, Any],
-               lp: np.ndarray | None) -> tuple[int, dict[str, int]]:
-    """(the target token, every tracked token): the first `tracked`
-    entry is the target; with none named, the model's own top-1 under
-    `lp` is. Returns the tracked map too, so a readout can report every
-    named token."""
-    tracked = _tracked_ids(model, record, tracked=params.get("tracked"))
-    if tracked:
-        return next(iter(tracked.values())), tracked
-    if lp is None:
-        raise ValueError(
-            f"record {record.get('id')!r}: no `tracked` token and no "
-            "baseline to take the model's top-1 from")
-    return int(np.argmax(lp)), tracked
 
 
 def _own_top1_if_different(model, tok: int, lp: np.ndarray | None) -> dict[str, Any]:
@@ -188,17 +110,6 @@ def _coords_of(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str
     if label is not None and "label" not in coords:
         coords["label"] = label
     return coords
-
-
-def _pair(record: Mapping[str, Any]) -> tuple[str, str]:
-    """A pair's two prompts, `a` and `b` — or the retired `clean` and
-    `corrupt`."""
-    a = record.get("a", record.get("clean"))
-    b = record.get("b", record.get("corrupt"))
-    if not (isinstance(a, str) and isinstance(b, str) and a and b):
-        raise ValueError(
-            f"pair {record.get('id')!r} needs prompt fields `a` and `b`")
-    return a, b
 
 
 def ablate_layers(
@@ -774,191 +685,6 @@ def lens_positions(
             "residual is projected straight through the unembedding."
         ),
     )
-
-
-def patch_trace(
-    model,
-    records: Sequence[Mapping[str, Any]],
-    params: Mapping[str, Any],
-    on_item: Callable[[], None] | None = None,
-    on_start: Callable[[int], None] | None = None,
-) -> dict[str, Any]:
-    """Causal tracing (step 09): run CLEAN capturing every layer, run
-    CORRUPT for the baseline, then patch the clean residual into the
-    corrupt run one (layer, position) at a time and measure how much of
-    the clean answer's probability comes back. The map localizes WHERE
-    the fact lives. Progress ticks per layer row (a full row of
-    positions is one unit)."""
-    from mechbench_compute.interventions import Patch
-
-    method = str(params.get("method", "exact"))
-    if method not in ("exact", "attribution"):
-        raise ValueError(f"unknown method {method!r}: 'exact' or 'attribution'")
-    if method == "exact":
-        point = P.residual(params.get("point"))
-    else:
-        point = P.normalize(params.get("point"))
-        if point not in _ATTRIBUTION_POINTS:
-            raise ValueError(
-                f"attribution reads {', '.join(_ATTRIBUTION_POINTS)}, not {point!r}")
-    metric = str(params.get("metric", "logprob"))
-    if metric not in ("logprob", "prob", "logit"):
-        raise ValueError(f"unknown metric {metric!r}: 'logprob', 'prob' or 'logit'")
-    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
-    if not records:
-        raise ValueError("patch/trace needs at least one pair")
-    if on_start:
-        # An exact trace ticks per layer row; an attribution ticks once
-        # per pair — its rows arrive together.
-        on_start(len(records) * (len(layers) if method == "exact" else 1))
-
-    cap = (Capture.residual(layers, point=P.side(point)) if method == "exact"
-           else Capture.at([f"blocks.{layer}.{point}" for layer in layers]))
-    pairs: list[dict[str, Any]] = []
-    for record in records:
-        clean, corrupt = _pair(record)
-        ids_clean = _render_text(model, record, clean)
-        ids_corrupt = _render_text(model, record, corrupt)
-        n_clean = int(np.array(ids_clean).shape[-1])
-        n_corrupt = int(np.array(ids_corrupt).shape[-1])
-        if n_clean != n_corrupt:
-            pairs.append(S.grid(
-                record.get("id"), ["layer", "position"], {},
-                coords=record.get("coords"),
-                error=(f"prompts tokenize to different lengths ({n_clean} vs "
-                       f"{n_corrupt}) — positions cannot align under patching")))
-            if on_item:
-                for _ in layers:
-                    on_item()
-            continue
-        clean_run = model.run(ids_clean, interventions=[cap])
-        clean_lp = _last_logp(clean_run.logits)
-        tok, _ = _target_of(model, record, params, clean_lp)
-        # 'prob' only registers when the clean prompt puts real mass on
-        # the target (the original step 09 used the clean top-1, which
-        # guarantees it); 'logprob' registers recovery at ANY mass —
-        # explicit rare targets measured exactly nothing in prob space
-        # on the first prod run. 'logit' is the raw logit, which is what
-        # a first-order estimate is most nearly linear in.
-        def read(lp: np.ndarray, logits: np.ndarray | None = None, tok: int = tok) -> float:
-            if metric == "logit":
-                return float(logits[tok])
-            return (float(np.exp(lp[tok])) if metric == "prob"
-                    else float(lp[tok]))
-
-        def read_run(res) -> float:
-            return read(_last_logp(res.logits), _last_logits(res.logits))
-
-        p_clean_in_clean = read_run(clean_run)
-        corrupt_run = model.run(ids_corrupt)
-        baseline = read_run(corrupt_run)
-
-        seq = n_corrupt
-        if method == "attribution":
-            recovery = _attribution_grid(
-                model, ids_corrupt, layers, point, clean_run.cache, tok, metric)
-            if on_item:
-                on_item()
-        else:
-            recovery = []
-            for layer in layers:
-                row: list[float] = []
-                for pos in range(seq):
-                    patch = Patch.position(
-                        layer=layer, position=pos, source=clean_run.cache,
-                        point=point)
-                    row.append(round(read_run(model.run(ids_corrupt, interventions=[patch]))
-                                     - baseline, 5))
-                recovery.append(row)
-                if on_item:
-                    on_item()
-        tokens = [model.tokenizer.decode([int(t)])
-                  for t in np.array(ids_corrupt).reshape(-1)]
-        # The same grid as a share of the clean-corrupt gap: 0 is the
-        # corrupt run, 1 is the clean one, so pairs with different gaps
-        # read on one scale. A pair whose two prompts score alike has
-        # no gap to share and the measure is left out.
-        gap = p_clean_in_clean - baseline
-        measures = {"recovery": recovery}
-        if abs(gap) > 1e-9:
-            measures["share"] = [[round(v / gap, 4) for v in row] for row in recovery]
-        pairs.append(S.grid(
-            record.get("id"), ["layer", "position"], measures,
-            tokens=tokens, coords=record.get("coords"),
-            target=S.token(model.tokenizer, tok), metric=metric,
-            value_a=round(p_clean_in_clean, 5), value_b=round(baseline, 5)))
-    return _K().collection(
-        "intervene/trace", pairs,
-        point=point,
-        metric=metric,
-        method=method,
-        layers=layers,
-        description=(
-            "Activation patching: the clean answer's metric recovered when "
-            "the clean activation is patched into the corrupt run at each "
-            "(layer, position). Bright cells are where the fact lives."
-            if method == "exact" else
-            "Attribution patching: the recovery at every (layer, position) "
-            "estimated at first order from one backward pass — the gradient "
-            "of the metric on the corrupt run, dotted with the clean minus "
-            "corrupt activation. A ranking of where to patch, not the patch."
-        ),
-    )
-
-
-#: The points an attribution reads: every layer-scoped activation with a
-#: (batch, position, feature) layout, which is what a delta is added to.
-_ATTRIBUTION_POINTS = ("resid_post", "resid_pre", "attn_out", "mlp_out")
-
-
-def _last_logits(logits: mx.array) -> np.ndarray:
-    row = logits[0, -1, :].astype(mx.float32)
-    mx.eval(row)
-    return np.array(row)
-
-
-def _attribution_grid(model, ids_corrupt, layers: Sequence[int], point: str,
-                      clean_cache, tok: int, metric: str) -> list[list[float]]:
-    """Attribution patching (Nanda 2023; Syed, Rager & Conmy 2023): the
-    recovery at every (layer, position) at once, from ONE forward and
-    ONE backward pass over the corrupt prompt.
-
-    Every named activation gets a zero delta added by a hook; the
-    metric's gradient with respect to each delta is its gradient with
-    respect to the activation; and the patch's effect is estimated at
-    first order as that gradient dotted with (clean − corrupt). An exact
-    trace runs one forward per cell; this runs two for the grid, which
-    is what makes a circuit search over thousands of cells affordable —
-    and a first-order estimate, which is why it ranks cells rather than
-    measures them (a saturating metric is where it overshoots most;
-    `logit` is the most nearly linear).
-    """
-    names = [f"blocks.{layer}.{point}" for layer in layers]
-    # Shapes come from the clean capture, never assumed.
-    deltas = {n: mx.zeros(clean_cache[n].shape, dtype=mx.float32) for n in names}
-
-    def objective(ds):
-        hooks = {n: (lambda act, info, d=ds[n]: act + d.astype(act.dtype)) for n in names}
-        res = model.run(ids_corrupt, hooks=hooks)
-        row = res.logits[0, -1, :].astype(mx.float32)
-        if metric == "logit":
-            return row[tok]
-        lp = (row - mx.logsumexp(row))[tok]
-        return mx.exp(lp) if metric == "prob" else lp
-
-    grads = mx.grad(objective)(deltas)
-    mx.eval(*grads.values())
-    # The corrupt activations at the same points, for the difference:
-    # captured on their own pass so the differentiated one stays a
-    # function of the deltas alone.
-    corrupt_cache = model.run(ids_corrupt, capture=names).cache
-    grid: list[list[float]] = []
-    for n in names:
-        diff = clean_cache[n].astype(mx.float32) - corrupt_cache[n].astype(mx.float32)
-        cell = mx.sum(grads[n] * diff, axis=-1)[0]      # [positions]
-        mx.eval(cell)
-        grid.append([round(float(x), 5) for x in np.array(cell)])
-    return grid
 
 
 #: Attention matrices are quadratic in sequence length; refuse a

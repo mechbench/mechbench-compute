@@ -673,90 +673,6 @@ are far apart, and treat a delta of that size as no path at all.
     example_inputs={"records": {"$ref": {"bench": "you/lab/pairs"}}},
 )
 
-PATCH_TRACE = Op(
-    name="intervene/patch",
-    requires="mlx-local",
-    summary=(
-        "Causal tracing: run a clean and a corrupted prompt, patch the clean "
-        "activations into the corrupted run one (layer, position) at a time, "
-        "and map where the clean answer's probability comes back."
-    ),
-    description="""\
-Each record is a pair: prompt `a` (clean) where the model gets the answer,
-and prompt `b` (corrupted, the same length in tokens) where it does not — the
-older field names `clean` and `corrupt` are still read. The block runs
-the clean prompt once, capturing the residual stream at every layer, and the
-corrupt prompt once for a baseline. Then for every (layer, position) it runs
-the corrupt prompt again with that one activation replaced by the clean
-one, and records how much of the target's probability is recovered.
-
-The result is a heat map over (layer, position). Bright cells — where a
-single patch restores the answer — are where the fact is carried.
-
-Pairs whose prompts tokenize to different lengths cannot be aligned and are
-reported as errors rather than silently shifted.
-
-### Exact, or estimated
-
-`method: "exact"` (the default) runs one forward pass per cell: a 42-layer
-model on a 40-token prompt is 1,680 passes per pair. `method:
-"attribution"` — attribution patching (Nanda 2023; Syed, Rager & Conmy
-2023) — estimates every cell from ONE forward and ONE backward pass over
-the corrupt prompt: the gradient of the metric with respect to each
-activation, dotted with the clean activation minus the corrupt one. The
-grid has the same shape and the same sign, so the two compare cell for
-cell with `records/subtract`; the header's `method` says which ran.
-
-An attribution is a first-order estimate, and the difference shows in
-two ways. Where the metric saturates — a log-probability near zero, a
-probability near one — the exact trace is a step (every cell that flips
-the answer scores the full recovery) and the estimate is graded; and a
-cell whose patch flips the answer outright is a large, nonlinear effect
-the estimate reads at a fraction of its size. What survives is the
-ranking: on Gemma 4 E2B, a capital-city pair under `metric: "logit"`
-(the raw logit, the most nearly linear — the usual choice with this
-method) puts eight of the exact trace's top ten cells in the estimate's
-top ten, with Spearman 0.86 over the cells that matter. Use it to find
-the cells worth patching, then patch them exactly. Attribution also reads
-`attn_out` and `mlp_out`, the sublayer outputs, where an exact trace reads
-only the residual stream.
-""",
-    inputs=(
-        In("records", "records/pair",
-           "Pairs, each with prompt strings `a` and `b`, and optionally its "
-           "own `tracked`.", many=True),
-        ADAPTER,
-    ),
-    output=Output('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` activation is patched in — measured under `method: \"exact\"`, estimated at first order under `\"attribution\"` — and `measures.share` is the same cell as a fraction of the `value_a`−`value_b` gap, 0 the corrupt run and 1 the clean one, so pairs with different gaps read on one scale (absent when a pair has no gap); `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures. The header carries `method`, `point`, `metric`, `layers`."),
-    params=(
-        _LAYERS_ALL,
-        P("method", "string",
-          "`\"exact\"`: one forward pass per (layer, position), the patch "
-          "itself. `\"attribution\"`: every cell estimated from one forward "
-          "and one backward pass — a ranking of where to patch.",
-          "exact", choices=("exact", "attribution")),
-        P("metric", "string",
-          "What is recovered: `\"logprob\"` (the target's log-probability — "
-          "registers recovery at any probability mass), `\"prob\"` (raw "
-          "probability — only registers when the clean prompt puts real "
-          "mass on the target) or `\"logit\"` (the raw logit — the usual "
-          "choice with `attribution`, being the most nearly linear).",
-          "logprob", choices=("logprob", "prob", "logit")),
-        P("point", "string",
-          "The point patched: `\"resid_post\"` (after the layer) or "
-          "`\"resid_pre\"` (before it); under `attribution` also "
-          "`\"attn_out\"` and `\"mlp_out\"`.",
-          "resid_post", choices=("resid_post", "resid_pre", "attn_out", "mlp_out"), value="point"),
-        _tracked("the clean answer whose recovery is traced; defaults to the "
-                "clean prompt's top‑1"),
-    ),
-    example={
-        "model": {"$param": "model"},
-        "tracked": {"answer": " Paris"},
-        "metric": "logprob",
-    },
-    example_inputs={"records": {"$ref": {"bench": "you/lab/pairs"}}},
-)
 
 RESIDUALS_DIVERGENCE = Op(
     name="activations/contrast",
@@ -1138,108 +1054,6 @@ For anything beyond one direction at one layer and position, use
 
 # --- reading and generating --------------------------------------------------------
 
-GENERATE = Op(
-    name="text/generate",
-    requires="mlx-local",
-    summary=(
-        "Sample completions from the model for each chat-shaped record — n "
-        "per record, reproducibly seeded — into a document collection."
-    ),
-    description="""\
-Each record is rendered as a chat (`system` and `user` turns) and prefilled
-once; then `n` completions are sampled from that prefix with the given
-temperature and nucleus settings. Every sample's random stream is derived
-from (`seed`, record id, sample index), so a sample is a pure function of
-its key: running the same node again reproduces the same texts, and growing
-a corpus later is the same node over a later `start` range, unioned with
-the first.
-
-`continue_prefill` begins each sample's assistant turn with the record's
-`prefill`, so the model continues exactly the envelope a `logits/read` of
-the same record reads, and a training step conditions on: `'{ "genre": "'`
-samples the genre itself, not the model's choice of JSON layout. The
-item's `text` is the prefill followed by what the model wrote. `stop` ends
-a sample at the first of its strings, which are not kept in the text:
-with `stop: ["\""]` a sample is the answer and nothing after it. Each
-item's `metadata.sampling.ended` says how it ended — `"stop"`, `"end"`
-(the model ended its turn) or `"max_tokens"` — so an answer that never
-closed is distinguishable from one that did.
-
-With `fidelity: "trace"` each item also keeps its token ids, character
-offsets and the prompt/body segmentation, which is what `score` needs to
-annotate it token by token.
-
-### Sampling under an intervention
-
-An intervention — inline `spec` items, or an `intervene/spec` object on
-the `intervention` port — is live at every forward pass the node runs: the prompt's prefill
-and then each decoding step, with the same KV cache. So "add the direction
-at layer 14 and read what the model then writes" is this node with one
-item, and a `sweep` over strengths is the same node producing one set of
-samples per factor, `factor` a coordinate on every item, which
-`text/measure`, `eval/judge` and `records/summarize` group by unchanged.
-Factor `0` (the `control`, on by default) is plain sampling: under the same
-seed it reproduces the un-intervened sample byte for byte.
-""",
-    inputs=(
-        In("records", "records/record",
-           "Chat-shaped records: `user` (required), `system` and `prefill` "
-           "(optional; the prefill is read only with `continue_prefill`), "
-           "an `id`, and optionally `coords`.", many=True),
-        INTERVENTION,
-        _DIRECTION_PORT,
-        _SOURCE_PORT,
-        ADAPTER,
-    ),
-    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`. Under an intervention, ids are `<record id>-s<k>-f<factor>`, every item carries `factor` in its `coords`, and the header carries `spec` (the items as run, objects replaced by their provenance), `weights` (parameter edits, when any) and `sweep` (the factors, `0.0` first when a control was added)."),
-    params=(
-        P("spec", "list[object]",
-          "An intervention's items, applied at every forward pass — the "
-          "prompt, then every decoding step — in the grammar `intervene/apply` "
-          "documents under *Spec items*: `positions: \"last\"` is the token "
-          "being produced, `\"all\"` every token so far, `\"generated\"` what "
-          "the model has said. Or the items arrive as an `intervene/spec` on "
-          "the `intervention` port. Without either, plain sampling.",
-          None, fields=_SPEC_FIELDS),
-        *_SWEEP_PARAMS,
-        P("n", "int", "How many completions to sample per record.", 1),
-        P("start", "int",
-          "The first sample index. Indices run `start` … `start + n − 1`; "
-          "a later node with a later `start` extends the corpus without "
-          "re-sampling what exists.",
-          0),
-        P("temperature", "float",
-          "Sampling temperature. `0` would be greedy; the default is a "
-          "creative-writing setting.",
-          0.9),
-        P("top_p", "float",
-          "Nucleus sampling: only the smallest set of tokens whose "
-          "probabilities sum to `top_p` is sampled from.",
-          0.95),
-        P("max_tokens", "int", "The longest completion, in tokens.", 256),
-        P("continue_prefill", "bool",
-          "Begin each sample's assistant turn with the record's `prefill`, and "
-          "keep it at the front of the item's `text`.",
-          False),
-        P("stop", "list[string]",
-          "Strings at which a sample stops; the marker itself is not part of "
-          "the text.",
-          None),
-        P("fidelity", "string",
-          "`\"text\"` keeps the completion text; `\"trace\"` also keeps token "
-          "ids, offsets and spans, so the collection can be scored token by "
-          "token.",
-          "text", choices=("text", "trace")),
-    ),
-    example={
-        "model": {"$param": "model"},
-        "n": 4,
-        "temperature": 0.9,
-        "max_tokens": 200,
-        "fidelity": "trace",
-    },
-    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
-)
 
 DECISION_READ = Op(
     name="logits/read",
@@ -1621,9 +1435,9 @@ whole model by accident.
 
 OPS: tuple[Op, ...] = (
     INTERVENE, ABLATE_LAYERS, ABLATE_HEADS, ATTENTION_PATTERNS,
-    ATTRIBUTION_LOGITS, PATCH_TRACE, PATH_PATCH, RESIDUALS_DIVERGENCE, RESIDUALS_VECTORS,
+    ATTRIBUTION_LOGITS, PATH_PATCH, RESIDUALS_DIVERGENCE, RESIDUALS_VECTORS,
     CAPTURE_TOKENS, EXAMPLES,
     LENS_POSITIONS, LENS_TRAJECTORY, STEER_INJECT,
-    GENERATE, DECISION_READ, SCORE, TOKENIZE_STATS,
+    DECISION_READ, SCORE, TOKENIZE_STATS,
     CAPTURE_WEIGHTS, DECOMPOSE_WEIGHTS, HEAD_CIRCUIT,
 )

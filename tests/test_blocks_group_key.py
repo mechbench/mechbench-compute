@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from mechbench_compute import blocks
-from mechbench_compute.blocks import group_stats
-from mechbench_compute.reduce import GroupStats
+from mechbench_compute.ops.records.summarize import GroupStats
+from mechbench_compute.ops.records.summarize import group_stats
 
 
 ROWS = [

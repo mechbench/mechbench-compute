@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from mechbench_compute import interp
+from mechbench_compute.ops.intervene.patch import patch_trace
 
 N_LAYERS = 4
 D_MODEL = 8
@@ -560,7 +561,7 @@ class TestPatchTrace:
     def test_logprob_metric_registers_low_mass_targets(self):
         model = StubModel()
         model.clean_second = 1 + (len("over") % 7)
-        out = interp.patch_trace(
+        out = patch_trace(
             model, [{"id": "p", "clean": "over the hill",
                      "corrupt": "under the hill"}],
             {"layers": [0], "metric": "logprob"})
@@ -572,7 +573,7 @@ class TestPatchTrace:
 
     def test_unknown_metric_refuses(self):
         with pytest.raises(ValueError, match="metric"):
-            interp.patch_trace(
+            patch_trace(
                 StubModel(), [{"id": "p", "clean": "a", "corrupt": "b"}],
                 {"metric": "vibes"})
 
@@ -582,7 +583,7 @@ class TestPatchTrace:
         # BOS), where the stub's flip logic looks
         clean, corrupt = "over the hill", "under the hill"
         model.clean_second = 1 + (len("over") % 7)
-        out = interp.patch_trace(
+        out = patch_trace(
             model, [{"id": "p", "clean": clean, "corrupt": corrupt}],
             {"layers": [0, 1], "metric": "prob"})
         pair = out["items"][0]
@@ -599,13 +600,13 @@ class TestPatchTrace:
     def test_a_and_b_are_the_pair_fields(self):
         model = StubModel()
         model.clean_second = 1 + (len("over") % 7)
-        out = interp.patch_trace(
+        out = patch_trace(
             model, [{"id": "p", "a": "over the hill", "b": "under the hill"}],
             {"layers": [0], "metric": "prob"})
         assert np.array(out["items"][0]["measures"]["recovery"])[0, 1] > 0.5
 
     def test_unequal_pairs_report(self):
-        out = interp.patch_trace(
+        out = patch_trace(
             StubModel(), [{"id": "p", "clean": "a b", "corrupt": "a b c"}],
             {"layers": [0]})
         assert "different lengths" in out["items"][0]["error"]

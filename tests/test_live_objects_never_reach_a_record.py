@@ -81,14 +81,16 @@ class TestTheExecutorHashesBeforeItEmits:
             pass
 
         # Make the block return something un-encodable.
-        real = ProtocolExecutor._block_generate
+        from mechbench_compute.ops.text import generate
 
-        def poisoned(self, inputs, params, **kw):
-            out = real(self, inputs, params, **kw)
+        real = generate.run
+
+        def poisoned(ctx, inputs, params):
+            out = real(ctx, inputs, params)
             out["items"][0]["handle"] = Live()
             return out
 
-        monkeypatch.setattr(ProtocolExecutor, "_block_generate", poisoned)
+        monkeypatch.setattr(generate, "run", poisoned)
         emitted: list[str] = []
         monkeypatch.setattr(bench, "emit",
                             lambda target, *a, **k: emitted.append(target) or {"path": target})

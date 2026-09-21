@@ -493,64 +493,6 @@ The output keeps `coords`, so it feeds `records/summarize` directly.
     example_inputs={"records": {"$ref": {"bench": "you/lab/reads"}}},
 )
 
-GROUP_STATS = Op(
-    name="records/summarize",
-    summary=(
-        "Group records by coordinates and summarise a numeric field — count, "
-        "median, mean, min, max and the share below zero — as a table."
-    ),
-    description="""\
-One row per distinct combination of the `by` coordinates (or one row in all
-when `by` is empty). `share_negative` is the fraction of values below zero,
-useful when the field is a delta.
-
-A grid — a patch trace, a head sweep, a lens read-out, anything with
-`axes` and `measures` — is summarised cell by cell: each cell is a record
-with the axes as fields (and `token` beside `position` when the grid
-carries tokens) and each measure a column. `value: "share", by:
-["position"]` over a trace is one row per token with the most any layer's
-patch there recovers.
-
-A record without the value field is refused by name, because a mean over
-"the records that happened to have it" is the kind of number nobody
-notices is wrong. When absent values are expected — a judge that could not
-be read, an unscored item — set `on_missing: "skip"` and the count of
-skipped records is reported on the table as `n_missing`.
-
-### How sure
-
-A mean over fifteen prompts is a point; `interval: 0.95` puts an interval
-around it — `lo` and `hi`, the percentile bootstrap of the mean over
-`resamples` redraws of the group's records under `seed` — so a peak in a
-sweep is a claim with a width, not a number. Whether two groups DIFFER is
-`records/contrast`'s question, which pairs the records first.
-""",
-    inputs=(_RECORDS,),
-    output=(
-        Output('records/table', collection=False, doc='One row per group with the `by` coordinates and `n`, `median`, `mean`, `min`, `max`, `share_negative`, plus `lo` and `hi` when an `interval` was asked; `n_missing` when any were skipped; the header\'s `interval` says the level, method, resamples and seed.')
-    ),
-    params=(
-        P("value", "string",
-          "The numeric field to summarise. A record has many numeric "
-          "fields; this names the one the question is about."),
-        P("by", "list[string]",
-          "The coordinates to group on. Empty gives one overall row.",
-          None),
-        P("on_missing", "string",
-          "`\"error\"`: refuse a record without the field. `\"skip\"`: omit "
-          "it and report how many were omitted.",
-          "error", choices=("error", "skip")),
-        P("interval", "float",
-          "The level of a bootstrap interval on each group's mean — `0.95` "
-          "adds `lo` and `hi` to every row. None reports the point alone.",
-          None),
-        P("resamples", "int",
-          "How many bootstrap redraws the interval is read from.",
-          2000),
-    ),
-    example={"value": "delta", "by": ["genre", "alpha"], "interval": 0.95},
-    example_inputs={"records": {"$ref": {"bench": "you/lab/deltas"}}},
-)
 
 CONTRAST = Op(
     name="records/contrast",
@@ -1149,7 +1091,7 @@ reproduces its numbers reproduces its tree.
 
 OPS: tuple[Op, ...] = (
     FACTOR_CROSS, TEMPLATE, RENAME, SELECT, UNION, ZIP, MAP, PAIRED_DELTA,
-    GROUP_STATS,
+    
     CONTRAST,
     FOLD,
     TABLE_FROM_RECORDS, TEXT_STATS, REDUCE_SUM, REDUCE_TOP_K, REDUCE_HISTOGRAM,

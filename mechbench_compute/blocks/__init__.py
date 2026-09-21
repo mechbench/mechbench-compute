@@ -154,14 +154,6 @@ def template(records: list[dict[str, Any]],
     return out
 
 
-def _items(x: Any) -> list[dict[str, Any]]:
-    """The items of an input, however it arrived — the lexicon's one
-    reader, for a `collection`, a bare list, or an older plural object."""
-    from mechbench_compute.lexicon import kinds as K
-
-    return K.items_of(x)
-
-
 def _pop_path(rec: dict[str, Any], path: str) -> tuple[bool, Any]:
     """Remove the value at a dotted path, copying each container on the
     way so the input record is never mutated. (found, value)."""
@@ -284,139 +276,11 @@ def _transcript_mod():
     return transcript
 
 
-def _group_key(record: Mapping[str, Any], by: Sequence[str]) -> tuple:
-    """The grouping key, read from the record's coordinates and then from
-    the record itself.
-
-    A coordinate is where a condition belongs, and most ops put it
-    there. Some write the varying thing at the top level instead —
-    `intervene/ablate-layers` emits `{id, layer, delta_logp}`, the layer
-    being exactly the condition — and grouping by `layer` then silently
-    produced ONE row keyed `None` instead of forty-two. The VALUE was
-    already read from the top level, so the asymmetry was the bug: a
-    field is a field wherever the record carries it (task 000590).
-    """
-    coords = record.get("coords") or {}
-    return tuple(coords.get(k, record.get(k)) for k in by)
-
-
 def _field_of(record: Mapping[str, Any], name: str) -> Any:
     """A field read the way `_group_key` reads one: coords first, then
     the record itself."""
     coords = record.get("coords") or {}
     return coords[name] if name in coords else record.get(name)
-
-
-def _interval_of(params: Mapping[str, Any]) -> tuple[float, int, int] | None:
-    """(level, resamples, seed) when the node asks for an interval."""
-    level = params.get("interval")
-    if level is None:
-        return None
-    level = float(level)
-    if not 0.0 < level < 1.0:
-        raise ValueError(f"interval must be between 0 and 1 exclusive, not {level}")
-    return level, int(params.get("resamples", 2000)), int(params.get("seed", 0))
-
-
-def _bootstrap_mean(values: Sequence[float], level: float, resamples: int,
-                    seed: int) -> tuple[float, float]:
-    """A percentile bootstrap interval on the mean: the records
-    resampled with replacement `resamples` times under `seed`. A
-    single value's interval is the value itself."""
-    import numpy as np
-
-    # Sorted first: the draw is then a function of the multiset, not of
-    # the order the records arrived in — the law every pure block keeps.
-    v = np.sort(np.asarray(values, dtype=np.float64))
-    if v.size < 2:
-        return float(v[0]), float(v[0])
-    rng = np.random.default_rng(seed)
-    idx = rng.integers(0, v.size, size=(int(resamples), v.size))
-    means = v[idx].mean(axis=1)
-    lo, hi = np.percentile(means, [50 * (1 - level), 50 * (1 + level)])
-    return float(lo), float(hi)
-
-
-def summary_rows(groups: Mapping[tuple, Sequence[float]], params: Mapping[str, Any]) -> dict[str, Any]:
-    """The `records/summarize` table from values grouped by the `by`
-    key — shared by the flat block and its monoid, so the two are the
-    same rows by construction. With `interval`, every row carries the
-    bootstrap `lo`/`hi` of its mean (000609)."""
-    from statistics import median
-
-    by = params.get("by") or []
-    value_field = params["value"]
-    interval = _interval_of(params)
-    rows = []
-    for key, vals in groups.items():
-        vals = list(vals)
-        row = {k: key[i] for i, k in enumerate(by)}
-        row.update({
-            "n": len(vals),
-            "median": round(median(vals), 4),
-            "mean": round(math.fsum(vals) / len(vals), 4),
-            "min": round(min(vals), 4),
-            "max": round(max(vals), 4),
-            "share_negative": round(sum(v < 0 for v in vals) / len(vals), 3),
-        })
-        if interval is not None:
-            lo, hi = _bootstrap_mean(vals, *interval)
-            row.update({"lo": round(lo, 4), "hi": round(hi, 4)})
-        rows.append(row)
-    stats = ["n", "median", "mean", "min", "max", "share_negative"]
-    if interval is not None:
-        stats += ["lo", "hi"]
-    columns = [{"name": k, "dtype": "string"} for k in by] + [
-        {"name": n, "dtype": "number"} for n in stats]
-    out = {"kind": "records/table",
-           "name": params.get("name", f"{value_field}-stats"),
-           "description": params.get("description", ""),
-           "row_axis": "condition", "columns": columns, "rows": rows}
-    if interval is not None:
-        level, resamples, seed = interval
-        out["interval"] = {"level": level, "method": "percentile-bootstrap",
-                           "of": "mean", "resamples": resamples, "seed": seed}
-    return out
-
-
-def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    """Group records by coords and summarize a numeric field into
-    MetricTable-shaped rows. by: [coord names] ([] = one overall
-    group); value: field name; stats fixed: n/median/mean/min/max +
-    share_negative (useful for deltas), and with `interval` the
-    bootstrap `lo`/`hi` of the mean (000609).
-
-    `on_missing` says what a record without the value field means:
-    `error` (default) refuses by name, because a mean over the records
-    that happened to have the field is the kind of number nobody
-    notices is wrong; `skip` omits them and REPORTS the count, which is
-    what a judged corpus needs — an unreadable verdict is not a zero
-    (task 000356), and the rows that were dropped must be visible."""
-    recs = cell_rows(_items(records))
-    by = params.get("by") or []
-    value_field = params["value"]
-    on_missing = str(params.get("on_missing", "error"))
-    if on_missing not in ("error", "skip"):
-        raise ValueError(
-            f"group-stats on_missing must be 'error' or 'skip', not {on_missing!r}")
-    groups: dict[tuple, list[float]] = {}
-    n_missing = 0
-    for r in recs:
-        if value_field not in r or r[value_field] is None:
-            if on_missing == "skip":
-                n_missing += 1
-                continue
-            raise ValueError(
-                f"group-stats: record {r.get('id')!r} has no {value_field!r} "
-                f"field. Set on_missing: 'skip' if absent values are expected "
-                f"(a judge that could not be read, an unscored item) — the "
-                f"count is then reported on the table.")
-        key = _group_key(r, by)
-        groups.setdefault(key, []).append(float(r[value_field]))
-    out = summary_rows(groups, params)
-    if n_missing:
-        out["n_missing"] = n_missing
-    return out
 
 
 def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
@@ -895,77 +759,6 @@ def viz_spec(records: Any, params: Mapping[str, Any],
     return spec
 
 
-def cell_rows(recs: Sequence[Any]) -> list[Any]:
-    """Records as rows: a grid's cells expanded (`grid_rows`), any other
-    record as it is. The one reader for an op that takes a record
-    stream and may be handed a trace — `records/summarize` over a patch
-    trace with `value: share, by: [position]` is the strip of what each
-    token's best cell recovers, without a plot in between."""
-    out: list[Any] = []
-    for r in recs:
-        cells = grid_rows(r)
-        if cells is None:
-            out.append(r)
-        else:
-            out.extend(cells)
-    return out
-
-
-def grid_rows(item: Any) -> list[dict[str, Any]] | None:
-    """A grid's cells as rows, or None when the item is not one.
-
-    `intervene/patch`, `intervene/ablate-heads` and the lens read out
-    GRIDS — named measures indexed by `axes` — because that is the
-    shape a heat map is. A chart takes rows, so the cells become them:
-    one row per cell, the axes as fields (with `token` beside
-    `position` when the grid carries the tokens), each measure a column
-    (000616).
-    """
-    if not isinstance(item, Mapping):
-        return None
-    axes = item.get("axes")
-    measures = item.get("measures")
-    if not (isinstance(axes, list) and axes and isinstance(measures, Mapping) and measures):
-        return None
-    first = next(iter(measures.values()))
-    shape: list[int] = []
-    cursor: Any = first
-    for _ in axes:
-        if not isinstance(cursor, list):
-            return None
-        shape.append(len(cursor))
-        cursor = cursor[0] if cursor else None
-    tokens = item.get("tokens") if isinstance(item.get("tokens"), list) else None
-    base = {"id": item.get("id"), **(item.get("coords") or {})}
-
-    def cells(index: list[int]) -> dict[str, Any]:
-        row = dict(base)
-        for axis, i in zip(axes, index, strict=True):
-            row[str(axis)] = i
-            if axis == "position" and tokens is not None and i < len(tokens):
-                row["token"] = tokens[i]
-        for name, values in measures.items():
-            v: Any = values
-            for i in index:
-                v = v[i] if isinstance(v, list) and i < len(v) else None
-            row[str(name)] = v
-        return row
-
-    out: list[dict[str, Any]] = []
-    index = [0] * len(axes)
-
-    def walk(depth: int) -> None:
-        if depth == len(axes):
-            out.append(cells(index))
-            return
-        for i in range(shape[depth]):
-            index[depth] = i
-            walk(depth + 1)
-
-    walk(0)
-    return out
-
-
 _WORD_RE = None
 
 
@@ -1363,8 +1156,6 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
         lambda inputs, params: _selected(inputs["records"], params),
     "records/subtract":
         lambda inputs, params: _coll(paired_delta(inputs["records"], params)),
-    "records/summarize":
-        lambda inputs, params: group_stats(inputs["records"], params),
     "records/contrast":
         lambda inputs, params: contrast(inputs["records"], params),
     "text/render":
@@ -1698,6 +1489,11 @@ PURE_BLOCKS.update(_TOOL_BLOCKS)
 # distance, whose edge statistics separate a collapsed corpus from a
 # clustered one from an evenly varied one.
 from mechbench_compute.trees import PURE_TREE_BLOCKS as _TREE_BLOCKS
+from mechbench_compute.blocks.cell_rows import cell_rows  # noqa: F401
+from mechbench_compute.blocks.grid_rows import grid_rows  # noqa: F401
+from mechbench_compute.blocks.group_key import _group_key  # noqa: F401
+from mechbench_compute.blocks.interval_of import _interval_of  # noqa: F401
+from mechbench_compute.blocks.items import _items  # noqa: F401
 
 PURE_BLOCKS.update(_TREE_BLOCKS)
 

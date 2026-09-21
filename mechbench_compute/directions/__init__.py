@@ -25,25 +25,15 @@ import numpy as np
 
 from mechbench_compute import points as P
 from mechbench_compute import shapes as S
+from mechbench_compute.directions.as_array import as_array  # noqa: F401
+from mechbench_compute.directions.constants import KIND  # noqa: F401
+from mechbench_compute.directions.is_direction import _is_direction  # noqa: F401
 
-KIND = "direction/vector"
 
 #: The coordinate the grouping ops read when none is named: the retired
 #: `label` field is read as a `label` coordinate, so older vector
 #: collections group as they did.
 DEFAULT_AXIS = "label"
-
-
-def _is_direction(d: Any) -> bool:
-    """A direction record, by its current name or the retired one."""
-    from mechbench_compute.lexicon import kinds as K
-
-    if not isinstance(d, Mapping) or not isinstance(d.get("kind"), str):
-        return False
-    try:
-        return K.resolve_kind(d["kind"])[0] == KIND
-    except KeyError:
-        return False
 
 
 # --- construction ----------------------------------------------------------
@@ -73,25 +63,6 @@ def make(vector: Any, sp: Mapping[str, Any], *, method: str,
     item["unit"] = bool(unit)
     item["derivation"] = prov
     return {"kind": KIND, **item}
-
-
-def as_array(d: Mapping[str, Any]) -> np.ndarray:
-    """A direction's vector. A collection carrying exactly one direction
-    IS that direction — `direction/classify` emits a probe per layer,
-    and selecting one from it should wire straight into an intervention
-    (000608)."""
-    from mechbench_compute.lexicon import kinds as K
-
-    if isinstance(d, Mapping) and K.item_kind_of(d) is not None:
-        items = list(K.items_of(d))
-        if len(items) != 1:
-            raise ValueError(
-                f"expected one direction, not a collection of {len(items)} — "
-                "select the one you mean (records/select, records/rank k: 1)")
-        d = items[0]
-    if not _is_direction(d):
-        raise ValueError("expected a direction object (kind 'direction/vector')")
-    return np.asarray(d["vector"], dtype=np.float32).reshape(-1)
 
 
 def same_space(a: Mapping[str, Any], b: Mapping[str, Any]) -> None:

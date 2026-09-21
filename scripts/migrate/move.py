@@ -190,6 +190,11 @@ def run_from_registry(mod: Module, d: Def, value: ast.expr, notes: list[str]) ->
         return f"def run(ctx, inputs, params):\n    return {body}\n"
     if isinstance(value, ast.Name):
         return f"def run(ctx, inputs, params):\n    return {value.id}(inputs, params)\n"
+    if isinstance(value, ast.Call):
+        # A factory's product — `_block_of("records/total")` — called as
+        # the registry would have called it.
+        made = ast.get_source_segment(mod.src, value) or ""
+        return f"def run(ctx, inputs, params):\n    return {made}(inputs, params)\n"
     notes.append(f"{d.name}: registry entry is a {type(value).__name__} — by hand")
     return ""
 
@@ -225,7 +230,7 @@ def registry_entry_range(mod: Module, op: str) -> tuple[int, int] | None:
     for n in ast.walk(mod.tree):
         if isinstance(n, ast.Dict):
             for k, v in zip(n.keys, n.values):
-                if isinstance(k, ast.Constant) and k.value == op and isinstance(v, (ast.Lambda, ast.Name)):
+                if isinstance(k, ast.Constant) and k.value == op and isinstance(v, (ast.Lambda, ast.Name, ast.Call)):
                     return mod._lead(k.lineno), v.end_lineno or v.lineno
     return None
 

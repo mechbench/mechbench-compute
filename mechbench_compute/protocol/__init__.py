@@ -7,7 +7,6 @@ nothing about jobs, queues or credentials; `mechbench-runner` owns all
 of that and calls in here once it has claimed something to do.
 
 
-
 Supports only `layer_ablation` in v0 — the same kind the job-runner
 shim handled. The MCP `run_experiment` tool calls this directly;
 the job-runner dispatches to it after claiming a queued job.
@@ -38,6 +37,8 @@ from mechbench_schema import (
 
 from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, Model, lexicon, ops
 from mechbench_compute import thinking as THINK
+from mechbench_compute.protocol.tokenizer_id import _tokenizer_id  # noqa: F401
+from mechbench_compute.protocol.wire_model import _wire_model  # noqa: F401
 
 
 @dataclass
@@ -162,7 +163,6 @@ class ProtocolExecutor:
             return self._run_pipeline(spec, on_progress, secrets=secrets,
                                       resume=resume)
         raise ValueError(f"unsupported protocolKind: {spec.kind!r}")
-
 
 
     @staticmethod
@@ -959,10 +959,6 @@ class ProtocolExecutor:
                     results[nid] = self._run_model_block(
                         self._block_decision_read, inputs, params,
                         on_item=on_item, on_start=expand, **resume_kwargs)
-                elif block == "text/generate":
-                    results[nid] = self._run_model_block(
-                        self._block_generate, inputs, params,
-                        on_item=on_item, on_start=expand, **resume_kwargs)
                 elif block == "eval/judge":
                     results[nid] = self._block_judge(
                         inputs, params, secrets=secrets, on_item=on_item,
@@ -1006,10 +1002,6 @@ class ProtocolExecutor:
                 elif block == "intervene/path":
                     results[nid] = self._run_model_block(
                         self._block_path_patch, inputs, params,
-                        on_item=on_item, on_start=expand)
-                elif block == "intervene/patch":
-                    results[nid] = self._run_model_block(
-                        self._block_patch_trace, inputs, params,
                         on_item=on_item, on_start=expand)
                 elif block == "activations/capture-attention":
                     results[nid] = self._run_model_block(
@@ -1279,168 +1271,6 @@ class ProtocolExecutor:
         )
         return ms.Emitted(payload=payload, provenance=prov)
 
-    def _block_generate(self, inputs, params, on_item=None,
-                        on_start=None, resume_items=None) -> Any:
-        """The Generate model block: per condition record, sample n
-        completions into a text-fidelity DocumentCollection. Range
-        rule (epic 000258 amendment 4): each sample's rng derives from
-        (seed, record id, index), indices [start, start+n) — growing a
-        corpus is the same node over a later range plus Union. The
-        prompt is prefilled once per record and the KV cache copied
-        per sample."""
-        import numpy as _np
-
-        from mechbench_compute.distill import prefill_decision, render
-        from mechbench_compute.generate import sample_completion_cached
-        from mechbench_compute.seeds import item_seed
-
-        model = self._model_loaded(params.get("model"))
-        tok = model.tokenizer
-        records = lexicon.items_of(inputs.get("records") or [])
-        if not records:
-            raise ValueError(
-                "text/generate: no records to run over — wire records to "
-                "the `records` port")
-        n = int(params.get("n", 1))
-        start = int(params.get("start", 0))
-        seed = params.get("seed", 0)
-        temperature = float(params.get("temperature", 0.9))
-        top_p = float(params.get("top_p", 0.95))
-        max_tokens = int(params.get("max_tokens", 256))
-        fidelity = params.get("fidelity", "text")
-        if fidelity not in ("text", "trace"):
-            raise ValueError(f"generate: unsupported fidelity {fidelity!r}")
-        # A record's prefill begins the assistant's turn when asked
-        # (000549): the samples then continue exactly the envelope a
-        # decision read and a training step condition on, and `stop`
-        # ends them where the answer does. Off, the prefill is dropped,
-        # as it always was.
-        continue_prefill = bool(params.get("continue_prefill", False))
-        stop_strings = tuple(s for s in (params.get("stop") or ()) if s)
-
-        from mechbench_compute import intervene as intervene_mod
-        from mechbench_compute.generate import offsets_by_cumulative_decode
-
-        # An intervention (000601) — inline items or an intervene/spec on
-        # the port — makes the node a sweep: one set of samples per
-        # cell, its axes coordinates, weight edits scoped per strength.
-        # Without one, `cells` is a single None and the loop below is the
-        # one it always was, byte for byte.
-        plan = intervene_mod.plan(model, params, inputs)
-        cells: list = plan.cells if plan else [None]
-
-        if on_start:
-            on_start(len(records) * n * len(cells))
-        items = []
-        for cell in cells:
-            with intervene_mod.edited(model, plan.weight_items if plan else (),
-                                      cell.factor if plan else 0.0):
-                for rec in records:
-                    lead = str(rec.get("prefill") or "") if continue_prefill else ""
-                    r = render(model, dict(rec, prefill=lead))
-                    rendered, ids = r.text, r.ids
-                    # The prefill's hooks see the prompt's tokens; each
-                    # sample then gets its own live intervention, over a
-                    # token list its decoder grows.
-                    prompt_tokens = [tok.decode([int(t)]) for t in ids] if plan else []
-                    prefill = (prefill_decision(model, ids, interventions=plan.live(cell, prompt_tokens, rec))
-                               if plan else prefill_decision(model, ids))
-                    for k in range(start, start + n):
-                        key = f"{rec['id']}:{k}" + (f":{cell.slug}" if plan else "")
-                        if resume_items and key in resume_items:
-                            # Reproducible (epic 000320): this item is a pure
-                            # function of its key; the spooled copy IS what
-                            # this loop would produce. Same position, same
-                            # bytes.
-                            items.append(resume_items[key])
-                            if on_item:
-                                on_item(key, resume_items[key], True)
-                            continue
-                        # The item rule (000258 am. 4), now in seeds.py (000402):
-                        # a leaf's seed comes from its key, never its position.
-                        rng = _np.random.default_rng(item_seed(seed, rec["id"], k))
-                        text, out_ids = sample_completion_cached(
-                            model, ids, max_tokens=max_tokens,
-                            temperature=temperature, top_p=top_p, rng=rng,
-                            prefill=prefill, return_ids=True,
-                            stop_strings=stop_strings,
-                            **({"interventions": plan.live(cell, prompt_tokens, rec)} if plan else {}))
-                        if stop_strings and any(s in tok.decode(out_ids) for s in stop_strings):
-                            ended = "stop"
-                        elif len(out_ids) >= max_tokens:
-                            ended = "max_tokens"
-                        else:
-                            ended = "end"
-                        coords = {**rec.get("coords", {}), "sample": k}
-                        if plan:
-                            coords.update(cell.axes)
-                        item = {
-                            "id": f"{rec['id']}-s{k}" + (f"-{cell.slug}" if plan else ""),
-                            "kind": "text/document",
-                            # The assistant's turn as it reads: the prefill it was
-                            # begun with, then what the model wrote.
-                            "text": lead + text,
-                            # A document is a record: coords on the item, and
-                            # under metadata where older readers look.
-                            "coords": coords,
-                            "metadata": {
-                                "coords": dict(coords),
-                                "sampling": {"temperature": temperature,
-                                             "top_p": top_p, "seed": seed,
-                                             "index": k, "ended": ended,
-                                             **({"prefill": lead} if lead else {}),
-                                             **({"stop": list(stop_strings)} if stop_strings else {})},
-                                # The wire form, never the resolved object: the
-                                # object carries the adapter bytes (000488).
-                                "model": _wire_model(params.get("model")),
-                            },
-                        }
-                        if fidelity == "trace":
-                            full_ids = list(ids) + list(out_ids)
-                            offs, full_text = offsets_by_cumulative_decode(
-                                tok, full_ids)
-                            item["trace"] = {
-                                "token_ids": [int(t) for t in full_ids],
-                                "tokenizer": _tokenizer_id(params.get("model")),
-                                "text": full_text,
-                                "offsets": [[int(a), int(b)] for a, b in offs],
-                                "generation_spans": [{
-                                    "token_start": len(ids),
-                                    "token_end": len(full_ids),
-                                    "model": _wire_model(params.get("model")),
-                                    "temperature": temperature,
-                                    "top_p": top_p,
-                                    "seed": k,
-                                }],
-                            }
-                            item["segmentations"] = [{
-                                "schema_name": "envelope",
-                                "segments": [
-                                    {"role": "prompt", "token_start": 0,
-                                     "token_end": len(ids)},
-                                    {"role": "body", "token_start": len(ids),
-                                     "token_end": len(full_ids)},
-                                ],
-                            }]
-                            # Where the model reasoned, when its own vocabulary
-                            # declares reasoning delimiters (task 000592). A
-                            # second segmentation beside the envelope, so a
-                            # reader that knows only `prompt`/`body` is
-                            # unaffected and a position selector can name the
-                            # thinking span.
-                            reasoning = THINK.segmentation(
-                                full_ids, start=len(ids), pair=THINK.delimiter_ids(tok))
-                            if reasoning is not None:
-                                item["segmentations"].append(reasoning)
-                        items.append(item)
-                        if on_item:
-                            on_item(key, item)
-        return lexicon.collection(
-            "text/document", items,
-            name=params.get("name", "generated"),
-            description=params.get("description", ""),
-            fidelity=fidelity,
-            **(plan.header() if plan else {}))
 
     def _block_judge(self, inputs, params, secrets=None, on_item=None,
                      on_start=None, resume_items=None):
@@ -2093,22 +1923,6 @@ class ProtocolExecutor:
         records = lexicon.items_of(inputs.get("records") or [])
         return paths.run(model, records, params, on_item=on_item, on_start=on_start)
 
-    def _block_patch_trace(self, inputs, params, on_item=None,
-                           on_start=None):
-        """Replace an activation with the one another run had at the same
-        place, and measure how much of the answer comes back.
-
-        Causal tracing: where a clean run and a corrupted one differ, the
-        activation whose restoration recovers the prediction is where the
-        information was being carried. Unlike ablation this localizes
-        content rather than participation. (Step 09.)
-        """
-        from mechbench_compute import interp
-
-        model = self._model_loaded(params.get("model"))
-        records = lexicon.items_of(inputs.get("records") or [])
-        return interp.patch_trace(
-            model, records, params, on_item=on_item, on_start=on_start)
 
     def _block_attention_patterns(self, inputs, params, on_item=None,
                                   on_start=None):
@@ -3116,7 +2930,6 @@ class ProtocolExecutor:
         return lexicon.collection("logits/decision", out, top_k=top_k)
 
 
-
 def node_summary(value: Any, spend: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """What a node produced, in the terms a reader asks first: which kind,
     and how many. `{kind, collection, items}` for a collection (however it
@@ -3376,27 +3189,6 @@ def _wire_params(params):
         k: (v.to_wire() if hasattr(v, "to_wire") else v)
         for k, v in params.items()
     }
-
-
-def _wire_model(value):
-    """What a RESULT may record about its model: the wire form, never
-    the resolved object (000488).
-
-    A resolved ModelRef carries `adapter_payloads` — the fetched
-    safetensors bytes — and a record that embeds the object embeds
-    those bytes. The generate block did exactly that, in two fields
-    per item plus a `str()` of the object in a third, at ~32 MB per
-    item against the 4.5 KB a base-model item weighs; a 20-story
-    result was a 640 MB body and killed the API process on arrival.
-    A bare string (an HF id) passes through unchanged.
-    """
-    return value.to_wire() if hasattr(value, "to_wire") else value
-
-
-def _tokenizer_id(value):
-    """The tokenizer a trace was cut with, as an id. For a ModelRef
-    that is its base — adapters do not change the vocabulary."""
-    return value.base if hasattr(value, "base_kind") else str(value)
 
 
 def _last_logp(logits: mx.array) -> np.ndarray:

@@ -39,19 +39,47 @@ def patch_trace(model, records, params):  # the mechanism, callable on its own
 - **`MONOID`**, when the operation can be computed in chunks: the class
   that reduces them. Its presence is the declaration.
 
-An operation's file holds what only that operation uses. What several
-operations share stays in a module named for what it is:
-`mechbench_compute/intervene.py` is the intervention grammar, which
-`intervene/apply`, `intervene/steer` and `text/generate` all compile
-specs with; `mechbench_compute/chat.py` is what `text/chat` and
-`eval/judge` both talk to a model through. An operation's file imports
-from those by name, so the import line says what the shared thing is.
+An operation's file holds what only that operation uses.
 
-There is deliberately no `_common.py`. Filing shared code by *who uses
-it* rather than *what it is* was tried first and measured: once the
-dependencies between modules were followed honestly, one grab-bag came
-to 1,614 lines and 62 definitions — the file this layout exists to
-prevent, under a name that says nothing.
+## What operations share
+
+A definition two or more operations use is a file of its own, under the
+topic it belongs to, named for itself:
+
+```
+mechbench_compute/interp/last_logp.py        def _last_logp(logits)      12 lines
+mechbench_compute/intervene/spec.py          class Spec                 257 lines
+mechbench_compute/directions/as_array.py     def as_array(value)         22 lines
+```
+
+So the import line at the top of an operation's file is the path to
+open — `from mechbench_compute.interp.last_logp import _last_logp` — and
+opening it costs that definition and nothing else: a median twelve
+lines. Most of the time the name is enough and the file is never opened.
+
+A constant only one helper uses lives in that helper's file; a constant
+several things use lives in `<topic>/constants.py`. A class and the
+function that builds it (`Plan` and `plan`) share a file.
+
+Three other arrangements were measured before this one, by what one
+agent reading one operation has to take in:
+
+| | median |
+|---|---|
+| shared code in topic modules, opened whole | 446 lines, 3 files |
+| shared code filed by who uses it (`_common.py`) | one file of 1,614 lines |
+| helpers copied into each operation's file | 186 lines, 1 file — and the copies drift, and a copied class loses its identity |
+| **one helper per file** | **165 lines if it opens none, 195 if it opens every one** |
+
+It works because of a fact about this code rather than a preference:
+among the 114 definitions operations share there is not one reference
+cycle, so each can be a file with plain imports at its top.
+
+While the move is under way, the module a helper left is that package's
+`__init__.py` and imports the helper back, so nothing that named it
+through the module breaks. An operation's file is different: it is a
+leaf, nothing imports back from it, and whatever named its contents
+through their old module was rewritten to name the new one.
 
 ## What `ctx` offers
 

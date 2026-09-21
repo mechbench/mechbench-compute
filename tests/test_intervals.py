@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from mechbench_compute import blocks
+from mechbench_compute.ops.records.summarize import group_stats
 
 
 def _sweep(n_prompts=30, layers=(21, 22, 23, 24), seed=1):
@@ -28,12 +29,12 @@ def _sweep(n_prompts=30, layers=(21, 22, 23, 24), seed=1):
 
 class TestSummarizeInterval:
     def test_without_interval_the_rows_are_what_they_were(self):
-        out = blocks.group_stats(_sweep(), {"by": ["layer"], "value": "delta_logp"})
+        out = group_stats(_sweep(), {"by": ["layer"], "value": "delta_logp"})
         assert [c["name"] for c in out["columns"]] == ["layer", "n", "median", "mean", "min", "max", "share_negative"]
         assert "interval" not in out and "lo" not in out["rows"][0]
 
     def test_an_interval_brackets_the_mean_and_says_how_it_was_made(self):
-        out = blocks.group_stats(_sweep(), {"by": ["layer"], "value": "delta_logp",
+        out = group_stats(_sweep(), {"by": ["layer"], "value": "delta_logp",
                                             "interval": 0.95, "resamples": 500})
         for row in out["rows"]:
             assert row["lo"] <= row["mean"] <= row["hi"]
@@ -44,22 +45,22 @@ class TestSummarizeInterval:
 
     def test_the_interval_is_a_function_of_the_records_not_their_order(self):
         recs = _sweep()
-        a = blocks.group_stats(recs, {"by": ["layer"], "value": "delta_logp", "interval": 0.9})
-        b = blocks.group_stats(list(reversed(recs)), {"by": ["layer"], "value": "delta_logp", "interval": 0.9})
+        a = group_stats(recs, {"by": ["layer"], "value": "delta_logp", "interval": 0.9})
+        b = group_stats(list(reversed(recs)), {"by": ["layer"], "value": "delta_logp", "interval": 0.9})
         assert {r["layer"]: (r["lo"], r["hi"]) for r in a["rows"]} == {r["layer"]: (r["lo"], r["hi"]) for r in b["rows"]}
 
     def test_more_records_narrow_it(self):
-        narrow = blocks.group_stats(_sweep(n_prompts=200), {"value": "delta_logp", "interval": 0.95})["rows"][0]
-        wide = blocks.group_stats(_sweep(n_prompts=20), {"value": "delta_logp", "interval": 0.95})["rows"][0]
+        narrow = group_stats(_sweep(n_prompts=200), {"value": "delta_logp", "interval": 0.95})["rows"][0]
+        wide = group_stats(_sweep(n_prompts=20), {"value": "delta_logp", "interval": 0.95})["rows"][0]
         assert narrow["hi"] - narrow["lo"] < wide["hi"] - wide["lo"]
 
     def test_a_single_record_has_a_zero_width_interval(self):
-        out = blocks.group_stats([{"id": "x", "delta_logp": 1.5}], {"value": "delta_logp", "interval": 0.95})
+        out = group_stats([{"id": "x", "delta_logp": 1.5}], {"value": "delta_logp", "interval": 0.95})
         assert (out["rows"][0]["lo"], out["rows"][0]["hi"]) == (1.5, 1.5)
 
     def test_a_bad_level_is_refused(self):
         with pytest.raises(ValueError, match="between 0 and 1"):
-            blocks.group_stats(_sweep(), {"value": "delta_logp", "interval": 95})
+            group_stats(_sweep(), {"value": "delta_logp", "interval": 95})
 
 
 class TestContrast:

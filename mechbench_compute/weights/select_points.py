@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import Any
+
+from mechbench_compute.weights.constants import _SCOPE
+from mechbench_compute.weights.pattern import _pattern
+
+
+def select_points(names: Iterable[str], points: Any) -> list[str]:
+    """The parameter names a node's `points` selects, in model order.
+
+    `"all"` is every parameter, which is a lot (540 tensors on a 4B
+    model) — useful for a stats sweep, never for values.
+    """
+    have = list(names)
+    if points in (None, "all"):
+        return have
+    if isinstance(points, str):
+        points = [points]
+    wanted: list[str] = []
+    for p in points:
+        raw = str(p)
+        bare = raw.removeprefix(_SCOPE)
+        matcher = _pattern(bare)
+        hit = [n for n in have if matcher.match(n)]
+        if not hit:
+            raise ValueError(
+                f"no parameter matches {raw!r}. A point names the module "
+                f"tree — `layers.12.self_attn.q_proj`, `embed_tokens`, "
+                f"`layers.*.mlp.down_proj` — and this model carries "
+                f"{len(have)} parameters, e.g. {', '.join(have[:3])}.")
+        wanted += [n for n in hit if n not in wanted]
+    return [n for n in have if n in set(wanted)]

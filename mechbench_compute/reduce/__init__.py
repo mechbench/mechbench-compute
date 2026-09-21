@@ -27,6 +27,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
+from mechbench_compute.reduce.monoid import Monoid  # noqa: F401
 
 ALGEBRAS = ("collect", "monoid", "ordered")
 
@@ -56,24 +57,6 @@ def algebra(block: str) -> str:
 
 
 # --- the monoid interface -------------------------------------------------------
-
-
-class Monoid:
-    """`partial(records, params)` → P; `identity()` → P; `merge(P, P)` → P
-    (associative, commutative); `finalize(P, params)` → the block's
-    output. `partial(all) == merge over any partition of all` exactly."""
-
-    def identity(self) -> Any:
-        raise NotImplementedError
-
-    def partial(self, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any]) -> Any:
-        raise NotImplementedError
-
-    def merge(self, a: Any, b: Any) -> Any:
-        raise NotImplementedError
-
-    def finalize(self, p: Any, params: Mapping[str, Any]) -> Any:
-        raise NotImplementedError
 
 
 def merge_tree(monoid: Monoid, partials: Sequence[Any]) -> Any:
@@ -167,40 +150,7 @@ class Histogram(Monoid):
                 "below": p.get(-1, 0), "above": p.get(n, 0)}
 
 
-class GroupStats(Monoid):
-    """The exact monoid form of `group-stats`: per group, the multiset
-    of values (sorted); finalize reproduces the block's rows with
-    `fsum` means. Bit-identical to the flat block by construction."""
-
-    def identity(self):
-        return {}
-
-    def partial(self, records, params):
-        from mechbench_compute.blocks import _group_key, cell_rows
-
-        by = params.get("by") or []
-        f = params["value"]
-        groups: dict[tuple, list[float]] = {}
-        for r in cell_rows(records):
-            key = _group_key(r, by)
-            groups.setdefault(key, []).append(float(r[f]))
-        return {k: tuple(sorted(v)) for k, v in groups.items()}
-
-    def merge(self, a, b):
-        out = {k: v for k, v in a.items()}
-        for k, v in b.items():
-            out[k] = tuple(sorted(out.get(k, ()) + v))
-        return out
-
-    def finalize(self, p, params):
-        from mechbench_compute.blocks import summary_rows
-
-        ordered = {key: list(p[key]) for key in sorted(p, key=lambda k: tuple(str(x) for x in k))}
-        return summary_rows(ordered, params)
-
-
 MONOIDS: dict[str, Callable[[], Monoid]] = {
-    "records/summarize": GroupStats,
     "records/total": FloatSum,
     "records/rank": TopK,
     "records/bin": Histogram,

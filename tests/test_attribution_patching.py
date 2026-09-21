@@ -13,6 +13,7 @@ import pytest
 
 from mechbench_compute import interp
 from mechbench_compute.interventions import compose
+from mechbench_compute.ops.intervene.patch import patch_trace
 
 
 class _Arch:
@@ -78,7 +79,7 @@ class _LinearModel:
 class TestOnALinearModel:
     def _run(self, method, metric="logit"):
         model = _LinearModel()
-        return interp.patch_trace(
+        return patch_trace(
             model, [{"id": "p", "a": "the tower is in paris", "b": "the needle is in seattle"}],
             {"layers": "all", "metric": metric, "method": method, "tracked": {"t": "paris"}})
 
@@ -119,10 +120,10 @@ class TestOnALinearModel:
         with pytest.raises(ValueError, match="method"):
             self._run("guess")
         with pytest.raises(ValueError, match="attribution reads"):
-            interp.patch_trace(_LinearModel(), [{"id": "p", "a": "a b", "b": "c d"}],
+            patch_trace(_LinearModel(), [{"id": "p", "a": "a b", "b": "c d"}],
                                {"method": "attribution", "point": "attn.q"})
         with pytest.raises(ValueError, match="not a residual"):
-            interp.patch_trace(_LinearModel(), [{"id": "p", "a": "a b", "b": "c d"}],
+            patch_trace(_LinearModel(), [{"id": "p", "a": "a b", "b": "c d"}],
                                {"method": "exact", "point": "mlp_out"})
 
 
@@ -148,9 +149,9 @@ def test_on_gemma_the_estimate_ranks_the_cells_the_patch_ranks():
              "a": "Answer with one word: what is the capital of France?",
              "b": "Answer with one word: what is the capital of Japan?",
              "tracked": {"answer": "Paris"}}]
-    exact_out = interp.patch_trace(model, pair, {"metric": "logit", "method": "exact"})
+    exact_out = patch_trace(model, pair, {"metric": "logit", "method": "exact"})
     exact = np.array(exact_out["items"][0]["measures"]["recovery"])
-    est = np.array(interp.patch_trace(model, pair, {"metric": "logit", "method": "attribution"})
+    est = np.array(patch_trace(model, pair, {"metric": "logit", "method": "attribution"})
                    ["items"][0]["measures"]["recovery"])
     assert exact.shape == est.shape and exact.shape[0] == model.arch.n_layers
     # A pair worth tracing: the clean prompt says Paris, the corrupt one does not.
