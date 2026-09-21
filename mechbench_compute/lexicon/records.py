@@ -890,7 +890,11 @@ a number it carries — a per-token surprisal from
 `activations/capture-tokens`, a probe's projection, the window
 `activations/examples` brings back. That is `mark: "tokens"` with
 `encoding: {text, value}`, where `text` names the field holding the
-row's tokens.
+row's tokens. Rows that are one token each — a grid's cells, or a
+`records/summarize` over them by position — make a strip too: `text`
+names the token field, `x` the position (default `position`), and
+`facet` (or `series`) says which rows are one prompt, one strip per
+value on one colour scale.
 
 An `lo`/`hi` encoding draws the interval `records/summarize` reports
 beside the point it belongs to.
