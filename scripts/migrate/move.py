@@ -493,11 +493,19 @@ def rewrite_references(leaf_moves: dict[tuple[str, str], str], a, notes: list[st
                     reps.append((n.lineno, n.col_offset, n.end_col_offset, n.attr))
                     add.add(f"from {by_module[module][n.attr]} import {n.attr}")
                     uses += 1
-            elif isinstance(n, ast.Constant) and isinstance(n.value, str):
-                for module, table in by_module.items():
-                    for name in table:
-                        if n.value == name or n.value.endswith(f"{module}.{name}"):
-                            notes.append(f"{rel_root}:{n.lineno} names `{name}` in a string (a monkeypatch?) — by hand")
+            elif isinstance(n, ast.Call):
+                # A name passed as a string to something that patches or
+                # looks up attributes: `monkeypatch.setattr(interp, "x", …)`.
+                # A rewrite cannot know what that means now; a person can.
+                called = ast.unparse(n.func)
+                if not re.search(r"setattr|getattr|patch|delattr", called):
+                    continue
+                for arg in n.args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        for module, table in by_module.items():
+                            for name in table:
+                                if arg.value == name or arg.value.endswith(f".{name}"):
+                                    notes.append(f"{rel_root}:{n.lineno} `{called}(…, {arg.value!r})` names something that moved — by hand")
         if not reps and not drop_lines and not add:
             continue
         # Attribute uses first (they are splices within a line), then imports (whole lines).

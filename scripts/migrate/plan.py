@@ -313,22 +313,26 @@ def analyse() -> Analysis:
             alone = len(d.users) == 1 and not pinned
             if d.kind == "declaration":
                 placement[op_path(next(iter(d.users)))].append(d)
-            elif f.startswith("lexicon/") or executor:
-                # A fragment several declarations share is inlined later
-                # (000631); the executor's own definitions are borrowed.
+            elif f.startswith("lexicon/"):
+                # A fragment several declarations share is inlined later (000631).
                 if alone:
                     placement[op_path(next(iter(d.users)))].append(d)
                 else:
                     stays.append(d)
+            elif executor and d.refs & m.hosts:
+                # It names the executor class, so it cannot leave the
+                # executor's module without importing back into it.
+                stays.append(d)
+                problems.append(f"{f}:{d.name} refers to the executor and is used by {sorted(d.users)} — by hand")
             elif alone:
                 placement[op_path(next(iter(d.users)))].append(d)
             elif d.kind != "assign":
                 helper_home[(f, d.name)] = f"{topic_of(f)}/{snake(d.name)}.py"
     for f, m in mods.items():
-        if f.startswith("lexicon/") or m.hosts:
+        if f.startswith("lexicon/"):
             continue
         for d in m.defs.values():
-            if not d.users or d.kind != "assign":
+            if not d.users or d.kind != "assign" or d in stays:
                 continue
             if len(d.users) == 1 and d.name not in needed_by_stayers[f]:
                 continue                    # already placed with its one operation
