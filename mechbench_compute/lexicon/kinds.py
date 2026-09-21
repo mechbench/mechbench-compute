@@ -140,6 +140,7 @@ CHART = Kind(
             "axes": F("object", "`{layer: {n, global, kv_shared_from}}` — the depth landmarks a layer axis draws."),
             "annotate": F("array", "`[{at, text}]` — callouts drawn at named rows.", items={"type": "object"}),
             "focus": F("string", "The field shared with the other figures on a page."),
+            "facet": F("string", "Small multiples: one panel per value of this field, on one shared x axis."),
             "scale": F("string", "`diverging` or `sequential`, when the values do not decide it."),
             "source": F("string", "The stored table the figure draws, when the executor knew it."),
             "data": F("object", "`{rows}` inline, when it did not.")},

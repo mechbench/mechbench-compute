@@ -909,6 +909,10 @@ mark to do it (the vocabulary is `mechbench/docs/VISUALIZATION.md`):
 * **`focus`** — the field this figure shares with the others on a page:
   hover a layer here and it lights on every figure that has one.
   Defaults to `layer` when the rows carry it, else `x`.
+* **`facet`** — small multiples: one panel per value of the field, on
+  one shared x axis, each with its own value scale. A sweep whose
+  largest series would flatten the others is four panels, not four
+  lines.
 
 `encoding.color` tints each mark by a categorical field **in place**;
 `encoding.series` splits rows into several lines or side-by-side bars.
@@ -918,7 +922,7 @@ The two are different and may be combined.
         In("records", "collection | records/table",
            "The table, or any collection of items, to chart.", many=True),
     ),
-    output=Output('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`, `color`, `value`, `text`, `lo`, `hi` as the mark uses them), `scale` when given, `labels`, `axes`, `annotate` and `focus` when given, and `source` or `data`.'),
+    output=Output('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`, `color`, `value`, `text`, `lo`, `hi` as the mark uses them), `scale` when given, `labels`, `axes`, `annotate`, `focus` and `facet` when given, and `source` or `data`.'),
     params=(
         P("encoding", "object",
           "Which field goes where. `x`/`y` for the point-shaped marks, "
@@ -986,6 +990,11 @@ The two are different and may be combined.
           "The field shared with the other figures on a page, so a hover "
           "here lights the same value there. `layer` when the rows carry "
           "one, else the x field.",
+          None),
+        P("facet", "string",
+          "Small multiples: one panel per value of this field, stacked on "
+          "one shared x axis, each with its own value scale — four sweeps "
+          "as four aligned panels rather than four lines on one scale.",
           None),
     ),
     example={

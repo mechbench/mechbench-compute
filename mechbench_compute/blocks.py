@@ -843,6 +843,7 @@ def viz_spec(records: Any, params: Mapping[str, Any],
     annotate = (_check_annotations(params["annotate"])
                 if params.get("annotate") is not None else None)
     focus = params.get("focus")
+    facet = params.get("facet")
     spec: dict[str, Any] = {
         "kind": "records/chart",
         "title": params.get("title", ""),
@@ -853,6 +854,7 @@ def viz_spec(records: Any, params: Mapping[str, Any],
         **({"axes": axes} if axes else {}),
         **({"annotate": annotate} if annotate else {}),
         **({"focus": str(focus)} if focus else {}),
+        **({"facet": str(facet)} if facet else {}),
     }
     if source_label:
         spec["source"] = source_label

@@ -276,10 +276,11 @@ class TestAFigureCarriesItsVocabulary:
     def test_labels_and_colour_and_focus_ride_on_the_spec(self):
         spec = self._spec({"labels": {"y": "what removing the layer costs"},
                            "encoding": {"x": "layer", "y": "mean", "color": "kind"},
-                           "focus": "layer"})
+                           "focus": "layer", "facet": "kind"})
         assert spec["labels"] == {"y": "what removing the layer costs"}
         assert spec["encoding"]["color"] == "kind"
         assert spec["focus"] == "layer"
+        assert spec["facet"] == "kind"
 
     def test_a_label_for_a_field_the_figure_does_not_have_is_refused(self):
         with pytest.raises(ValueError, match="labels names"):
