@@ -422,6 +422,37 @@ class TestGroupStatsMissingValues:
         assert "n_missing" not in out
 
 
+class TestAFigureIsReadAgainstALine:
+    """A figure whose claim is "close to fair" or "over the threshold"
+    needs the line to be read against (VISUALIZATION.md)."""
+
+    ROWS = {"kind": "collection", "items": [
+        {"id": "1", "face": "1", "p": 0.1808}, {"id": "2", "face": "2", "p": 0.1595},
+    ]}
+
+    def test_a_reference_rides_on_the_spec(self):
+        from mechbench_compute.blocks import viz_spec
+
+        spec = viz_spec(self.ROWS, {
+            "mark": "bar", "encoding": {"x": "face", "y": "p"},
+            "reference": [{"y": 1 / 6, "text": "a fair die"}],
+        })
+        assert spec["reference"] == [{"y": pytest.approx(0.16667, abs=1e-4), "text": "a fair die"}]
+
+    def test_a_line_on_neither_axis_is_refused(self):
+        from mechbench_compute.blocks import viz_spec
+
+        with pytest.raises(ValueError, match=r"reference\[0\] needs `y`"):
+            viz_spec(self.ROWS, {"mark": "bar", "encoding": {"x": "face", "y": "p"},
+                                 "reference": [{"text": "a fair die"}]})
+
+    def test_a_figure_without_one_says_nothing_about_it(self):
+        from mechbench_compute.blocks import viz_spec
+
+        spec = viz_spec(self.ROWS, {"mark": "bar", "encoding": {"x": "face", "y": "p"}})
+        assert "reference" not in spec
+
+
 class TestASummaryOverAGrid:
     """A trace is its cells (000626): `records/summarize` reads a grid
     cell by cell, the same rows `records/plot` draws, so a strip of what

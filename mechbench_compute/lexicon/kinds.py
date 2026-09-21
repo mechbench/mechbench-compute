@@ -139,6 +139,7 @@ CHART = Kind(
             "labels": F("object", "`{x?, y?, value?, series?, color?}` — what each field is called in prose."),
             "axes": F("object", "`{layer: {n, global, kv_shared_from}}` — the depth landmarks a layer axis draws."),
             "annotate": F("array", "`[{at, text}]` — callouts drawn at named rows.", items={"type": "object"}),
+            "reference": F("array", "`[{y|x, text}]` — lines the marks are read against: a target, a baseline, chance.", items={"type": "object"}),
             "focus": F("string", "The field shared with the other figures on a page."),
             "facet": F("string", "Small multiples: one panel per value of this field, on one shared x axis."),
             "scale": F("string", "`diverging` or `sequential`, when the values do not decide it."),

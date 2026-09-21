@@ -780,6 +780,28 @@ def _check_annotations(annotate: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _check_references(reference: Any) -> list[dict[str, Any]]:
+    """Each reference line names a value on one axis and what it is: a
+    target, a baseline, a threshold, chance."""
+    if not isinstance(reference, (list, tuple)):
+        raise ValueError("records/plot reference is a list of {y|x, text}")
+    out = []
+    for i, r in enumerate(reference):
+        if not isinstance(r, Mapping) or ("y" not in r and "x" not in r):
+            raise ValueError(
+                f"records/plot reference[{i}] needs `y` (a rule across the "
+                f"plot) or `x` (one down it)")
+        line: dict[str, Any] = {}
+        if "y" in r:
+            line["y"] = float(r["y"])
+        if "x" in r:
+            line["x"] = r["x"]
+        if r.get("text"):
+            line["text"] = str(r["text"])
+        out.append(line)
+    return out
+
+
 def viz_spec(records: Any, params: Mapping[str, Any],
                source_label: str | None = None) -> dict[str, Any]:
     """A chart as a bench object: how to present an upstream table, stored
@@ -842,6 +864,8 @@ def viz_spec(records: Any, params: Mapping[str, Any],
             else ({"layer": la} if (la := _layer_axis_from(header)) else None))
     annotate = (_check_annotations(params["annotate"])
                 if params.get("annotate") is not None else None)
+    reference = (_check_references(params["reference"])
+                 if params.get("reference") is not None else None)
     focus = params.get("focus")
     facet = params.get("facet")
     spec: dict[str, Any] = {
@@ -853,6 +877,7 @@ def viz_spec(records: Any, params: Mapping[str, Any],
         **({"labels": labels} if labels else {}),
         **({"axes": axes} if axes else {}),
         **({"annotate": annotate} if annotate else {}),
+        **({"reference": reference} if reference else {}),
         **({"focus": str(focus)} if focus else {}),
         **({"facet": str(facet)} if facet else {}),
     }

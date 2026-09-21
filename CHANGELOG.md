@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## 0.126.0 — 2026-09-21
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- **`records/plot` takes `reference`**: the lines a figure's marks are
+  read against — a target, a baseline, a threshold, chance. Each names
+  a value on one axis (`y` for a rule across the plot, `x` for one down
+  it) and what it is. A figure whose claim is "close to fair" or "above
+  the threshold" could not make it: a reader had only bare axis ticks
+  to check it against. Drawn over the marks, because the question a
+  reference answers is whether a mark is above or below it.
+
+---
+
 ## 0.125.0 — 2026-09-21
 
 ### Changes that raise

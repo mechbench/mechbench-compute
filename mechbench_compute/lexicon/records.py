@@ -997,6 +997,17 @@ The two are different and may be combined.
               P("at", "map[string, json]", "The row: field → value.", None),
               P("text", "string", "What the callout says.", None),
           )),
+        P("reference", "list[object]",
+          "Lines the marks are read against: a target, a baseline, a "
+          "threshold, chance. Each names a value on one axis — `y` for a "
+          "rule across the plot, `x` for one down it — and what it is. "
+          "A figure whose claim is \"close to fair\" or \"above the "
+          "threshold\" cannot make it without one.",
+          None, fields=(
+              P("y", "float", "The value on the y axis to rule at.", None),
+              P("x", "json", "The value on the x axis to rule at.", None),
+              P("text", "string", "What the line is: `a fair die`, `chance`.", None),
+          )),
         P("focus", "string",
           "The field shared with the other figures on a page, so a hover "
           "here lights the same value there. `layer` when the rows carry "
