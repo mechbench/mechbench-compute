@@ -541,7 +541,7 @@ TRACE = Kind(
     required=("id", "axes", "measures"),
     key=("id",),
     header={"point": "The residual patched.", "metric": "`logprob` or `prob`.", "layers": "The layers, in row order."},
-    doc="Axes `[layer, position]`; measure `recovery` — the change in the metric from the `b` baseline; `tokens` are prompt `b`'s.",
+    doc="Axes `[layer, position]`; measures `recovery` — the change in the metric from the `b` baseline — and `share`, the same as a fraction of the `a`−`b` gap (0 is the corrupt run, 1 the clean one; absent when the pair has no gap); `tokens` are prompt `b`'s.",
 )
 
 # --- direction -------------------------------------------------------------------------

@@ -874,8 +874,16 @@ def patch_trace(
                     on_item()
         tokens = [model.tokenizer.decode([int(t)])
                   for t in np.array(ids_corrupt).reshape(-1)]
+        # The same grid as a share of the clean-corrupt gap: 0 is the
+        # corrupt run, 1 is the clean one, so pairs with different gaps
+        # read on one scale. A pair whose two prompts score alike has
+        # no gap to share and the measure is left out.
+        gap = p_clean_in_clean - baseline
+        measures = {"recovery": recovery}
+        if abs(gap) > 1e-9:
+            measures["share"] = [[round(v / gap, 4) for v in row] for row in recovery]
         pairs.append(S.grid(
-            record.get("id"), ["layer", "position"], {"recovery": recovery},
+            record.get("id"), ["layer", "position"], measures,
             tokens=tokens, coords=record.get("coords"),
             target=S.token(model.tokenizer, tok), metric=metric,
             value_a=round(p_clean_in_clean, 5), value_b=round(baseline, 5)))

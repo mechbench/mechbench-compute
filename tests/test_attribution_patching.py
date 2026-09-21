@@ -89,6 +89,18 @@ class TestOnALinearModel:
         assert np.abs(exact - est).max() < 1e-3
         assert np.abs(exact).max() > 0.1     # and there was something to recover
 
+    def test_the_share_is_the_recovery_over_the_pairs_gap(self):
+        item = self._run("exact")["items"][0]
+        gap = item["value_a"] - item["value_b"]
+        exact = np.array(item["measures"]["recovery"])
+        share = np.array(item["measures"]["share"])
+        assert share.shape == exact.shape
+        assert np.abs(share - exact / gap).max() < 1e-3
+        # The clean residual at the last layer's last position IS the
+        # clean answer: that cell is the whole gap. (Other cells can
+        # overshoot; a share is not bounded.)
+        assert abs(share[-1][-1] - 1) < 1e-3
+
     def test_the_header_says_which_method_ran(self):
         out = self._run("attribution")
         assert out["method"] == "attribution" and out["metric"] == "logit"

@@ -504,6 +504,13 @@ One row per distinct combination of the `by` coordinates (or one row in all
 when `by` is empty). `share_negative` is the fraction of values below zero,
 useful when the field is a delta.
 
+A grid — a patch trace, a head sweep, a lens read-out, anything with
+`axes` and `measures` — is summarised cell by cell: each cell is a record
+with the axes as fields (and `token` beside `position` when the grid
+carries tokens) and each measure a column. `value: "share", by:
+["position"]` over a trace is one row per token with the most any layer's
+patch there recovers.
+
 A record without the value field is refused by name, because a mean over
 "the records that happened to have it" is the kind of number nobody
 notices is wrong. When absent values are expected — a judge that could not

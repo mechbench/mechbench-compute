@@ -176,12 +176,12 @@ class GroupStats(Monoid):
         return {}
 
     def partial(self, records, params):
-        from mechbench_compute.blocks import _group_key
+        from mechbench_compute.blocks import _group_key, cell_rows
 
         by = params.get("by") or []
         f = params["value"]
         groups: dict[tuple, list[float]] = {}
-        for r in records:
+        for r in cell_rows(records):
             key = _group_key(r, by)
             groups.setdefault(key, []).append(float(r[f]))
         return {k: tuple(sorted(v)) for k, v in groups.items()}

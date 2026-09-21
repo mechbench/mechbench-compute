@@ -422,6 +422,39 @@ class TestGroupStatsMissingValues:
         assert "n_missing" not in out
 
 
+class TestASummaryOverAGrid:
+    """A trace is its cells (000626): `records/summarize` reads a grid
+    cell by cell, the same rows `records/plot` draws, so a strip of what
+    each token's best cell recovers is one summarize away — in the flat
+    block and in its monoid alike."""
+
+    TRACE = {"kind": "collection", "item_kind": "intervene/trace", "items": [
+        {"id": "p1", "axes": ["layer", "position"], "tokens": ["The", "capital"],
+         "coords": {"country": "France"},
+         "measures": {"share": [[1.0, 0.0], [0.9, 0.1], [0.0, 1.0]]}},
+        {"id": "p2", "axes": ["layer", "position"], "tokens": ["The", "capital"],
+         "coords": {"country": "Italy"},
+         "measures": {"share": [[0.8, 0.0], [0.7, 0.2], [0.0, 0.6]]}},
+    ]}
+
+    def test_one_row_per_position_with_the_best_cell_as_max(self):
+        from mechbench_compute.blocks import group_stats
+
+        out = group_stats(self.TRACE, {"by": ["position"], "value": "share"})
+        by_pos = {r["position"]: r for r in out["rows"]}
+        assert by_pos[0]["max"] == 1.0 and by_pos[1]["max"] == 1.0
+        assert by_pos[0]["n"] == 6
+
+    def test_the_monoid_reads_the_same_cells(self):
+        from mechbench_compute import reduce as rd
+        from mechbench_compute.blocks import group_stats
+
+        params = {"by": ["country", "position"], "value": "share"}
+        flat = group_stats(self.TRACE, params)
+        chunked = rd.reduce_chunks("records/summarize", [[self.TRACE["items"][0]], [self.TRACE["items"][1]]], params)
+        assert chunked["rows"] == flat["rows"]
+
+
 A_CORPUS = {"kind": "document_collection", "items": [
     {"id": "a", "text": "one", "metadata": {"coords": {"p": "x"}}}]}
 

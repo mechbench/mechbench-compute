@@ -26,8 +26,24 @@ nothing said so.
   — and every records op's output carries the `arch` of its inputs
   forward. An added header field, on every result, so every content
   hash changes; a resume from before this release recomputes.
+- **`intervene/patch` writes a second measure, `share`**: each cell's
+  recovery as a fraction of the pair's `value_a`−`value_b` gap, 0 the
+  corrupt run and 1 the clean one, so pairs with different gaps read
+  on one scale. Left out when a pair has no gap. `recovery` is
+  unchanged; the trace's content hash is not.
+- **`records/summarize` reads a grid cell by cell** — a patch trace, a
+  head sweep, a lens read-out — each cell a record with the axes as
+  fields (`token` beside `position`) and each measure a column, the
+  same rows `records/plot` draws. `value: "share", by: ["position"]`
+  over a trace is one row per token with the most any layer's patch
+  there recovers. A summarize over a grid raised before (no such
+  field); the flat block and its monoid agree.
 
 ### Other
+
+- `records/plot` takes `facet`: a field whose values become small
+  multiples, one panel per value on one labelled axis, each at its own
+  scale.
 
 - 000624: the stamp moved from `intervene/ablate-layers` to the
   executor's model-block wrapper, and the carry from `records/summarize`

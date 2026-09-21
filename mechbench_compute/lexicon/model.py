@@ -727,7 +727,7 @@ only the residual stream.
            "own `tracked`.", many=True),
         ADAPTER,
     ),
-    output=Output('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` activation is patched in — measured under `method: \"exact\"`, estimated at first order under `\"attribution\"`; `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures. The header carries `method`, `point`, `metric`, `layers`."),
+    output=Output('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` activation is patched in — measured under `method: \"exact\"`, estimated at first order under `\"attribution\"` — and `measures.share` is the same cell as a fraction of the `value_a`−`value_b` gap, 0 the corrupt run and 1 the clean one, so pairs with different gaps read on one scale (absent when a pair has no gap); `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures. The header carries `method`, `point`, `metric`, `layers`."),
     params=(
         _LAYERS_ALL,
         P("method", "string",

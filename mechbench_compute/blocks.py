@@ -392,7 +392,7 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     notices is wrong; `skip` omits them and REPORTS the count, which is
     what a judged corpus needs — an unreadable verdict is not a zero
     (task 000356), and the rows that were dropped must be visible."""
-    recs = _items(records)
+    recs = cell_rows(_items(records))
     by = params.get("by") or []
     value_field = params["value"]
     on_missing = str(params.get("on_missing", "error"))
@@ -862,16 +862,28 @@ def viz_spec(records: Any, params: Mapping[str, Any],
         recs = (records["rows"] if isinstance(records, Mapping)
                 and isinstance(records.get("rows"), list) else _items(records))
         rows = []
-        for r in recs:
-            cells = grid_rows(r)
-            if cells is not None:
-                rows.extend(cells)
-                continue
+        for r in cell_rows(recs):
             row = {k: v for k, v in r.items() if k != "coords"}
             row.update(r.get("coords", {}) if isinstance(r, Mapping) else {})
             rows.append(row)
         spec["data"] = {"rows": rows}
     return spec
+
+
+def cell_rows(recs: Sequence[Any]) -> list[Any]:
+    """Records as rows: a grid's cells expanded (`grid_rows`), any other
+    record as it is. The one reader for an op that takes a record
+    stream and may be handed a trace — `records/summarize` over a patch
+    trace with `value: share, by: [position]` is the strip of what each
+    token's best cell recovers, without a plot in between."""
+    out: list[Any] = []
+    for r in recs:
+        cells = grid_rows(r)
+        if cells is None:
+            out.append(r)
+        else:
+            out.extend(cells)
+    return out
 
 
 def grid_rows(item: Any) -> list[dict[str, Any]] | None:
