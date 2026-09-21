@@ -1719,6 +1719,12 @@ class ProtocolExecutor:
         child._model, child._model_id = self._model, self._model_id
 
         items: list[dict[str, Any]] = []
+        # A map's records are its sweep — a corpus of layer numbers knows
+        # nothing about any model — so the landmarks cannot come from the
+        # input the way they do for an ordinary records op. They are on
+        # the BODY's header, where the executor's model-block wrapper
+        # stamped them, and only the body's items were kept (000622).
+        out_arch: dict[str, Any] | None = None
         # Under `stream` and `first` the items ARE the body's, so the
         # collection is of the body's kind: a map over transcripts that
         # produces transcripts emits transcripts, and the next node's
@@ -1772,6 +1778,8 @@ class ProtocolExecutor:
                     f"({', '.join(sorted(outputs))}); name one with `output`")
             if collect != "all":
                 out_kind = out_kind or K.item_kind_of(chosen)
+            if out_arch is None and isinstance(chosen, Mapping) and isinstance(chosen.get("arch"), Mapping):
+                out_arch = dict(chosen["arch"])
             if collect == "stream":
                 for sub in K.items_of(chosen):
                     item = dict(sub)
@@ -1795,7 +1803,8 @@ class ProtocolExecutor:
             out_kind or "records/record", items,
             mapped={"records": len(records), "collect": collect,
                     "body_nodes": [n.get("id") for n in body.get("nodes", [])]},
-            name=params.get("name"), description=params.get("description"))
+            name=params.get("name"), description=params.get("description"),
+            **({"arch": out_arch} if out_arch else {}))
 
     def _block_fold(self, inputs, params, secrets=None, on_item=None,
                     on_start=None, bindings=None, resume_items=None) -> Any:
@@ -3149,9 +3158,13 @@ REMOTE_BLOCKS = ("text/chat", "eval/judge")
 
 
 def _carry_arch(inputs: Mapping[str, Any], result: Any) -> Any:
-    """`result` with the first input's `arch` header on it, when the
-    result is an object without one. A bare list has no header to carry
-    it on and is returned as is."""
+    """`result` with the model's depth landmarks on it, when the result
+    is an object without them. A bare list has no header to carry them
+    on and is returned as is.
+
+    They come from an input: a records op downstream of a model op
+    passes them along. An op whose model work happens INSIDE it has no
+    such input, and carries them itself — see `_block_map`."""
     if not isinstance(result, dict) or "arch" in result:
         return result
     for value in (inputs or {}).values():

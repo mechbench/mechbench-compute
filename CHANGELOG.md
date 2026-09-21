@@ -13,6 +13,28 @@ nothing said so.
 
 ---
 
+## 0.127.0 — 2026-09-21
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **`records/map` keeps the depth landmarks its body found.** A map's
+  records are its sweep — a corpus of forty-two layer numbers knows
+  nothing about any model — so `arch` cannot reach it from its input
+  the way it reaches an ordinary records op. It is on the body's
+  header, and only the body's items were being kept, so a sweep run as
+  a map drew a plain axis however recent the release. An added header
+  field on those results, so their content hashes change.
+
+### Other
+
+- _None._
+
+---
+
 ## 0.126.0 — 2026-09-21
 
 ### Changes that raise

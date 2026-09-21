@@ -347,6 +347,39 @@ class TestAFigureCarriesItsVocabulary:
         monkeypatch.setattr(ex, "_model_loaded", lambda _m: SimpleNamespace(arch=plain))
         assert ex._run_model_block(lambda i, p: {}, {}, {"model": "fake/m"})["arch"] == {"n_layers": 12}
 
+    def test_a_map_keeps_the_landmarks_its_body_found(self, monkeypatch):
+        # A map's records are its sweep — forty-two layer numbers know
+        # nothing about any model — so the landmarks cannot come from the
+        # input the way they do for an ordinary records op. They are on
+        # the body's header, and only its items were being kept (000622).
+        from types import SimpleNamespace
+
+        from mechbench_compute.lexicon import kinds as K
+        from mechbench_compute import protocol as P
+
+        body_out = K.collection("records/record", [{"id": "r", "silhouette": 0.3}],
+                                arch=dict(self.ARCH))
+
+        class Child:
+            _model = None
+            _model_id = None
+
+            def __init__(self, *a, **k):
+                pass
+
+            def run(self, spec, **kw):
+                return SimpleNamespace(payload={"outputs": {"separation": body_out}})
+
+        ex = P.ProtocolExecutor()
+        monkeypatch.setattr(P, "ProtocolExecutor", Child)
+        out = ex._block_map(
+            {"records": K.collection("records/record", [{"id": "l0", "layer": 0}])},
+            {"body": {"nodes": [{"id": "separation", "block": "records/select"}], "edges": []},
+             "bind": {"layer": "layer"}},
+        )
+        assert out["arch"] == self.ARCH
+        assert [i["id"] for i in out["items"]] == ["l0:r"]
+
     def test_annotations_name_a_row_and_say_something(self):
         spec = self._spec({"annotate": [{"at": {"layer": 3}, "text": "the last global layer"}]})
         assert spec["annotate"] == [{"at": {"layer": 3}, "text": "the last global layer"}]
