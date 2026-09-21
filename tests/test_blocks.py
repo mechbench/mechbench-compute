@@ -302,16 +302,49 @@ class TestAFigureCarriesItsVocabulary:
             self._spec({"axes": {"layer": {"global": [1]}}})
 
     def test_a_summary_of_a_sweep_still_knows_the_model(self):
-        # The landmarks ride from the sweep onto its summary, so a figure
-        # drawn two nodes downstream still draws them.
-        from mechbench_compute.blocks import group_stats
+        # The landmarks ride from the sweep through every records op the
+        # executor runs (000624) — the block itself knows nothing about
+        # them — so a figure two nodes downstream still draws them.
+        from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
         coll = {"kind": "collection", "item_kind": "intervene/ablation",
                 "items": [{**r, "coords": {"layer": r["layer"]}} for r in self.ROWS],
                 "arch": self.ARCH}
-        table = group_stats(coll, {"by": ["layer"], "value": "mean"})
-        assert table["arch"] == self.ARCH
-        spec = self._spec({}, records=table)
-        assert spec["axes"]["layer"]["global"] == [1, 3]
+        graph = {"dataflow": 2, "nodes": [
+            {"id": "by-layer", "block": "records/summarize",
+             "params": {"by": ["layer"], "value": "mean"}, "inputs": {"records": coll}},
+            {"id": "figure", "block": "records/plot",
+             "params": {"encoding": {"x": "layer", "y": "mean"}}},
+        ], "edges": [{"from": {"node": "by-layer"}, "to": {"node": "figure", "port": "records"}}]}
+        out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,
+                                                  extra={"graph": graph}))
+        payload = out.payload if hasattr(out, "payload") else out
+        # Only the leaf is an output; that the summary carried the
+        # landmarks shows in the figure it fed, which names them without
+        # having been told.
+        figure = payload["outputs"]["figure"]
+        assert figure["axes"] == {"layer": {"n": 4, "global": [1, 3], "kv_shared_from": 2}}
+        # And the figure itself carries them on for anything downstream.
+        assert figure["arch"] == self.ARCH
+
+    def test_every_model_block_result_carries_the_landmarks(self, monkeypatch):
+        # The executor's model-block wrapper stamps `arch` from the model
+        # it ran (000624), so no block has to know the landmarks exist.
+        from types import SimpleNamespace
+        from mechbench_compute.protocol import ProtocolExecutor
+        ex = ProtocolExecutor()
+        arch = SimpleNamespace(n_layers=4, global_layers=(1, 3), first_kv_shared_layer=2)
+        monkeypatch.setattr(ex, "_model_loaded", lambda _m: SimpleNamespace(arch=arch))
+        monkeypatch.setattr(ex, "_adapter_fused", lambda *a, **k: __import__("contextlib").nullcontext())
+        out = ex._run_model_block(lambda inputs, params: {"kind": "collection", "items": []}, {}, {"model": "fake/m"})
+        assert out["arch"] == self.ARCH
+        # A block that already said something about the model keeps it.
+        kept = ex._run_model_block(lambda i, p: {"arch": {"n_layers": 99}}, {}, {"model": "fake/m"})
+        assert kept["arch"] == {"n_layers": 99}
+        # And a model family without landmarks leaves them out, rather
+        # than inventing an empty list.
+        plain = SimpleNamespace(n_layers=12)
+        monkeypatch.setattr(ex, "_model_loaded", lambda _m: SimpleNamespace(arch=plain))
+        assert ex._run_model_block(lambda i, p: {}, {}, {"model": "fake/m"})["arch"] == {"n_layers": 12}
 
     def test_annotations_name_a_row_and_say_something(self):
         spec = self._spec({"annotate": [{"at": {"layer": 3}, "text": "the last global layer"}]})

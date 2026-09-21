@@ -1098,6 +1098,10 @@ class ProtocolExecutor:
             # A collection is stored with its items in key order: the same
             # items in any order are the same bytes.
             results[nid] = lexicon.canonical_collection(results[nid])
+            # A result about a model's layers stays about them through
+            # every records op (000624): the landmarks on any input's
+            # header ride onto an output that has none.
+            results[nid] = _carry_arch(inputs, results[nid])
             node_hashes[nid] = resume_mod.content_hash(results[nid])
             if result_base and discard and not outputs_of.get(nid):
                 # Held, not emitted (000561): the consumers read it from
@@ -2223,6 +2227,15 @@ class ProtocolExecutor:
             # Deltas the architecture could not take (lora.fuse): the
             # result says so, next to its numbers, never only in a log.
             result["adapter_skipped_modules"] = skipped
+        # The model's depth landmarks ride on every result a model block
+        # writes (000624), so a figure downstream can draw them without
+        # being told: which layers attend globally, and where fresh keys
+        # and values stop. One place, for every block present and future.
+        arch = getattr(model, "arch", None)
+        if isinstance(result, dict) and "arch" not in result and arch is not None:
+            from mechbench_compute.blocks import arch_header
+
+            result["arch"] = arch_header(arch)
         return result
 
     def _adapter_fused(self, model, inputs, params, ref=None, skipped=None):
@@ -3133,6 +3146,18 @@ MISSING_POLICIES = ("fail", "skip", "placeholder")
 #: adapter at a time), and a pure block takes microseconds, where a
 #: thread would be pure risk for no gain.
 REMOTE_BLOCKS = ("text/chat", "eval/judge")
+
+
+def _carry_arch(inputs: Mapping[str, Any], result: Any) -> Any:
+    """`result` with the first input's `arch` header on it, when the
+    result is an object without one. A bare list has no header to carry
+    it on and is returned as is."""
+    if not isinstance(result, dict) or "arch" in result:
+        return result
+    for value in (inputs or {}).values():
+        if isinstance(value, Mapping) and isinstance(value.get("arch"), Mapping):
+            return {**result, "arch": dict(value["arch"])}
+    return result
 
 #: How many remote nodes may be in flight at once. The provider's own
 #: rate limiter (000344) bounds the requests WITHIN a node; this bounds

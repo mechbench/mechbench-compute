@@ -13,6 +13,33 @@ nothing said so.
 
 ---
 
+## 0.125.0 — 2026-09-21
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- **Every result a model block writes carries `arch`** — the model's
+  depth landmarks (`n_layers`, `global_layers`, `first_kv_shared_layer`)
+  — and every records op's output carries the `arch` of its inputs
+  forward. An added header field, on every result, so every content
+  hash changes; a resume from before this release recomputes.
+
+### Other
+
+- 000624: the stamp moved from `intervene/ablate-layers` to the
+  executor's model-block wrapper, and the carry from `records/summarize`
+  and `records/contrast` to the executor's dispatch, so it is one
+  mechanism for every block present and future, and no block knows
+  the landmarks exist. A `records/plot` three records ops downstream of
+  any model op draws them with no `axes` param. A model family without
+  hybrid attention or key/value sharing leaves those fields out rather
+  than inventing an empty list.
+
+---
+
 ## 0.124.0 — 2026-09-20
 
 ### Changes that raise

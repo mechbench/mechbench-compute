@@ -416,16 +416,7 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     out = summary_rows(groups, params)
     if n_missing:
         out["n_missing"] = n_missing
-    _carry_arch(records, out)
     return out
-
-
-def _carry_arch(records: Any, out: dict[str, Any]) -> None:
-    """A table summarising a sweep is still about that model's layers:
-    the landmarks on the input's header ride onto the output's, so a
-    figure drawn from the table can still draw them."""
-    if isinstance(records, Mapping) and isinstance(records.get("arch"), Mapping):
-        out["arch"] = dict(records["arch"])
 
 
 def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
@@ -521,7 +512,6 @@ def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
            "interval": {"level": level, "method": "percentile-bootstrap",
                         "of": "difference of means", "paired": paired,
                         "resamples": resamples, "seed": seed}}
-    _carry_arch(records, out)
     return out
 
 
