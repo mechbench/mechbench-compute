@@ -1700,3 +1700,12 @@ PURE_BLOCKS.update(_TOOL_BLOCKS)
 from mechbench_compute.trees import PURE_TREE_BLOCKS as _TREE_BLOCKS
 
 PURE_BLOCKS.update(_TREE_BLOCKS)
+
+# An operation that has its own file (docs/OPS_LAYOUT.md) and runs with
+# no executor is callable here by name, as the ones above are.
+from mechbench_compute import ops as _ops  # noqa: E402
+
+PURE_BLOCKS.update({
+    name: (lambda inputs, params, _name=name: _ops.run_standalone(_name, inputs, params))
+    for name in _ops.standalone()
+})

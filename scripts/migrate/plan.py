@@ -142,8 +142,20 @@ def declared_name(mod: Module, d: Def) -> str | None:
     return None
 
 
-def main() -> None:
-    files = sorted({f for sites in SITES.values() for f, _ in sites} | set(LEXICON_FILES) | {"blocks.py", "reduce.py"})
+@dataclass
+class Analysis:
+    mods: dict[str, Module]
+    pieces: dict[str, list[Def]]           # op -> its roots
+    placement: dict[str, list[Def]]        # destination -> what lands there
+    problems: list[str]
+
+    def dest_of(self) -> dict[tuple[str, str], str]:
+        return {(d.file, d.name): dest for dest, ds in self.placement.items() for d in ds}
+
+
+def analyse() -> Analysis:
+    files = sorted({f for sites in SITES.values() for f, _ in sites if (PKG / f).exists()}
+                   | set(LEXICON_FILES) | {"blocks.py", "reduce.py"})
     mods = {f: Module(f) for f in files}
 
     declarations: dict[str, Def] = {}
@@ -154,15 +166,19 @@ def main() -> None:
                 if name:
                     declarations[name] = d
 
-    pieces: dict[str, list[Def]] = defaultdict(list)   # op -> its roots
+    pieces: dict[str, list[Def]] = defaultdict(list)
     problems: list[str] = []
     for op in sorted(SITES):
+        if (PKG / op_path(op)).exists():
+            continue                        # already moved
         if op in declarations:
             pieces[op].append(declarations[op])
         else:
             problems.append(f"{op}: no declaration found")
         for file, fn in SITES[op]:
-            m = mods[file]
+            m = mods.get(file)
+            if m is None:
+                continue
             if fn in m.methods:
                 pieces[op].append(m.methods[fn])
             elif fn in m.defs:
@@ -176,7 +192,6 @@ def main() -> None:
                 pieces[op].append(Def(m.rel, f"<{table}[{op!r}]>", value.lineno, value.end_lineno or value.lineno,
                                       "registry", names))
 
-    # Follow each root into its own module, and record who reaches what.
     for op, roots in pieces.items():
         for root in roots:
             m = mods[root.file]
@@ -202,6 +217,12 @@ def main() -> None:
             else:
                 dest = "ops/_common.py"
             placement[dest].append(d)
+    return Analysis(mods, pieces, placement, problems)
+
+
+def main() -> None:
+    a = analyse()
+    mods, placement, problems = a.mods, a.placement, a.problems
 
     if "--json" in sys.argv:
         print(json.dumps({dest: [{"file": d.file, "name": d.name, "start": d.start, "end": d.end, "kind": d.kind,

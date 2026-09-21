@@ -70,9 +70,16 @@ from mechbench_compute.lexicon.kinds import (
     satisfies,
 )
 
+# An operation that has its own file is declared there
+# (docs/OPS_LAYOUT.md). This import sits below every name an operation's
+# file may want from this package, because finding the operations
+# imports them.
+from mechbench_compute import ops as _ops  # noqa: E402
+
 OPS: tuple[Op, ...] = tuple(
     sorted(
-        (*model.OPS, *direction.OPS, *trajectory.OPS, *records.OPS, *external.OPS),
+        (*model.OPS, *direction.OPS, *trajectory.OPS, *records.OPS, *external.OPS,
+         *(m.OP for m in _ops.modules().values())),
         key=lambda op: op.name,
     )
 )

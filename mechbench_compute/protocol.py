@@ -36,7 +36,7 @@ from mechbench_schema import (
     LayerAggregates,
 )
 
-from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, Model, lexicon
+from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, Model, lexicon, ops
 from mechbench_compute import thinking as THINK
 
 
@@ -935,6 +935,16 @@ class ProtocolExecutor:
                     if isinstance(done_ahead, BaseException):
                         raise done_ahead
                     results[nid] = done_ahead
+                elif ops.find(block) is not None:
+                    results[nid] = self._run_op(
+                        block, inputs, params,
+                        on_item=on_item, on_start=expand, secrets=secrets,
+                        on_checkpoint=on_checkpoint,
+                        input_paths=dict(input_paths),
+                        bindings=bound_params if declared else bindings,
+                        result_base=extra.get("resultPath"),
+                        resume_items=resume_kwargs.get("resume_items"),
+                        resume_state=resume_kwargs.get("resume_state"))
                 elif block == "records/plot":
                     # A viz references its upstream by LABEL when the
                     # executor knows it (lineage-true, renders live).
@@ -2217,6 +2227,17 @@ class ProtocolExecutor:
 
         model = self._model_loaded(params.get("model"))
         return tokenizer_stats.block(model, inputs, params)
+
+    def _run_op(self, block, inputs, params, **lent):
+        """Run an operation from its own file (docs/OPS_LAYOUT.md): lend
+        it a context, and load the model and fuse an adapter around it
+        when its declaration says there are weights to fuse onto."""
+        mod = ops.find(block)
+        ctx = ops.Context(executor=self, **lent)
+        if ops.fuses_adapter(block):
+            return self._run_model_block(
+                lambda i, p: mod.run(ctx, i, p), inputs, params)
+        return mod.run(ctx, inputs, params)
 
     def _run_model_block(self, fn, inputs, params, *args, **kwargs):
         """Model-block wrapper: load the bound model, fuse an adapter

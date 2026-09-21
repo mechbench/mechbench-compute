@@ -69,8 +69,14 @@ Every field has a default, so a test builds one in a line:
 - **The registry.** `mechbench_compute.ops` imports every module under
   it. There is no table of operations to keep in step with the files.
 - **Whether an operation is pure** — `OP.requires == "pure"`.
-- **Whether the executor fuses an adapter around it** — it declares an
-  `adapter` input port.
+- **Whether it can run with no executor at all** — it is pure and its
+  `run` never reads `ctx`. That is the set a tool handler or a chunked
+  reduce may call.
+- **Whether the executor fuses an adapter around it** — it requires
+  local weights (`mlx-local`) *and* declares an `adapter` input port:
+  there are weights to fuse onto, and an adapter may arrive. The port
+  alone does not say so — `adapter/measure` and `adapter/publish` take
+  an adapter as the thing they operate on.
 
 ## Two rules the layout depends on
 

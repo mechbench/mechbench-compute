@@ -34,6 +34,7 @@ import re
 import pytest
 
 from mechbench_compute.block_params import ACCEPTED, COMMON, check_inputs, check_params
+from mechbench_compute import ops
 from mechbench_compute.lexicon import BY_NAME
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
@@ -297,6 +298,11 @@ def ports_read(ref: str) -> set[str]:
     read |= set(READS_INPUTS.findall(_registry_entry(ref)))
     if "_run_model_block" in branch or any("_run_model_block" in b for b in bodies):
         read.add("adapter")
+    # An operation in its own file (docs/OPS_LAYOUT.md) has no dispatch
+    # branch: the executor fuses an adapter around it when its
+    # declaration says there are local weights to fuse onto.
+    if ops.find(ref) is not None and ops.fuses_adapter(ref):
+        read.add("adapter")
     return read
 
 
@@ -308,7 +314,7 @@ def registered_ops() -> set[str]:
     # The dispatcher compares the resolved bare name (docs/LEXICON.md §1).
     dispatched = set(re.findall(r'block == "([a-z0-9-]+/[a-z0-9-]+)"',
                                 (ROOT / P).read_text()))
-    return set(PURE_BLOCKS) | dispatched
+    return set(PURE_BLOCKS) | dispatched | set(ops.modules())
 
 
 # --- the gate ----------------------------------------------------------------
