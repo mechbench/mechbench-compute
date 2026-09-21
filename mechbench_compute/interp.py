@@ -261,10 +261,16 @@ def ablate_layers(
             **_own_top1_if_different(model, tok, base_lp),
         })
 
+    from mechbench_compute.blocks import arch_header
+
     return _K().collection(
         "intervene/ablation", rows,
         points=points,
         layers=layers,
+        # The model's depth landmarks, so a figure of this sweep can draw
+        # them (VISUALIZATION.md): which layers attend globally, and where
+        # fresh keys and values stop.
+        arch=arch_header(model.arch),
         n_conditions=len(records),
         # How many targets the model would not itself have said: a sweep
         # over the wrong spelling reads as a sweep, and this is the

@@ -13,6 +13,42 @@ nothing said so.
 
 ---
 
+## 0.124.0 — 2026-09-20
+
+### Changes that raise
+
+- `records/plot` refuses a `labels` key it does not label (anything but
+  `x`, `y`, `value`, `series`, `color`), an `axes.layer` without `n` or
+  naming a landmark outside `0..n-1`, and an `annotate` entry without
+  `at` and `text` — each by name.
+
+### Changes that alter results without raising
+
+- _None._ Every figure written before this release renders as it did; a
+  spec with none of the new fields is the same spec. `intervene/ablation`
+  results gain an `arch` header, and a `records/summarize` or
+  `records/contrast` of one carries it forward — an added field.
+
+### Other
+
+- **A figure carries what makes it a visualization**
+  (`mechbench/docs/VISUALIZATION.md`). `records/plot` and the
+  `records/chart` kind gain `labels` (what each field is called in
+  prose — the axis labels and the words the hover readout uses),
+  `axes.layer` (the model's depth landmarks: `n`, the `global`
+  attention layers, and `kv_shared_from`), `annotate` (callouts at
+  named rows), `focus` (the field shared across a page), and
+  `encoding.color` (tint each mark by a categorical, in place — a
+  different thing from `series`, which sits marks side by side).
+- **A sweep's result knows the model's landmarks.** `intervene/ablate-layers`
+  writes `arch` on its header from the loaded model's `Arch`, a summary
+  or contrast of it carries `arch` forward, and `records/plot` reads
+  `axes.layer` from its input's `arch` when the author does not name
+  it — so a figure two nodes downstream of the sweep still draws the
+  global-attention layers and the key/value boundary on its axis.
+
+---
+
 ## 0.123.0 — 2026-09-20
 
 ### Changes that raise

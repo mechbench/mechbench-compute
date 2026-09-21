@@ -887,12 +887,38 @@ row's tokens.
 
 An `lo`/`hi` encoding draws the interval `records/summarize` reports
 beside the point it belongs to.
+
+### What makes it a visualization
+
+A figure on this platform is meant to lend a reader spatial intuitions
+for a space they have none for, and it carries four things beyond the
+mark to do it (the vocabulary is `mechbench/docs/VISUALIZATION.md`):
+
+* **`labels`** — what each field is called in prose. The axes are
+  labelled with these words and the hover readout is a sentence built
+  from them: "Layer 23, attention only: −3.10 in log probability".
+* **`axes.layer`** — the model's depth landmarks: how many layers,
+  which attend globally, and where fresh keys and values stop. With
+  them, the depth axis marks the global-attention layers and the
+  key/value boundary, so a layer is the same place in every figure. A
+  sweep's result carries them under `arch`, and a summary or contrast
+  of it carries them forward; this op reads them from its input when
+  `axes` is not given.
+* **`annotate`** — callouts drawn on the figure at named rows. The
+  extremes are labelled by default; this names what else to say.
+* **`focus`** — the field this figure shares with the others on a page:
+  hover a layer here and it lights on every figure that has one.
+  Defaults to `layer` when the rows carry it, else `x`.
+
+`encoding.color` tints each mark by a categorical field **in place**;
+`encoding.series` splits rows into several lines or side-by-side bars.
+The two are different and may be combined.
 """,
     inputs=(
         In("records", "collection | records/table",
            "The table, or any collection of items, to chart.", many=True),
     ),
-    output=Output('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`, `value`, `text`, `lo`, `hi` as the mark uses them), `scale` when given, and `source` or `data`.'),
+    output=Output('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`, `color`, `value`, `text`, `lo`, `hi` as the mark uses them), `scale` when given, `labels`, `axes`, `annotate` and `focus` when given, and `source` or `data`.'),
     params=(
         P("encoding", "object",
           "Which field goes where. `x`/`y` for the point-shaped marks, "
@@ -903,6 +929,8 @@ beside the point it belongs to.
               P("x", "string", "The field on the x axis.", None),
               P("y", "string", "The field on the y axis.", None),
               P("series", "string", "The field that splits the rows into series.", None),
+              P("color", "string",
+                "The categorical field each mark takes its colour from, in place.", None),
               P("value", "string", "The number a heat cell or a token takes its colour from.", None),
               P("text", "string", "The field holding a row's tokens, for a token strip.", None),
               P("lo", "string", "The interval's lower end.", None),
@@ -923,13 +951,51 @@ beside the point it belongs to.
           "recovery, a Δ log p), `\"sequential\"` runs from the lowest "
           "value. Diverging when the values cross zero, by default.",
           None, choices=("diverging", "sequential")),
-        P("title", "string", "The chart's title.", ""),
+        P("title", "string", "The chart's title: its claim, as a sentence.", ""),
+        P("labels", "object",
+          "What each encoded field is called in prose — the axis labels "
+          "and the words the hover readout uses.",
+          None, fields=(
+              P("x", "string", "What the x field is called.", None),
+              P("y", "string", "What the y field is called.", None),
+              P("value", "string", "What the value field is called.", None),
+              P("series", "string", "What the series field is called.", None),
+              P("color", "string", "What the colour field is called.", None),
+          )),
+        P("axes", "object",
+          "Landmarks for an axis. `layer` carries the model's depth: "
+          "`n` layers, the `global` attention layers, and "
+          "`kv_shared_from`, the first layer that reuses keys and values. "
+          "Read from the input's `arch` header when not given.",
+          None, fields=(
+              P("layer", "object", "The depth landmarks.", None, fields=(
+                  P("n", "int", "How many layers the model has.", None),
+                  P("global", "list[int]", "The layers that attend to the whole prompt.", None),
+                  P("kv_shared_from", "int",
+                    "The first layer that reuses earlier keys and values.", None),
+              )),
+          )),
+        P("annotate", "list[object]",
+          "Callouts drawn on the figure: each names the row it sits at "
+          "(`at`, a field → value map) and what it says.",
+          None, fields=(
+              P("at", "map[string, json]", "The row: field → value.", None),
+              P("text", "string", "What the callout says.", None),
+          )),
+        P("focus", "string",
+          "The field shared with the other figures on a page, so a hover "
+          "here lights the same value there. `layer` when the rows carry "
+          "one, else the x field.",
+          None),
     ),
     example={
-        "title": "Δ log p by layer",
-        "mark": "line",
-        "encoding": {"x": "layer", "y": "mean", "series": "genre",
-                     "lo": "lo", "hi": "hi"},
+        "title": "Removing only the attention at each layer",
+        "mark": "point",
+        "encoding": {"x": "layer", "y": "mean", "lo": "lo", "hi": "hi",
+                     "color": "attention"},
+        "labels": {"y": "change in the answer's log probability",
+                   "color": "attention kind"},
+        "annotate": [{"at": {"layer": 23}, "text": "the last global layer with fresh keys and values"}],
     },
     example_inputs={"records": {"$ref": {"bench": "you/lab/table"}}},
 )

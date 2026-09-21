@@ -260,6 +260,66 @@ def test_viz_spec_references_its_source_or_inlines_rows():
     assert flat["data"]["rows"] == [{"id": "r", "value": 0.8, "task": "arc"}]
 
 
+class TestAFigureCarriesItsVocabulary:
+    """What turns a chart into a visualization (VISUALIZATION.md): prose
+    labels, the model's depth landmarks, callouts, and the field it
+    shares with the other figures on a page."""
+
+    ROWS = [{"id": f"L{i}", "layer": i, "mean": -float(i) / 10, "kind": "local"} for i in range(4)]
+    ARCH = {"n_layers": 4, "global_layers": [1, 3], "first_kv_shared_layer": 2}
+
+    def _spec(self, params, records=None):
+        from mechbench_compute.blocks import viz_spec
+        return viz_spec(records if records is not None else self.ROWS,
+                        {"encoding": {"x": "layer", "y": "mean"}, **params})
+
+    def test_labels_and_colour_and_focus_ride_on_the_spec(self):
+        spec = self._spec({"labels": {"y": "what removing the layer costs"},
+                           "encoding": {"x": "layer", "y": "mean", "color": "kind"},
+                           "focus": "layer"})
+        assert spec["labels"] == {"y": "what removing the layer costs"}
+        assert spec["encoding"]["color"] == "kind"
+        assert spec["focus"] == "layer"
+
+    def test_a_label_for_a_field_the_figure_does_not_have_is_refused(self):
+        with pytest.raises(ValueError, match="labels names"):
+            self._spec({"labels": {"z": "nothing"}})
+
+    def test_landmarks_are_read_from_the_inputs_header(self):
+        # A sweep's result carries `arch`; a figure of it draws the
+        # landmarks without the author naming them.
+        coll = {"kind": "collection", "item_kind": "intervene/ablation",
+                "items": self.ROWS, "arch": self.ARCH}
+        spec = self._spec({}, records=coll)
+        assert spec["axes"] == {"layer": {"n": 4, "global": [1, 3], "kv_shared_from": 2}}
+
+    def test_given_landmarks_win_and_are_checked(self):
+        spec = self._spec({"axes": {"layer": {"n": 4, "global": [3]}}})
+        assert spec["axes"]["layer"] == {"n": 4, "global": [3]}
+        with pytest.raises(ValueError, match="outside 0..3"):
+            self._spec({"axes": {"layer": {"n": 4, "global": [9]}}})
+        with pytest.raises(ValueError, match="needs `n`"):
+            self._spec({"axes": {"layer": {"global": [1]}}})
+
+    def test_a_summary_of_a_sweep_still_knows_the_model(self):
+        # The landmarks ride from the sweep onto its summary, so a figure
+        # drawn two nodes downstream still draws them.
+        from mechbench_compute.blocks import group_stats
+        coll = {"kind": "collection", "item_kind": "intervene/ablation",
+                "items": [{**r, "coords": {"layer": r["layer"]}} for r in self.ROWS],
+                "arch": self.ARCH}
+        table = group_stats(coll, {"by": ["layer"], "value": "mean"})
+        assert table["arch"] == self.ARCH
+        spec = self._spec({}, records=table)
+        assert spec["axes"]["layer"]["global"] == [1, 3]
+
+    def test_annotations_name_a_row_and_say_something(self):
+        spec = self._spec({"annotate": [{"at": {"layer": 3}, "text": "the last global layer"}]})
+        assert spec["annotate"] == [{"at": {"layer": 3}, "text": "the last global layer"}]
+        with pytest.raises(ValueError, match=r"annotate\[0\] needs"):
+            self._spec({"annotate": [{"text": "where?"}]})
+
+
 def test_uniform_masses_derive_from_top_tokens():
     """The spinner-fairness regression (000315): plain decision reads
     emit top_tokens and no outcome_mass; the judge must derive rather
