@@ -145,6 +145,7 @@ def run_from_method(mod: Module, d: Def, dest: str, dest_of: dict[tuple[str, str
     reps: list[tuple[int, int, int, str]] = []
     wanted: set[tuple[str, str]] = set()
     claimed: set[int] = set()
+    local_names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
     for n in ast.walk(node):
         if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name):
             base = n.value.id
@@ -152,13 +153,18 @@ def run_from_method(mod: Module, d: Def, dest: str, dest_of: dict[tuple[str, str
                 text = "ctx.model" if n.attr == "_model_loaded" else f"ctx.executor.{n.attr}"
                 reps.append((n.lineno, n.col_offset, n.end_col_offset, text))
                 claimed.add(id(n.value))
-            elif base in mod.aliases and (mod.aliases[base], n.attr) in dest_of:
-                # `interp.patch_trace(` names something that is moving:
-                # name it directly, and import it if it lands elsewhere.
+            elif base in mod.aliases and dest_of.get((mod.aliases[base], n.attr)) == dest:
+                # `interp.patch_trace(` names something landing in this
+                # very file, where nothing imports it back: name it
+                # directly. A shared helper is left as `alias.name` — it
+                # is still reachable through its package, and leaving it
+                # is verbatim. (`plan = intervene_mod.plan(...)` would
+                # become `plan = plan(...)`, which shadows itself.)
+                if n.attr in local_names:
+                    notes.append(f"{d.name}: `{base}.{n.attr}` lands in this file but `{n.attr}` is also a local name — by hand")
+                    continue
                 reps.append((n.lineno, n.col_offset, n.end_col_offset, n.attr))
                 claimed.add(id(n.value))
-                if dest_of[(mod.aliases[base], n.attr)] != dest:
-                    wanted.add((mod.aliases[base], n.attr))
     for n in ast.walk(node):
         if isinstance(n, ast.Name) and id(n) not in claimed:
             if n.id in lent and isinstance(n.ctx, ast.Load):
@@ -435,16 +441,14 @@ def rewrite_references(leaf_moves: dict[tuple[str, str], str], a, notes: list[st
     converted = dict(conversions)
     counts: dict[str, int] = {}
     files = [p for base in ("mechbench_compute", "tests", "scripts") for p in (ROOT / base).rglob("*.py")]
+    # Files this move creates do not exist yet, and a body lifted into
+    # one may import, lazily, something that has moved as well.
+    files += [PKG / rel for rel in outputs if not (PKG / rel).exists()]
     for path in files:
         rel_root = str(path.relative_to(ROOT))
         rel_pkg = str(path.relative_to(PKG)) if rel_root.startswith("mechbench_compute/") else None
         key = converted.get(rel_pkg, rel_pkg) if rel_pkg else rel_root
-        if rel_pkg and key in outputs:
-            src_text = outputs[key]
-        elif rel_pkg and rel_pkg.startswith("ops/") and rel_pkg in outputs:
-            continue
-        else:
-            src_text = path.read_text()
+        src_text = outputs[key] if (rel_pkg and key in outputs) else path.read_text()
         if not any(name in src_text for names in by_module.values() for name in names):
             continue
         try:
@@ -467,11 +471,16 @@ def rewrite_references(leaf_moves: dict[tuple[str, str], str], a, notes: list[st
                     if not going:
                         continue
                     staying_names = [al for al in n.names if al.name not in table]
+                    here = dotted(rel_pkg) if rel_pkg else None
+                    # What now lives in this same file needs no import at all.
+                    going = [al for al in going if table[al.name] != here or al.asname]
                     for al in going:
                         add.add(f"from {table[al.name]} import {al.name}" + (f" as {al.asname}" if al.asname else ""))
                     indent = " " * n.col_offset
                     first, last = n.lineno, n.end_lineno or n.lineno
                     drop_lines.update(range(first, last + 1))
+                    if not going and not staying_names and n.col_offset:
+                        reps.append((first, -1, -1, f"{indent}pass  # its imports now live in this file"))
                     if staying_names:
                         kept = ", ".join(al.name + (f" as {al.asname}" if al.asname else "") for al in staying_names)
                         add_here = f"{indent}from {n.module} import {kept}"
@@ -536,8 +545,8 @@ def repoint_sites(op_names: list[str], conversions: list[tuple[str, str]]) -> No
     that became a package is named by its directory."""
     path = ROOT / "tests" / "test_block_params.py"
     text = path.read_text()
-    for src, _target in conversions:
-        text = text.replace(f'("{src}",', f'("{topic_of(src)}",')
+    for src, target in conversions:
+        text = text.replace(f'"{src}"', f'"{target}"')
     for op in op_names:
         rel = op_path(op)
         tree = ast.parse((PKG / rel).read_text())
@@ -562,6 +571,18 @@ def verify(verbatim: list[tuple[Def, str]], a) -> None:
                 return n
         return None
 
+    class _NoPlumbing(ast.NodeTransformer):
+        """Imports from this package, and the `pass` left where one was
+        the only statement, are where code lives, not what it does."""
+        def visit_ImportFrom(self, n):
+            return None if (n.module or "").startswith("mechbench_compute") else n
+
+        def visit_Pass(self, n):
+            return None
+
+    def dump(node: ast.AST) -> str:
+        return ast.dump(_NoPlumbing().visit(ast.parse(ast.unparse(node))))
+
     bad = 0
     for d, where in verbatim:
         old = find(a.mods[d.file].tree, d.name)
@@ -570,7 +591,7 @@ def verify(verbatim: list[tuple[Def, str]], a) -> None:
             print(f"   ✗ {d.name} did not land in {where}")
             bad += 1
             continue
-        od, nd = ast.dump(old), ast.dump(new)
+        od, nd = dump(old), dump(new)
         if d.kind == "declaration":
             od = od.replace(f"id='{d.name}'", "id='OP'", 1)
         if where.startswith("ops/"):
