@@ -1,0 +1,143 @@
+old_file	old_name	new_name	new_file	kind	refs	note
+blocks/cell_rows.py	cell_rows	expand_cells	blocks/expand_cells.py	function	2	with expand_grid below: this one maps a record STREAM, expand_grid reads ONE item; distinct names because a call site has to tell them apart
+blocks/coll.py	_coll	build_collection	blocks/build_collection.py	function	6	the house verb for making a lexicon object
+blocks/grid_rows.py	grid_rows	expand_grid	blocks/expand_grid.py	function	1	the task's own example
+blocks/group_key.py	_group_key	read_group_key	blocks/read_group_key.py	function	2	the verb heuristic passed it (group is a verb) but here group is a noun — it reads a key
+blocks/interval_of.py	_interval_of	read_interval	blocks/read_interval.py	function	2	returns (level, resamples, seed), or None when the node asks for no interval
+blocks/items.py	_items	read_items	blocks/read_items.py	function	12	the most-used helper in the package (12 files)
+blocks/transcript_mod.py	_transcript_mod	load_transcript_module	blocks/load_transcript_module.py	function	0	reached only through blocks/__init__.py — check first whether anything still calls it
+chat/by_cause.py	_by_cause	count_by_cause	chat/count_by_cause.py	function	1	
+chat/item.py	_item	build_item	chat/build_item.py	function	2	
+chat/new_box.py	_new_box	open_toolbox	chat/open_toolbox.py	function	2	open, not build: it also opens a sandbox session; build_toolbox is tools/toolbox_from below
+chat/records.py	_records	read_records	chat/read_records.py	function	2	
+chat/refuse_remote_only.py	_refuse_remote_only	refuse_remote_only	chat/refuse_remote_only.py	function	1	already a verb phrase; only the underscore goes, so the file keeps its name
+chat/sandbox_and_tools.py	_sandbox_and_tools	resolve_sandbox_tools	chat/resolve_sandbox_tools.py	function	2	returns (image, tool specs) — it resolves both from the node's params
+chat/summary.py	_summary	summarize_spend	chat/summarize_spend.py	function	1	summarize is the house verb (records/summarize); what it sums is the node's spend
+directions/as_array.py	as_array	coerce_array	directions/coerce_array.py	function	10	the task's own example
+directions/directions_from.py	_directions_from	collect_directions	directions/collect_directions.py	function	2	
+directions/is_direction.py	_is_direction	is_direction	directions/is_direction.py	function	2	a predicate already reads as a question; only the underscore goes
+directions/items_at.py	_items_at	select_layer_items	directions/select_layer_items.py	function	3	select is the house verb for taking a subset of a collection
+directions/model_provenance.py	_model_provenance	build_model_provenance	directions/build_model_provenance.py	function	2	
+directions/models_of.py	_models_of	collect_models	directions/collect_models.py	function	2	
+directions/same_space.py	same_space	check_same_space	directions/check_same_space.py	function	2	returns nothing and raises — it is an assertion, so check
+directions/space_at.py	_space_at	resolve_space	directions/resolve_space.py	function	2	resolve, not read: it merges the rows' spaces and applies the point override; read_space (below) reads one direction's
+directions/space_of.py	space_of	read_space	directions/read_space.py	function	5	see resolve_space above — two names that would both want 'space'
+interp/coords_of.py	_coords_of	read_record_coords	interp/read_record_coords.py	function	2	four functions are called coords_of; each gets the object it reads (record / parameter / subject)
+interp/k.py	_K	load_kinds	interp/load_kinds.py	function	10	_K() reads as a constant; it is a lazy import of the kinds module
+interp/last_logp.py	_last_logp	read_last_logp	interp/read_last_logp.py	function	8	the task's own example
+interp/own_top1_if_different.py	_own_top1_if_different	report_own_top1	interp/report_own_top1.py	function	3	report, not read: it returns {} when there is nothing to say; the condition stays in the docstring
+interp/pair.py	_pair	read_pair	interp/read_pair.py	function	3	
+interp/render_text.py	_render_text	render_text	interp/render_text.py	function	3	already a verb phrase; only the underscore goes
+interp/resolve_layers.py	_resolve_layers	resolve_layers	interp/resolve_layers.py	function	10	already a verb phrase; only the underscore goes
+interp/target_of.py	_target_of	resolve_target	interp/resolve_target.py	function	6	the task's own example
+interp/target_token_id.py	_target_token_id	encode_target_token	interp/encode_target_token.py	function	2	it encodes the target string and takes the first non-special id
+interp/tracked_ids.py	_tracked_ids	collect_tracked_ids	interp/collect_tracked_ids.py	function	4	
+intervene/as_list.py	_as_list	coerce_int_list	intervene/coerce_int_list.py	function	1	coerce is the verb the task pairs with as_*; int because it returns list[int]
+intervene/axis_coord.py	_axis_coord	coerce_axis_coord	intervene/coerce_axis_coord.py	function	1	
+intervene/edited.py	edited	edit_weights	intervene/edit_weights.py	function	2	a context manager; distinct from weights/edit_parameters, which is the thing it calls
+intervene/rows_matrix.py	_rows_matrix	build_rows_matrix	intervene/build_rows_matrix.py	function	1	
+intervene/scaled.py	scaled	scale_specs	intervene/scale_specs.py	function	1	
+intervene/source_items.py	_source_items	read_source_items	intervene/read_source_items.py	function	1	
+intervene/spec_items.py	spec_items	read_spec_items	intervene/read_spec_items.py	function	2	
+intervene/wire_spec.py	_wire_spec	encode_spec	intervene/encode_spec.py	function	2	encode/_wire: the wire form stays the docstring's word; note encode also means tokenize in distill.py — alternative dump_spec
+judge/constants.py	_FIRST_NUMBER	FIRST_NUMBER	judge/constants.py	constant	1	constant: only the underscore goes
+judge/json_object.py	_json_object	parse_json_object	judge/parse_json_object.py	function	1	
+judge/rationale.py	_rationale	read_rationale	judge/read_rationale.py	function	1	
+lora.py	_KEY_RE	KEY_RE	lora.py	constant	2	constant: only the underscore goes
+ops/__init__.py	module_name	resolve_module_name	ops/__init__.py	function	0	op name -> dotted module path
+ops/__init__.py	modules	load_modules	ops/__init__.py	function	1	it imports every operation's module; ops.find() already sits beside it
+ops/__init__.py	standalone	find_standalone	ops/__init__.py	function	1	
+ops/activations/capture.py	residual_vectors	capture_residual_vectors	ops/activations/capture.py	function	0	
+ops/activations/capture_attention.py	attention_patterns	capture_attention_patterns	ops/activations/capture_attention.py	function	0	
+ops/activations/contrast.py	residual_divergence	measure_residual_divergence	ops/activations/contrast.py	function	0	
+ops/activations/examples.py	examples	find_top_examples	ops/activations/examples.py	function	0	the docstring's own words: the corpus windows that most excite a direction
+ops/adapter/measure.py	_wanted	_is_wanted	ops/adapter/measure.py	function	0	a predicate; it filters
+ops/adapter/measure.py	adapter_pairs	read_adapter_pairs	ops/adapter/measure.py	function	0	
+ops/adapter/measure.py	delta_spectrum	compute_delta_spectrum	ops/adapter/measure.py	function	0	
+ops/direction/add.py	block_add	add_directions	ops/direction/add.py	function	0	one-line pass-through from run; consider inlining it into run instead
+ops/direction/average.py	block_average	average_directions	ops/direction/average.py	function	0	one-line pass-through from run; consider inlining it into run instead
+ops/direction/classify.py	block_classify	classify_vectors	ops/direction/classify.py	function	0	pass-through from run; consider inlining it into run instead
+ops/direction/classify.py	from_classification	fit_probe	ops/direction/classify.py	function	0	the mechanism: a linear probe per space — one of four fit_* mechanisms
+ops/direction/decompose.py	block_from_pca	decompose_vectors	ops/direction/decompose.py	function	0	pass-through from run; consider inlining it into run instead
+ops/direction/decompose.py	from_pca	fit_component	ops/direction/decompose.py	function	0	the mechanism: one principal component
+ops/direction/fit.py	block_from_vectors	fit_direction	ops/direction/fit.py	function	0	pass-through from run; consider inlining it into run instead
+ops/direction/fit.py	from_vectors	fit_mean_difference	ops/direction/fit.py	function	0	the mechanism: centroid(positive) - centroid(negative)
+ops/direction/normalize.py	block_normalize	normalize_direction	ops/direction/normalize.py	function	0	one-line pass-through from run; consider inlining it into run instead
+ops/direction/orthogonalize.py	block_orthogonalize	orthogonalize_direction	ops/direction/orthogonalize.py	function	0	pass-through from run; consider inlining it into run instead
+ops/direction/project.py	block_project	project_vectors	ops/direction/project.py	function	0	one-line pass-through from run; consider inlining it into run instead
+ops/direction/regress.py	_number_at	_read_number	ops/direction/regress.py	function	0	
+ops/direction/regress.py	block_from_regression	regress_vectors	ops/direction/regress.py	function	0	pass-through from run; consider inlining it into run instead
+ops/direction/regress.py	from_regression	fit_regression	ops/direction/regress.py	function	0	the mechanism: ridge regression
+ops/direction/unembed.py	vocab_projection	unembed_direction	ops/direction/unembed.py	function	0	unembed is the operation's own verb
+ops/eval/benchmark.py	suite_metric_records	build_metric_records	ops/eval/benchmark.py	function	0	
+ops/eval/expect.py	eval_expectation	check_expectations	ops/eval/expect.py	function	0	
+ops/eval/judge.py	coords_of	read_subject_coords	ops/eval/judge.py	function	0	one of four coords_of; this one reads the judged subject's
+ops/geometry/compare.py	_geometry_similarity	(delete)	ops/geometry/compare.py	function	0	DEAD: run -> _geometry_similarity -> geometry_similarity, and its body still holds the move's 'pass  # its imports now live in this file'. Delete it rather than rename it
+ops/geometry/compare.py	geometry_similarity	compare_geometry	ops/geometry/compare.py	function	0	the operation is geometry/compare
+ops/geometry/compare.py	separation	score_separation	ops/geometry/compare.py	function	0	
+ops/geometry/span.py	_distance_of	_read_distance_matrix	ops/geometry/span.py	function	0	
+ops/geometry/span.py	minimum_spanning_tree	grow_minimum_spanning_tree	ops/geometry/span.py	function	0	grow, from its own docstring (Prim's, in the order the tree grew) — so it does not read like build_span_trees, the op mechanism that calls it
+ops/geometry/span.py	mst	build_span_trees	ops/geometry/span.py	function	0	the op mechanism: one tree per group; see grow_minimum_spanning_tree above
+ops/geometry/span.py	tree_stats	measure_tree	ops/geometry/span.py	function	0	
+ops/intervene/ablate_layers.py	_ablation_points	_resolve_ablation_points	ops/intervene/ablate_layers.py	function	0	
+ops/intervene/apply.py	_hook_space	_parse_hook_name	ops/intervene/apply.py	function	0	
+ops/intervene/apply.py	_order	_walk_cells	ops/intervene/apply.py	function	0	a generator of (record, cell) pairs, weight edits in scope
+ops/intervene/patch.py	_attribution_grid	_compute_attribution_grid	ops/intervene/patch.py	function	0	
+ops/intervene/patch.py	_last_logits	_read_last_logits	ops/intervene/patch.py	function	0	near-twin of interp/read_last_logp (logits, not log-probabilities); worth checking whether one of the two can go
+ops/intervene/path.py	_frozen	_freeze_off_path	ops/intervene/path.py	function	0	it holds everything NOT on the path at its clean value; named outside the package only by tests — the underscore is still true, so it is renamed for its verb, not for its underscore
+ops/intervene/path.py	_head_writer	_make_head_writer	ops/intervene/path.py	function	0	make is the house verb for a function that returns a callable
+ops/intervene/path.py	_senders	_collect_senders	ops/intervene/path.py	function	0	named outside the package only by tests — the underscore is still true, so it is renamed for its verb, not for its underscore
+ops/logits/attribute.py	logit_attribution	attribute_logits	ops/logits/attribute.py	function	0	the operation is logits/attribute
+ops/logits/scan.py	lens_positions	scan_positions	ops/logits/scan.py	function	0	the operation is logits/scan
+ops/records/contrast.py	_field_of	_read_field	ops/records/contrast.py	function	0	
+ops/records/cross.py	_factor_levels	_materialize_levels	ops/records/cross.py	function	0	materialize is the docstring's own word
+ops/records/cross.py	factor_cross	cross_factors	ops/records/cross.py	function	0	the operation is records/cross
+ops/records/fill.py	template	fill_templates	ops/records/fill.py	function	0	the operation is records/fill
+ops/records/plot.py	_layer_axis_from	_read_layer_axis	ops/records/plot.py	function	0	
+ops/records/plot.py	viz_spec	build_chart	ops/records/plot.py	function	0	the kind it emits is records/chart; viz is not a word this codebase uses
+ops/records/select.py	_selected	_select_items	ops/records/select.py	function	0	
+ops/records/subtract.py	paired_delta	subtract_baseline	ops/records/subtract.py	function	0	the operation is records/subtract, and the baseline is what it subtracts
+ops/records/summarize.py	summary_rows	summarize_groups	ops/records/summarize.py	function	0	
+ops/records/tabulate.py	table_from_records	tabulate_records	ops/records/tabulate.py	function	0	
+ops/records/union.py	_shared_item_kind	_resolve_shared_kind	ops/records/union.py	function	0	
+ops/text/extend.py	transcript_item	build_transcript_item	ops/text/extend.py	function	0	
+ops/text/measure.py	_vocabulary_of	_read_vocabulary	ops/text/measure.py	function	0	
+ops/text/measure.py	_words_of	_split_words	ops/text/measure.py	function	0	
+ops/text/measure.py	text_stats	measure_texts	ops/text/measure.py	function	0	the operation is text/measure
+ops/text/render.py	_shown	_show_thinking	ops/text/render.py	function	0	
+ops/text/render.py	_words	_count_words	ops/text/render.py	function	0	
+ops/text/render.py	windowed	apply_window	ops/text/render.py	function	0	returns (kept, dropped) under a window policy
+ops/text/tokenize.py	_items_of	_read_strings	ops/text/tokenize.py	function	0	
+ops/text/tokenize.py	_script_of	_classify_char	ops/text/tokenize.py	function	0	
+ops/text/tokenize.py	block	measure_model_tokenizer	ops/text/tokenize.py	function	0	block is the retired word for run; this one takes the BOUND model and hands its tokenizer to measure_tokenizer
+ops/text/tokenize.py	tokenizer_stats	measure_tokenizer	ops/text/tokenize.py	function	0	the measurement itself, over a tokenizer object
+ops/tools/calc.py	calc	calculate	ops/tools/calc.py	function	0	the verb form of the operation's own name
+ops/tools/lookup.py	bench_lookup	fetch_bench_object	ops/tools/lookup.py	function	0	the docstring's own words
+ops/trajectory/capture.py	_coords_of	_read_record_coords	ops/trajectory/capture.py	function	0	same body as interp/read_record_coords; a later task should decide whether both are needed
+ops/trajectory/capture.py	_projected	_project_row	ops/trajectory/capture.py	function	0	
+ops/trajectory/capture.py	_row	_build_point	ops/trajectory/capture.py	function	0	it builds one trajectory/point
+ops/trajectory/capture.py	_vocab	_unembed_vector	ops/trajectory/capture.py	function	0	unembed is the house verb
+ops/weights/capture.py	parameter_stats	measure_parameter	ops/weights/capture.py	function	0	
+ops/weights/circuit.py	head_circuits	read_head_circuits	ops/weights/circuit.py	function	0	read: no forward pass, only weights
+protocol/tokenizer_id.py	_tokenizer_id	read_tokenizer_id	protocol/read_tokenizer_id.py	function	2	
+protocol/wire_model.py	_wire_model	encode_model	protocol/encode_model.py	function	1	with encode_spec and encode_params: one verb for the three wire forms
+protocol/wire_params.py	_wire_params	encode_params	protocol/encode_params.py	function	1	with encode_spec and encode_model: one verb for the three wire forms
+providers/budget.py	budget_from	build_budget	providers/budget.py	function	2	the class and the function that builds it
+reduce/block_of.py	_block_of	make_reduce_block	reduce/make_reduce_block.py	function	0	it returns a callable, so make; reached only through reduce/__init__.py — check it is still used
+reduce/monoid_for.py	monoid_for	find_monoid	reduce/find_monoid.py	function	2	
+sandbox_session.py	_TOOL_DEFS	TOOL_DEFS	sandbox_session.py	constant	1	constant: only the underscore goes
+tools/as_text.py	_as_text	coerce_text	tools/coerce_text.py	function	1	coerce, as in coerce_array
+tools/toolbox_from.py	toolbox_from	build_toolbox	tools/build_toolbox.py	function	1	see chat/open_toolbox, which is not this
+trajectory/header.py	_header	read_header	trajectory/read_header.py	function	2	
+trajectory/rows.py	_rows	read_points	trajectory/read_points.py	function	3	not read_items: blocks/read_items already has that name and three files import both; a trajectory's items are trajectory/point
+trajectory/trajectory_of.py	_trajectory_of	read_trajectory	trajectory/read_trajectory.py	function	3	
+transcript/transcripts.py	_transcripts	read_transcripts	transcript/read_transcripts.py	function	2	
+weights/constants.py	_SCOPE	SCOPE	weights/constants.py	constant	2	constant: only the underscore goes — but SCOPE alone is vague once public; MODEL_SCOPE would say what it scopes
+weights/coords_of.py	_coords_of	parse_parameter_coords	weights/parse_parameter_coords.py	function	3	one of four coords_of; this one parses a parameter NAME
+weights/direction_of.py	_direction_of	read_direction	weights/read_direction.py	function	1	
+weights/effective_rank.py	effective_rank	compute_effective_rank	weights/compute_effective_rank.py	function	2	
+weights/module_of.py	_module_of	resolve_module	weights/resolve_module.py	function	2	returns (module, attribute) for a parameter name
+weights/parameter_names.py	parameter_names	read_parameters	weights/read_parameters.py	function	3	it returns {name: tensor}, not names
+weights/pattern.py	_pattern	compile_point_pattern	weights/compile_point_pattern.py	function	1	
+weights/project_out.py	_project_out	project_out	weights/project_out.py	function	1	already a verb phrase; only the underscore goes
+weights/truncate.py	_truncate	truncate	weights/truncate.py	function	1	already a verb phrase; only the underscore goes
