@@ -13,6 +13,55 @@ nothing said so.
 
 ---
 
+## 0.128.0 — 2026-09-21
+
+### Changes that raise
+
+- **One file per operation and per helper, so an import that named a
+  definition through its old module raises `ImportError`.** An
+  operation named `family/name` is
+  `mechbench_compute/ops/<family>/<name>.py` and holds its own
+  declaration, its `run` and its mechanism; a definition two or more
+  operations share is a file of its own under its topic, named for
+  itself —
+  `from mechbench_compute.interp.read_last_logp import read_last_logp`.
+  Most of those definitions were renamed as they moved, 130 of them, so
+  both halves of the import line are new. A package's `__init__.py`
+  imports back only the few names something still reaches through the
+  package, and nothing else. Two more: `ops.modules()` is
+  `ops.load_modules()`, and `mechbench_compute.protocol` composes
+  `ProtocolExecutor` from one file per topic (`pipeline`, `dispatch`,
+  `model`, `remote`, `tools`, `chat`, `memo`, `legacy_kinds`). Nothing
+  in this repository or in mechbench-runner names an old path; an
+  out-of-tree caller that does is told at import which module and which
+  name. `docs/OPS_LAYOUT.md` is where an operation and its helpers
+  live, and why.
+
+### Changes that alter results without raising
+
+- _None._ No operation's declaration or behaviour changed. The lexicon
+  dump is identical to 0.127.0's — the same names, params, ports and
+  prose — and every re-run is bit-identical, which is how each step of
+  the move was checked.
+
+### Other
+
+- **Three gates hold the layout, so holding it does not depend on
+  remembering it.** `tests/test_file_budget.py`: no file over 600
+  lines, with the nine already over it listed at the length they had,
+  each free to shrink and never to grow. `tests/test_no_history.py`: no
+  comment or docstring carries a task id, a date or a version, because
+  a comment states a constraint rather than narrating how the code came
+  to be (`docs/COMMENTS.md`; 569 lines of history-carrying prose came
+  out). `tests/test_names.py`, new here: a leading underscore on a name
+  another module of the package reaches fails, and so does a function
+  under `ops/` or in a helper file whose name does not start with a
+  verb (`docs/NAMES.md`).
+- The migration scripts that performed the move are deleted. What they
+  did is the tree.
+
+---
+
 ## 0.127.0 — 2026-09-21
 
 ### Changes that raise
