@@ -14,6 +14,13 @@ therefore cannot leak a key, and a request that drifted — a changed
 system prompt, a new tool — MISSES loudly instead of quietly replaying
 the answer to a different question.
 
+**A replay maps the provider's own response again.** An entry keeps
+the response body as the provider sent it (`raw`) beside the canonical
+parts, and a replay reads the body through the adapter's current
+mapping, so a correction to an adapter reaches recorded answers too.
+An entry with no body (the mock's, and any recorded before bodies were
+kept) replays its stored parts as they were.
+
 **Repeated identical requests replay in order.** Sampling the same
 prompt 20 times at temperature 1 is 20 different answers to one hash,
 so an entry holds a LIST; replay walks it and repeats the last one
@@ -74,6 +81,7 @@ def response_to_wire(resp: AdapterResponse) -> dict[str, Any]:
         "headers": dict(resp.headers or {}),
         **({"logprobs": resp.logprobs} if resp.logprobs is not None else {}),
         **({"empty": resp.empty.to_wire()} if resp.empty is not None else {}),
+        **({"raw": resp.raw} if resp.raw is not None else {}),
     }
 
 
@@ -87,6 +95,7 @@ def response_from_wire(value: Mapping[str, Any]) -> AdapterResponse:
         headers=dict(value.get("headers") or {}),
         logprobs=value.get("logprobs"),
         empty=EmptyReply.from_wire(value.get("empty")),
+        raw=value.get("raw"),
     )
 
 
@@ -171,6 +180,12 @@ class CassetteTransport(Transport):
         key = msg.request_hash(req, provider=self.name)
         if self.mode in ("replay", "auto"):
             hit = self.cassette.take(key)
+            if hit is not None and hit.raw is not None:
+                from mechbench_compute.providers import remap_response
+
+                mapped = remap_response(self.name, hit.raw, req, headers=hit.headers)
+                if mapped is not None:
+                    hit = mapped
             if hit is not None:
                 if on_token is not None:
                     for p in hit.parts:
@@ -185,6 +200,6 @@ class CassetteTransport(Transport):
             parts=resp.parts, stop_reason=resp.stop_reason, usage=resp.usage,
             model_version=resp.model_version, response_id=resp.response_id,
             headers=scrub_headers(resp.headers, self._secrets),
-            logprobs=resp.logprobs, empty=resp.empty)
+            logprobs=resp.logprobs, raw=resp.raw, empty=resp.empty)
         self.cassette.add(key, stored)
         return resp

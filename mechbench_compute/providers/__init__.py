@@ -41,15 +41,15 @@ from mechbench_compute.providers.limiter import Limiter, NullLimiter, RateLimits
 from mechbench_compute.providers.messages import ChatRequest, Message, ToolSpec
 
 #: Every provider a ModelRef may name. `openai-compatible` is the
-#: generic escape hatch (Together, Groq, DeepSeek, Mistral, OpenRouter,
+#: generic escape hatch (Together, Groq, Mistral, OpenRouter,
 #: a local vLLM or llama.cpp server): its credential carries a
 #: base_url alongside the token.
 PROVIDERS: tuple[str, ...] = (
-    "anthropic", "openai", "xai", "gemini", "fireworks",
+    "anthropic", "openai", "xai", "gemini", "fireworks", "deepseek",
     "openai-compatible", "mock",
 )
 
-_OPENAI_SHAPED = ("openai", "xai", "fireworks", "openai-compatible")
+_OPENAI_SHAPED = ("openai", "xai", "fireworks", "deepseek", "openai-compatible")
 
 __all__ = [
     "PROVIDERS",
@@ -135,6 +135,28 @@ def make_transport(provider: str, credential: Mapping[str, Any] | str | None = N
     return CassetteTransport(cassette, inner=inner, mode=cassette_mode,
                              secrets=(str(token),) if token else (),
                              capabilities=capabilities(provider))
+
+
+def remap_response(provider: str, raw: Any, req: Any, *,
+                   headers: Mapping[str, str] | None = None):
+    """A recorded response body mapped through `provider`'s adapter as
+    it reads bodies now, or None when the provider has no such reader
+    (the mock) or the body is not one."""
+    if not isinstance(raw, Mapping):
+        return None
+    if provider == "anthropic":
+        from mechbench_compute.providers.anthropic import read_response
+
+        return read_response(raw, req, headers=headers)
+    if provider == "gemini":
+        from mechbench_compute.providers.gemini import read_response
+
+        return read_response(raw, req, headers=headers)
+    if provider in _OPENAI_SHAPED:
+        from mechbench_compute.providers.openai_compatible import read_response
+
+        return read_response(raw, req, provider=provider, headers=headers)
+    return None
 
 
 def _adapter(provider: str, credential, *, base_url=None, sleep=None,

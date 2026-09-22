@@ -7,6 +7,14 @@ knobs live under `generationConfig`, and a tool result is a
 id — so this adapter resolves ids back to names from the conversation
 it was handed, which is the one place the canonical model needs
 translating rather than renaming.
+
+Reasoning comes two ways. A part marked `thought: true` is a thought
+summary: a reasoning part, never reply text. And any part — a
+`functionCall`, the last text part — may carry a `thoughtSignature`,
+which must go back on that same part: a function call in the current
+turn whose signature is missing is refused. (With parallel calls only
+the first carries one.) The signature is kept on the canonical part it
+rode on, and both kinds go back only to the model that issued them.
 """
 
 from __future__ import annotations
@@ -51,6 +59,13 @@ def _contents(req: msg.ChatRequest) -> list[dict[str, Any]]:
     for m in req.messages:
         parts: list[dict[str, Any]] = []
         for p in m.content:
+            if isinstance(p, msg.ReasoningPart):
+                # Another model's thoughts are dropped, never turned
+                # into text.
+                if p.native and msg.is_replayable(p.provider, p.model,
+                                                  provider="gemini", model=req.model):
+                    parts.append(dict(p.native))
+                continue
             if isinstance(p, msg.TextPart):
                 parts.append({"text": p.text})
             elif isinstance(p, msg.ToolCallPart):
@@ -61,6 +76,10 @@ def _contents(req: msg.ChatRequest) -> list[dict[str, Any]]:
                     "name": names.get(p.tool_call_id, p.tool_call_id),
                     "response": {"content": p.content,
                                  **({"error": True} if p.is_error else {})}}})
+            sig = getattr(p, "signature", None)
+            if sig is not None and msg.is_replayable(sig.provider, sig.model,
+                                                     provider="gemini", model=req.model):
+                parts[-1]["thoughtSignature"] = sig.value
         out.append({"role": "model" if m.role == "assistant" else "user",
                     "parts": parts})
     return out
@@ -99,6 +118,55 @@ def read_empty(data: Mapping[str, Any], cand: Mapping[str, Any], *,
     return EmptyReply("no_content", (
         f"gemini returned no text and no function call (finishReason "
         f"{finish or 'STOP'}, {usage.output_tokens} output tokens)."))
+
+
+def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
+                  headers: Mapping[str, str] | None = None) -> AdapterResponse:
+    """A generateContent response body as canonical parts. Pure: a
+    cassette that kept the body maps it again through this on replay."""
+    cand = (data.get("candidates") or [{}])[0]
+    parts: list[msg.Part] = []
+    prose = False
+    for i, p in enumerate((cand.get("content") or {}).get("parts") or []):
+        if p.get("thought"):
+            parts.append(msg.ReasoningPart(
+                text=str(p.get("text") or ""), redacted=not p.get("text"),
+                provider="gemini", model=req.model, native=dict(p)))
+            continue
+        sig = (msg.Signature("gemini", req.model, str(p["thoughtSignature"]))
+               if p.get("thoughtSignature") else None)
+        if "text" in p:
+            parts.append(msg.TextPart(str(p["text"]), signature=sig))
+            prose = prose or bool(p["text"])
+        elif "functionCall" in p:
+            fc = p["functionCall"]
+            parts.append(msg.ToolCallPart(
+                # Gemini does not issue call ids; the index is stable
+                # within a response and correlates the result we send
+                # back (which is keyed by name anyway).
+                id=f"{cand.get('index', 0)}-{i}", name=str(fc.get("name", "")),
+                arguments=dict(fc.get("args") or {}), signature=sig))
+    u = data.get("usageMetadata") or {}
+    thoughts = int(u.get("thoughtsTokenCount", 0) or 0)
+    usage = Usage(
+        input_tokens=int(u.get("promptTokenCount", 0)),
+        # Thoughts are billed as output and count against
+        # maxOutputTokens, but `candidatesTokenCount` leaves them out.
+        output_tokens=int(u.get("candidatesTokenCount", 0) or 0) + thoughts,
+        cache_read_tokens=int(u.get("cachedContentTokenCount", 0) or 0),
+        reasoning_tokens=thoughts,
+    )
+    stop_reason = str(cand.get("finishReason") or "STOP").lower()
+    empty = None
+    if not prose and not any(isinstance(p, msg.ToolCallPart) for p in parts):
+        empty = read_empty(data, cand, usage=usage, max_tokens=int(req.max_tokens))
+    return AdapterResponse(
+        parts=tuple(parts),
+        stop_reason=stop_reason,
+        usage=usage,
+        model_version=str(data.get("modelVersion") or req.model),
+        response_id=str(data.get("responseId") or ""), headers=dict(headers or {}),
+        logprobs=cand.get("logprobsResult"), raw=data, empty=empty)
 
 
 class GeminiTransport(Transport):
@@ -163,44 +231,7 @@ class GeminiTransport(Transport):
         url = f"{self._base}/models/{req.model}:generateContent"
         resp = http.post_json(url, headers=self._headers(), payload=self._body(req),
                               timeout=self._timeout, secrets=(self._token,))
-        data = resp.body or {}
-        cand = (data.get("candidates") or [{}])[0]
-        parts: list[msg.Part] = []
-        prose = False
-        for i, p in enumerate((cand.get("content") or {}).get("parts") or []):
-            if "text" in p:
-                parts.append(msg.TextPart(str(p["text"])))
-                # A part marked `thought` is reasoning, not the reply.
-                prose = prose or (bool(p["text"]) and not p.get("thought"))
-            elif "functionCall" in p:
-                fc = p["functionCall"]
-                parts.append(msg.ToolCallPart(
-                    # Gemini does not issue call ids; the index is stable
-                    # within a response and correlates the result we send
-                    # back (which is keyed by name anyway).
-                    id=f"{cand.get('index', 0)}-{i}", name=str(fc.get("name", "")),
-                    arguments=dict(fc.get("args") or {})))
-        u = data.get("usageMetadata") or {}
-        thoughts = int(u.get("thoughtsTokenCount", 0) or 0)
-        usage = Usage(
-            input_tokens=int(u.get("promptTokenCount", 0)),
-            # Thoughts are billed as output and count against
-            # maxOutputTokens, but `candidatesTokenCount` leaves them out.
-            output_tokens=int(u.get("candidatesTokenCount", 0) or 0) + thoughts,
-            cache_read_tokens=int(u.get("cachedContentTokenCount", 0) or 0),
-            reasoning_tokens=thoughts,
-        )
-        stop_reason = str(cand.get("finishReason") or "STOP").lower()
-        empty = None
-        if not prose and not any(isinstance(p, msg.ToolCallPart) for p in parts):
-            empty = read_empty(data, cand, usage=usage, max_tokens=int(req.max_tokens))
-        return AdapterResponse(
-            parts=tuple(parts),
-            stop_reason=stop_reason,
-            usage=usage,
-            model_version=str(data.get("modelVersion") or req.model),
-            response_id=str(data.get("responseId") or ""), headers=resp.headers,
-            logprobs=cand.get("logprobsResult"), raw=data, empty=empty)
+        return read_response(resp.body or {}, req, headers=resp.headers)
 
     def _count_tokens(self, req: msg.ChatRequest) -> int:
         url = f"{self._base}/models/{req.model}:countTokens"

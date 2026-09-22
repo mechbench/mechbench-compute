@@ -29,7 +29,7 @@ from mechbench_compute.providers import pricing
 from mechbench_compute.providers.base import Capabilities
 from mechbench_compute.providers.limiter import RateLimits
 
-REGISTRY_VERSION = "2026-09-08"
+REGISTRY_VERSION = "2026-09-22"
 
 
 @dataclass(frozen=True)
@@ -115,6 +115,12 @@ def build() -> dict[str, ProviderSpec]:
             name="fireworks", adapter="openai_compatible",
             base_url=HOSTS["fireworks"][0], capabilities=_capabilities("fireworks"),
             limits=Limits(requests=600, concurrency=32)),
+        "deepseek": ProviderSpec(
+            name="deepseek", adapter="openai_compatible",
+            base_url=HOSTS["deepseek"][0], capabilities=_capabilities("deepseek"),
+            # DeepSeek publishes a concurrency limit per model and no
+            # per-minute quota; this seeds well under the smaller one.
+            limits=Limits(concurrency=16)),
         "openai-compatible": ProviderSpec(
             name="openai-compatible", adapter="openai_compatible", base_url="",
             capabilities=_capabilities("openai-compatible"),

@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-TABLE_VERSION = "2026-09-08"
+TABLE_VERSION = "2026-09-22"
 
 
 @dataclass(frozen=True)
@@ -61,6 +61,13 @@ PRICES: dict[str, dict[str, Price]] = {
     "xai": {
         "grok-4": Price(3.0, 15.0, 0.75),
         "grok-3": Price(3.0, 15.0),
+    },
+    # DeepSeek charges half off-peak; the table holds the peak rate, so
+    # a budget never assumes the discount.
+    "deepseek": {
+        "deepseek-flash": Price(0.30, 1.20, 0.006),
+        "deepseek-v4-flash": Price(0.30, 1.20, 0.006),
+        "deepseek-v4-pro": Price(1.32, 3.96, 0.044),
     },
     "fireworks": {
         "accounts/fireworks/models/llama": Price(0.9, 0.9),

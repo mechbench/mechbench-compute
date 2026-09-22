@@ -21,11 +21,16 @@ _SEES = P("sees", "object",
           "Each of `own_thinking` and `others_thinking` is `\"none\"` (the "
           "default), `\"full\"`, `{\"last_turns\": n}` (only the n most recent "
           "such turns) or `{\"truncate_words\": n}` (the first n words of "
-          "each). A variable, not a setting: `{\"$param\": \"sees\"}` and a "
-          "sweep over policies is one protocol.",
+          "each); `own_thinking` may also be `\"native\"`. A variable, not a "
+          "setting: `{\"$param\": \"sees\"}` and a sweep over policies is "
+          "one protocol.",
           None, fields=(
-              P("own_thinking", "string | object", "The policy for its own reasoning.", "none",
-                choices=("none", "full"), fields=_POLICY_FIELDS),
+              P("own_thinking", "string | object",
+                "The policy for its own reasoning. `\"native\"` hands each of "
+                "its turns back as its model wrote it — the reasoning in the "
+                "provider's own form, signatures intact, never as text — "
+                "which the provider uses only when the same model reads it.",
+                "none", choices=("none", "full", "native"), fields=_POLICY_FIELDS),
               P("others_thinking", "string | object", "The policy for everyone else's.", "none",
                 choices=("none", "full"), fields=_POLICY_FIELDS),
           ))
@@ -73,12 +78,23 @@ of theirs. The default replays nothing. Replaying is off-distribution —
 reasoning models are generally trained with their thinking discarded
 between turns — which is exactly why it is a variable here and not a
 setting: the question is what changes.
+
+`own_thinking: "native"` is the provider's own way of keeping it: each of
+the participant's turns goes back as its model wrote it — the reasoning
+blocks, signed or encrypted, in their place, the text unchanged — as a
+list of content parts rather than a string. The adapter sends them only
+to a model that can read them and drops them for any other; they are
+never turned into text. A provider accepts that reasoning only while
+everything before it is unchanged, so the conversation must grow by
+appending: `native` is refused with a `window` that drops turns, with a
+`system` that names `{turn}`, and with an `others_thinking` that shows
+less of a turn as the conversation grows.
 """,
     inputs=(
         In("transcripts", "text/transcript",
            "The conversations to render, one record each.", many=True),
     ),
-    output=Output('records/record', collection=True, doc='One record per transcript: `id` (the conversation\'s), `messages` (`[{role, content}]`), `system` when given, `coords` (the transcript\'s, plus `conversation` and `participant`). The header carries `participant`, `perspective` and `sees` as resolved.'),
+    output=Output('records/record', collection=True, doc='One record per transcript: `id` (the conversation\'s), `messages` (`[{role, content}]`; under `own_thinking: "native"` an own turn that reasoned has `content` as its list of parts, reasoning included), `system` when given, `coords` (the transcript\'s, plus `conversation` and `participant`). The header carries `participant`, `perspective` and `sees` as resolved.'),
     params=(
         P("participant", "string", "Whose view: the participant's name."),
         P("perspective", "string", "How the others' messages read.",
@@ -156,7 +172,7 @@ def parse_sees(value: Any) -> dict[str, Any]:
         if key not in value:
             continue
         policy = value[key]
-        if policy in ("none", "full"):
+        if policy in ("none", "full") or (key == "own_thinking" and policy == "native"):
             out[key] = policy
         elif isinstance(policy, Mapping) and len(policy) == 1 and (
                 "last_turns" in policy or "truncate_words" in policy):
@@ -167,8 +183,51 @@ def parse_sees(value: Any) -> dict[str, Any]:
         else:
             raise ValueError(
                 f"`sees.{key}` is \"none\", \"full\", {{\"last_turns\": n}} or "
-                f"{{\"truncate_words\": n}}, not {policy!r}")
+                f"{{\"truncate_words\": n}}"
+                + (" or \"native\"" if key == "own_thinking" else "")
+                + f", not {policy!r}")
     return out
+
+
+def check_native(sees: Mapping[str, Any], *, window: Any, system: str) -> None:
+    """Refuse a rendering that would hand reasoning back after editing
+    what came before it. A provider accepts returned reasoning only
+    while the system prompt and every earlier message are unchanged; a
+    window drops early turns, a `{turn}` system prompt changes every
+    turn, and a partial `others_thinking` shows less of an old turn as
+    the conversation grows."""
+    if sees.get("own_thinking") != "native":
+        return
+    if window and str(window.get("policy", "none")) != "none":
+        raise ValueError(
+            "`sees.own_thinking: \"native\"` needs the conversation to grow by "
+            "appending, and a `window` drops its early turns: returned "
+            "reasoning is refused or discarded once what precedes it changes")
+    if "{turn}" in system:
+        raise ValueError(
+            "`sees.own_thinking: \"native\"` needs an unchanging system prompt, "
+            "and `{turn}` changes it every turn")
+    if isinstance(sees.get("others_thinking"), Mapping):
+        raise ValueError(
+            "`sees.own_thinking: \"native\"` needs earlier turns to render the "
+            "same each time; a partial `others_thinking` does not — use "
+            "\"none\" or \"full\"")
+
+
+def read_own_content(m: Mapping[str, Any], text: str) -> list[dict[str, Any]] | None:
+    """An own turn's parts as its model wrote them, or None when it
+    carries no reasoning and no signature, or carries tool calls whose results the
+    transcript does not keep."""
+    from mechbench_compute.chat.read_turn import read_turn
+    from mechbench_compute.providers import messages as pm
+
+    reasoning = m.get("reasoning") or []
+    if not reasoning and not m.get("turn"):
+        return None
+    parts = read_turn(text, reasoning, m.get("turn"))
+    if any(isinstance(p, pm.ToolCallPart) for p in parts):
+        return None
+    return [p.to_wire() for p in parts]
 
 
 #: How a transcript is cut down to fit. `truncate_oldest` keeps the
@@ -224,7 +283,7 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
            channels: Sequence[str] = (MAIN,), perspective: str = "others_as_user_attributed",
            sees: Mapping[str, Any] | None = None,
            participants: Sequence[str] | None = None,
-           window: Mapping[str, Any] | None = None) -> list[dict[str, str]]:
+           window: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     """The shared transcript as THIS participant sees it: `[{role,
     content}]`, the messages a chat node sends.
 
@@ -261,13 +320,16 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
         who = str(visible[i].get("participant", ""))
         table = own_back if who == participant else others_back
         table[i] = len(table)
-    turns: list[tuple[str, str]] = []
+    turns: list[tuple[str, str, Any]] = []
     for i, m in enumerate(visible):
         who = str(m.get("participant", ""))
         text = str(m.get("text", ""))
         if who == participant:
+            if sees["own_thinking"] == "native":
+                turns.append(("assistant", text, read_own_content(m, text)))
+                continue
             thought = _show_thinking(sees["own_thinking"], m.get("thinking"), own_back[i])
-            turns.append(("assistant", f"{thought}\n\n{text}" if thought else text))
+            turns.append(("assistant", f"{thought}\n\n{text}" if thought else text, None))
             continue
         spoke = who in set(participants) if participants else who != SCRIPT_SPEAKER
         attributed = perspective == "others_as_user_attributed" and spoke
@@ -276,14 +338,17 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
         if thought:
             line = (f"{who} (thinking): {thought}\n\n{line}" if attributed
                     else f"(thinking) {thought}\n\n{line}")
-        turns.append(("user", line))
-    merged: list[tuple[str, str]] = []
-    for role, text in turns:
+        turns.append(("user", line, None))
+    merged: list[tuple[str, str, Any]] = []
+    for role, text, parts in turns:
         if merged and merged[-1][0] == role:
-            merged[-1] = (role, merged[-1][1] + "\n\n" + text)
+            # Two turns made one are an edit of both: their reasoning
+            # would no longer be what the model wrote, so it goes.
+            merged[-1] = (role, merged[-1][1] + "\n\n" + text, None)
         else:
-            merged.append((role, text))
-    return [{"role": r, "content": t} for r, t in merged]
+            merged.append((role, text, parts))
+    return [{"role": r, "content": parts if parts is not None else t}
+            for r, t, parts in merged]
 
 
 def render_records(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
@@ -298,6 +363,7 @@ def render_records(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict
     channels = tuple(params.get("channels") or (MAIN,))
     window = params.get("window")
     system = str(params.get("system") or "")
+    check_native(sees, window=window, system=system)
     rows = []
     for t in read_transcripts(inputs.get("transcripts")):
         cid = str(t.get("id"))

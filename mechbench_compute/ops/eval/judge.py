@@ -51,11 +51,15 @@ JSON. A record that carries the text under another name goes through
   unparsed vote carrying `empty` (the cause), paid for and never a
   failed node.
 * **An empty subject is not judged.** A record whose judged field is
-  missing or blank is refused by name, because a winner over an empty
-  string looks exactly like every other winner in the column. This is
-  reachable: a `records/zip` with `on_missing: "placeholder"` keeps the
-  key of a branch that failed. `on_missing: "skip"` keeps those records
-  as unjudged rows and grades the rest.
+  missing or blank is never scored, because a winner over an empty
+  string looks exactly like every other winner in the column. By
+  default it is kept as an unjudged row naming what was absent, counted
+  in the summary, and the rest are graded — so a `text/chat` node that
+  kept an empty reply (`on_empty: "keep"`) feeds a judge that completes.
+  This is also reachable from a `records/zip` with `on_missing:
+  "placeholder"`, which keeps the key of a branch that failed.
+  `on_missing: "error"` refuses such a record by name instead, the
+  strict choice for a protocol designed to stop on one.
 
 The judge runs through `chat`, so it inherits the budget cap, concurrency,
 resumability and per-call provenance; a local model is the cheap first test.
@@ -114,10 +118,12 @@ resumability and per-call provenance; a local model is the cheap first test.
           "How many judge requests are in flight at once (remote judges).",
           4),
         P("on_missing", "string",
-          "A record whose judged field is missing or blank: `\"error\"` "
-          "refuses it by name; `\"skip\"` keeps it as an unjudged row, "
-          "naming what was absent, and grades the rest.",
-          "error", choices=("error", "skip")),
+          "A record whose judged field is missing or blank. `\"skip\"`, "
+          "the default, keeps it as an unjudged row naming what was "
+          "absent, counts it in the summary (`n_unjudged` and which), and "
+          "grades the rest; `\"error\"` refuses it by name, the strict "
+          "choice for a protocol designed to stop on one.",
+          "skip", choices=("error", "skip")),
     ),
     example={
         "judge": {"model": {"provider": "anthropic", "model": "claude-sonnet-5"},
@@ -406,7 +412,7 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
     # the key of a branch that failed, and the missing side arrives here
     # as an absent field.
     want = list(pairwise_fields if scale.kind == "pairwise" else fields)
-    on_missing = str(params.get("on_missing", "error"))
+    on_missing = str(params.get("on_missing", "skip"))
     if on_missing not in ("error", "skip"):
         raise ValueError(
             f"on_missing is 'error' or 'skip', not {on_missing!r}")
@@ -420,8 +426,8 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         raise ValueError(
             f"{len(empty)} record(s) have no {' and '.join(want)} to judge "
             f"({names[:120]}). An empty side would be scored against a real "
-            f"one. `on_missing: \"skip\"` records them as unjudged and "
-            f"grades the rest.")
+            f"one. `on_missing: \"skip\"` (the default) records them as "
+            f"unjudged and grades the rest.")
     judged = [s for s in subjects if id(s) not in empty]
     prompts = build_prompts(judged, scale=scale, rubric=rubric, fields=fields,
                             n_votes=n_votes, seed=seed,
@@ -470,8 +476,8 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         coords = (item.get("metadata") or {}).get("coords") or {}
         subject_id = str(coords.get("subject", ""))
         blank = read_empty(item)
-        # A flagged reply is unparsed whatever its text holds: the text
-        # of a reasoning-only reply is the reasoning, not an answer.
+        # A vote is read from the reply's prose alone: its reasoning,
+        # kept apart in `reasoning`, may weigh a score it did not give.
         read = {} if blank else dict(scale.read(str(item.get("text", ""))))
         order = order_by_id.get(item["id"].rsplit("-s", 1)[0], "AB")
         # The judge answers about what it SAW, and half the time it saw

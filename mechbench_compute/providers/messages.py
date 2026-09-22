@@ -2,8 +2,14 @@
 
 One shape of conversation crosses every provider and the local MLX
 path: a system string, an alternating sequence of user/assistant
-messages, and content parts that are `text`, `tool_call` or
-`tool_result`. Tools are JSON Schema. Text and tools only.
+messages, and content parts that are `text`, `reasoning`, `tool_call`
+or `tool_result`. Tools are JSON Schema.
+
+**Reasoning is never text.** A `reasoning` part is the model's
+reasoning as its provider returned it: readable text when the provider
+shows it, and the provider's own block verbatim (`native`), which is
+what goes back on a later turn. Nothing that joins parts into prose
+reads it.
 
 Two rules keep this honest:
 
@@ -32,11 +38,73 @@ ROLES = ("user", "assistant")
 
 
 @dataclass(frozen=True)
+class Signature:
+    """A provider's continuation token riding on a text or tool-call
+    part: opaque bytes that go back on that same part, to the provider
+    and model that issued them, and nowhere else."""
+
+    provider: str
+    model: str
+    value: str
+
+    def to_wire(self) -> dict[str, str]:
+        return {"provider": self.provider, "model": self.model, "value": self.value}
+
+    @staticmethod
+    def from_wire(value: Any) -> Signature | None:
+        if not isinstance(value, Mapping) or not value.get("value"):
+            return None
+        return Signature(provider=str(value.get("provider", "")),
+                         model=str(value.get("model", "")),
+                         value=str(value["value"]))
+
+
+@dataclass(frozen=True)
 class TextPart:
     text: str
+    signature: Signature | None = None
 
     def to_wire(self) -> dict[str, Any]:
-        return {"type": "text", "text": self.text}
+        out: dict[str, Any] = {"type": "text", "text": self.text}
+        if self.signature is not None:
+            out["signature"] = self.signature.to_wire()
+        return out
+
+
+@dataclass(frozen=True)
+class ReasoningPart:
+    """The model's reasoning, kept apart from its reply.
+
+    `text` is the reasoning a person can read, when the provider returns
+    it; `redacted` marks reasoning with no readable text — withheld or
+    encrypted. `provider` and `model` say who wrote it. `native` is the
+    provider's own form of it, verbatim — a thinking block with its
+    signature, an opaque payload, a message-level field — and it goes
+    back, unchanged and in its place, only to an adapter that accepts it
+    (`is_replayable`). Nothing that joins parts into prose reads it.
+    """
+
+    text: str = ""
+    redacted: bool = False
+    provider: str = ""
+    model: str = ""
+    native: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_record(self) -> dict[str, Any]:
+        """The part as an item's `reasoning` entry."""
+        out: dict[str, Any] = {"text": self.text}
+        if self.redacted:
+            out["redacted"] = True
+        if self.provider:
+            out["provider"] = self.provider
+        if self.model:
+            out["model"] = self.model
+        if self.native:
+            out["native"] = dict(self.native)
+        return out
+
+    def to_wire(self) -> dict[str, Any]:
+        return {"type": "reasoning", **self.to_record()}
 
 
 @dataclass(frozen=True)
@@ -47,10 +115,14 @@ class ToolCallPart:
     id: str
     name: str
     arguments: Mapping[str, Any] = field(default_factory=dict)
+    signature: Signature | None = None
 
     def to_wire(self) -> dict[str, Any]:
-        return {"type": "tool_call", "id": self.id, "name": self.name,
-                "arguments": dict(self.arguments)}
+        out: dict[str, Any] = {"type": "tool_call", "id": self.id, "name": self.name,
+                               "arguments": dict(self.arguments)}
+        if self.signature is not None:
+            out["signature"] = self.signature.to_wire()
+        return out
 
 
 @dataclass(frozen=True)
@@ -71,7 +143,7 @@ class ToolResultPart:
         return out
 
 
-Part = TextPart | ToolCallPart | ToolResultPart
+Part = TextPart | ReasoningPart | ToolCallPart | ToolResultPart
 
 
 @dataclass(frozen=True)
@@ -80,9 +152,9 @@ class Message:
     content: tuple[Part, ...]
 
     def text(self) -> str:
-        """The message's text parts joined — what a reader wants when
-        the conversation carries no tools."""
-        return "".join(p.text for p in self.content if isinstance(p, TextPart))
+        """The message's prose: its text parts joined, never its
+        reasoning."""
+        return join_text(self.content)
 
     def to_wire(self) -> dict[str, Any]:
         return {"role": self.role, "content": [p.to_wire() for p in self.content]}
@@ -100,9 +172,31 @@ class ToolSpec:
                 "input_schema": dict(self.input_schema)}
 
 
+def join_text(parts: Iterable[Any]) -> str:
+    """The prose of a sequence of parts: text parts only. Every reply's
+    `text` is built here, so reasoning cannot reach it."""
+    return "".join(p.text for p in parts if isinstance(p, TextPart))
+
+
+def read_reasoning(parts: Iterable[Any]) -> list[dict[str, Any]]:
+    """The reasoning among `parts`, as an item's `reasoning` entries."""
+    return [p.to_record() for p in parts if isinstance(p, ReasoningPart)]
+
+
+def is_replayable(origin_provider: str, origin_model: str, *, provider: str,
+                  model: str, model_bound: bool = True) -> bool:
+    """Whether reasoning or a signature written by `origin_*` may go to
+    `provider`/`model`. Never to another provider. `model_bound=False`
+    is for a provider that accepts any of its own models' blocks and
+    drops the ones the target cannot read."""
+    if not origin_provider or origin_provider != provider:
+        return False
+    return not model_bound or origin_model == model
+
+
 def part(value: Any) -> Part:
     """Coerce a wire part (or a bare string) into a Part."""
-    if isinstance(value, (TextPart, ToolCallPart, ToolResultPart)):
+    if isinstance(value, (TextPart, ReasoningPart, ToolCallPart, ToolResultPart)):
         return value
     if isinstance(value, str):
         return TextPart(value)
@@ -110,18 +204,26 @@ def part(value: Any) -> Part:
         raise TypeError(f"a content part is a string or an object, not {type(value).__name__}")
     kind = value.get("type", "text")
     if kind == "text":
-        return TextPart(str(value.get("text", "")))
+        return TextPart(str(value.get("text", "")),
+                        signature=Signature.from_wire(value.get("signature")))
+    if kind == "reasoning":
+        return ReasoningPart(text=str(value.get("text", "")),
+                             redacted=bool(value.get("redacted", False)),
+                             provider=str(value.get("provider", "")),
+                             model=str(value.get("model", "")),
+                             native=dict(value.get("native") or {}))
     if kind == "tool_call":
         return ToolCallPart(id=str(value.get("id", "")),
                             name=str(value["name"]),
-                            arguments=dict(value.get("arguments") or {}))
+                            arguments=dict(value.get("arguments") or {}),
+                            signature=Signature.from_wire(value.get("signature")))
     if kind == "tool_result":
         return ToolResultPart(tool_call_id=str(value.get("tool_call_id", "")),
                               content=_as_text(value.get("content", "")),
                               is_error=bool(value.get("is_error", False)))
     raise ValueError(
-        f"unknown content part type {kind!r} — text, tool_call and "
-        "tool_result are what the canonical model carries today "
+        f"unknown content part type {kind!r} — text, reasoning, tool_call "
+        "and tool_result are what the canonical model carries today "
         "(images and audio arrive with task 000343)")
 
 
@@ -310,6 +412,8 @@ def estimate_tokens(req: ChatRequest) -> int:
         for p in m.content:
             if isinstance(p, TextPart):
                 n += len(p.text)
+            elif isinstance(p, ReasoningPart):
+                n += len(p.text) + len(str(dict(p.native)))
             elif isinstance(p, ToolCallPart):
                 n += len(p.name) + len(str(dict(p.arguments)))
             else:

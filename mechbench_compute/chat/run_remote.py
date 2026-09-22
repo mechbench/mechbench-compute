@@ -111,6 +111,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         key, rec, k, req = entry
         box, session = open_toolbox(image, tool_specs, block_runner=block_runner)
         extra_calls: list[Any] = []
+        rounds: list[pm.Message] = []
         # The tool loop: answer, run what it asked for, hand back the
         # results, ask again — bounded, because a model and its tools
         # can talk to each other for a long time at someone's expense.
@@ -122,6 +123,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
             if not (out.tool_calls and box) or round_no == max_tool_rounds:
                 break
             results = [box.call(c) for c in out.tool_calls]
+            rounds.append(out.as_message())
             req = req.with_messages([
                 *req.messages, out.as_message(),
                 pm.Message(role="user", content=tuple(results)),
@@ -132,6 +134,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                                     "max_tokens": int(params.get("max_tokens", 1024)),
                                     "seed": req.seed, "index": k},
                           tool_runs=[r.to_wire() for r in box.runs],
+                          rounds=rounds,
                           sandbox_calls=(session.calls if session else ()),
                           sandbox_snapshot=(session.final_wire() if session else None))
         if out.empty is not None:

@@ -364,3 +364,25 @@ class TestTheJudge:
                         inputs={"records": list(self.STORIES)})
         assert seen["on_empty"] == "keep"
         assert out["summary"]["n_unparsed"] == 2
+
+
+def test_an_empty_story_kept_by_chat_is_unjudged_and_the_judge_completes():
+    """`text/chat` keeps an empty reply marked; the judge after it grades
+    what has text and counts the rest, instead of failing the graph."""
+    graph = {"nodes": [
+        {"id": "stories", "block": "text/chat",
+         "params": {"model": ENDPOINT, "budget_usd": 1.0, "on_empty": "keep",
+                    "provider_options": {"mock": {"empty": "reasoning"}}},
+         "inputs": {"records": records(2)}},
+        {"id": "graded", "block": "eval/judge",
+         "params": {"judge": {"model": {"provider": "mock", "model": "judge-1"},
+                              "system": "Grade the story.",
+                              "provider_options": {"mock": {"text": '{"score": 4}'}}},
+                    "scale": {"kind": "numeric", "min": 1, "max": 5},
+                    "budget_usd": 1.0}}],
+        "edges": [{"from": {"node": "stories"}, "to": {"node": "graded", "port": "records"}}]}
+    out = ProtocolExecutor().run(ProtocolSpec(
+        kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
+    verdict = out.payload["outputs"]["graded"]
+    assert verdict["summary"]["n_unjudged"] == 2
+    assert all(r["unjudged"] and r["missing"] == ["text"] for r in verdict["items"])

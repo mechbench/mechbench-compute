@@ -15,6 +15,17 @@ Mapping notes that matter:
   JSON-STRING arguments; tool results are separate `role: "tool"`
   messages. The canonical model keeps both as parts of the turn they
   belong to, so this is where they split and rejoin.
+- Reasoning rides on the message beside `content`, in a field that
+  depends on the host: `reasoning_content` (DeepSeek, llama.cpp),
+  `reasoning` and `reasoning_details` (OpenRouter). Whichever fields
+  came back become one reasoning part holding them verbatim, and go
+  back on that assistant message, under the same names, when the
+  conversation continues with the same model — DeepSeek requires it on
+  a request with tools, and OpenRouter's `reasoning_details` carry
+  signed and encrypted entries that must return unmodified. A host that
+  returned none is never sent any. OpenAI's own reasoning models return
+  no reasoning here, only a count in `reasoning_tokens`: carrying their
+  reasoning needs the Responses API, which this adapter does not speak.
 - `logprobs` is `top_logprobs`, capped at 20 on OpenAI (more on some
   self-hosted servers) — the cap is a capability, declared per host.
 """
@@ -49,22 +60,87 @@ HOSTS: dict[str, tuple[str, Capabilities]] = {
     "fireworks": ("https://api.fireworks.ai/inference/v1", Capabilities(
         chat=True, complete=True, tools=True, json_mode=True, seed=True,
         logprobs=5, batch=False, embed=True, models=True)),
+    "deepseek": ("https://api.deepseek.com", Capabilities(
+        chat=True, tools=True, json_mode=True, seed=False, logprobs=None,
+        batch=False, embed=False, models=True)),
     "openai-compatible": ("", Capabilities(
         chat=True, tools=True, json_mode=True, seed=True, logprobs=5,
         models=True)),
 }
 
 
-def _messages(req: msg.ChatRequest) -> list[dict[str, Any]]:
+#: The message-level fields a host returns reasoning in.
+REASONING_FIELDS = ("reasoning_content", "reasoning", "reasoning_details")
+
+#: The hosts whose documentation asks for returned reasoning to come
+#: back on later turns: DeepSeek refuses a request with tools that
+#: omits it, Fireworks requires it for interleaved thinking, and
+#: OpenRouter (the usual `openai-compatible` host) takes it to keep a
+#: model's reasoning across turns. xAI's and OpenAI's chat completions
+#: have no field to take it back in.
+REPLAYS_REASONING = frozenset({"deepseek", "fireworks", "openai-compatible"})
+
+#: The delimiters of reasoning written inline in `content`, as a
+#: server without a reasoning parser returns an R1-style model's turn.
+INLINE_THOUGHT = ("<think>", "</think>")
+
+
+def split_inline_thought(content: str) -> tuple[str | None, str]:
+    """`(reasoning, prose)` for content that carries its reasoning
+    inline. Only a turn that OPENS with reasoning counts: a leading
+    `<think>` block (unclosed, the whole turn is reasoning), or text
+    closed by a `</think>` with no opening tag, which is what a server
+    returns when the template put the opening tag in the prompt."""
+    open_s, close_s = INLINE_THOUGHT
+    head = content.lstrip()
+    if head.startswith(open_s):
+        body = head[len(open_s):]
+        end = body.find(close_s)
+        if end == -1:
+            return body.strip(), ""
+        return body[:end].strip(), body[end + len(close_s):].lstrip()
+    end = content.find(close_s)
+    if end != -1 and open_s not in content[:end]:
+        return content[:end].strip(), content[end + len(close_s):].lstrip()
+    return None, content
+
+
+def read_reasoning(message: Mapping[str, Any], provider: str,
+                   model: str) -> msg.ReasoningPart | None:
+    """The reasoning fields of a response message as one reasoning part,
+    or None when it carries none."""
+    native = {k: message[k] for k in REASONING_FIELDS if message.get(k)}
+    if not native:
+        return None
+    text = next((str(native[k]) for k in ("reasoning_content", "reasoning")
+                 if isinstance(native.get(k), str)), "")
+    details = native.get("reasoning_details")
+    if not text and isinstance(details, list):
+        text = "".join(str(d.get("text") or d.get("summary") or "")
+                       for d in details if isinstance(d, Mapping))
+    return msg.ReasoningPart(text=text, redacted=not text, provider=provider,
+                             model=model, native=native)
+
+
+def _messages(req: msg.ChatRequest, provider: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if req.system:
         out.append({"role": "system", "content": req.system})
     for m in req.messages:
-        text = "".join(p.text for p in m.content if isinstance(p, msg.TextPart))
+        text = msg.join_text(m.content)
+        # Another model's reasoning is dropped, never turned into text:
+        # every host behind this adapter shares one provider name, and
+        # one host's fields mean nothing to another.
+        reasoning = [p for p in m.content if isinstance(p, msg.ReasoningPart)
+                     and p.native and provider in REPLAYS_REASONING
+                     and msg.is_replayable(p.provider, p.model, provider=provider,
+                                           model=req.model)]
         calls = [p for p in m.content if isinstance(p, msg.ToolCallPart)]
         results = [p for p in m.content if isinstance(p, msg.ToolResultPart)]
         if m.role == "assistant":
             entry: dict[str, Any] = {"role": "assistant", "content": text or None}
+            for r in reasoning:
+                entry.update(dict(r.native))
             if calls:
                 entry["tool_calls"] = [
                     {"id": c.id, "type": "function",
@@ -85,7 +161,7 @@ def _messages(req: msg.ChatRequest) -> list[dict[str, Any]]:
 
 
 def read_empty(provider: str, message: Mapping[str, Any], *, stop_reason: str,
-               usage: Usage, max_tokens: int) -> EmptyReply:
+               usage: Usage, max_tokens: int, reasoned: bool = False) -> EmptyReply:
     """Why a choice with no content and no tool calls came back that way:
     a content filter or a refusal, the output allowance spent on
     reasoning, or nothing the response says."""
@@ -96,9 +172,11 @@ def read_empty(provider: str, message: Mapping[str, Any], *, stop_reason: str,
             f"{provider} returned no content (finish_reason {stop_reason}"
             f"{', with a refusal' if refusal else ''}){said}. The provider "
             "withheld the reply; the request, not the budget, is what to change."))
-    if usage.reasoning_tokens:
+    if usage.reasoning_tokens or reasoned:
+        spent = (f"{usage.reasoning_tokens} of {usage.output_tokens}"
+                 if usage.reasoning_tokens else f"{usage.output_tokens}")
         return EmptyReply("reasoning", (
-            f"{provider}: {usage.reasoning_tokens} of {usage.output_tokens} "
+            f"{provider}: {spent} "
             f"completion tokens went to reasoning (max_tokens {max_tokens}) "
             f"and no content followed (finish_reason {stop_reason}). Raise "
             "max_tokens so the reply has room after the reasoning, or lower "
@@ -107,6 +185,61 @@ def read_empty(provider: str, message: Mapping[str, Any], *, stop_reason: str,
     return EmptyReply("no_content", (
         f"{provider} returned no content and no tool call (finish_reason "
         f"{stop_reason}, {usage.output_tokens} completion tokens)."))
+
+
+def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
+                  provider: str,
+                  headers: Mapping[str, str] | None = None) -> AdapterResponse:
+    """A chat-completions response body as canonical parts. Pure: a
+    cassette that kept the body maps it again through this on replay."""
+    choice = (data.get("choices") or [{}])[0]
+    m = choice.get("message") or {}
+    parts: list[msg.Part] = []
+    reasoning = read_reasoning(m, provider, req.model)
+    content = str(m.get("content") or "")
+    if reasoning is None and content:
+        inline, content = split_inline_thought(content)
+        if inline is not None:
+            # Written into the reply rather than returned beside it:
+            # reasoning to read, with nothing a later turn sends back.
+            reasoning = msg.ReasoningPart(text=inline, redacted=not inline,
+                                          provider=provider, model=req.model)
+    if reasoning is not None:
+        parts.append(reasoning)
+    if content:
+        parts.append(msg.TextPart(content))
+    for c in m.get("tool_calls") or []:
+        fn = c.get("function") or {}
+        raw = fn.get("arguments") or "{}"
+        try:
+            args = json.loads(raw) if isinstance(raw, str) else dict(raw)
+        except json.JSONDecodeError:
+            # A model that emitted invalid JSON is a fact about the
+            # run, not a crash: keep it verbatim for the reader.
+            args = {"$raw": raw}
+        parts.append(msg.ToolCallPart(id=str(c.get("id", "")),
+                                      name=str(fn.get("name", "")),
+                                      arguments=args))
+    u = data.get("usage") or {}
+    details = u.get("prompt_tokens_details") or {}
+    usage = Usage(
+        input_tokens=int(u.get("prompt_tokens", 0)),
+        output_tokens=int(u.get("completion_tokens", 0)),
+        cache_read_tokens=int(details.get("cached_tokens", 0) or 0),
+        reasoning_tokens=int((u.get("completion_tokens_details") or {})
+                             .get("reasoning_tokens", 0) or 0),
+    )
+    stop_reason = str(choice.get("finish_reason") or "stop")
+    empty = None
+    if not content and not m.get("tool_calls"):
+        empty = read_empty(provider, m, stop_reason=stop_reason, usage=usage,
+                           max_tokens=int(req.max_tokens),
+                           reasoned=reasoning is not None)
+    return AdapterResponse(
+        parts=tuple(parts), stop_reason=stop_reason,
+        usage=usage, model_version=str(data.get("model") or req.model),
+        response_id=str(data.get("id") or ""), headers=dict(headers or {}),
+        logprobs=(choice.get("logprobs") or None), raw=data, empty=empty)
 
 
 class OpenAICompatibleTransport(Transport):
@@ -135,7 +268,8 @@ class OpenAICompatibleTransport(Transport):
         return {"authorization": f"Bearer {self._token}"} if self._token else {}
 
     def _body(self, req: msg.ChatRequest) -> dict[str, Any]:
-        body: dict[str, Any] = {"model": req.model, "messages": _messages(req),
+        body: dict[str, Any] = {"model": req.model,
+                                "messages": _messages(req, self.name),
                                 "max_tokens": int(req.max_tokens)}
         if req.tools:
             body["tools"] = [{"type": "function",
@@ -167,43 +301,8 @@ class OpenAICompatibleTransport(Transport):
         resp = http.post_json(f"{self._base}/chat/completions", headers=self._headers(),
                               payload=self._body(req), timeout=self._timeout,
                               secrets=(self._token,))
-        data = resp.body or {}
-        choice = (data.get("choices") or [{}])[0]
-        m = choice.get("message") or {}
-        parts: list[msg.Part] = []
-        if m.get("content"):
-            parts.append(msg.TextPart(str(m["content"])))
-        for c in m.get("tool_calls") or []:
-            fn = c.get("function") or {}
-            raw = fn.get("arguments") or "{}"
-            try:
-                args = json.loads(raw) if isinstance(raw, str) else dict(raw)
-            except json.JSONDecodeError:
-                # A model that emitted invalid JSON is a fact about the
-                # run, not a crash: keep it verbatim for the reader.
-                args = {"$raw": raw}
-            parts.append(msg.ToolCallPart(id=str(c.get("id", "")),
-                                          name=str(fn.get("name", "")),
-                                          arguments=args))
-        u = data.get("usage") or {}
-        details = u.get("prompt_tokens_details") or {}
-        usage = Usage(
-            input_tokens=int(u.get("prompt_tokens", 0)),
-            output_tokens=int(u.get("completion_tokens", 0)),
-            cache_read_tokens=int(details.get("cached_tokens", 0) or 0),
-            reasoning_tokens=int((u.get("completion_tokens_details") or {})
-                                 .get("reasoning_tokens", 0) or 0),
-        )
-        stop_reason = str(choice.get("finish_reason") or "stop")
-        empty = None
-        if not parts:
-            empty = read_empty(self.name, m, stop_reason=stop_reason, usage=usage,
-                               max_tokens=int(req.max_tokens))
-        return AdapterResponse(
-            parts=tuple(parts), stop_reason=stop_reason,
-            usage=usage, model_version=str(data.get("model") or req.model),
-            response_id=str(data.get("id") or ""), headers=resp.headers,
-            logprobs=(choice.get("logprobs") or None), raw=data, empty=empty)
+        return read_response(resp.body or {}, req, provider=self.name,
+                             headers=resp.headers)
 
     def models(self) -> list[str]:
         resp = http.get_json(f"{self._base}/models", headers=self._headers(),

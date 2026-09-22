@@ -119,6 +119,16 @@ A `cache` keeps a memo of remote calls by request hash, so re-running an
 unchanged node costs nothing; a `cassette` replays recorded responses
 without contacting the provider at all.
 
+**Reasoning is never text.** What a model reasons before it answers —
+a provider's thinking blocks, thought summaries or reasoning field, or a
+local model's thinking channel — goes to the item's `reasoning`, never
+into `text`, which is the reply alone; a reader of `text` (a judge, a
+measure, the next turn) never sees it. The provider's payload for it —
+a signature, an encrypted block — is kept verbatim, and within a tool
+loop every turn goes back to the provider with its reasoning in the
+provider's own form. A reply that is only reasoning is empty, with
+cause `reasoning`, and keeps what it reasoned.
+
 **An intervention** — inline `spec` items, or an `intervene/spec` on the
 `intervention` port —
 is live at every forward pass a LOCAL model runs for this node, prefill
@@ -157,7 +167,7 @@ name.
            "scales this one.",
            required=False),
     ),
-    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. A remote reply with no prose and no tool call carries `metadata.empty` (`{cause, message}`). The header carries `fidelity`, `spend` (calls, cost, cache hits), for a remote model `empty` (`{count, by_cause, ids, policy}`, present with a count of 0 when every reply had content), and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
+    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text` (the reply's prose, never its reasoning), `reasoning` when the model reasoned (a list of `{text, redacted?, provider, model, native?}` in the order written: `text` the readable reasoning, empty when the provider withheld it; `redacted` when there is no readable text; `native` the provider's own block, signature or encrypted payload, verbatim, which is what lets the same model be handed the turn back), `metadata.turn` (the order of the reply's parts, and any signature a text part carried) when it did, `coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. A remote reply with no prose and no tool call carries `metadata.empty` (`{cause, message}`). The header carries `fidelity`, `spend` (calls, cost, cache hits), for a remote model `empty` (`{count, by_cause, ids, policy}`, present with a count of 0 when every reply had content), and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
     params=(
         P("budget_usd", "float",
           "The most this node may spend on provider calls, in US dollars. "

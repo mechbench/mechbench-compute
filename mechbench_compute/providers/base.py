@@ -176,14 +176,22 @@ class Completion:
     def tool_calls(self) -> tuple[msg.ToolCallPart, ...]:
         return tuple(p for p in self.parts if isinstance(p, msg.ToolCallPart))
 
+    @property
+    def reasoning(self) -> list[dict[str, Any]]:
+        """The reply's reasoning as an item's `reasoning` entries."""
+        return msg.read_reasoning(self.parts)
+
     def as_message(self) -> msg.Message:
         """The completion as the assistant turn it is — what a
-        conversation appends before the next participant speaks."""
+        conversation appends before the next participant speaks. Its
+        reasoning parts stay parts, so the adapter sends them back in
+        the provider's own form."""
         return msg.Message(role="assistant", content=self.parts)
 
     def to_wire(self) -> dict[str, Any]:
         out = {"kind": "provider/completion", "text": self.text,
                "parts": [p.to_wire() for p in self.parts],
+               **({"reasoning": self.reasoning} if self.reasoning else {}),
                "stop_reason": self.stop_reason,
                "usage": self.usage.to_wire(),
                "call": self.call.to_wire()}
@@ -351,7 +359,7 @@ class Transport(ABC):
         )
         parts = tuple(resp.parts)
         return Completion(
-            text="".join(p.text for p in parts if isinstance(p, msg.TextPart)),
+            text=msg.join_text(parts),
             parts=parts, stop_reason=resp.stop_reason, usage=resp.usage,
             call=record, logprobs=resp.logprobs, empty=resp.empty)
 

@@ -17,10 +17,14 @@ OP = Op(
     ),
     description="""\
 The reply on `replies` whose `coords.conversation` names a transcript is
-appended to it as `participant`'s turn. Reasoning the model marked is
-kept on the message (`thinking`) and out of its `text`, which is what
-the room hears; the reply's provider call rides along as `call`, with
-`call.tool_runs` when the turn used the tools its chat node offered.
+appended to it as `participant`'s turn. Reasoning is kept on the
+message and out of its `text`, which is what the room hears: the
+reply's `reasoning` entries verbatim — with the provider's own payload,
+a signed or encrypted block, so the same model can be handed its turn
+back exactly as it wrote it — its readable reasoning joined as
+`thinking`, and `turn`, the order the reply's parts came in. The
+reply's provider call rides along as `call`, with `call.tool_runs` when
+the turn used the tools its chat node offered.
 Every other field of the transcript is kept.
 
 A transcript with two replies is two conversations, which is a map, not
@@ -45,7 +49,7 @@ for everyone — who reads it is the graph's business, not this op's.
            "turn decides what happens next. Any record carrying `text` and "
            "naming its conversation is a turn.", many=True),
     ),
-    output=Output('text/transcript', collection=True, doc='The same transcripts, each one message longer: `messages`, `participants` (the speaker added if new), `stopped`, `turns` and `text` for the browser.'),
+    output=Output('text/transcript', collection=True, doc='The same transcripts, each one message longer: `messages`, `participants` (the speaker added if new), `stopped`, `turns` and `text` for the browser. A message is `{index, participant, role_as_seen, text}`, plus `thinking` (the readable reasoning), `reasoning` (the reply\'s entries, `{text, redacted?, provider, model, native?}`, carried verbatim), `turn` (the order of its parts, and any signature a text part carried) when it reasoned or was signed, `channel` off `main`, and `call`.'),
     params=(
         P("participant", "string", "Who spoke: the participant's name."),
         P("channel", "string",
@@ -118,11 +122,22 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
                 f"transcript {cid!r} has {len(got)} replies; a turn is one reply "
                 "(sample n=1, or map over samples to make n conversations)")
         d = got[0]
-        thought, said = THINK.split_thought(str(d.get("text", "")))
+        raw_text = str(d.get("text", ""))
+        thought, said = THINK.split_thought(raw_text)
         message: dict[str, Any] = {
             "index": len(t["messages"]), "participant": participant,
             "role_as_seen": "assistant", "text": said,
         }
+        reasoning = [dict(r) for r in (d.get("reasoning") or [])]
+        thought = "\n\n".join([*(str(r["text"]) for r in reasoning if r.get("text")),
+                                *([thought] if thought else [])]) or None
+        if reasoning:
+            message["reasoning"] = reasoning
+        turn = (d.get("metadata") or {}).get("turn")
+        # The order indexes spans of the reply's own text; a reply whose
+        # text was cut here no longer has those spans.
+        if turn is not None and said == raw_text:
+            message["turn"] = [dict(e) for e in turn]
         if channel != MAIN:
             # Recorded, but not part of the room: only a participant
             # whose `channels` include this one will be rendered it.

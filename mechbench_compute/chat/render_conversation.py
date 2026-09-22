@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from mechbench_compute.chat.constants import LOCAL
 from mechbench_compute.providers import messages as pm
 
 
@@ -18,6 +19,13 @@ def render_conversation(tokenizer, req: pm.ChatRequest, *,
     a real `tool_calls` entry, a result as a real tool turn, so the
     model reads both in the format it was trained on — and `tools` is
     declared the same way, by the template.
+
+    Reasoning is never prose here either. A turn's reasoning reaches the
+    template as `reasoning_content`, the field the templates that mark
+    reasoning read, and only when this same model wrote it; the template
+    decides whether an earlier turn's reasoning is shown (Gemma 4 shows
+    it only on a turn that called a tool). Earlier turns are rendered as
+    they were, so the prompt only ever grows.
     """
     from mechbench_compute import dialects as _dl
 
@@ -40,6 +48,12 @@ def render_conversation(tokenizer, req: pm.ChatRequest, *,
         if i == 0 and m.role == "user" and req.system:
             text = f"{req.system}\n\n{text}"
         turn: dict[str, Any] = {"role": m.role, "content": text}
+        thought = [p.text for p in m.content
+                   if isinstance(p, pm.ReasoningPart) and p.text
+                   and pm.is_replayable(p.provider, p.model, provider=LOCAL,
+                                        model=req.model)]
+        if thought and m.role == "assistant":
+            turn["reasoning_content"] = "\n\n".join(thought)
         if calls:
             for c in calls:
                 names[c.id] = c.name

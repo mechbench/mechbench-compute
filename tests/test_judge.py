@@ -230,17 +230,17 @@ class TestTheBlock:
             judge_mod.chat_mod.run_remote = old
         assert sent == [None, 0.0]
 
-    def test_a_subject_with_nothing_to_judge_is_refused_by_name(self):
+    def test_error_refuses_a_subject_with_nothing_to_judge_by_name(self):
         """Reachable from `records/zip` with `on_missing: "placeholder"`:
         a branch failed, its key survived, and its side is absent. A
         winner over an empty string reads exactly like a real one."""
         with pytest.raises(ValueError, match="no text to judge") as exc:
-            judged('{"score": 4}',
+            judged('{"score": 4}', on_missing="error",
                    records=[STORIES[0], {"id": "s2", "coords": {}, "text": " "}])
         assert "'s2'" in str(exc.value) and "'s1'" not in str(exc.value)
 
-    def test_skip_grades_the_rest_and_keeps_the_gap_visible(self):
-        out = judged('{"score": 4}', on_missing="skip",
+    def test_by_default_the_rest_are_graded_and_the_gap_stays_visible(self):
+        out = judged('{"score": 4}',
                      records=[STORIES[0], {"id": "s2", "coords": {}}])
         rows = {r["id"]: r for r in out["items"]}
         assert rows["s1"]["score"] == 4.0
@@ -252,7 +252,7 @@ class TestTheBlock:
 
     def test_a_pairwise_subject_needs_both_sides(self):
         with pytest.raises(ValueError, match="text_a and text_b"):
-            judged('{"winner": "A"}', scale={"kind": "pairwise"},
+            judged('{"winner": "A"}', scale={"kind": "pairwise"}, on_missing="error",
                    records=[{"id": "p1", "coords": {}, "text_a": "a story",
                              "text_b": ""}])
 
