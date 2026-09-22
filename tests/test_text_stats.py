@@ -5,7 +5,8 @@ modes, over records and document_collections."""
 
 import pytest
 
-from mechbench_compute.blocks import PURE_BLOCKS, text_stats
+from mechbench_compute.blocks import PURE_BLOCKS
+from mechbench_compute.ops.text.measure import text_stats
 
 STORIES = [
     {"id": "s1", "coords": {"prompt": "flash"},
@@ -122,7 +123,7 @@ def test_unknown_measure_kind():
 
 
 def test_weights_expectation_kind():
-    from mechbench_compute.blocks import eval_expectation
+    from mechbench_compute.ops.eval.expect import eval_expectation
 
     results = [{"id": "p1", "entropy_bits": 2.0,
                 "top_tokens": [{"token": " cat", "p": 0.72},

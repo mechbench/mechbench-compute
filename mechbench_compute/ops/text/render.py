@@ -1,34 +1,130 @@
-"""A transcript as a value (task 000617).
-
-A conversation is a fold over turns: render the shared transcript for
-the participant whose turn it is, ask that participant's model, append
-what it said. A retired op did all three inside one loop; these are
-the two pieces of that loop that are not "ask the model" — `render`
-(transcript × participant → the messages a chat node sends) and
-`extend` (transcript × reply → transcript) — so a conversation can be
-composed from `text/chat` rather than duplicated beside it.
-
-`sees` (task 000593) lives here too: what a participant re-reads of the
-room's reasoning is a param of the render step, and so sweepable, not
-a setting on the participant.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from mechbench_compute import thinking as THINK
+from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.transcript.constants import MAIN
+from mechbench_compute.transcript.transcripts import _transcripts
 
-TRANSCRIPT_KIND = "text/transcript"
-MAIN = "main"
+#: One `sees` policy: a word, or an object with one of these fields.
+_POLICY_FIELDS = (
+    P("last_turns", "int", "Replay only the n most recent such turns.", None),
+    P("truncate_words", "int", "Replay the first n words of each.", None),
+)
+
+
+#: The `sees` clause, wherever a transcript is rendered for a participant.
+_SEES = P("sees", "object",
+          "What the participant re-reads of the room's reasoning: its own "
+          "scratchpad ahead of its own words, the others' ahead of theirs. "
+          "Each of `own_thinking` and `others_thinking` is `\"none\"` (the "
+          "default), `\"full\"`, `{\"last_turns\": n}` (only the n most recent "
+          "such turns) or `{\"truncate_words\": n}` (the first n words of "
+          "each). A variable, not a setting: `{\"$param\": \"sees\"}` and a "
+          "sweep over policies is one protocol.",
+          None, fields=(
+              P("own_thinking", "string | object", "The policy for its own reasoning.", "none",
+                choices=("none", "full"), fields=_POLICY_FIELDS),
+              P("others_thinking", "string | object", "The policy for everyone else's.", "none",
+                choices=("none", "full"), fields=_POLICY_FIELDS),
+          ))
+
+
+OP = Op(
+    name="text/render",
+    summary=(
+        "A transcript as one participant sees it: its own turns as "
+        "assistant, the others' as user, under a perspective and a `sees` "
+        "clause — the chat-shaped records a chat node sends."
+    ),
+    description="""\
+A conversation is a fold over turns — render the shared transcript for
+the participant whose turn it is, ask its model, append what it said —
+and this is the first step. A conversation is therefore composed from
+`text/chat`, not a second kind of chat beside it.
+
+Every transcript on `transcripts` becomes one record: `messages` (`[{role,
+content}]`, what a chat node sends), `system` when given (with `{name}`,
+`{participants}`, `{others}`, `{turn}` filled in), and the transcript's
+coords plus `conversation` and `participant` — which is how `text/extend`
+knows which reply belongs to which transcript.
+
+**Perspective.** The participant's own messages become `assistant`;
+everyone else's become `user`, attributed by name
+(`others_as_user_attributed`) or not (`others_as_user_merged`); a scripted
+line (the opening) is never attributed. Consecutive user-side messages
+merge into one, because providers require strict alternation and merging
+is the honest way to give it to them — the alternative is reordering
+someone's words. A message on a channel the participant is not on (a
+judge's verdict) is not part of the room.
+
+**How much it sees.** `window` cuts the transcript down when it has
+outgrown its budget — the tail alone, or the tail and the opening turn,
+which usually carries the task. What falls outside was not seen at all:
+it is dropped before the perspective is applied, so the turns that
+remain still alternate.
+
+**What it sees of the reasoning.** A model that marks its reasoning has
+that reasoning kept on the transcript and out of the message's `text`.
+`sees` says what comes back on a later turn: the participant's own
+scratchpad ahead of its own words; another's, marked `(thinking)`, ahead
+of theirs. The default replays nothing. Replaying is off-distribution —
+reasoning models are generally trained with their thinking discarded
+between turns — which is exactly why it is a variable here and not a
+setting: the question is what changes.
+""",
+    inputs=(
+        In("transcripts", "text/transcript",
+           "The conversations to render, one record each.", many=True),
+    ),
+    output=Output('records/record', collection=True, doc='One record per transcript: `id` (the conversation\'s), `messages` (`[{role, content}]`), `system` when given, `coords` (the transcript\'s, plus `conversation` and `participant`). The header carries `participant`, `perspective` and `sees` as resolved.'),
+    params=(
+        P("participant", "string", "Whose view: the participant's name."),
+        P("perspective", "string", "How the others' messages read.",
+          "others_as_user_attributed", choices=("others_as_user_attributed", "others_as_user_merged")),
+        _SEES,
+        P("channels", "list[string]", "The channels the participant is on.", ["main"]),
+        P("window", "object",
+          "How much of the transcript this participant sees, when it has "
+          "outgrown what it should be shown. How much is part of what — "
+          "which is why it is decided here and not by whoever runs the "
+          "turns.",
+          None, fields=(
+              P("policy", "string",
+                "`\"truncate_oldest\"` keeps the tail; `\"sliding\"` keeps the "
+                "tail and the opening turn, because the opening usually "
+                "carries the task; `\"none\"` keeps everything.",
+                "none", choices=("none", "truncate_oldest", "sliding")),
+              P("words", "int",
+                "The budget, in words. A window is a budget, not a "
+                "tokenizer: the participant's own model is what would count "
+                "tokens, and it is not here.", 0),
+          )),
+        P("system", "string",
+          "A system prompt for the record, with `{name}`, `{participants}`, "
+          "`{others}` and `{turn}` filled in.",
+          None),
+    ),
+    example={"participant": "ana", "sees": {"own_thinking": {"last_turns": 1}}},
+    example_inputs={"transcripts": {"$ref": {"bench": "you/lab/debates"}}},
+)
+
+
+def run(ctx, inputs, params):
+    return render_records(inputs, params)
+
+
 #: The reserved participant name for scripted lines (the opening, a
 #: human-authored injection). It is never attributed in a rendering:
 #: "user: hello" would read as a participant called "user".
 SCRIPT_SPEAKER = "user"
+
+
 #: Kept for a transcript that does not say who its participants are.
 #: Where it does, the list is the rule and this name is not special.
 PERSPECTIVES = ("others_as_user_attributed", "others_as_user_merged")
+
 
 #: What a participant re-reads of the room's reasoning, by default:
 #: nothing. A scratchpad is written to be thrown away, and a
@@ -36,6 +132,8 @@ PERSPECTIVES = ("others_as_user_attributed", "others_as_user_merged")
 #: reasoning (task 000592). Anything else is a choice — a declared,
 #: sweepable one.
 SEES_DEFAULT: dict[str, Any] = {"own_thinking": "none", "others_thinking": "none"}
+
+
 _SEES_KEYS = ("own_thinking", "others_thinking")
 
 
@@ -189,21 +287,6 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
     return [{"role": r, "content": t} for r, t in merged]
 
 
-# --- the ops ------------------------------------------------------------------------
-
-
-def _transcripts(value: Any) -> list[dict[str, Any]]:
-    from mechbench_compute.lexicon import kinds as K
-
-    items = K.items_of(value or [])
-    for t in items:
-        if not isinstance(t.get("messages"), list):
-            raise ValueError(
-                f"transcript {t.get('id')!r} has no `messages`; a text/transcript "
-                "carries its messages at the top level")
-    return items
-
-
 def render_records(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """`text/render`: every transcript rendered for one participant, as
     the chat-shaped records `text/chat` takes — `messages`, `system`,
@@ -248,115 +331,3 @@ def _fill(text: str, *, participant: str, participants: Sequence[str], turn: int
         if text == before:
             break
     return text
-
-
-def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`text/extend`: each transcript with one more turn — the reply on
-    `replies` whose `coords.conversation` names it — spoken by
-    `participant`. The reply's thinking (when its model marks
-    reasoning) is kept on the message and out of its `text`, which is
-    what the room hears; its provider call — with whatever tools the
-    turn ran — rides along as `call`.
-    A conversation with two replies is two conversations, which is a
-    map, not a turn: more than one reply per transcript is refused."""
-    from mechbench_compute.lexicon import kinds as K
-
-    participant = str(params["participant"])
-    channel = str(params.get("channel") or MAIN)
-    keep_fields = [str(f) for f in (params.get("keep_fields") or [])]
-    stop_phrases = [str(x) for x in (params.get("stop_phrases") or []) if str(x)]
-    max_messages = params.get("max_messages")
-    replies: dict[str, list[Mapping[str, Any]]] = {}
-    for d in K.items_of(inputs.get("replies") or []):
-        cid = (d.get("coords") or {}).get("conversation")
-        if cid is None:
-            cid = (d.get("metadata") or {}).get("coords", {}).get("conversation")
-        if cid is None:
-            raise ValueError(
-                f"reply {d.get('id')!r} names no conversation: a reply to a rendered "
-                "transcript carries `coords.conversation`, which text/render sets")
-        replies.setdefault(str(cid), []).append(d)
-    items = []
-    for t in _transcripts(inputs.get("transcripts")):
-        cid = str(t.get("id"))
-        got = replies.get(cid, [])
-        if len(got) != 1:
-            raise ValueError(
-                f"transcript {cid!r} has {len(got)} replies; a turn is one reply "
-                "(sample n=1, or map over samples to make n conversations)")
-        d = got[0]
-        thought, said = THINK.split_thought(str(d.get("text", "")))
-        message: dict[str, Any] = {
-            "index": len(t["messages"]), "participant": participant,
-            "role_as_seen": "assistant", "text": said,
-        }
-        if channel != MAIN:
-            # Recorded, but not part of the room: only a participant
-            # whose `channels` include this one will be rendered it.
-            message["channel"] = channel
-        if thought:
-            message["thinking"] = thought
-        meta = d.get("metadata") or {}
-        call = meta.get("call")
-        # What the turn actually did with the tools it was offered
-        # rides along on the provider call, so the transcript records
-        # the work and the room hears only the answer.
-        runs = meta.get("tool_runs") or []
-        if call is not None or runs:
-            message["call"] = {
-                **(dict(call) if call is not None else {}),
-                **({"tool_runs": [dict(r) for r in runs]} if runs else {}),
-            }
-        names = [str(n) for n in (t.get("participants") or [])]
-        if participant not in names:
-            names.append(participant)
-        known = {"id", "kind", "coords", "participants", "messages", "stopped",
-                 "text", "turns", "metadata"}
-        # The transcript's own carried fields stand until a reply
-        # replaces one.
-        standing = {k: v for k, v in t.items() if k not in known}
-        # Why the conversation is over, when this turn ended it: a stop
-        # phrase in what was said, or the message cap reached. A fold's
-        # `until: {"field": "stopped"}` reads it.
-        stopped = str(t.get("stopped") or "")
-        messages = [*t["messages"], message]
-        if not stopped:
-            hit = next((ph for ph in stop_phrases if ph.lower() in said.lower()), None)
-            if hit is not None:
-                stopped = f"stop_phrase:{hit}"
-            elif max_messages is not None and len(messages) >= int(max_messages):
-                stopped = "max_messages"
-        # What the reply said about itself, carried onto the transcript:
-        # a verdict, a rating, whose turn is next. The op does not know
-        # what any of them mean — it carries what it was told to.
-        carried = {**standing, **{f: d[f] for f in keep_fields if f in d}}
-        items.append(transcript_item(cid, messages, participants=names,
-                                     stopped=stopped, carried=carried,
-                                     coords=dict(t.get("coords") or {}),
-                                     metadata=dict(t.get("metadata") or {})))
-    return K.collection(TRANSCRIPT_KIND, items, fidelity="segments",
-                        description=f"Each transcript extended by one turn of {participant}.")
-
-
-def transcript_item(cid: str, messages: Sequence[Mapping[str, Any]], *,
-                    participants: Sequence[str], stopped: str = "",
-                    coords: Mapping[str, Any] | None = None,
-                    metadata: Mapping[str, Any] | None = None,
-                    carried: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """One conversation as its kind declares it: `messages`,
-    `participants` and `stopped` at the top level, `turns` and `text`
-    (the visible turns) for the browser, and coords on the item as
-    every record's are."""
-    visible = [m for m in messages if str(m.get("channel", MAIN)) == MAIN]
-    return {
-        **dict(carried or {}),
-        "id": cid,
-        "kind": TRANSCRIPT_KIND,
-        "coords": dict(coords or {}),
-        "participants": list(participants),
-        "messages": [dict(m) for m in messages],
-        "stopped": stopped,
-        "text": "\n\n".join(f"{m.get('participant')}: {m.get('text', '')}" for m in visible),
-        "turns": [{"role": m.get("participant"), "text": m.get("text", "")} for m in visible],
-        "metadata": {**dict(metadata or {}), "coords": dict(coords or {})},
-    }

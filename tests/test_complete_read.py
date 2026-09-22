@@ -7,7 +7,7 @@ import math
 import pytest
 
 from mechbench_compute import distill
-from mechbench_compute.blocks import eval_expectation
+from mechbench_compute.ops.eval.expect import eval_expectation
 
 
 class WordTok:

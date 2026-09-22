@@ -13,6 +13,11 @@ import pytest
 
 from mechbench_compute import judge as J
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+from mechbench_compute.ops.eval.judge import Scale
+from mechbench_compute.ops.eval.judge import aggregate
+from mechbench_compute.ops.eval.judge import build_prompts
+from mechbench_compute.ops.eval.judge import run_judge as run
+from mechbench_compute.ops.eval.judge import summarize
 
 STORIES = [
     {"id": "s1", "coords": {"arm": "base"}, "text": "The dust settled slowly."},
@@ -32,45 +37,45 @@ def judged(text, **params):
     }
     base.update(params)
     # The subjects arrive on the `records` port, not in params.
-    return J.run(base, inputs={"records": base.pop("records")})
+    return run(base, inputs={"records": base.pop("records")})
 
 
 class TestScales:
     def test_a_numeric_scale_reads_json_or_a_bare_number(self):
-        scale = J.Scale({"kind": "numeric", "min": 1, "max": 5})
+        scale = Scale({"kind": "numeric", "min": 1, "max": 5})
         assert scale.read('{"score": 4, "rationale": "fresh"}') == {
             "score": 4.0, "rationale": "fresh"}
         loose = scale.read("I would say 2 out of 5.")
         assert loose["score"] == 2.0 and loose["rationale"]
 
     def test_out_of_range_is_clamped_and_flagged(self):
-        scale = J.Scale({"kind": "numeric", "min": 1, "max": 5})
+        scale = Scale({"kind": "numeric", "min": 1, "max": 5})
         out = scale.read('{"score": 9}')
         # A judge that answers 9 on a 1–5 scale did not mean 5, and
         # hiding that would hide a broken rubric.
         assert out["score"] == 5.0 and out["out_of_range"] == 9.0
 
     def test_a_categorical_scale_takes_a_label_by_name(self):
-        scale = J.Scale({"kind": "categorical", "labels": ["cliché", "fresh"]})
+        scale = Scale({"kind": "categorical", "labels": ["cliché", "fresh"]})
         assert scale.read('{"label": "fresh"}')["label"] == "fresh"
         assert scale.read("This one reads as fresh to me.")["label"] == "fresh"
         assert scale.read("no idea") == {}
 
     def test_a_pairwise_scale_takes_a_side(self):
-        scale = J.Scale({"kind": "pairwise"})
+        scale = Scale({"kind": "pairwise"})
         assert scale.read('{"winner": "B", "rationale": "richer"}')["winner"] == "B"
         assert scale.read("I prefer A.")["winner"] == "A"
 
     def test_unreadable_is_unparsed_not_zero(self):
-        assert J.Scale({"kind": "numeric"}).read("hmm, hard to say") == {}
+        assert Scale({"kind": "numeric"}).read("hmm, hard to say") == {}
 
     def test_a_malformed_scale_is_refused(self):
         with pytest.raises(ValueError, match="unknown scale"):
-            J.Scale({"kind": "vibes"})
+            Scale({"kind": "vibes"})
         with pytest.raises(ValueError, match="max > min"):
-            J.Scale({"kind": "numeric", "min": 5, "max": 5})
+            Scale({"kind": "numeric", "min": 5, "max": 5})
         with pytest.raises(ValueError, match="two labels"):
-            J.Scale({"kind": "categorical", "labels": ["only"]})
+            Scale({"kind": "categorical", "labels": ["only"]})
 
 
 class TestVotesAndSpread:
@@ -78,18 +83,18 @@ class TestVotesAndSpread:
         votes = [{"parsed": True, "score": 2.0, "rationale": "a"},
                  {"parsed": True, "score": 5.0, "rationale": "b"},
                  {"parsed": True, "score": 3.0, "rationale": "c"}]
-        row = J.aggregate({"id": "s1", "coords": {}}, votes,
-                          scale=J.Scale({"kind": "numeric"}))
+        row = aggregate({"id": "s1", "coords": {}}, votes,
+                          scale=Scale({"kind": "numeric"}))
         assert row["score"] == pytest.approx(3.3333, abs=1e-4)
         assert row["spread"] > 1.0 and row["min"] == 2.0 and row["max"] == 5.0
         assert row["n_parsed"] == 3
 
     def test_categorical_votes_take_the_majority_and_report_agreement(self):
-        scale = J.Scale({"kind": "categorical", "labels": ["cliché", "fresh"]})
+        scale = Scale({"kind": "categorical", "labels": ["cliché", "fresh"]})
         votes = [{"parsed": True, "label": "fresh"},
                  {"parsed": True, "label": "fresh"},
                  {"parsed": True, "label": "cliché"}]
-        row = J.aggregate({"id": "s1"}, votes, scale=scale)
+        row = aggregate({"id": "s1"}, votes, scale=scale)
         assert row["label"] == "fresh"
         # A rubric that produces 0.67 here is the finding, not a number
         # to average away.
@@ -97,23 +102,23 @@ class TestVotesAndSpread:
         assert row["counts"] == {"fresh": 2, "cliché": 1}
 
     def test_a_subject_nobody_could_grade_says_so(self):
-        row = J.aggregate({"id": "s1"}, [{"parsed": False}, {"parsed": False}],
-                          scale=J.Scale({"kind": "numeric"}))
+        row = aggregate({"id": "s1"}, [{"parsed": False}, {"parsed": False}],
+                          scale=Scale({"kind": "numeric"}))
         assert row["unparsed"] is True and "score" not in row
 
     def test_the_summary_carries_what_a_reader_would_cite(self):
-        scale = J.Scale({"kind": "numeric"})
+        scale = Scale({"kind": "numeric"})
         rows = [{"score": 4.0}, {"score": 2.0}, {"unparsed": True}]
-        summary = J.summarize(rows, scale=scale, votes=[])
+        summary = summarize(rows, scale=scale, votes=[])
         assert summary["mean"] == 3.0 and summary["n_unparsed"] == 1
         assert summary["n_subjects"] == 3
 
 
 class TestPairwisePosition:
     def test_the_order_flips_per_vote_and_is_recorded(self):
-        prompts = J.build_prompts(
+        prompts = build_prompts(
             [{"id": "s1", "text_a": "AAA", "text_b": "BBB"}],
-            scale=J.Scale({"kind": "pairwise"}), rubric="pick one",
+            scale=Scale({"kind": "pairwise"}), rubric="pick one",
             fields=["text"], n_votes=8, seed=11,
             pairwise_fields=["text_a", "text_b"])
         orders = [p["order"] for p in prompts]
@@ -124,11 +129,11 @@ class TestPairwisePosition:
         assert ba["user"].startswith("A:\nBBB")   # B shown in slot A
 
     def test_the_same_seed_gives_the_same_orders(self):
-        args = {"scale": J.Scale({"kind": "pairwise"}), "rubric": "r",
+        args = {"scale": Scale({"kind": "pairwise"}), "rubric": "r",
                 "fields": ["text"], "n_votes": 6, "seed": 3,
                 "pairwise_fields": ["text_a", "text_b"]}
-        one = J.build_prompts([{"id": "s1"}], **args)
-        two = J.build_prompts([{"id": "s1"}], **args)
+        one = build_prompts([{"id": "s1"}], **args)
+        two = build_prompts([{"id": "s1"}], **args)
         assert [p["order"] for p in one] == [p["order"] for p in two]
 
     def test_an_answer_is_mapped_back_from_what_the_judge_saw(self):
@@ -163,8 +168,8 @@ class TestPairwisePosition:
         votes = [{"parsed": True, "winner": "A", "order": "AB"},
                  {"parsed": True, "winner": "B", "order": "BA"},
                  {"parsed": True, "winner": "A", "order": "AB"}]
-        summary = J.summarize([{"winner": "A", "agreement": 1.0}],
-                              scale=J.Scale({"kind": "pairwise"}), votes=votes)
+        summary = summarize([{"winner": "A", "agreement": 1.0}],
+                              scale=Scale({"kind": "pairwise"}), votes=votes)
         assert summary["first_shown_win_rate"] == 1.0
 
 
@@ -198,10 +203,10 @@ class TestTheBlock:
 
     def test_a_judge_without_a_rubric_or_a_model_is_refused(self):
         with pytest.raises(ValueError, match="needs a rubric"):
-            J.run({"judge": {"model": {"provider": "mock", "model": "m"}},
+            run({"judge": {"model": {"provider": "mock", "model": "m"}},
                    "budget_usd": 1.0}, inputs={"records": STORIES})
         with pytest.raises(ValueError, match="judge: \\{model, system\\}"):
-            J.run({"scale": {"kind": "numeric"}}, inputs={"records": STORIES})
+            run({"scale": {"kind": "numeric"}}, inputs={"records": STORIES})
 
     def test_no_temperature_is_sent_unless_the_author_named_one(self):
         """A default the provider may REFUSE is not a safe default:
@@ -260,7 +265,7 @@ class TestTheBlock:
 
     def test_a_remote_judge_needs_a_cap(self):
         with pytest.raises(ValueError, match="budget_usd"):
-            J.run({"judge": {"model": {"provider": "mock", "model": "m"},
+            run({"judge": {"model": {"provider": "mock", "model": "m"},
                              "system": "grade it"}},
                   inputs={"records": STORIES})
 
@@ -345,7 +350,7 @@ class TestSubjectsFromACorpus:
     losing them would make the scores unsliceable."""
 
     def test_coords_survive_from_metadata(self):
-        out = J.run({
+        out = run({
             "judge": {"model": {"provider": "mock", "model": "judge-1"},
                       "system": "Grade the story for cliché.",
                       "provider_options": {"mock": {"text": '{"score": 3}'}}},
@@ -355,8 +360,8 @@ class TestSubjectsFromACorpus:
         assert [r["coords"]["prompt"] for r in out["items"]] == ["neutral", "flash"]
 
     def test_the_judge_sees_the_story_and_not_its_condition(self):
-        prompts = J.build_prompts(
-            J.chat_mod._records(CORPUS_FIXTURE), scale=J.Scale({"kind": "numeric"}),
+        prompts = build_prompts(
+            J.chat_mod._records(CORPUS_FIXTURE), scale=Scale({"kind": "numeric"}),
             rubric="grade it", fields=["text"], n_votes=1, seed=0)
         assert "lighthouse" in prompts[0]["user"]
         # A judge that can see the condition label is grading the label.

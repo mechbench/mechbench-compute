@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from mechbench_compute.directions.as_array import as_array
+from mechbench_compute.directions.make import make
+from mechbench_compute.directions.space_of import space_of
+from mechbench_compute.lexicon._base import In, Op, Output
+
+OP = Op(
+    name="direction/normalize",
+    summary=(
+        "Rescale a direction to unit length, keeping its space and model — "
+        "an explicit, recorded step for a vector that arrived some other way."
+    ),
+    description="""\
+Directions made by the other `direction/*` ops are unit already. This is
+for one that was hand-built or imported, and for making normalisation a
+visible step in the graph rather than an assumption.
+""",
+    inputs=(In("direction", "direction/vector", "The direction to normalise."),),
+    output=Output('direction/vector', collection=False, doc='`derivation.method` is `"normalize"`.'),
+    params=(),
+    example={},
+    example_inputs={"direction": {"$ref": {"bench": "you/lab/imported"}}},
+)
+
+
+def run(ctx, inputs, params):
+    return block_normalize(inputs, params)
+
+
+def normalize(d: Mapping[str, Any]) -> dict[str, Any]:
+    """A direction rescaled to unit length, keeping its space and model.
+
+    Directions are stored unit already, so this is for the case where one
+    arrived otherwise — hand-built, or read from an external source —
+    and for making the normalization an explicit, recorded step rather
+    than an implicit one.
+    """
+    return make(as_array(d), space_of(d), method="normalize")
+
+
+def block_normalize(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    return normalize(inputs.get("direction"))

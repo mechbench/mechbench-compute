@@ -3,9 +3,9 @@ protocol leans on — deterministic, growth-safe, expectation-judging."""
 
 import pytest
 
-from mechbench_compute.blocks import eval_expectation
 from mechbench_compute.ops.records.cross import factor_cross
 from mechbench_compute.ops.records.fill import template
+from mechbench_compute.ops.eval.expect import eval_expectation
 
 WORDS = ["alpha", "bravo", "charlie", "delta", "echo"]
 
@@ -144,7 +144,7 @@ def test_eval_expectation_reads_its_ports_only():
 
 
 def test_suite_metric_records_shapes_lm_eval_results():
-    from mechbench_compute.blocks import suite_metric_records
+    from mechbench_compute.ops.eval.benchmark import suite_metric_records
     results = {"arc_easy": {"alias": "arc_easy",
                              "acc,none": 0.74, "acc_stderr,none": 0.02,
                              "acc_norm,none": 0.70,
@@ -237,7 +237,7 @@ def test_table_from_records_flattens_coords_and_types_columns():
 
 
 def test_suite_records_flow_through_union_and_paired_delta():
-    from mechbench_compute.blocks import suite_metric_records
+    from mechbench_compute.ops.eval.benchmark import suite_metric_records
     from mechbench_compute.ops.records.subtract import paired_delta
     from mechbench_compute.ops.records.union import union
     base = suite_metric_records({"arc_easy": {"acc,none": 0.70}}, {}, "base")

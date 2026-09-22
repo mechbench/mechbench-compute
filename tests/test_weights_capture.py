@@ -13,7 +13,10 @@ import numpy as np
 import pytest
 from mlx import nn
 
+from mechbench_compute.ops.weights import capture as capture_op
 from mechbench_compute import weights as W
+from mechbench_compute.ops.weights.capture import capture_weights
+from mechbench_compute.ops.weights.decompose import decompose_weights
 
 
 class _Attn(nn.Module):
@@ -90,7 +93,7 @@ class TestNamingAndSelection:
 
 class TestCapture:
     def test_the_cheap_stats_are_always_there(self, lm):
-        out = W.capture_weights(lm, {"points": ["layers.*.mlp.down_proj"]})
+        out = capture_weights(lm, {"points": ["layers.*.mlp.down_proj"]})
         assert out["item_kind"] == "weights/parameter"
         assert len(out["items"]) == 3
         it = out["items"][0]
@@ -105,7 +108,7 @@ class TestCapture:
         assert "values" not in it
 
     def test_the_header_says_what_was_read(self, lm):
-        out = W.capture_weights(lm, {"points": ["layers.0.mlp.down_proj"]},
+        out = capture_weights(lm, {"points": ["layers.0.mlp.down_proj"]},
                                 model_wire="acme/tiny")
         assert out["model"] == "acme/tiny"
         assert out["captured"]["parameters"] == 1
@@ -113,7 +116,7 @@ class TestCapture:
         assert out["captured"]["of"] == len(W.parameter_names(lm))
 
     def test_the_spectrum_is_asked_for(self, lm):
-        out = W.capture_weights(lm, {"points": ["layers.0.mlp.down_proj"],
+        out = capture_weights(lm, {"points": ["layers.0.mlp.down_proj"],
                                      "spectrum": 3})
         it = out["items"][0]
         assert len(it["singular_values"]) == 3
@@ -126,16 +129,16 @@ class TestCapture:
                            np.linalg.svd(arr, compute_uv=False)[:3], atol=1e-5)
 
     def test_values_are_asked_for_and_capped(self, lm, monkeypatch):
-        out = W.capture_weights(lm, {"points": ["layers.0.mlp.down_proj"],
+        out = capture_weights(lm, {"points": ["layers.0.mlp.down_proj"],
                                      "values": True})
         assert len(out["items"][0]["values"]) == 128
-        monkeypatch.setattr(W, "MAX_VALUES", 10)
+        monkeypatch.setattr(capture_op, "MAX_VALUES", 10)
         with pytest.raises(ValueError, match="past the 10 ceiling"):
-            W.capture_weights(lm, {"points": ["layers.0.mlp.down_proj"],
+            capture_weights(lm, {"points": ["layers.0.mlp.down_proj"],
                                    "values": True})
 
     def test_a_vector_parameter_has_stats_but_no_spectrum(self, lm):
-        out = W.capture_weights(lm, {"points": ["layers.0.input_layernorm"],
+        out = capture_weights(lm, {"points": ["layers.0.input_layernorm"],
                                      "spectrum": 4})
         it = out["items"][0]
         assert it["shape"] == [8]
@@ -144,7 +147,7 @@ class TestCapture:
 
 class TestDecompose:
     def test_a_writing_module_gives_directions_in_what_it_writes(self, lm):
-        out = W.decompose_weights(lm, {"points": ["layers.1.self_attn.o_proj"],
+        out = decompose_weights(lm, {"points": ["layers.1.self_attn.o_proj"],
                                        "top_k": 2}, model_wire="acme/tiny")
         assert out["item_kind"] == "direction/vector"
         assert [it["id"] for it in out["items"]] == [
@@ -159,7 +162,7 @@ class TestDecompose:
         assert first["derivation"]["method"] == "weights/decompose"
 
     def test_a_reading_module_gives_directions_in_what_it_reads(self, lm):
-        out = W.decompose_weights(lm, {"points": ["layers.0.self_attn.q_proj"],
+        out = decompose_weights(lm, {"points": ["layers.0.self_attn.q_proj"],
                                        "top_k": 1})
         it = out["items"][0]
         assert it["derivation"]["side"] == "in"
@@ -170,7 +173,7 @@ class TestDecompose:
         arr = np.array(W.parameter_names(lm)["layers.1.self_attn.o_proj.weight"]
                        .astype(mx.float32))
         u, sv, _ = np.linalg.svd(arr, full_matrices=False)
-        out = W.decompose_weights(lm, {"points": ["layers.1.self_attn.o_proj"],
+        out = decompose_weights(lm, {"points": ["layers.1.self_attn.o_proj"],
                                        "top_k": 1})
         it = out["items"][0]
         assert it["norm"] == pytest.approx(float(sv[0]), rel=1e-5)
@@ -178,10 +181,10 @@ class TestDecompose:
 
     def test_a_module_with_no_residual_side_is_refused_by_name(self, lm):
         with pytest.raises(ValueError, match="no direction"):
-            W.decompose_weights(lm, {"points": ["layers.0.input_layernorm"]})
+            decompose_weights(lm, {"points": ["layers.0.input_layernorm"]})
 
     def test_naming_a_side_skips_the_modules_whose_side_is_the_other(self, lm):
-        out = W.decompose_weights(lm, {"points": ["layers.0.self_attn.q_proj",
+        out = decompose_weights(lm, {"points": ["layers.0.self_attn.q_proj",
                                                   "layers.0.self_attn.o_proj"],
                                        "side": "out", "top_k": 1})
         assert [it["derivation"]["module"] for it in out["items"]] == [
@@ -190,7 +193,7 @@ class TestDecompose:
 
     def test_points_are_required(self, lm):
         with pytest.raises(ValueError, match="needs `points`"):
-            W.decompose_weights(lm, {})
+            decompose_weights(lm, {})
 
 
 class TestParameterIntervention:

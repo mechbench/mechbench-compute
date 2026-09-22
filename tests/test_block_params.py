@@ -45,16 +45,25 @@ P = "protocol/__init__.py"
 #: unioned — a wrapper plus what it delegates to.
 SITES: dict[str, list[tuple[str, str | None]]] = {
     # --- model blocks implemented inline in the executor ---
-    "logits/read": [(P, "_block_decision_read")],
+    "logits/read": [
+        ("ops/logits/read.py", "run")],
     "text/generate": [
         ("ops/text/generate.py", "run")],
-    "adapter/train": [(P, "_block_finetune_lora")],
-    "eval/benchmark": [(P, "_block_eval_suite")],
-    "eval/score": [(P, "_block_eval_hf_metric")],
-    "logits/read-layers": [(P, "_block_lens")],
-    "text/score": [(P, "_block_score")],
-    "adapter/merge": [(P, "_block_merge")],
-    "adapter/publish": [(P, "_block_hf_push_adapter")],
+    "adapter/train": [
+        ("ops/adapter/train.py", "run")],
+    "eval/benchmark": [
+        ("ops/eval/benchmark.py", "run"),
+        ("ops/eval/benchmark.py", "suite_metric_records")],
+    "eval/score": [
+        ("ops/eval/score.py", "run")],
+    "logits/read-layers": [
+        ("ops/logits/read_layers.py", "run")],
+    "text/score": [
+        ("ops/text/score.py", "run")],
+    "adapter/merge": [
+        ("ops/adapter/merge.py", "run")],
+    "adapter/publish": [
+        ("ops/adapter/publish.py", "run")],
     "records/plot": [
         ("ops/records/plot.py", "run"),
         ("ops/records/plot.py", "_layer_axis_from"),
@@ -63,39 +72,74 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/plot.py", "_check_references"),
         ("ops/records/plot.py", "viz_spec")],
     # --- model blocks that delegate to a module ---
-    "text/chat": [(P, "_block_chat"), (P, "_block_chat_local"),
-                              ("chat.py", "run_remote"), ("chat.py", "run_local")],
-    "eval/judge": [(P, "_block_judge"), ("judge.py", "run")],
-    "intervene/apply": [(P, "_block_intervene"), ("intervene/__init__.py", "run")],
-    "direction/unembed": [(P, "_block_direction_vocab"),
-                                         ("directions/__init__.py", "vocab_projection")],
-    "trajectory/capture": [(P, "_block_trajectory_capture"),
-                                            ("trajectory.py", "capture")],
-    "text/tokenize": [(P, "_block_tokenize_stats"),
-                                        ("tokenizer_stats.py", "block")],
-    "intervene/ablate-layers": [(P, "_block_ablate_layers"),
-                                       ("interp/__init__.py", "ablate_layers")],
-    "intervene/ablate-heads": [(P, "_block_ablate_heads"),
-                                      ("interp/__init__.py", "ablate_heads")],
-    "intervene/steer": [(P, "_block_steer_inject"),
-                                      ("interp/__init__.py", "steer_inject")],
-    "logits/attribute": [(P, "_block_logit_attribution"),
-                                            ("interp/__init__.py", "logit_attribution")],
+    "text/chat": [
+        ("ops/text/chat.py", "run"),
+        ("protocol/__init__.py", "_open_memo"),
+        ("protocol/__init__.py", "_block_chat_local")],
+    "eval/judge": [
+        ("ops/eval/judge.py", "run"),
+        ("ops/eval/judge.py", "Scale"),
+        ("ops/eval/judge.py", "coords_of"),
+        ("ops/eval/judge.py", "render_subject"),
+        ("ops/eval/judge.py", "build_prompts"),
+        ("ops/eval/judge.py", "aggregate"),
+        ("ops/eval/judge.py", "summarize"),
+        ("ops/eval/judge.py", "run_judge")],
+    "intervene/apply": [
+        ("ops/intervene/apply.py", "run"),
+        ("ops/intervene/apply.py", "_hook_space"),
+        ("ops/intervene/apply.py", "_order"),
+        ("ops/intervene/apply.py", "run_intervene")],
+    "direction/unembed": [
+        ("ops/direction/unembed.py", "run"),
+        ("ops/direction/unembed.py", "vocab_projection")],
+    "trajectory/capture": [
+        ("ops/trajectory/capture.py", "run"),
+        ("ops/trajectory/capture.py", "_coords_of"),
+        ("ops/trajectory/capture.py", "_trace_ids"),
+        ("ops/trajectory/capture.py", "capture"),
+        ("ops/trajectory/capture.py", "_row"),
+        ("ops/trajectory/capture.py", "_projected"),
+        ("ops/trajectory/capture.py", "_vocab")],
+    "text/tokenize": [
+        ("ops/text/tokenize.py", "run"),
+        ("ops/text/tokenize.py", "_items_of"),
+        ("ops/text/tokenize.py", "_script_of"),
+        ("ops/text/tokenize.py", "tokenizer_stats"),
+        ("ops/text/tokenize.py", "block")],
+    "intervene/ablate-layers": [
+        ("ops/intervene/ablate_layers.py", "run"),
+        ("ops/intervene/ablate_layers.py", "_ablation_points"),
+        ("ops/intervene/ablate_layers.py", "ablate_layers")],
+    "intervene/ablate-heads": [
+        ("ops/intervene/ablate_heads.py", "run"),
+        ("ops/intervene/ablate_heads.py", "ablate_heads")],
+    "intervene/steer": [
+        ("ops/intervene/steer.py", "run"),
+        ("ops/intervene/steer.py", "steer_inject")],
+    "logits/attribute": [
+        ("ops/logits/attribute.py", "run"),
+        ("ops/logits/attribute.py", "logit_attribution")],
     "intervene/patch": [
         ("ops/intervene/patch.py", "run"),
         ("ops/intervene/patch.py", "patch_trace"),
         ("ops/intervene/patch.py", "_last_logits"),
         ("ops/intervene/patch.py", "_attribution_grid")],
-    "activations/capture-attention": [(P, "_block_attention_patterns"),
-                                            ("interp/__init__.py", "attention_patterns")],
-    "logits/scan": [(P, "_block_lens_positions"),
-                                        ("interp/__init__.py", "lens_positions")],
-    "activations/capture": [(P, "_block_residual_vectors"),
-                                           ("interp/__init__.py", "residual_vectors")],
-    "activations/capture-tokens": [(P, "_block_capture_tokens"),
-                                   ("interp/__init__.py", "capture_tokens")],
-    "activations/contrast": [(P, "_block_residual_divergence"),
-                                              ("interp/__init__.py", "residual_divergence")],
+    "activations/capture-attention": [
+        ("ops/activations/capture_attention.py", "run"),
+        ("ops/activations/capture_attention.py", "attention_patterns")],
+    "logits/scan": [
+        ("ops/logits/scan.py", "run"),
+        ("ops/logits/scan.py", "lens_positions")],
+    "activations/capture": [
+        ("ops/activations/capture.py", "run"),
+        ("ops/activations/capture.py", "residual_vectors")],
+    "activations/capture-tokens": [
+        ("ops/activations/capture_tokens.py", "run"),
+        ("ops/activations/capture_tokens.py", "capture_tokens")],
+    "activations/contrast": [
+        ("ops/activations/contrast.py", "run"),
+        ("ops/activations/contrast.py", "residual_divergence")],
     # --- pure blocks ---
     "records/cross": [
         ("ops/records/cross.py", "run"),
@@ -127,8 +171,19 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/contrast.py", "run"),
         ("ops/records/contrast.py", "_field_of"),
         ("ops/records/contrast.py", "contrast")],
-    "text/render": [("transcript.py", "render_records")],
-    "text/extend": [("transcript.py", "extend")],
+    "text/render": [
+        ("ops/text/render.py", "run"),
+        ("ops/text/render.py", "parse_sees"),
+        ("ops/text/render.py", "_words"),
+        ("ops/text/render.py", "windowed"),
+        ("ops/text/render.py", "_shown"),
+        ("ops/text/render.py", "render"),
+        ("ops/text/render.py", "render_records"),
+        ("ops/text/render.py", "_fill")],
+    "text/extend": [
+        ("ops/text/extend.py", "run"),
+        ("ops/text/extend.py", "extend"),
+        ("ops/text/extend.py", "transcript_item")],
     "records/tabulate": [
         ("ops/records/tabulate.py", "run"),
         ("ops/records/tabulate.py", "table_from_records")],
@@ -143,25 +198,85 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/map.py", "run")],
     "records/fold": [
         ("ops/records/fold.py", "run")],
-    "weights/circuit": [(P, "_block_weights_circuit"), ("weights/__init__.py", "head_circuits")],
-    "activations/examples": [(P, "_block_examples"), ("interp/__init__.py", "examples")],
-    "intervene/path": [(P, "_block_path_patch"), ("paths.py", "run")],
-    "text/measure": [("blocks/__init__.py", "text_stats")],
-    "eval/expect": [("blocks/__init__.py", "eval_expectation")],
-    "geometry/compare": [("similarity.py", "geometry_similarity")],
-    "geometry/span": [("trees.py", "mst")],
-    "direction/add": [("directions/__init__.py", "block_add")],
-    "direction/average": [("directions/__init__.py", "block_average")],
-    "direction/decompose": [("directions/__init__.py", "block_from_pca")],
-    "direction/fit": [("directions/__init__.py", "block_from_vectors")],
-    "direction/regress": [("directions/__init__.py", "block_from_regression")],
-    "direction/classify": [("directions/__init__.py", "block_classify")],
-    "direction/normalize": [("directions/__init__.py", "block_normalize")],
-    "direction/orthogonalize": [("directions/__init__.py", "block_orthogonalize")],
-    "direction/project": [("directions/__init__.py", "block_project")],
-    "trajectory/project": [("trajectory.py", "project")],
-    "trajectory/compare": [("trajectory.py", "compare")],
-    "trajectory/aggregate": [("trajectory.py", "aggregate")],
+    "weights/circuit": [
+        ("ops/weights/circuit.py", "run"),
+        ("ops/weights/circuit.py", "head_circuits")],
+    "activations/examples": [
+        ("ops/activations/examples.py", "run"),
+        ("ops/activations/examples.py", "examples")],
+    "intervene/path": [
+        ("ops/intervene/path.py", "run"),
+        ("ops/intervene/path.py", "SpecError"),
+        ("ops/intervene/path.py", "_name"),
+        ("ops/intervene/path.py", "_head_writer"),
+        ("ops/intervene/path.py", "_parse_end"),
+        ("ops/intervene/path.py", "_senders"),
+        ("ops/intervene/path.py", "_frozen"),
+        ("ops/intervene/path.py", "run_path_patch")],
+    "text/measure": [
+        ("ops/text/measure.py", "run"),
+        ("ops/text/measure.py", "_words_of"),
+        ("ops/text/measure.py", "_vocabulary_of"),
+        ("ops/text/measure.py", "text_stats")],
+    "eval/expect": [
+        ("ops/eval/expect.py", "run"),
+        ("ops/eval/expect.py", "eval_expectation")],
+    "geometry/compare": [
+        ("ops/geometry/compare.py", "run"),
+        ("ops/geometry/compare.py", "_geometry_similarity"),
+        ("ops/geometry/compare.py", "_group_key"),
+        ("ops/geometry/compare.py", "separation"),
+        ("ops/geometry/compare.py", "geometry_similarity")],
+    "geometry/span": [
+        ("ops/geometry/span.py", "run"),
+        ("ops/geometry/span.py", "minimum_spanning_tree"),
+        ("ops/geometry/span.py", "tree_stats"),
+        ("ops/geometry/span.py", "_distance_of"),
+        ("ops/geometry/span.py", "mst")],
+    "direction/add": [
+        ("ops/direction/add.py", "run"),
+        ("ops/direction/add.py", "block_add")],
+    "direction/average": [
+        ("ops/direction/average.py", "run"),
+        ("ops/direction/average.py", "average"),
+        ("ops/direction/average.py", "block_average")],
+    "direction/decompose": [
+        ("ops/direction/decompose.py", "run"),
+        ("ops/direction/decompose.py", "from_pca"),
+        ("ops/direction/decompose.py", "block_from_pca")],
+    "direction/fit": [
+        ("ops/direction/fit.py", "run"),
+        ("ops/direction/fit.py", "from_vectors"),
+        ("ops/direction/fit.py", "block_from_vectors")],
+    "direction/regress": [
+        ("ops/direction/regress.py", "run"),
+        ("ops/direction/regress.py", "from_regression"),
+        ("ops/direction/regress.py", "_number_at"),
+        ("ops/direction/regress.py", "block_from_regression")],
+    "direction/classify": [
+        ("ops/direction/classify.py", "run"),
+        ("ops/direction/classify.py", "from_classification"),
+        ("ops/direction/classify.py", "block_classify")],
+    "direction/normalize": [
+        ("ops/direction/normalize.py", "run"),
+        ("ops/direction/normalize.py", "normalize"),
+        ("ops/direction/normalize.py", "block_normalize")],
+    "direction/orthogonalize": [
+        ("ops/direction/orthogonalize.py", "run"),
+        ("ops/direction/orthogonalize.py", "orthogonalize"),
+        ("ops/direction/orthogonalize.py", "block_orthogonalize")],
+    "direction/project": [
+        ("ops/direction/project.py", "run"),
+        ("ops/direction/project.py", "project_rows"),
+        ("ops/direction/project.py", "block_project")],
+    "trajectory/project": [
+        ("ops/trajectory/project.py", "run")],
+    "trajectory/compare": [
+        ("ops/trajectory/compare.py", "run"),
+        ("ops/trajectory/compare.py", "compare")],
+    "trajectory/aggregate": [
+        ("ops/trajectory/aggregate.py", "run"),
+        ("ops/trajectory/aggregate.py", "aggregate")],
     # The reduce ops share one closure; the MONOID is what differs, and
     # each one's params are its own.
     # `_block_of` is the closure that reads the records port for all three.
@@ -174,13 +289,27 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "records/bin": [
         ("ops/records/bin.py", "run"),
         ("ops/records/bin.py", "Histogram")],
-    "adapter/measure": [("weights/__init__.py", "measure_adapter")],
-    "weights/capture": [(P, "_block_capture_weights"),
-                        ("weights/__init__.py", "capture_weights")],
-    "weights/decompose": [(P, "_block_decompose_weights"),
-                          ("weights/__init__.py", "decompose_weights")],
-    "tools/calc": [("tools.py", "calc")],
-    "tools/lookup": [("tools.py", "bench_lookup")],
+    "adapter/measure": [
+        ("ops/adapter/measure.py", "run"),
+        ("ops/adapter/measure.py", "_measure_adapter"),
+        ("ops/adapter/measure.py", "adapter_pairs"),
+        ("ops/adapter/measure.py", "delta_spectrum"),
+        ("ops/adapter/measure.py", "_wanted"),
+        ("ops/adapter/measure.py", "measure_adapter")],
+    "weights/capture": [
+        ("ops/weights/capture.py", "run"),
+        ("ops/weights/capture.py", "parameter_stats"),
+        ("ops/weights/capture.py", "capture_weights")],
+    "weights/decompose": [
+        ("ops/weights/decompose.py", "run"),
+        ("ops/weights/decompose.py", "decompose_weights")],
+    "tools/calc": [
+        ("ops/tools/calc.py", "run"),
+        ("ops/tools/calc.py", "CalcRefused"),
+        ("ops/tools/calc.py", "calc")],
+    "tools/lookup": [
+        ("ops/tools/lookup.py", "run"),
+        ("ops/tools/lookup.py", "bench_lookup")],
 }
 
 #: Params a block genuinely reads somewhere the scanner cannot follow —

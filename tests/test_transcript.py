@@ -9,6 +9,11 @@ import pytest
 
 from mechbench_compute import transcript as TR
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+from mechbench_compute.ops.text.extend import extend
+from mechbench_compute.ops.text.render import SEES_DEFAULT
+from mechbench_compute.ops.text.render import parse_sees
+from mechbench_compute.ops.text.render import render
+from mechbench_compute.ops.text.render import render_records
 
 
 def _msg(i, who, text, **kw):
@@ -26,20 +31,20 @@ HISTORY = [
 
 class TestSees:
     def test_the_default_replays_nothing(self):
-        assert TR.parse_sees(None) == {"own_thinking": "none", "others_thinking": "none"}
+        assert parse_sees(None) == {"own_thinking": "none", "others_thinking": "none"}
 
     def test_the_old_boolean_reads_as_the_clause_it_meant(self):
-        assert TR.parse_sees(True)["own_thinking"] == "full"
-        assert TR.parse_sees(False) == TR.SEES_DEFAULT
+        assert parse_sees(True)["own_thinking"] == "full"
+        assert parse_sees(False) == SEES_DEFAULT
 
     def test_the_grammar_is_checked_by_name(self):
-        assert TR.parse_sees({"own_thinking": {"last_turns": 2}})["own_thinking"] == {"last_turns": 2}
+        assert parse_sees({"own_thinking": {"last_turns": 2}})["own_thinking"] == {"last_turns": 2}
         with pytest.raises(ValueError, match="unknown key"):
-            TR.parse_sees({"thinking": "full"})
+            parse_sees({"thinking": "full"})
         with pytest.raises(ValueError, match="own_thinking"):
-            TR.parse_sees({"own_thinking": "some"})
+            parse_sees({"own_thinking": "some"})
         with pytest.raises(ValueError, match="non-negative integer"):
-            TR.parse_sees({"others_thinking": {"last_turns": -1}})
+            parse_sees({"others_thinking": {"last_turns": -1}})
 
 
 def _said(view):
@@ -48,34 +53,34 @@ def _said(view):
 
 class TestRender:
     def test_roles_attribution_and_channels(self):
-        view = TR.render(HISTORY, participant="ana")
+        view = render(HISTORY, participant="ana")
         assert [m["role"] for m in view] == ["user", "assistant", "user", "assistant"]
         assert view[0]["content"] == "hello everyone"          # a scripted line is never attributed
         assert view[2]["content"] == "bo: are you sure?"       # the other side is
         assert "keep going" not in _said(view)                 # the judge's channel is not the room
 
     def test_the_room_hears_answers_not_scratchpads(self):
-        assert "two plus two" not in _said(TR.render(HISTORY, participant="bo"))
-        assert "two plus two" not in _said(TR.render(HISTORY, participant="ana"))
+        assert "two plus two" not in _said(render(HISTORY, participant="bo"))
+        assert "two plus two" not in _said(render(HISTORY, participant="ana"))
 
     def test_own_thinking_full_and_last_turns(self):
-        full = TR.render(HISTORY, participant="ana", sees={"own_thinking": "full"})
+        full = render(HISTORY, participant="ana", sees={"own_thinking": "full"})
         assert full[1]["content"] == "two plus two is four\n\nfour."
         assert full[3]["content"] == "I am\n\nyes."
-        last = TR.render(HISTORY, participant="ana", sees={"own_thinking": {"last_turns": 1}})
+        last = render(HISTORY, participant="ana", sees={"own_thinking": {"last_turns": 1}})
         assert last[1]["content"] == "four."                   # two turns back: withheld
         assert last[3]["content"] == "I am\n\nyes."            # the most recent: replayed
 
     def test_others_thinking_is_a_choice_and_is_marked(self):
-        view = TR.render(HISTORY, participant="ana", sees={"others_thinking": "full"})
+        view = render(HISTORY, participant="ana", sees={"others_thinking": "full"})
         assert view[2]["content"] == "bo (thinking): she might be bluffing\n\nbo: are you sure?"
-        merged = TR.render(HISTORY, participant="ana", perspective="others_as_user_merged",
+        merged = render(HISTORY, participant="ana", perspective="others_as_user_merged",
                            sees={"others_thinking": {"truncate_words": 2}})
         assert merged[2]["content"] == "(thinking) she might\n\nare you sure?"
 
     def test_consecutive_user_turns_merge(self):
         h = [_msg(0, "user", "a"), _msg(1, "bo", "b"), _msg(2, "cy", "c"), _msg(3, "ana", "d")]
-        view = TR.render(h, participant="ana")
+        view = render(h, participant="ana")
         assert [m["role"] for m in view] == ["user", "assistant"]
         assert view[0]["content"] == "a\n\nbo: b\n\ncy: c"
 
@@ -91,7 +96,7 @@ def _transcripts():
 
 class TestRenderRecords:
     def test_one_chat_shaped_record_per_transcript(self):
-        out = TR.render_records({"transcripts": _transcripts()},
+        out = render_records({"transcripts": _transcripts()},
                                 {"participant": "bo", "system": "You are {name}; the others are {others}. Turn {turn}."})
         assert out["item_kind"] == "records/record" and out["participant"] == "bo"
         [r1, r2] = out["items"]
@@ -102,7 +107,7 @@ class TestRenderRecords:
 
     def test_a_transcript_without_messages_is_refused(self):
         with pytest.raises(ValueError, match="no `messages`"):
-            TR.render_records({"transcripts": [{"id": "x", "turns": []}]}, {"participant": "bo"})
+            render_records({"transcripts": [{"id": "x", "turns": []}]}, {"participant": "bo"})
 
 
 class TestExtend:
@@ -114,7 +119,7 @@ class TestExtend:
             for cid, text in texts.items()]}
 
     def test_each_transcript_grows_by_the_reply_that_names_it(self):
-        out = TR.extend({"transcripts": _transcripts(), "replies": self._replies(c1="<think>hmm</think>no", c2="hey")},
+        out = extend({"transcripts": _transcripts(), "replies": self._replies(c1="<think>hmm</think>no", c2="hey")},
                         {"participant": "bo"})
         assert out["item_kind"] == "text/transcript"
         [t1, t2] = out["items"]
@@ -126,20 +131,20 @@ class TestExtend:
         assert t2["messages"][-1]["text"] == "hey" and "thinking" not in t2["messages"][-1]
 
     def test_a_new_speaker_joins_the_participants(self):
-        out = TR.extend({"transcripts": _transcripts(), "replies": self._replies(c1="x", c2="y")}, {"participant": "cy"})
+        out = extend({"transcripts": _transcripts(), "replies": self._replies(c1="x", c2="y")}, {"participant": "cy"})
         assert out["items"][0]["participants"] == ["ana", "bo", "cy"]
 
     def test_two_replies_or_none_are_refused(self):
         with pytest.raises(ValueError, match="has 0 replies"):
-            TR.extend({"transcripts": _transcripts(), "replies": self._replies(c1="x")}, {"participant": "bo"})
+            extend({"transcripts": _transcripts(), "replies": self._replies(c1="x")}, {"participant": "bo"})
         two = self._replies(c1="x", c2="y")
         two["items"].append(dict(two["items"][0], id="c1-s1"))
         with pytest.raises(ValueError, match="has 2 replies"):
-            TR.extend({"transcripts": _transcripts(), "replies": two}, {"participant": "bo"})
+            extend({"transcripts": _transcripts(), "replies": two}, {"participant": "bo"})
 
     def test_a_reply_that_names_no_conversation_is_refused(self):
         with pytest.raises(ValueError, match="names no conversation"):
-            TR.extend({"transcripts": _transcripts(),
+            extend({"transcripts": _transcripts(),
                        "replies": [{"id": "r", "text": "x", "coords": {}}]}, {"participant": "bo"})
 
 
@@ -196,17 +201,17 @@ class TestWhoIsScripted:
                _msg(1, "ana", "Left."), _msg(2, "bo", "Right.")]
 
     def test_a_non_participant_is_not_attributed_whatever_it_is_called(self):
-        view = TR.render(self.HISTORY, participant="ana", participants=["ana", "bo"])
+        view = render(self.HISTORY, participant="ana", participants=["ana", "bo"])
         assert view[0]["content"] == "You are at a crossroads."      # scripted
         assert view[2]["content"] == "bo: Right."                    # a participant
 
     def test_a_participant_called_user_is_attributed_like_anyone_else(self):
         history = [_msg(0, "user", "I think left."), _msg(1, "ana", "Left it is.")]
-        view = TR.render(history, participant="ana", participants=["user", "ana"])
+        view = render(history, participant="ana", participants=["user", "ana"])
         assert view[0]["content"] == "user: I think left."
 
     def test_a_transcript_that_lists_nobody_keeps_the_old_convention(self):
-        view = TR.render(self.HISTORY, participant="ana")
+        view = render(self.HISTORY, participant="ana")
         assert view[0]["content"] == "narrator: You are at a crossroads."
-        scripted = TR.render([_msg(0, "user", "hello"), _msg(1, "ana", "hi")], participant="ana")
+        scripted = render([_msg(0, "user", "hello"), _msg(1, "ana", "hi")], participant="ana")
         assert scripted[0]["content"] == "hello"

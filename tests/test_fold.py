@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+from mechbench_compute.ops.text.render import render
 
 
 def _run(graph, resume_items=None):
@@ -284,6 +285,6 @@ class TestAPersonaSystemIsAGraph:
         assert t["messages"][1]["text"] not in t["text"]
         # …and a participant on `main` alone is never rendered it.
         from mechbench_compute import transcript as TR
-        seen = TR.render(t["messages"], participant="bo", participants=["ana", "bo"])
+        seen = render(t["messages"], participant="bo", participants=["ana", "bo"])
         assert all("judge" not in m["content"] for m in seen)
         assert len(seen) == 1

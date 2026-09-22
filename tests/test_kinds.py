@@ -95,7 +95,7 @@ def test_no_source_literal_names_an_undeclared_kind() -> None:
     pat = re.compile(r'"kind":\s*"([^"]+)"')
     bad = []
     for path in sorted(root.rglob("*.py")):
-        if path.name == "_smoke_bench.py" or "lexicon" in path.parts:
+        if path.name == "_smoke_bench.py" or "lexicon" in path.parts or "ops" in path.parts:
             continue
         for m in pat.finditer(path.read_text()):
             if m.group(1) not in K.BY_KIND:

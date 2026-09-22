@@ -9,6 +9,13 @@ import numpy as np
 import pytest
 
 from mechbench_compute import paths
+from mechbench_compute.ops.intervene.path import RECEIVER_POINTS
+from mechbench_compute.ops.intervene.path import SENDER_POINTS
+from mechbench_compute.ops.intervene.path import SpecError
+from mechbench_compute.ops.intervene.path import _frozen
+from mechbench_compute.ops.intervene.path import _parse_end
+from mechbench_compute.ops.intervene.path import _senders
+from mechbench_compute.ops.intervene.path import run_path_patch as run
 
 E2B = "mlx-community/gemma-4-e2b-it-bf16"
 _real = pytest.mark.skipif(
@@ -33,44 +40,44 @@ class _Model:
 
 class TestWhatItRefuses:
     def test_a_sender_must_be_earlier_than_its_receiver(self):
-        with pytest.raises(paths.SpecError, match="must be earlier"):
-            paths._senders({"senders": {"layer": 4, "head": 1}},
+        with pytest.raises(SpecError, match="must be earlier"):
+            _senders({"senders": {"layer": 4, "head": 1}},
                            {"point": "attn.q", "layer": 3, "head": 0}, 6, 4)
 
     def test_the_points_are_named(self):
-        with pytest.raises(paths.SpecError, match="receiver.point"):
-            paths._parse_end({"point": "mlp_out", "layer": 2}, what="receiver",
-                             points=paths.RECEIVER_POINTS, n_layers=6, default_point="logits")
-        with pytest.raises(paths.SpecError, match="sender.point"):
-            paths._parse_end({"point": "attn.q", "layer": 2}, what="sender",
-                             points=paths.SENDER_POINTS, n_layers=6, default_point="attn_out")
-        with pytest.raises(paths.SpecError, match="has no heads"):
-            paths._parse_end({"point": "mlp_out", "layer": 2, "head": 1}, what="sender",
-                             points=paths.SENDER_POINTS, n_layers=6, default_point="attn_out")
-        with pytest.raises(paths.SpecError, match="names no layer"):
-            paths._parse_end({"point": "attn.q"}, what="receiver",
-                             points=paths.RECEIVER_POINTS, n_layers=6, default_point="logits")
+        with pytest.raises(SpecError, match="receiver.point"):
+            _parse_end({"point": "mlp_out", "layer": 2}, what="receiver",
+                             points=RECEIVER_POINTS, n_layers=6, default_point="logits")
+        with pytest.raises(SpecError, match="sender.point"):
+            _parse_end({"point": "attn.q", "layer": 2}, what="sender",
+                             points=SENDER_POINTS, n_layers=6, default_point="attn_out")
+        with pytest.raises(SpecError, match="has no heads"):
+            _parse_end({"point": "mlp_out", "layer": 2, "head": 1}, what="sender",
+                             points=SENDER_POINTS, n_layers=6, default_point="attn_out")
+        with pytest.raises(SpecError, match="names no layer"):
+            _parse_end({"point": "attn.q"}, what="receiver",
+                             points=RECEIVER_POINTS, n_layers=6, default_point="logits")
 
     def test_the_sweeps_reach_every_earlier_component(self):
-        heads = paths._senders({"senders": "all-heads"},
+        heads = _senders({"senders": "all-heads"},
                                {"point": "attn.q", "layer": 3, "head": 0}, 6, 4)
         assert len(heads) == 3 * 4
         assert {s["point"] for s in heads} == {"attn.per_head_out"}
         assert max(s["layer"] for s in heads) == 2
-        layers = paths._senders({"senders": "all-layers"},
+        layers = _senders({"senders": "all-layers"},
                                 {"point": "logits", "layer": None}, 6, 4)
         assert len(layers) == 6 * 2 and {s["point"] for s in layers} == {"attn_out", "mlp_out"}
 
     def test_what_is_frozen_is_what_lies_between(self):
         cache = {f"blocks.{i}.{p}": i for i in range(6) for p in ("attn_out", "mlp_out")}
-        hooks = paths._frozen(cache, {"point": "attn.per_head_out", "layer": 1, "head": 0},
+        hooks = _frozen(cache, {"point": "attn.per_head_out", "layer": 1, "head": 0},
                               {"point": "attn.q", "layer": 4, "head": 0}, 6)
         # The sender's own MLP (it is not on the path), then both
         # branches of every layer strictly between.
         assert sorted(hooks) == ["blocks.1.mlp_out", "blocks.2.attn_out", "blocks.2.mlp_out",
                                  "blocks.3.attn_out", "blocks.3.mlp_out"]
         # An MLP sender does not freeze itself.
-        hooks = paths._frozen(cache, {"point": "mlp_out", "layer": 1, "head": None},
+        hooks = _frozen(cache, {"point": "mlp_out", "layer": 1, "head": None},
                               {"point": "logits", "layer": None}, 3)
         assert sorted(hooks) == ["blocks.2.attn_out", "blocks.2.mlp_out"]
 
@@ -97,7 +104,7 @@ class TestOnGemma:
         layer moves the answer by whole logits, which is what this
         catches."""
         same = {**PAIR, "b": PAIR["a"]}
-        out = paths.run(model, [same], {"receiver": self.RECEIVER,
+        out = run(model, [same], {"receiver": self.RECEIVER,
                                         "senders": self.SENDERS, "metric": "logit"})
         assert max(abs(r["delta"]) for r in out["items"]) < 0.2
 
@@ -105,7 +112,7 @@ class TestOnGemma:
         """What path patching is for: with every other component frozen
         clean, almost nothing reaches the answer directly — the median
         sender moves it by exactly zero — and one does."""
-        out = paths.run(model, [PAIR], {"receiver": {"point": "logits"},
+        out = run(model, [PAIR], {"receiver": {"point": "logits"},
                                         "senders": "all-layers", "metric": "logit"})
         deltas = np.array([abs(r["delta"]) for r in out["items"]])
         assert float(np.median(deltas)) == 0.0
@@ -114,7 +121,7 @@ class TestOnGemma:
         assert biggest["coords"]["layer"] >= model.arch.n_layers - 2
 
     def test_the_rows_name_both_ends(self, model):
-        out = paths.run(model, [PAIR],
+        out = run(model, [PAIR],
                         {"receiver": {"point": "attn.k", "layer": 5, "head": 0},
                          "senders": "all-heads", "metric": "logit"})
         assert out["item_kind"] == "intervene/readout"
@@ -132,7 +139,7 @@ class TestOnGemma:
         from mechbench_compute import intervene as iv
 
         last = model.arch.n_layers - 1
-        out = paths.run(model, [PAIR], {"receiver": {"point": "logits"},
+        out = run(model, [PAIR], {"receiver": {"point": "logits"},
                                         "senders": [{"point": "mlp_out", "layer": last}],
                                         "metric": "logit"})
         [row] = out["items"]
@@ -154,7 +161,7 @@ class TestOnGemma:
         assert abs(row["delta"] - want) < 0.02, (row["delta"], want)
 
     def test_most_heads_reach_one_heads_query_not_at_all(self, model):
-        out = paths.run(model, [PAIR], {"receiver": self.RECEIVER,
+        out = run(model, [PAIR], {"receiver": self.RECEIVER,
                                         "senders": "all-heads", "metric": "logit"})
         deltas = np.array([abs(r["delta"]) for r in out["items"]])
         assert len(deltas) == 20 * model.arch.n_heads

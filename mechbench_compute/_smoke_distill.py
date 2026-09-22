@@ -287,8 +287,8 @@ def part2_model() -> None:
     check("anchor stays sharp", paris1["top1"]["p"] > 0.5,
           f"p(Paris)={paris1['top1']['p']:.3f}")
 
-    import tempfile
     import os
+    import tempfile
     path = os.path.join(tempfile.mkdtemp(), "adapter.safetensors")
     lora.save_adapter(lm, path)
     wrapped_logits = np.array(

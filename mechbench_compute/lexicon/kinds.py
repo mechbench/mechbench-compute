@@ -26,7 +26,6 @@ from typing import Any
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind, Metric, P
 from mechbench_compute.lexicon.values import (  # noqa: F401 — re-exported for the readers that import them here
     COORDS,
-    F,
     ID,
     SPACE,
     SPACE_DOC,
@@ -34,6 +33,7 @@ from mechbench_compute.lexicon.values import (  # noqa: F401 — re-exported for
     TOP,
     TRACKED,
     VEC,
+    F,
 )
 
 DIST = F("object", "A `logits/distribution`: `{entropy_bits, top, tracked?}`.",

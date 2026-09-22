@@ -15,8 +15,20 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
+from mechbench_compute.ops.activations import capture as capture_op
+from mechbench_compute.ops.activations import capture_attention as capture_attention_op
+from mechbench_compute.ops.activations import capture_tokens as capture_tokens_op
 from mechbench_compute import interp
 from mechbench_compute.ops.intervene.patch import patch_trace
+from mechbench_compute.ops.activations.capture import residual_vectors
+from mechbench_compute.ops.activations.capture_attention import attention_patterns
+from mechbench_compute.ops.activations.capture_tokens import capture_tokens
+from mechbench_compute.ops.activations.contrast import residual_divergence
+from mechbench_compute.ops.intervene.ablate_heads import ablate_heads
+from mechbench_compute.ops.intervene.ablate_layers import ablate_layers
+from mechbench_compute.ops.intervene.steer import steer_inject
+from mechbench_compute.ops.logits.attribute import logit_attribution
+from mechbench_compute.ops.logits.scan import lens_positions
 
 N_LAYERS = 4
 D_MODEL = 8
@@ -134,7 +146,7 @@ def _expected_delta(layer: int) -> float:
 class TestAblateLayers:
     def test_deltas_match_the_softmax_arithmetic_exactly(self):
         model = StubModel()
-        out = interp.ablate_layers(
+        out = ablate_layers(
             model, [{"id": "c1", "user": "the tower is in"}], {})
         assert out["item_kind"] == "intervene/ablation"
         assert out["layers"] == [0, 1, 2, 3]
@@ -150,7 +162,7 @@ class TestAblateLayers:
     def test_progress_covers_every_forward(self):
         model = StubModel()
         ticks = []
-        interp.ablate_layers(
+        ablate_layers(
             model, [{"id": "a", "user": "x y"}, {"id": "b", "user": "p q"}],
             {"layers": [1, 2]},
             on_item=lambda: ticks.append(1), on_start=lambda n: ticks.append(n))
@@ -160,7 +172,7 @@ class TestAblateLayers:
 
     def test_a_named_target_wins_over_top1(self):
         model = StubModel()
-        out = interp.ablate_layers(
+        out = ablate_layers(
             model, [{"id": "c", "user": "a b", "target": "word"}], {"layers": [0]})
         meta = out["conditions"][0]
         assert meta["target"]["id"] == 1 + (len("word") % 7)
@@ -168,7 +180,7 @@ class TestAblateLayers:
 
     def test_sublayer_components_route_to_their_hooks(self):
         model = StubModel()
-        out = interp.ablate_layers(
+        out = ablate_layers(
             model, [{"id": "c", "user": "a b"}],
             {"component": "mlp", "layers": [2]})
         row = next(r for r in out["items"] if r.get("layer") == 2)
@@ -176,14 +188,14 @@ class TestAblateLayers:
 
     def test_a_point_that_is_not_a_sublayer_output_refuses(self):
         with pytest.raises(ValueError, match="unknown point"):
-            interp.ablate_layers(StubModel(), [{"id": "c", "user": "a"}],
+            ablate_layers(StubModel(), [{"id": "c", "user": "a"}],
                                  {"point": "norm"})
         with pytest.raises(ValueError, match="sub-layer output"):
-            interp.ablate_layers(StubModel(), [{"id": "c", "user": "a"}],
+            ablate_layers(StubModel(), [{"id": "c", "user": "a"}],
                                  {"point": "resid_post"})
 
     def test_the_default_zeroes_the_whole_layer(self):
-        out = interp.ablate_layers(StubModel(), [{"id": "c", "user": "a"}], {"layers": [0]})
+        out = ablate_layers(StubModel(), [{"id": "c", "user": "a"}], {"layers": [0]})
         assert out["points"] == ["attn_out", "mlp_out"]
 
     def test_a_sweep_at_a_prefilled_decision_point_reads_where_a_decision_read_does(self):
@@ -196,7 +208,7 @@ class TestAblateLayers:
         model = StubModel()
         cond = {"id": "c", "system": "s", "user": "roll the die", "prefill": '{ "roll": ',
                 "tracked": {"three": "ccc"}}
-        out = interp.ablate_layers(model, [cond], {"layers": [0]})
+        out = ablate_layers(model, [cond], {"layers": [0]})
         r = render(model, cond)
         assert r.chat and r.text.endswith('{ "roll": ')
         lp = _last_logp(model.run(r.array).logits)
@@ -217,7 +229,7 @@ class TestRenderingIsOnTheResult:
 
     def test_ablation_records_raw_and_chat(self):
         model = StubModel()
-        out = interp.ablate_layers(
+        out = ablate_layers(
             model,
             [{"id": "doc", "text": "aa bbb"},
              {"id": "cond", "user": "aa bbb"}],
@@ -227,7 +239,7 @@ class TestRenderingIsOnTheResult:
 
     def test_template_chat_on_a_text_record_renders_as_chat(self):
         model = StubModel()
-        out = interp.ablate_layers(
+        out = ablate_layers(
             model, [{"id": "doc", "text": "aa bbb", "template": "chat"}],
             {"layers": [0]})
         assert out["conditions"][0]["template"] == "chat"
@@ -240,7 +252,7 @@ class TestOwnTop1BesideATarget:
     def test_a_target_the_model_would_not_say_is_flagged(self):
         model = StubModel()
         # The stub's top-1 for "aa bbb" is id 3; track "q" (id 2) instead.
-        out = interp.ablate_layers(
+        out = ablate_layers(
             model, [{"id": "c", "user": "aa bbb", "tracked": {"x": "q"}}],
             {"layers": [0]})
         c = out["conditions"][0]
@@ -252,7 +264,7 @@ class TestOwnTop1BesideATarget:
 
     def test_the_models_own_answer_is_not_flagged_against_itself(self):
         model = StubModel()
-        out = interp.ablate_layers(model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
+        out = ablate_layers(model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
         assert "own_top1" not in out["conditions"][0]
         assert out["n_off_top1"] == 0
 
@@ -260,7 +272,7 @@ class TestOwnTop1BesideATarget:
 class TestResidualVectors:
     def test_vectors_are_the_positions_residual(self):
         model = StubModel()
-        out = interp.residual_vectors(
+        out = residual_vectors(
             model, [{"id": "c", "user": "aa bbb", "label": "en"}],
             {"layers": [1], "position": "final"})
         row = out["items"][0]
@@ -277,15 +289,15 @@ class TestResidualVectors:
     def test_every_item_carries_the_records_coords(self):
         # A grouping is a coordinate; the grouping ops name it by `axis`.
         model = StubModel()
-        out = interp.residual_vectors(
+        out = residual_vectors(
             model, [{"id": "c", "user": "a", "coords": {"language": "fr"}}],
             {"layers": [0]})
         assert out["items"][0]["coords"] == {"language": "fr"}
 
     def test_the_float_cap_refuses_a_runaway_capture(self, monkeypatch):
-        monkeypatch.setattr(interp, "MAX_VECTOR_FLOATS", 10)
+        monkeypatch.setattr(capture_op, "MAX_VECTOR_FLOATS", 10)
         with pytest.raises(ValueError, match="cap"):
-            interp.residual_vectors(
+            residual_vectors(
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": "all"})
 
 
@@ -294,7 +306,7 @@ class TestCaptureTokens:
 
     def test_a_row_per_position_per_layer(self):
         model = StubModel()
-        out = interp.capture_tokens(
+        out = capture_tokens(
             model, [{"id": "c", "user": "aa bbb"}],
             {"layers": [0, 1], "positions": "all"})
         items = out["items"]
@@ -305,7 +317,7 @@ class TestCaptureTokens:
 
     def test_surprisal_rides_on_the_vector_and_position_zero_has_none(self):
         model = StubModel()
-        out = interp.capture_tokens(
+        out = capture_tokens(
             model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
         by_pos = {i["coords"]["position"]: i["coords"] for i in out["items"]}
         # A join by (record, position) afterwards is where an off-by-one
@@ -315,19 +327,19 @@ class TestCaptureTokens:
 
     def test_positions_narrow_and_every_subsamples(self):
         model = StubModel()
-        after = interp.capture_tokens(
+        after = capture_tokens(
             model, [{"id": "c", "user": "aa bbb ccc dddd"}],
             {"layers": [0], "positions": {"after": 2}})
         assert sorted({i["coords"]["position"] for i in after["items"]}) == [2, 3, 4]
-        every = interp.capture_tokens(
+        every = capture_tokens(
             model, [{"id": "c", "user": "aa bbb ccc dddd"}],
             {"layers": [0], "every": 2})
         assert sorted({i["coords"]["position"] for i in every["items"]}) == [0, 2, 4]
 
     def test_the_ceiling_refuses_json_and_names_the_levers(self, monkeypatch):
-        monkeypatch.setattr(interp, "MAX_TOKEN_VECTOR_FLOATS", 10)
+        monkeypatch.setattr(capture_tokens_op, "MAX_TOKEN_VECTOR_FLOATS", 10)
         with pytest.raises(ValueError, match="cap .* capture fewer layers"):
-            interp.capture_tokens(StubModel(), [{"id": "c", "user": "a b c"}],
+            capture_tokens(StubModel(), [{"id": "c", "user": "a b c"}],
                                   {"layers": "all", "storage": "json"})
 
     def test_above_the_ceiling_auto_writes_shards(self, monkeypatch):
@@ -337,13 +349,13 @@ class TestCaptureTokens:
         from mechbench_compute import tensors
         from mechbench_compute.lexicon import kinds as K
 
-        monkeypatch.setattr(interp, "MAX_TOKEN_VECTOR_FLOATS", 10)
-        out = interp.capture_tokens(StubModel(), [{"id": "c", "user": "aa bbb"}], {"layers": [0, 1]})
+        monkeypatch.setattr(capture_tokens_op, "MAX_TOKEN_VECTOR_FLOATS", 10)
+        out = capture_tokens(StubModel(), [{"id": "c", "user": "aa bbb"}], {"layers": [0, 1]})
         assert tensors.is_tensor(out) and out["items"] == [] and out["n_items"] == 6
         assert [s["rows"] for s in out["shards"]] == [6] and out["d"] == D_MODEL
         rows = list(K.items_of(out))
-        monkeypatch.setattr(interp, "MAX_TOKEN_VECTOR_FLOATS", 10_000)
-        plain = interp.capture_tokens(StubModel(), [{"id": "c", "user": "aa bbb"}],
+        monkeypatch.setattr(capture_tokens_op, "MAX_TOKEN_VECTOR_FLOATS", 10_000)
+        plain = capture_tokens(StubModel(), [{"id": "c", "user": "aa bbb"}],
                                       {"layers": [0, 1], "storage": "json"})["items"]
         assert len(rows) == len(plain) == 6
         for a, b in zip(rows, plain):
@@ -355,7 +367,7 @@ class TestCaptureTokens:
         # The logits come from the capture's own run. A second pass would
         # be slower and could disagree with the vectors it labels.
         model = StubModel()
-        interp.capture_tokens(model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
+        capture_tokens(model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
         assert model.runs == 1
 
 
@@ -370,7 +382,7 @@ class TestPooledPositions:
     RECORD = {"id": "c", "user": "aa bbb", "label": "en"}
 
     def _vec(self, **params):
-        out = interp.residual_vectors(
+        out = residual_vectors(
             StubModel(), [dict(self.RECORD)], {"layers": [1], **params})
         return out, np.array(out["items"][0]["vector"])
 
@@ -427,7 +439,7 @@ class TestPooledPositions:
     def test_pooling_needs_no_resolvable_position(self):
         # `subject` would raise without a `subject` field; pooling
         # never resolves a single position, so it must not.
-        out = interp.residual_vectors(
+        out = residual_vectors(
             StubModel(), [{"id": "c", "user": "aa bbb"}],
             {"layers": [1], "position": "subject", "pool": {"reduce": "mean", "over": "all"}})
         assert out["items"][0]["n_pooled"] == 3
@@ -448,7 +460,7 @@ class TestPooledPositions:
 class TestResidualDivergence:
     def test_identical_pair_diverges_nowhere(self):
         model = StubModel()
-        out = interp.residual_divergence(
+        out = residual_divergence(
             model, [{"id": "p", "a": "over the hill", "b": "over the hill"}],
             {"layers": [0, 1]})
         pair = out["items"][0]
@@ -459,7 +471,7 @@ class TestResidualDivergence:
     def test_a_one_word_swap_diverges_exactly_there(self):
         model = StubModel()
         # 'over'(4) vs 'under'(5) -> ids differ at position 1 only
-        out = interp.residual_divergence(
+        out = residual_divergence(
             model, [{"id": "p", "a": "go over it", "b": "go under it"}],
             {"layers": [0]})
         div = out["items"][0]["measures"]["divergence"][0]
@@ -470,7 +482,7 @@ class TestResidualDivergence:
 
     def test_unequal_lengths_report_instead_of_lying(self):
         model = StubModel()
-        out = interp.residual_divergence(
+        out = residual_divergence(
             model, [{"id": "p", "a": "one two", "b": "one two three"}],
             {"layers": [0]})
         assert "different lengths" in out["items"][0]["error"]
@@ -491,7 +503,7 @@ class TestVectorSimilarity:
                             position="final", point="post")
 
     def test_matrix_and_separation(self):
-        from mechbench_compute.similarity import geometry_similarity
+        from mechbench_compute.ops.geometry.compare import geometry_similarity
 
         out = geometry_similarity({"items": self._vectors_record()}, {})
         assert out["item_kind"] == "geometry/similarity"
@@ -505,7 +517,7 @@ class TestVectorSimilarity:
         assert layer["nn_purity"] == pytest.approx(1.0)
 
     def test_unlabeled_vectors_still_get_a_matrix(self):
-        from mechbench_compute.similarity import geometry_similarity
+        from mechbench_compute.ops.geometry.compare import geometry_similarity
 
         rec = self._vectors_record()
         for r in rec["items"]:
@@ -514,7 +526,7 @@ class TestVectorSimilarity:
         assert "separation" not in out["items"][0]
 
     def test_wrong_input_kind_refuses(self):
-        from mechbench_compute.similarity import geometry_similarity
+        from mechbench_compute.ops.geometry.compare import geometry_similarity
 
         with pytest.raises(ValueError, match="declares metrics"):
             geometry_similarity({"items": {"kind": "word_list"}}, {})
@@ -523,7 +535,7 @@ class TestVectorSimilarity:
 class TestGateComponent:
     def test_gate_routes_to_the_side_channel_hook(self):
         model = StubModel()
-        out = interp.ablate_layers(
+        out = ablate_layers(
             model, [{"id": "c", "user": "a b"}],
             {"point": "gate_out", "layers": [1]})
         assert out["points"] == ["gate_out"]
@@ -543,7 +555,7 @@ class TestLensPositions:
             return mx.array(out)
 
         model.project_to_logits = project
-        out = interp.lens_positions(
+        out = lens_positions(
             model, [{"id": "c", "user": "aa bbb aa", "target": "bbb"}],
             {"layers": [0, 1]})
         row = out["items"][0]
@@ -615,7 +627,7 @@ class TestPatchTrace:
 class TestAttentionPatterns:
     def test_shapes_and_row_normalization(self):
         model = StubModel()
-        out = interp.attention_patterns(
+        out = attention_patterns(
             model, [{"id": "c", "user": "a b c"}], {"layers": [1]})
         row = out["items"][0]
         assert row["axes"] == ["layer", "head", "query", "key"]
@@ -627,20 +639,20 @@ class TestAttentionPatterns:
 
     def test_all_layers_refuses_loudly(self):
         with pytest.raises(ValueError, match="explicit layers"):
-            interp.attention_patterns(
+            attention_patterns(
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": "all"})
 
     def test_the_float_cap_refuses(self, monkeypatch):
-        monkeypatch.setattr(interp, "MAX_ATTN_FLOATS", 3)
+        monkeypatch.setattr(capture_attention_op, "MAX_ATTN_FLOATS", 3)
         with pytest.raises(ValueError, match="floats"):
-            interp.attention_patterns(
+            attention_patterns(
                 StubModel(), [{"id": "c", "user": "a b"}], {"layers": [0]})
 
 
 class TestAblateHeads:
     def test_the_head_matrix_matches_the_stub_arithmetic(self):
         model = StubModel()
-        out = interp.ablate_heads(
+        out = ablate_heads(
             model, [{"id": "c", "user": "a"}], {"layers": [0, 2]})
         assert out["kind"] == "intervene/heads" and out["axes"] == ["layer", "head"]
         m = np.array(out["measures"]["mean_delta"])  # [2 layers][2 heads]
@@ -665,7 +677,7 @@ class TestSubjectPosition:
 
         model.tokenizer = Tok()
         # prompt 'casa xx a': ids [0, 1+(4%7)=5, 1+(2%7)=3, 1+(1%7)=2]
-        out = interp.residual_vectors(
+        out = residual_vectors(
             model, [{"id": "c", "user": "casa xx a", "subject": "casa"}],
             {"layers": [0], "position": "subject"})
         v = np.array(out["items"][0]["vector"])
@@ -686,7 +698,7 @@ class TestLogitAttribution:
 
         monkeypatch.setattr(attribution, "logit_attrs", fake_attrs)
         model = StubModel()
-        out = interp.logit_attribution(
+        out = logit_attribution(
             model, [{"id": "c", "user": "a b", "target": "word"}], {})
         assert out["item_kind"] == "logits/attribution"
         row = out["items"][0]
@@ -702,7 +714,7 @@ class TestLogitAttribution:
 
     def test_partial_layers_refuse_because_additivity_would_lie(self):
         with pytest.raises(ValueError, match="all"):
-            interp.logit_attribution(
+            logit_attribution(
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": [1, 2]})
 
 
@@ -726,7 +738,7 @@ class TestSteerInject:
             return orig(ids, interventions=interventions)
 
         model.run = spy
-        out = interp.steer_inject(
+        out = steer_inject(
             model, [{"id": "e", "user": "the capital was"}],
             {"layer": 2, "alphas": [0.0, 4.0],
              "direction": {"positive": "city", "negative": "money"}},
@@ -749,14 +761,14 @@ class TestSteerInject:
     def test_missing_layer_in_vectors_refuses_with_directions(self):
         model = StubModel()
         with pytest.raises(ValueError, match="capture that layer"):
-            interp.steer_inject(
+            steer_inject(
                 model, [{"id": "e", "user": "x"}],
                 {"layer": 3, "direction": {"positive": "city", "negative": "money"}},
                 inputs={"vectors": self._vectors()})
 
     def test_no_vectors_port_refuses(self):
         with pytest.raises(ValueError, match="vectors"):
-            interp.steer_inject(
+            steer_inject(
                 StubModel(), [{"id": "e", "user": "x"}],
                 {"layer": 2, "direction": {"positive": "a", "negative": "b"}},
                 inputs={})
@@ -777,7 +789,7 @@ class TestPerHeadDla:
 
         monkeypatch.setattr(attribution, "logit_attrs", fake_attrs)
         monkeypatch.setattr(attribution, "head_results", fake_heads)
-        out = interp.logit_attribution(
+        out = logit_attribution(
             StubModel(), [{"id": "c", "user": "a b", "target": "word"}],
             {"per_head_layers": [1]})
         row = out["items"][0]
@@ -795,7 +807,7 @@ class TestSubjectCase:
                 return " ".join(names.get(int(i), f"t{int(i)}") for i in ids)
 
         model.tokenizer = Tok()
-        out = interp.residual_vectors(
+        out = residual_vectors(
             model, [{"id": "c", "user": "Capi xx", "subject": "capital"}],
             {"layers": [0], "position": "subject"})
         v = np.array(out["items"][0]["vector"])
@@ -823,7 +835,7 @@ class TestQKSources:
 
         model.run = with_qk
         model.arch.n_kv_heads = 2
-        out = interp.residual_vectors(
+        out = residual_vectors(
             model, [{"id": "c", "user": "a b", "label": "x"}],
             {"layers": [1], "source": "queries"})
         assert out["source"] == "queries"
@@ -841,7 +853,7 @@ class TestQKSources:
                 v[(0 if label == "a" else 2) + head % 2] = 1.0
                 rows.append({"id": f"h{head}r{i}", "label": label,
                              "layer": 7, "head": head, "vector": v})
-        from mechbench_compute.similarity import geometry_similarity
+        from mechbench_compute.ops.geometry.compare import geometry_similarity
 
         out = geometry_similarity(
             {"items": {"kind": "residual_vectors", "rows": rows}}, {})
@@ -854,7 +866,7 @@ class TestQKSources:
 
     def test_unknown_source_refuses(self):
         with pytest.raises(ValueError, match="source"):
-            interp.residual_vectors(
+            residual_vectors(
                 StubModel(), [{"id": "c", "user": "a"}],
                 {"layers": [0], "source": "values"})
 
@@ -867,7 +879,7 @@ class TestSteerTracks:
             v = [0.0] * D_MODEL
             v[dim] = 1.0
             rows.append({"id": label, "label": label, "layer": 2, "vector": v})
-        out = interp.steer_inject(
+        out = steer_inject(
             model, [{"id": "e", "user": "x y",
                      "tracks": {"city": "word", "money": "cash"}}],
             {"layer": 2, "alphas": [0.0],

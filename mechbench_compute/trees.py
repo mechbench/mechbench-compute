@@ -29,73 +29,10 @@ its numbers should reproduce its tree.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
-
-from mechbench_compute import shapes as S
-
-#: How far above the mean an edge must sit to count as a bridge between
-#: clusters rather than a step within one.
-DEFAULT_BRIDGE_SIGMA = 2.0
-
-
-def minimum_spanning_tree(distance: np.ndarray) -> list[tuple[int, int, float]]:
-    """Prim's, deterministic. Returns (i, j, weight) with i < j by
-    construction of the frontier, in the order the tree grew."""
-    n = int(distance.shape[0])
-    if n < 2:
-        return []
-    in_tree = np.zeros(n, dtype=bool)
-    in_tree[0] = True
-    best = np.array(distance[0], dtype=float)
-    parent = np.zeros(n, dtype=int)
-    edges: list[tuple[int, int, float]] = []
-    for _ in range(n - 1):
-        masked = np.where(in_tree, np.inf, best)
-        # argmin returns the FIRST minimum, so ties go to the lower
-        # index and the tree is reproducible.
-        j = int(np.argmin(masked))
-        if not np.isfinite(masked[j]):
-            break                      # disconnected: nothing reachable
-        edges.append((int(parent[j]), j, float(best[j])))
-        in_tree[j] = True
-        closer = (distance[j] < best) & ~in_tree
-        parent[closer] = j
-        best = np.where(closer, distance[j], best)
-    return edges
-
-
-def tree_stats(edges: Sequence[tuple[int, int, float]], *,
-               bridge_sigma: float = DEFAULT_BRIDGE_SIGMA) -> dict[str, Any]:
-    """The numbers the measure is about. `mean` and `variance` travel
-    together on purpose — see the module docstring."""
-    weights = [w for _, _, w in edges]
-    if not weights:
-        return {"n_edges": 0}
-    mean = float(np.mean(weights))
-    variance = float(np.var(weights))
-    stdev = math.sqrt(variance)
-    threshold = mean + bridge_sigma * stdev
-    return {
-        "n_edges": len(weights),
-        "mean": round(mean, 6),
-        "variance": round(variance, 6),
-        "stdev": round(stdev, 6),
-        # Scale-free, so corpora embedded at different layers (whose
-        # absolute cosine distances differ) stay comparable.
-        "cv": round(stdev / mean, 6) if mean > 0 else 0.0,
-        "total": round(float(np.sum(weights)), 6),
-        "max": round(float(np.max(weights)), 6),
-        "min": round(float(np.min(weights)), 6),
-        "bridge_threshold": round(threshold, 6),
-        "bridges": int(sum(w > threshold for w in weights)),
-        # Cutting the bridges leaves this many components — a cluster
-        # count nobody had to choose a k for.
-        "components_after_cut": int(sum(w > threshold for w in weights)) + 1,
-    }
 
 
 def _distance_from_similarity(matrix: Sequence[Sequence[float]]) -> np.ndarray:
@@ -135,74 +72,3 @@ def _vectors_to_distance(rows: Sequence[Mapping[str, Any]], *,
     return _distance_from_similarity(geometry.cosine_matrix(vectors))
 
 
-def _distance_of(entry: Mapping[str, Any], header: Mapping[str, Any]) -> np.ndarray:
-    """The distance matrix a similarity item stands for: a distance
-    metric as it is; cosine as 1 − s (what the tree has always been
-    built on); any other similarity as max − s."""
-    m = np.array(entry["matrix"], dtype=float)
-    kind = header.get("metric_kind") or ("similarity" if header.get("metric") in (None, "cosine") else "distance")
-    if kind == "distance":
-        dist = m.copy()
-    elif header.get("metric", "cosine") == "cosine":
-        dist = 1.0 - m
-    else:
-        dist = float(m.max()) - m
-    np.fill_diagonal(dist, 0.0)
-    return dist
-
-
-def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`geometry/span`: a tree per group of a `geometry/similarity`
-    collection, whatever metric produced it — the metric and its
-    options ride along from the similarity's header."""
-    bridge_sigma = float(params.get("bridge_sigma", DEFAULT_BRIDGE_SIGMA))
-    keep_edges = bool(params.get("keep_edges", True))
-    from mechbench_compute.lexicon import kinds as K
-
-    src = inputs.get("similarity")
-    if not (isinstance(src, Mapping) and K.item_kind_of(src) == "geometry/similarity"):
-        raise ValueError(
-            "geometry/span needs a collection of geometry/similarity on its "
-            f"`similarity` port — got {type(src).__name__}")
-    if src.get("symmetric") is False:
-        raise ValueError(
-            f"geometry/span needs a symmetric metric; {src.get('metric')!r} is not "
-            "(m(a, b) ≠ m(b, a)) — compare by a symmetric one, such as "
-            "jensen-shannon")
-
-    out_groups = []
-    for entry in K.items_of(src):
-        distance = _distance_of(entry, src)
-        edges = minimum_spanning_tree(distance)
-        stats = tree_stats(edges, bridge_sigma=bridge_sigma)
-        ids = list(entry.get("ids", []))
-        item: dict[str, Any] = {"n": len(ids), **stats, "ids": ids,
-                                "labels": list(entry.get("labels", []))}
-        for k in ("group", "layer", "head"):
-            if entry.get(k) is not None:
-                item[k] = entry[k]
-        if keep_edges:
-            item["edges"] = [[i, j, round(w, 6)] for i, j, w in edges]
-        out_groups.append(item)
-
-    metric = src.get("metric", "cosine")
-    options = dict(src.get("options") or {})
-    # One item per group; `records/tabulate` reads the items directly.
-    return K.collection(
-        "geometry/mst", out_groups,
-        name=params.get("name", "mst"),
-        metric=metric,
-        options=options,
-        over=src.get("over"),
-        bridge_sigma=bridge_sigma,
-        axis=src.get("axis"),
-        description=(
-            f"Minimum spanning tree over pairwise {metric} distance. `mean` is "
-            "the scale of the spread and `variance` its clumpiness; they are "
-            "read together, because a collapsed corpus and an evenly varied "
-            "one both have low variance for opposite reasons."
-        ),
-    )
-
-
-PURE_TREE_BLOCKS = {"geometry/span": mst}

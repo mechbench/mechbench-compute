@@ -1,49 +1,145 @@
-"""`eval/judge` — model-graded scoring (task 000356, epic
-000334).
-
-The first real consumer of hosted models on the bench: a judge reads
-records (or transcripts) against a rubric and returns a score, a label,
-or a preference — with its reasoning, its provenance, and its cost.
-
-Three commitments make a judge's numbers usable rather than merely
-available:
-
-**Votes, not a verdict.** `n_votes` repeats the call and aggregates —
-mean for numeric scales, majority for categorical and pairwise — and
-the object records the SPREAD. A judge that disagrees with itself is
-telling you something about the rubric, and averaging that away would
-throw out the finding.
-
-**Position is randomized and recorded.** In pairwise mode the A/B order
-flips per vote from a key-derived seed, and each vote records the order
-it saw. Position bias is real and large; a judge that always picks A is
-a result you can only see if you looked.
-
-**Parsing is honest.** The judge is asked for JSON and read leniently
-(a bare number, a quoted label), but a vote that could not be parsed is
-recorded as unparsed rather than silently scored — an unreadable answer
-is data about the rubric, not a zero.
-
-Everything rides the chat block, so a judge inherits the budget cap,
-the concurrency bound, item spooling and per-call provenance for free,
-and a LOCAL judge (Gemma through the same path) is the cheap first
-test rather than a special case.
-"""
-
 from __future__ import annotations
 
-import json
 import re
 import statistics
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute import chat as chat_mod
+from mechbench_compute.judge.constants import _FIRST_NUMBER, SCALES
+from mechbench_compute.judge.json_object import _json_object
+from mechbench_compute.judge.rationale import _rationale
+from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon.external import _BUDGET
 
-SCALES = ("numeric", "categorical", "pairwise")
+_PROVIDER_OPTIONS_DOC = (
+    "Provider-native request fields this block does not model, **keyed by "
+    "provider** — `{\"anthropic\": {\"thinking\": {…}}}` — passed through "
+    "as given. A key that names no provider is refused.")
 
-_JSON_OBJECT = re.compile(r"\{.*?\}", re.DOTALL)
-_FIRST_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+OP = Op(
+    name="eval/judge",
+    requires="by-model",
+    summary=(
+        "Have a model grade each record against a rubric — a score, a label "
+        "or an A/B preference — with repeated votes, the spread between "
+        "them, and the position order randomised and recorded."
+    ),
+    description="""\
+Each record's `text` (for a pairwise scale, its `text_a` and `text_b`) is
+shown to the judge — that field and nothing else, so it cannot see the
+condition labels — together with the rubric and an instruction to answer in
+JSON. A record that carries the text under another name goes through
+`records/rename` first. Three commitments make the numbers usable:
+
+* **Votes, not a verdict.** `n_votes` repeats the call. Numeric scores
+  are averaged and their spread kept; labels and preferences take the
+  majority, and `agreement` records how often the judge agreed with itself.
+  A rubric that produces 0.5 there is a finding.
+* **Position is randomised, recorded, and undone.** In pairwise mode the
+  A/B order flips per vote from a seeded coin; each vote records the
+  order it saw and the letter it answered, and the answer is mapped back
+  to the record's own `text_a`/`text_b` before anything counts it. The
+  summary reports how often the option shown FIRST won across every vote
+  — 0.5 is the honest number, and 1.0 is a judge with no opinion about
+  the writing.
+* **Parsing is honest.** A vote that could not be read is recorded as
+  unparsed rather than scored; a numeric answer outside the scale is
+  clamped and flagged.
+* **An empty subject is not judged.** A record whose judged field is
+  missing or blank is refused by name, because a winner over an empty
+  string looks exactly like every other winner in the column. This is
+  reachable: a `records/zip` with `on_missing: "placeholder"` keeps the
+  key of a branch that failed. `on_missing: "skip"` keeps those records
+  as unjudged rows and grades the rest.
+
+The judge runs through `chat`, so it inherits the budget cap, concurrency,
+resumability and per-call provenance; a local model is the cheap first test.
+""",
+    inputs=(
+        In("records", "records/record",
+           "The subjects to grade, each with `text` — or `text_a` and "
+           "`text_b` for a pairwise scale. A document collection is read the "
+           "same way.", many=True),
+    ),
+    output=Output('eval/verdict', collection=True, doc='One item per subject: `id`, `coords`, the verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or `winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every `vote`, `unparsed: true` when no vote could be read, and `unjudged: true` with the `missing` field names when there was nothing to judge. The header carries `judge` (who graded and how), `summary` (mean/median/stdev or counts, `n_unparsed`, `n_unjudged` and which, `first_shown_win_rate` for pairwise) and `spend`.'),
+    params=(
+        P("judge", "object",
+          "Who grades: `{\"model\": …, \"system\": rubric, \"max_tokens\": "
+          "512, \"temperature\": …, \"budget_usd\": …, "
+          "\"provider_options\": …}`. `model` is required; `rubric`, when "
+          "given, is appended to `system`. `temperature` is sent only if "
+          "you name one — a judge's steadiness comes from `n_votes` and "
+          "is reported as `agreement`, and some models refuse the "
+          "parameter outright.", fields=(
+              P("model", "model", "The judge's model."),
+              P("system", "string", "The judge's system prompt; `rubric` is appended to it.", ""),
+              P("max_tokens", "int", "The longest verdict, in tokens.", 512),
+              P("temperature", "float", "Sampling temperature, sent only when named.", None),
+              P("budget_usd", "float", "The spend cap, when the node sets none.", None),
+              P("provider_options", "map[string, map[string, json]]", _PROVIDER_OPTIONS_DOC, None),
+          )),
+        P("rubric", "string",
+          "The standard the judge applies, appended to `judge.system`. One "
+          "of the two must be present — an unstated standard is not a "
+          "measurement.",
+          ""),
+        P("scale", "object",
+          "What the judge answers with: `{\"type\": \"numeric\", \"min\": 1, "
+          "\"max\": 5}` (or `\"range\": [1, 5]`); `{\"type\": "
+          "\"categorical\", \"labels\": [...]}`; or `{\"type\": "
+          "\"pairwise\"}`.",
+          {"type": "numeric", "min": 1, "max": 5}, fields=(
+              P("type", "string", "What kind of answer.", "numeric",
+                choices=("numeric", "categorical", "pairwise")),
+              P("kind", "string", "The older spelling of `type`; read when `type` is absent.", None,
+                choices=("numeric", "categorical", "pairwise")),
+              P("min", "float", "For `numeric`: the lowest score. Defaults to `range[0]`, else 1.", None),
+              P("max", "float", "For `numeric`: the highest score. Defaults to `range[1]`, else 5.", None),
+              P("range", "list[float]", "For `numeric`: `[min, max]` in one field.", None),
+              P("labels", "list[string]", "For `categorical`: the labels, at least two.", None),
+          )),
+        P("n_votes", "int", "How many times each subject is judged.", 1),
+        _BUDGET,
+        P("concurrency", "int",
+          "How many judge requests are in flight at once (remote judges).",
+          4),
+        P("on_missing", "string",
+          "A record whose judged field is missing or blank: `\"error\"` "
+          "refuses it by name; `\"skip\"` keeps it as an unjudged row, "
+          "naming what was absent, and grades the rest.",
+          "error", choices=("error", "skip")),
+    ),
+    example={
+        "judge": {"model": {"provider": "anthropic", "model": "claude-sonnet-5"},
+                  "system": "You grade short stories for originality."},
+        "rubric": "1 = a stock plot told plainly; 5 = a premise you have not seen before.",
+        "scale": {"type": "numeric", "min": 1, "max": 5},
+        "n_votes": 3,
+        "budget_usd": 3.0,
+    },
+    example_inputs={"records": {"$ref": {"bench": "you/lab/stories"}}},
+)
+
+
+def run(ctx, inputs, params):
+    """eval/judge (task 000356): model-graded scoring.
+    A local judge is the cheap first test, so it loads here through
+    the same path as any other model block; an endpoint judge needs
+    only its credentials and its cap."""
+    from mechbench_compute import model_ref as model_ref_mod
+
+    spec = dict(params.get("judge") or {})
+    ref = model_ref_mod.parse(spec.get("model")) if spec.get("model") else None
+    model = None
+    if ref is not None and not ref.is_endpoint:
+        model = ctx.model(ref)
+    return run_judge(params, inputs=inputs, secrets=ctx.secrets,
+                         limiter=ctx.executor._limiter, job_budget=ctx.executor._budget,
+                         model=model, on_item=ctx.on_item, on_start=ctx.on_start,
+                         resume_items=ctx.resume_items)
+
 
 
 class Scale:
@@ -112,22 +208,6 @@ class Scale:
         if not winner:
             return {}
         return {"winner": winner, "rationale": _rationale(payload, text)}
-
-
-def _json_object(text: str) -> dict[str, Any]:
-    m = _JSON_OBJECT.search(text)
-    if not m:
-        return {}
-    try:
-        parsed = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, Mapping) else {}
-
-
-def _rationale(payload: Mapping[str, Any], text: str) -> str:
-    value = payload.get("rationale") or payload.get("reason") or ""
-    return str(value) if value else text.strip()[:400]
 
 
 def coords_of(rec: Mapping[str, Any]) -> dict[str, Any]:
@@ -280,7 +360,7 @@ def summarize(rows: Sequence[Mapping[str, Any]], *, scale: Scale,
     return out
 
 
-def run(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
+def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
         secrets=None, limiter=None, job_budget=None, model=None,
         on_item=None, on_start=None, resume_items=None) -> dict[str, Any]:
     """Judge a record set. `model` is a loaded local model when the

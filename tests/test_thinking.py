@@ -7,6 +7,8 @@ import pytest
 from mechbench_compute import positions as P
 from mechbench_compute import thinking as T
 from mechbench_compute import transcript as TR
+from mechbench_compute.ops.text.extend import extend
+from mechbench_compute.ops.text.render import render
 
 
 class _Tok:
@@ -132,7 +134,7 @@ class TestThroughTheTurn:
         assert T.split_thought("four") == (None, "four")
 
     def test_the_room_hears_the_answer_not_the_scratchpad(self):
-        view = TR.render(self._history(), participant="bo",
+        view = render(self._history(), participant="bo",
                          perspective="others_as_user_merged")
         said = self._said(view)
         assert "four." in said
@@ -140,16 +142,16 @@ class TestThroughTheTurn:
 
     def test_a_participant_never_sees_anothers_reasoning(self):
         # Even asking for replay only ever returns your OWN.
-        view = TR.render(self._history(), participant="bo",
+        view = render(self._history(), participant="bo",
                          perspective="others_as_user_merged",
                          sees={"own_thinking": "full"})
         assert "two plus two" not in self._said(view)
 
     def test_its_own_comes_back_only_when_asked_for(self):
-        plain = TR.render(self._history(), participant="ana",
+        plain = render(self._history(), participant="ana",
                           perspective="others_as_user_merged")
         assert "two plus two" not in self._said(plain)
-        asked = TR.render(self._history(), participant="ana",
+        asked = render(self._history(), participant="ana",
                           perspective="others_as_user_merged",
                           sees={"own_thinking": "full"})
         assert "two plus two" in self._said(asked)
@@ -159,11 +161,11 @@ class TestThroughTheTurn:
                  "coords": {"conversation": "c1"}}
         start = {"id": "c1", "kind": "text/transcript", "participants": ["ana"],
                  "stopped": "", "messages": []}
-        out = TR.extend({"transcripts": [start], "replies": [reply]},
+        out = extend({"transcripts": [start], "replies": [reply]},
                         {"participant": "ana"})
         wrote = out["items"][0]["messages"][0]
         assert wrote["thinking"] == "two plus two" and wrote["text"] == "four."
-        plain = TR.extend({"transcripts": [start],
+        plain = extend({"transcripts": [start],
                            "replies": [{**reply, "text": "hi"}]},
                           {"participant": "ana"})
         assert "thinking" not in plain["items"][0]["messages"][0]

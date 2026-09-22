@@ -221,6 +221,9 @@ NOT_LEAF_STREAM: dict[str, str] = {
     "adapter/measure":
         "one adapter object, read module by module; its input is a set of "
         "weights, not a stream of leaves that could be chunked",
+    "eval/score":
+        "one collection scored against a reference by a metric; it became "
+        "callable by name when its file made it standalone (docs/OPS_LAYOUT.md)",
     "tools/calc":
         "a tool handler: its input is one call's arguments, not a leaf stream",
     "tools/lookup":

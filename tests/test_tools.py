@@ -14,6 +14,8 @@ from mechbench_compute import chat as chat_mod
 from mechbench_compute import model_ref as mr
 from mechbench_compute import tools as T
 from mechbench_compute.providers import messages as pm
+from mechbench_compute.ops.text.extend import extend
+from mechbench_compute.ops.text.render import render_records
 
 
 def call(name, **arguments):
@@ -184,14 +186,14 @@ class TestToolsInAConversation:
                  "stopped": "",
                  "messages": [{"index": 0, "participant": "other", "role_as_seen": "user",
                                "text": "What is 6*7?"}]}
-        view = TR.render_records({"transcripts": [start]}, {"participant": "asker"})
+        view = render_records({"transcripts": [start]}, {"participant": "asker"})
         said = chat_mod.run_remote(
             mr.parse({"provider": "mock", "model": "mock-large"}),
             view["items"],
             {"model": {"provider": "mock", "model": "mock-large"},
              "budget_usd": 1.0, "tools": ["calc"],
              "provider_options": {"mock": {"tool_call": "calc"}}})
-        out = TR.extend({"transcripts": [start], "replies": said},
+        out = extend({"transcripts": [start], "replies": said},
                         {"participant": "asker"})
         asker = out["items"][0]["messages"][-1]
         assert asker["participant"] == "asker"

@@ -43,7 +43,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.patches import Patch
 
-from ._arch import GLOBAL_LAYERS, N_LAYERS, layer_type
+from ._arch import GLOBAL_LAYERS, layer_type
 
 # Default colors used across the existing experiments.
 COLOR_GLOBAL = "#d62728"  # red

@@ -1,0 +1,230 @@
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
+
+import numpy as np
+
+from mechbench_compute import lexicon
+from mechbench_compute import points as P
+from mechbench_compute import shapes as S
+from mechbench_compute._mlx import mx
+from mechbench_compute.distill import render
+from mechbench_compute.interp.k import _K
+from mechbench_compute.interp.last_logp import _last_logp
+from mechbench_compute.interp.own_top1_if_different import _own_top1_if_different
+from mechbench_compute.interp.resolve_layers import _resolve_layers
+from mechbench_compute.interp.target_of import _target_of
+from mechbench_compute.interp.target_token_id import _target_token_id
+from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon.model import ADAPTER, _tracked
+
+OP = Op(
+    name="logits/attribute",
+    requires="mlx-local",
+    summary=(
+        "Split the target token's final logit into the additive contribution "
+        "of the embedding and of every layer — direct logit attribution, with "
+        "each row checking that the pieces sum to the truth."
+    ),
+    description="""\
+The residual stream at the last position is the embedding plus each layer's
+update. Each of those components is projected through the unembedding (folded
+with the final norm's scale when `apply_ln` is on) to give its contribution
+to the target's logit, so the contributions are exactly additive.
+
+Every row also reports its **additivity residual**: the summed contributions
+minus the model's true final logit for the target. A reader never has to take
+the decomposition on faith — a residual far from zero says the decomposition
+does not describe this model.
+
+With two `tracked` tokens, the contributions are to the *difference* of
+their logits (the first minus the second), which is usually the more
+interpretable quantity.
+
+Because additivity only holds over the whole stream, `layers` must be
+`"all"`.
+""",
+    inputs=(
+        In("records", "records/record",
+           "The prompts, one per record (`user`, `prompt` or `text`). A "
+           "record may carry its own `tracked`.", many=True),
+        ADAPTER,
+    ),
+    output=Output('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …): `measures.contribution`, the `target` and `contrast` tokens, the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
+    params=(
+        P("apply_ln", "bool",
+          "Fold the final norm's scale into the unembedding so contributions "
+          "are in the same units as the model's real logits. Turning it off "
+          "gives the raw, un-normalised projection.",
+          True),
+        P("layers", "list[int] | \"all\"",
+          "Must be `\"all\"`: the decomposition is only additive over the "
+          "whole stream.",
+          "all"),
+        P("per_head_layers", "list[int]",
+          "Layers at which to also split the attention contribution by "
+          "head. Opt-in per layer because per-head outputs cost a slower "
+          "attention path.",
+          None),
+        _tracked("the logit being decomposed"),
+    ),
+    example={
+        "model": {"$param": "model"},
+        "tracked": {"answer": " Paris"},
+        "per_head_layers": [12, 13],
+    },
+    example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
+)
+
+
+def run(ctx, inputs, params):
+    """Decompose the target's logit into each layer's direct
+    contribution, and check that the parts sum to the whole.
+
+    Direct logit attribution is a bookkeeping identity rather than a
+    causal claim: it says what each layer WROTE toward the answer
+    through the unembedding, not what would happen without it. The
+    self-check is the point — a decomposition that does not reconstruct
+    the logit is measuring the wrong thing, which is why the final
+    norm's per-position scale has to be folded in. (Steps 32/33.)
+    """
+
+    model = ctx.model(params.get("model"))
+    records = lexicon.items_of(inputs.get("records") or [])
+    return logit_attribution(
+        model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
+
+
+def logit_attribution(
+    model,
+    records: Sequence[Mapping[str, Any]],
+    params: Mapping[str, Any],
+    on_item: Callable[[], None] | None = None,
+    on_start: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """Steps 32/33 as a block: direct logit attribution per layer.
+
+    One forward per condition captures every layer's residual plus the
+    final norm's scale; the residual stream is decomposed into exactly
+    additive components (embedding, then each layer's delta), and each
+    component's contribution to the target logit is read through the
+    norm-folded unembed (apply_ln, task 000142).
+
+    SELF-VALIDATING: every row reports its additivity residual — the
+    summed contributions minus the model's true final logit. A reader
+    never has to take the decomposition on faith.
+    """
+    from mechbench_compute import attribution
+
+    apply_ln = bool(params.get("apply_ln", True))
+    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    if layers != list(range(model.arch.n_layers)):
+        raise ValueError(
+            "attribution/logits decomposes the WHOLE stream — additivity "
+            "only holds over all layers, so `layers` must be \"all\""
+        )
+    if not records:
+        raise ValueError("attribution/logits needs at least one condition")
+    if on_start:
+        on_start(len(records))
+
+    from mechbench_compute.interventions import Capture as Cap
+
+    per_head_layers = _resolve_layers(
+        params.get("per_head_layers"), model.arch.n_layers
+    ) if params.get("per_head_layers") else []
+    interventions = [
+        Cap.residual(layers, point="post"),
+        Cap.residual([0], point="pre"),
+        Cap.final_norm_scale(),
+    ]
+    if per_head_layers:
+        # Forces the manual attention path at these layers — per-head
+        # writes (000145) cost real time, so they are opt-in by layer.
+        interventions.append(Cap.per_head_out(per_head_layers))
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        r = render(model, record)
+        ids = r.array
+        result = model.run(ids, interventions=interventions)
+        lp = _last_logp(result.logits)
+        tok, tracked = _target_of(model, record, params, lp)
+        # Two tracked tokens: the contributions are to the DIFFERENCE of
+        # their logits (target minus the second). A record from before
+        # the spellings were one may still name the second as `contrast`.
+        others = [t for t in tracked.values() if t != tok]
+        contrast = record.get("contrast")
+        ctok = (_target_token_id(model, str(contrast)) if contrast
+                else (others[0] if others else None))
+
+        acc = attribution.accumulated_resid(result.cache, include_pre=True)
+        components = np.diff(acc, axis=0, prepend=np.zeros_like(acc[:1]))
+        # components[0] = embedding stream, components[i] = layer i-1's delta
+        ln_scale = np.array(
+            mx.array(result.cache["final_norm.scale"]).astype(mx.float32)
+        ).reshape(-1)
+        targets = [tok] if ctok is None else [tok, ctok]
+        attrs = attribution.logit_attrs(
+            model, components, targets,
+            apply_ln=apply_ln, ln_scale=ln_scale)
+        contrib = attrs[:, 0] if ctok is None else attrs[:, 0] - attrs[:, 1]
+
+        # The honesty number: does the decomposition sum to the truth?
+        # The comparison lives in PRE-softcap space — the decomposition
+        # is linear and the cap is not, so a capped "true" logit would
+        # disagree structurally (gemma4 caps; e2b's first run showed it).
+        last = result.logits[0, -1, :].astype(mx.float32)
+        mx.eval(last)
+        last_np = np.array(last, dtype=np.float64)
+        cap = getattr(
+            getattr(getattr(model, "_model", None), "language_model", None),
+            "final_logit_softcapping", None)
+        if cap:
+            c = float(cap)
+            last_np = c * np.arctanh(np.clip(last_np / c, -0.999999, 0.999999))
+        true_logit = float(last_np[tok])
+        if ctok is not None:
+            true_logit -= float(last_np[ctok])
+        summed = float(attrs.sum(axis=0)[0]) if ctok is None else float(
+            (attrs[:, 0] - attrs[:, 1]).sum())
+        per_head: list[dict[str, Any]] = []
+        for hl in per_head_layers:
+            hr = attribution.head_results(model, result.cache, hl)
+            hattrs = attribution.logit_attrs(
+                model, hr, targets, apply_ln=apply_ln, ln_scale=ln_scale)
+            hc = (hattrs[:, 0] if ctok is None
+                  else hattrs[:, 0] - hattrs[:, 1])
+            per_head.append({
+                "layer": hl,
+                "contributions": [round(float(x), 4) for x in hc],
+            })
+        rows.append(S.grid(
+            record.get("id"), ["component"],
+            {"contribution": [round(float(x), 4) for x in contrib]},
+            coords=record.get("coords"),
+            target=S.token(model.tokenizer, tok),
+            contrast=S.token(model.tokenizer, ctok) if ctok is not None else None,
+            template="chat" if r.chat else "raw",
+            **_own_top1_if_different(model, tok, lp),
+            per_head=per_head or None,
+            additivity={
+                "summed": round(summed, 3),
+                "true_logit": round(true_logit, 3),
+                "residual": round(summed - true_logit, 3),
+            }))
+        if on_item:
+            on_item()
+    return _K().collection(
+        "logits/attribution", rows,
+        apply_ln=apply_ln,
+        layers=layers,
+        n_off_top1=sum(1 for r in rows if "own_top1" in r),
+        components=["embed", *[f"L{i}" for i in layers]],
+        description=(
+            "Direct logit attribution: each component's contribution to "
+            "the target logit (embedding first, then every layer's "
+            "delta), norm-folded so the bars sum to the model's true "
+            "final logit — each row carries its own additivity residual."
+        ),
+    )

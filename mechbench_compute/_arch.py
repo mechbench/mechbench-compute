@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Hook-point names. These are the stable interface and don't depend on the
 # specific model variant within the Gemma 4 family.

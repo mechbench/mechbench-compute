@@ -14,6 +14,7 @@ from mechbench_compute import directions as dirs
 from mechbench_compute import intervene as iv
 from mechbench_compute import shapes as S
 from mechbench_compute.lexicon import kinds as K
+from mechbench_compute.ops.intervene.apply import run_intervene as run
 
 
 def _dir(vec, layer=2, point="resid_post"):
@@ -185,7 +186,7 @@ class TestRunReadout:
         model = _FakeModel()
         d = _dir([1, 0, 0, 0])
         items = []
-        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+        out = run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "add",
                                 "strength": 10.0, "direction": d}],
                       "sweep": {"strength": [1.0]}, "top_k": 2},
@@ -206,7 +207,7 @@ class TestRunReadout:
     def test_capture_readout(self):
         model = _FakeModel()
         d = _dir([0, 1, 0, 0])
-        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+        out = run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "project_out", "direction": d}],
                       "readout": {"kind": "capture", "points": ["blocks.2.resid_post"]}})
         # A capture readout IS a capture (000599): an activations/vector
@@ -224,8 +225,8 @@ class TestRunReadout:
         assert "captures" not in cap_ctrl
         # …and so a capture readout goes straight into geometry/compare,
         # grouped by factor, separated on a record coordinate.
-        from mechbench_compute.similarity import geometry_similarity
-        two = iv.run(model, [{"id": "a", "user": "hi", "coords": {"sense": "x"}},
+        from mechbench_compute.ops.geometry.compare import geometry_similarity
+        two = run(model, [{"id": "a", "user": "hi", "coords": {"sense": "x"}},
                              {"id": "b", "user": "yo", "coords": {"sense": "y"}}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "scale", "strength": 2.0}],
                       "readout": {"kind": "capture", "points": ["blocks.2.resid_post"]}})
@@ -237,12 +238,12 @@ class TestRunReadout:
         # One intervention's capture patches into another: the captured
         # residual at layer 2 becomes the `mean` replacement there.
         model = _FakeModel()
-        captured = iv.run(model, [{"id": "r1", "user": "hi"}],
+        captured = run(model, [{"id": "r1", "user": "hi"}],
                           {"spec": [{"point": "resid_post", "layers": [2], "op": "scale",
                                      "strength": 3.0}],
                            "control": False,
                            "readout": {"type": "capture", "points": ["blocks.2.resid_post"]}})
-        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+        out = run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "mean"}],
                       "control": True, "readout": {"type": "capture",
                                                    "points": ["blocks.2.resid_post"]}},
@@ -264,7 +265,7 @@ class TestRunReadout:
         legacy = K.collection("intervene/readout", [
             {"id": "r1", "factor": 1.0, "position": 1,
              "captures": K.collection("activations/vector", [vec])}])
-        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+        out = run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "mean"}],
                       "control": False,
                       "readout": {"type": "capture", "points": ["blocks.2.resid_post"]}},
@@ -273,7 +274,7 @@ class TestRunReadout:
 
     def test_direction_by_port_fills_the_spec(self):
         model = _FakeModel()
-        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+        out = run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "add", "strength": 5.0}],
                       "control": False},
                      inputs={"direction": _dir([1, 0, 0, 0])})
@@ -281,7 +282,7 @@ class TestRunReadout:
 
     def test_empty_spec_refused(self):
         with pytest.raises(iv.SpecError):
-            iv.run(_FakeModel(), [{"id": "r1", "user": "hi"}], {"spec": []})
+            run(_FakeModel(), [{"id": "r1", "user": "hi"}], {"spec": []})
 
 
 E2B = "mlx-community/gemma-4-e2b-it-bf16"
@@ -302,7 +303,7 @@ def test_real_project_out_zeroes_the_projection_at_the_point():
                      capture=[f"blocks.{layer}.resid_post"])
     v = np.array(base.cache[f"blocks.{layer}.resid_post"][0, -1].astype(mx.float32))
     d = dirs.make(v, S.space(model=E2B, layer=layer, point="resid_post", d=v.size), method="self")
-    out = iv.run(model, [{"id": "lh", "user": "The old lighthouse keeper"}],
+    out = run(model, [{"id": "lh", "user": "The old lighthouse keeper"}],
                  {"spec": [{"point": "resid_post", "layers": [layer], "op": "project_out", "direction": d}],
                   "readout": {"kind": "capture", "points": [f"blocks.{layer}.resid_post"]}})
     ctrl, done = out["items"]
@@ -369,7 +370,7 @@ class TestWeightItems:
     def test_the_edit_applies_and_the_model_is_put_back_exactly(self):
         model = _WeightModel()
         before = self._weight(model).copy()
-        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+        out = run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"parameter": "layers.0.self_attn.o_proj",
                                 "op": "zero"}], "top_k": 2})
         assert out["sweep"] == {"strength": [0.0, 1.0]}
@@ -380,7 +381,7 @@ class TestWeightItems:
         assert np.array_equal(self._weight(model), before), "the model was not restored"
 
     def test_the_header_records_the_weight_edit(self):
-        out = iv.run(_WeightModel(), [{"id": "r1", "user": "hi"}],
+        out = run(_WeightModel(), [{"id": "r1", "user": "hi"}],
                      {"spec": [{"parameter": "layers.0.self_attn.o_proj",
                                 "op": "scale", "strength": 0.5}]})
         assert out["weights"] == [{"parameter": "layers.0.self_attn.o_proj",
@@ -390,7 +391,7 @@ class TestWeightItems:
     def test_a_weight_edit_and_an_activation_edit_compose(self):
         model = _WeightModel()
         before = self._weight(model).copy()
-        out = iv.run(model, [{"id": "r1", "user": "hi"}],
+        out = run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"parameter": "layers.0.self_attn.o_proj",
                                 "op": "scale", "strength": 2.0},
                                {"point": "resid_post", "layers": [2],
@@ -409,7 +410,7 @@ class TestWeightItems:
 
         model.run = boom
         with pytest.raises(RuntimeError, match="died"):
-            iv.run(model, [{"id": "r1", "user": "hi"}],
+            run(model, [{"id": "r1", "user": "hi"}],
                    {"spec": [{"parameter": "layers.0.self_attn.o_proj",
                               "op": "zero"}], "control": False})
         assert np.array_equal(self._weight(model), before), \
@@ -424,7 +425,7 @@ class TestSweepAxes:
     ZERO = {"point": "resid_post", "op": "zero"}
 
     def test_a_layer_sweep_is_one_node(self):
-        out = iv.run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"layers": [1, 2, 3]}})
+        out = run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"layers": [1, 2, 3]}})
         assert out["sweep"] == {"strength": [0.0, 1.0], "layers": [1, 2, 3]}
         rows = out["items"]
         assert [r.get("cell") for r in rows] == ["control", "layer=1", "layer=2", "layer=3"]
@@ -437,11 +438,11 @@ class TestSweepAxes:
         assert l2["top"][0]["token"] != ctrl["top"][0]["token"]
 
     def test_the_control_runs_once_however_many_cells(self):
-        out = iv.run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"layers": [0, 1, 2, 3]}})
+        out = run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"layers": [0, 1, 2, 3]}})
         assert sum(1 for r in out["items"] if r["factor"] == 0.0) == 1
 
     def test_strength_by_layers_is_the_product_strength_outermost(self):
-        out = iv.run(_FakeModel(), [self.REC],
+        out = run(_FakeModel(), [self.REC],
                      {"spec": [{"point": "resid_post", "op": "scale", "strength": 0.5}],
                       "sweep": {"strength": [1, 2], "layers": [1, 2]}, "control": False})
         assert [r["cell"] for r in out["items"]] == [
@@ -449,7 +450,7 @@ class TestSweepAxes:
         assert out["sweep"] == {"strength": [1.0, 2.0], "layers": [1, 2]}
 
     def test_a_capture_readout_carries_the_axis_too(self):
-        out = iv.run(_FakeModel(), [self.REC],
+        out = run(_FakeModel(), [self.REC],
                      {"spec": [self.ZERO], "sweep": {"layers": [[1], [2], [3]]},
                       "readout": {"type": "capture", "points": ["blocks.2.resid_post"]}})
         rows = out["items"]
@@ -460,7 +461,7 @@ class TestSweepAxes:
         assert np.allclose(l2["vector"], 0.0) and not np.allclose(ctrl["vector"], 0.0)
 
     def test_grouped_layers_read_as_one_coordinate(self):
-        out = iv.run(_FakeModel(), [self.REC],
+        out = run(_FakeModel(), [self.REC],
                      {"spec": [self.ZERO], "sweep": {"layers": [[0, 1], [2, 3]]}, "control": False})
         assert [r["coords"]["layer"] for r in out["items"]] == ["0+1", "2+3"]
 
@@ -475,9 +476,9 @@ class TestSweepAxes:
 
     def test_refusals_name_the_axes(self):
         with pytest.raises(iv.SpecError, match="cannot vary depth"):
-            iv.run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"depth": [1]}})
+            run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"depth": [1]}})
         with pytest.raises(iv.SpecError, match="non-empty list"):
-            iv.run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"layers": []}})
+            run(_FakeModel(), [self.REC], {"spec": [self.ZERO], "sweep": {"layers": []}})
         with pytest.raises(iv.SpecError, match="sweep_over"):
-            iv.run(_FakeModel(), [self.REC],
+            run(_FakeModel(), [self.REC],
                    {"spec": [{**self.ZERO, "sweep_over": ["depth"]}], "sweep": {"layers": [1]}})

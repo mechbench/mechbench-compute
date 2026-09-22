@@ -8,8 +8,10 @@ import hashlib
 import numpy as np
 import pytest
 
+from mechbench_compute.ops.activations import capture_tokens as capture_tokens_op
 from mechbench_compute import tensors
 from mechbench_compute.lexicon import kinds as K
+from mechbench_compute.ops.direction.regress import from_regression
 
 
 def _items(n, d=6, seed=0):
@@ -134,7 +136,7 @@ class TestARegressionStreamsTheShards:
                    "coords": {"position": i % 20, "surprisal": round(signal, 5)}})
         coll = tensors.collection("activations/vector", w.close(), model="m", layers=[4])
         assert len(coll["shards"]) == 5
-        out = dirs.from_regression(coll, layer=4, target="surprisal", seed=1)
+        out = from_regression(coll, layer=4, target="surprisal", seed=1)
         got = np.asarray(out["vector"], dtype=np.float64)
         cos = float(got @ axis / np.linalg.norm(got))
         assert cos > 0.99, cos
@@ -164,7 +166,7 @@ class TestTheExecutorMovesShards:
                 w.add(it)
             return tensors.collection("activations/vector", w.close(), model="m", layers=[0, 1])
 
-        monkeypatch.setattr(interp, "capture_tokens", fake_capture)
+        monkeypatch.setattr(capture_tokens_op, "capture_tokens", fake_capture)
         monkeypatch.setattr(ProtocolExecutor, "_model_loaded", lambda self, model_id: object())
         monkeypatch.setattr(ProtocolExecutor, "_run_model_block",
                             lambda self, fn, inputs, params, *a, **k: fn(inputs, params, *a, **k))

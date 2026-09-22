@@ -290,7 +290,6 @@ def _ensure_mount(name: str, mount: GuestMount, *, fetch: bool) -> GuestMount:
         raise GuestUnavailable(
             f"guest {name!r} mount at {mount.at!r} is not unpacked and "
             f"fetching is disabled")
-    import io
     import tarfile
 
     tmp_fd, tmp_name = tempfile.mkstemp(prefix=f"{name}-lib-", suffix=".tgz",

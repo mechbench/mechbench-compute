@@ -16,6 +16,7 @@ import pytest
 
 from mechbench_compute import weights as W
 from mechbench_compute.blocks import PURE_BLOCKS
+from mechbench_compute.ops.adapter.measure import delta_spectrum
 
 
 def _bytes(flat):
@@ -68,7 +69,7 @@ class TestTheSpectrumIsExact:
         rng = np.random.default_rng(7)
         a, b = rng.normal(size=(4, 5)), rng.normal(size=(6, 4))
         scale = 2.0
-        sv, u = W.delta_spectrum(a, b, scale)
+        sv, u = delta_spectrum(a, b, scale)
         full = scale * (b @ a)
         u_full, s_full, _ = np.linalg.svd(full)
         assert np.allclose(sv, s_full[:len(sv)], atol=1e-10)
@@ -84,14 +85,14 @@ class TestTheSpectrumIsExact:
         a[0] = rng.normal(size=5)
         b = np.zeros((6, 4))
         b[:, 0] = rng.normal(size=6)
-        sv, _u = W.delta_spectrum(a, b, 1.0)
+        sv, _u = delta_spectrum(a, b, 1.0)
         assert W.effective_rank(sv) == pytest.approx(1.0, abs=1e-9)
 
     def test_an_even_write_has_effective_rank_r(self):
         # Four orthogonal directions of equal size: the spectrum is flat.
         a = np.eye(4, 5)
         b = np.eye(6, 4)
-        sv, _u = W.delta_spectrum(a, b, 1.0)
+        sv, _u = delta_spectrum(a, b, 1.0)
         assert W.effective_rank(sv) == pytest.approx(4.0, abs=1e-9)
 
     def test_a_delta_of_nothing_has_no_rank(self):

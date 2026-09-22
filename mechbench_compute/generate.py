@@ -33,7 +33,6 @@ import numpy as np
 from .model import Model
 from .prompts import Prompt, PromptSet
 
-
 # Gemma 4 chat-template turn-end marker. Generation stops when the model
 # emits this token (or the tokenizer's eos).
 _GEMMA4_END_OF_TURN_ID = 106
@@ -296,8 +295,8 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
     """
     import numpy as _np
 
-    from .distill import prefill_decision as _prefill
     from .distill import _copy_prefix_cache
+    from .distill import prefill_decision as _prefill
 
     rng = rng or _np.random.default_rng()
     stop = _stop_ids(model.tokenizer)

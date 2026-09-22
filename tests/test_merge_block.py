@@ -12,6 +12,14 @@ from pathlib import Path
 import mlx.core as mx
 import pytest
 
+from mechbench_compute import ops
+from mechbench_compute.ops.adapter import merge as merge_op
+
+
+def RUN(executor, inputs, params, **lent):
+    """The merge operation as the executor would call it: what the tests
+    once passed the method as keywords is the context now."""
+    return merge_op.run(ops.Context(executor=executor, **lent), inputs, params)
 from mechbench_compute import bench, model_ref
 from mechbench_compute import protocol as protocol_mod
 
@@ -55,7 +63,6 @@ def executor():
     # The block only touches self._materialize_checkpoint on bench
     # bases; a bare object with the real methods bound is enough.
     class E:
-        _block_merge = protocol_mod.ProtocolExecutor._block_merge
         _materialize_checkpoint = protocol_mod.ProtocolExecutor._materialize_checkpoint
     return E()
 
@@ -79,7 +86,8 @@ class TestBenchDestination:
                             lambda label, path, **k: puts.append(label) or {"sizeBytes": Path(path).stat().st_size})
         monkeypatch.setattr(bench, "emit",
                             lambda label, payload, **k: emits.append((label, payload, k)) or {})
-        out = executor._block_merge(
+        out = RUN(
+            executor,
             {}, {"model": _ref(_adapter_payload()),
                  "to": {"bench": {"name": "fair-v1"}}},
             result_base="benji/training/results/j_x")
@@ -96,12 +104,13 @@ class TestBenchDestination:
     def test_a_bare_base_refuses(self, executor):
         bare = model_ref.parse("org/m@rev")
         with pytest.raises(ValueError, match="adapter"):
-            executor._block_merge({}, {"model": model_ref.ModelRef(
+            RUN(executor, {}, {"model": model_ref.ModelRef(
                 base_kind=bare.base_kind, base=bare.base)}, result_base="a/b/results/j")
 
     def test_destination_is_mandatory_and_explicit(self, executor):
         with pytest.raises(ValueError, match="bench"):
-            executor._block_merge(
+            RUN(
+            executor,
                 {}, {"model": _ref(_adapter_payload())},
                 result_base="a/b/results/j")
 
@@ -112,7 +121,8 @@ class TestHfDestination:
         monkeypatch.setattr("mechbench_compute.hub.ensure_model",
                             lambda ref, **k: ("org/m", "rev", snap))
         with pytest.raises(ValueError, match="Integrations"):
-            executor._block_merge(
+            RUN(
+            executor,
                 {}, {"model": _ref(_adapter_payload()),
                      "to": {"hf": {"repo": "me/merged"}}},
                 result_base="a/b/results/j", secrets={})
@@ -140,7 +150,8 @@ class TestRetryAsResume:
         monkeypatch.setattr(bench, "put_file",
                             lambda label, path, **k: puts.append(label) or {"sizeBytes": 1})
         monkeypatch.setattr(bench, "emit", lambda *a, **k: {})
-        out = executor._block_merge(
+        out = RUN(
+            executor,
             {}, {"model": _ref(_adapter_payload()),
                  "to": {"bench": {"name": "resume-v1"}}},
             result_base="benji/training/results/j_x")
