@@ -13,6 +13,31 @@ nothing said so.
 
 ---
 
+## 0.129.1 — 2026-09-22
+
+### Changes that raise
+
+_None._ The same completions raise, with the same exception type.
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- **A reasoning-only Anthropic completion says what happened and how
+  to avoid it.** When a reply's output allowance goes entirely to
+  reasoning, the adapter raises as it did before, because a completion
+  with no prose must not reach a caller as an empty document. The
+  message used to say the adapter does not map those blocks. It does:
+  they become text parts, and what is missing is prose. The message
+  now names the output tokens spent against `max_tokens` and both
+  remedies: raise `max_tokens` so a reply has room after the
+  reasoning, or turn reasoning off with `provider_options:
+  {"anthropic": {"thinking": {"type": "disabled"}}}`. A block type
+  the adapter genuinely does not know keeps the old wording, because
+  there it is true.
+
 ## 0.129.0 — 2026-09-22
 
 ### Changes that raise
