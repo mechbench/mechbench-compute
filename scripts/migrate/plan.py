@@ -91,7 +91,7 @@ class Module:
         self.tree = ast.parse(self.src)
         self.defs: dict[str, Def] = {}
         self.methods: dict[str, Def] = {}
-        self.registry: dict[str, tuple[str, ast.expr]] = {}   # op -> (table, value node)
+        self.registry: dict[str, list[tuple[str, ast.expr]]] = defaultdict(list)   # op -> [(table, value)]
         self.loose: set[str] = set()      # names the module's own top-level statements use
         self._bindings()
         self._index()
@@ -164,7 +164,7 @@ class Module:
                     if t.id in REGISTRY_NAMES and isinstance(value, ast.Dict):
                         for k, v in zip(value.keys, value.values):
                             if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                                self.registry[k.value] = (t.id, v)
+                                self.registry[k.value].append((t.id, v))
                         placed = True
                         continue
                     kind = "assign"
@@ -243,8 +243,7 @@ def analyse() -> Analysis:
             else:
                 problems.append(f"{op}: site {file}:{fn} not found")
         for m in mods.values():
-            if op in m.registry:
-                table, value = m.registry[op]
+            for table, value in m.registry.get(op, []):
                 pieces[op].append(Def(m.rel, f"<{table}[{op!r}]>", value.lineno, value.end_lineno or value.lineno,
                                       "registry", {n.id for n in ast.walk(value) if isinstance(n, ast.Name)},
                                       {(n.value.id, n.attr) for n in ast.walk(value)
