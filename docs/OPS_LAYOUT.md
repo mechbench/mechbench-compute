@@ -144,6 +144,32 @@ runners without Apple silicon. `mlx` comes from
 `mechbench_compute._mlx`, which raises a clear error on first use rather
 than at import.
 
-**No file is over the size budget.** A gate in the suite holds it. A
-3,000-line file is not something an agent can read to understand one
-operation, and nothing else keeps a file small.
+**No file is over the size budget.** Six hundred lines, held by a gate in
+the suite (`tests/test_file_budget.py`). A 3,000-line file is not
+something an agent can read to understand one operation, and nothing else
+keeps a file small. The files already over the budget when the gate went
+in are listed there at the length they had that day: each may shrink,
+none may grow, and one that drops under the budget comes off the list —
+so the list only ever gets shorter.
+
+## Where the executor lives
+
+The same two rules, applied to the thing that calls an operation's `run`.
+`ProtocolExecutor` is composed from one mixin per topic, each a file
+under `mechbench_compute/protocol/` named for its topic:
+
+```
+pipeline.py       walking the graph: order, resume, emission
+dispatch.py       how a node reaches an operation's run()
+model.py          loading weights, fusing adapters
+remote.py         the nodes a provider answers, run in a wave
+tools.py          what a model may call mid-turn
+chat.py           the local half of text/chat
+memo.py           a node's memo of the remote calls it made
+legacy_kinds.py   the two spec kinds that came before the graph
+```
+
+What they share is one definition per file, as `serialize_params` and
+`read_tokenizer_id` already were. The class is still one class, and its
+methods and their call sites are unchanged: a mixin is how a method keeps
+its `self`.

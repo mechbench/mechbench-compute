@@ -104,7 +104,10 @@ class TestBranchesRunTogether:
         spec = _spec([_chat("left"), _chat("right")])
         parallel = ProtocolExecutor().run(spec).payload
 
-        monkeypatch.setattr("mechbench_compute.protocol.MAX_PARALLEL_NODES", 1)
+        # Where the wave READS it (task 000632): the package imports it
+        # back, but patching the re-export would leave the wave running
+        # on the eight it already bound, and this test passing vacuously.
+        monkeypatch.setattr("mechbench_compute.protocol.remote.MAX_PARALLEL_NODES", 1)
         serial = ProtocolExecutor().run(_spec([_chat("left"), _chat("right")])).payload
 
         assert parallel["nodes_executed"] == serial["nodes_executed"]

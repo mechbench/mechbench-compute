@@ -38,7 +38,7 @@ from mechbench_compute import ops
 from mechbench_compute.lexicon import BY_NAME
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
-P = "protocol/__init__.py"
+P = "protocol/pipeline.py"
 
 #: op -> the places its params are read: (module, symbol). `symbol` is a
 #: function or a class; None means the whole module. Several sites are
@@ -74,8 +74,8 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     # --- model blocks that delegate to a module ---
     "text/chat": [
         ("ops/text/chat.py", "run"),
-        ("protocol/__init__.py", "_open_memo"),
-        ("protocol/__init__.py", "_block_chat_local")],
+        ("protocol/memo.py", "_open_memo"),
+        ("protocol/chat.py", "_block_chat_local")],
     "eval/judge": [
         ("ops/eval/judge.py", "run"),
         ("ops/eval/judge.py", "Scale"),
