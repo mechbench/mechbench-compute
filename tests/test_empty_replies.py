@@ -340,7 +340,7 @@ class TestTheJudge:
 
     def test_an_empty_judge_reply_is_an_unparsed_vote(self):
         out = run_judge(self.params({"empty": "reasoning"}),
-                        inputs={"records": self.STORIES})
+                        inputs={"records": list(self.STORIES)})
         assert out["summary"]["n_unparsed"] == 2
         vote = out["items"][0]["votes"][0]
         assert vote["parsed"] is False and vote["empty"] == "reasoning"
@@ -361,6 +361,6 @@ class TestTheJudge:
 
         monkeypatch.setattr(judge_mod.chat_mod, "run_remote", flagged)
         out = run_judge(self.params({"text": '{"score": 4}'}),
-                        inputs={"records": self.STORIES})
+                        inputs={"records": list(self.STORIES)})
         assert seen["on_empty"] == "keep"
         assert out["summary"]["n_unparsed"] == 2

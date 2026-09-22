@@ -13,6 +13,69 @@ nothing said so.
 
 ---
 
+## 0.130.0 — 2026-09-22
+
+### Changes that raise
+
+_None._ No call that completed before raises now. `on_empty: "error"`
+raises only where a protocol asks for it, and an unknown `on_empty`
+value is refused by name.
+
+### Changes that alter results without raising
+
+- **An empty remote reply no longer fails the node; it is kept,
+  marked and paid for.** A reply with no prose and no tool call used
+  to raise `ProviderError` from the Anthropic adapter, which failed
+  the whole `text/chat` node (experiment 024's ceiling arm died at 10
+  of 200 items that way), and the budget reservation for that call
+  was released, so a reply that was paid for recorded no cost. The
+  OpenAI-compatible and Gemini adapters detected nothing, so an empty
+  reply passed through silently as an empty document. Now every
+  adapter returns the reply with `empty = {cause, message}`, the cost
+  is settled against the budget, and the node's new `on_empty` param
+  decides what happens. **The default is `"keep"`**: a run that died
+  now finishes, with each such item's `text` empty and
+  `metadata.empty` set, the call's cost counted in `spend`, and the
+  header's `empty` saying how many and why. To get the old behaviour
+  back, set `on_empty: "error"`; `"skip"` leaves the items out of the
+  collection. The causes are `reasoning` (the output allowance went to
+  reasoning), `filtered` (a content filter, a refusal, a blocked
+  prompt), `unmapped` (Anthropic only: a block type the adapter does
+  not know) and `no_content`; each message names the provider's own
+  remedy.
+- **An Anthropic reply whose only text is reasoning is now flagged.**
+  Only `text` blocks count as prose. A reply holding a thinking block
+  with returned text and nothing else used to pass as a completion; it
+  is now marked `empty` with cause `reasoning`. Its `text` still
+  carries the reasoning, as the adapter has always mapped it.
+- **A remote judge's empty reply is an unparsed vote.** `eval/judge`
+  passes `on_empty: "keep"` and reads any flagged reply as unparsed,
+  whatever text it carries, with the cause on the vote as `empty`. An
+  Anthropic judge node that failed on one empty vote now completes,
+  and the subject counts toward `n_unparsed` when no vote parsed.
+- **Gemini thoughts are billed.** `usage.output_tokens` now includes
+  `thoughtsTokenCount`, which the provider bills as output and counts
+  against `maxOutputTokens` but leaves out of `candidatesTokenCount`.
+  A Gemini call with thinking on now costs more in `spend`, and a
+  budget cap is reached sooner, because it was under-counted before.
+- **Gemini `generationConfig` in `provider_options` is merged, not
+  swapped.** Passing `{"gemini": {"generationConfig": {...}}}` used to
+  replace the whole generation config the adapter built, dropping
+  `maxOutputTokens`, `temperature`, `topP` and the rest. Those fields
+  are now kept and the options merged over them, so a thinking budget
+  set this way no longer lifts the output cap.
+
+### Other
+
+- `text/chat`'s header carries `empty = {count, by_cause, ids,
+  policy}` on every remote node, with a count of 0 when there were
+  none. Every empty item is checkpointed whatever the policy, and the
+  policy is re-applied to resumed items, so a resumed run never buys
+  the same reply twice.
+- The mock provider takes `empty: <cause>` in its provider options to
+  rehearse an empty reply, and a recorded cassette replays one as
+  empty.
+
 ## 0.129.1 — 2026-09-22
 
 ### Changes that raise
