@@ -13,6 +13,72 @@ nothing said so.
 
 ---
 
+## 0.129.0 — 2026-09-22
+
+### Changes that raise
+
+- **`blocks.PURE_BLOCKS` is gone; the ops API answers for a pure
+  operation.** `ops.find_standalone()` is the set of operations that
+  run with no executor — pure, and their `run` never reads `ctx` — and
+  `ops.run_standalone(op, inputs, params)` runs one. The dict was a
+  facade over four tables (`trajectory.PURE`,
+  `directions.PURE_DIRECTION_BLOCKS`, `reduce.PURE_REDUCE_BLOCKS`,
+  `tools.PURE_TOOL_BLOCKS`) that had already emptied into the operation
+  files, and every one of its 35 live entries came from
+  `find_standalone()` through a wrapper, so the tables, the wrapper and
+  the name itself are deleted. The four call sites in this repository —
+  resume levels, the isomorphism check, the toolbox and the chunked
+  reduce — call the ops API directly; an out-of-tree caller that names
+  `PURE_BLOCKS` is told at import.
+
+### Changes that alter results without raising
+
+- **`records/map` runs its body in the vocabulary its own run is
+  written in.** A map hands its `body` to a child run, and
+  `records/fold` marked that child graph with the declared dataflow
+  form while `records/map` never did — so a body written the way a
+  declared protocol writes one, with a node naming `{"$param":
+  "model"}`, was read in the older form, where a `$`-keyed object is a
+  literal. The reference reached `model_ref.resolve` unresolved and the
+  node failed with `model reference needs base`, while the identical
+  body under a fold worked; the map's own documented example is one of
+  these. Under a declared run the body's references have already been
+  checked against the run's params before anything starts
+  (`dataflow.check_refs` descends into the body), so the child now
+  reads them the same way. **The silent case to look for**: a body
+  written with older-form `"$name"` string holes *under a declared
+  protocol* had those holes filled before and now reads them as the
+  plain strings the declared form says they are — the same records,
+  with `$topic` in them where a value was meant. Rewrite such a body's
+  holes as `{"$param": "topic"}`. A body under a protocol in the older
+  form, and a body that carries `"dataflow": 2` itself, are unaffected.
+
+### Other
+
+- **The executor's walk is one loop over the nodes and ten definitions
+  beside it.** `_run_pipeline` was 881 lines of one function; it is 122
+  in a 177-line file that orders the nodes and, for each one, resolves,
+  dispatches and records. What came out of it: `RunState` (what a run
+  carries from node to node), `Resolver` (a node's references made
+  values, and the record of what resolved), `Progress` (what a watcher
+  is told), and `gather_inputs`, `store_result`, `build_manifest`,
+  `check_failures`, `restore_node`, `sort_nodes`, `read_resume_entry`,
+  with the three-way dispatch beside `_run_op`. A rewrite rather than a
+  move, so it was checked behaviourally: two stored protocols — one in
+  the declared form with bootstrap intervals and 24 contrasts, one in
+  the older form with a model load and per-item progress — re-run
+  before and after, with every payload byte of the manifest and of all
+  31 node objects identical, `node_hashes` and generated text included.
+- `ops.Context` carries `declared`, the reference vocabulary of the
+  run's graph, which is what an operation with a body of its own stamps
+  that body with.
+- Twelve imports that shadowed a name already bound in the same file
+  are deleted (ruff F811): ten operation files imported a dead `points
+  as P` beside the lexicon's own `P`, and two imported `Ablate` from
+  the package root as well as from `mechbench_compute.interventions`.
+
+---
+
 ## 0.128.0 — 2026-09-21
 
 ### Changes that raise
