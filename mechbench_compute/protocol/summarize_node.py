@@ -8,7 +8,7 @@ from typing import Any
 from mechbench_compute import lexicon
 
 
-def node_summary(value: Any, spend: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def summarize_node(value: Any, spend: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """What a node produced, in the terms a reader asks first: which kind,
     and how many. `{kind, collection, items}` for a collection (however it
     is spelled — a retired plural object, a bare list); `{kind,

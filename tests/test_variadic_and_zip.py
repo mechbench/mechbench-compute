@@ -14,7 +14,7 @@ import pytest
 from mechbench_compute.blocks import PURE_BLOCKS
 from mechbench_compute.lexicon import BY_NAME
 from mechbench_compute.lexicon._base import In
-from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec, _ordered_edges
+from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec, sort_edges
 
 CROSS = {"factors": [{"name": "x", "levels": [{"key": "a"}, {"key": "b"}]}]}
 
@@ -58,18 +58,18 @@ class TestEdgeOrder:
         edges = self._edges(("c", "branches", 2), ("a", "branches", 0),
                             ("b", "branches", 1), ("d", "other", None))
         got = [(e["from"]["node"], e["to"]["port"])
-               for e in _ordered_edges(edges, "z")]
+               for e in sort_edges(edges, "z")]
         assert got == [("a", "branches"), ("b", "branches"), ("c", "branches"),
                        ("d", "other")]
 
     def test_without_an_index_the_source_id_orders_them(self):
         edges = self._edges(("zeta", "branches", None), ("alpha", "branches", None))
-        assert [e["from"]["node"] for e in _ordered_edges(edges, "z")] == \
+        assert [e["from"]["node"] for e in sort_edges(edges, "z")] == \
             ["alpha", "zeta"]
 
     def test_edges_to_other_nodes_are_not_this_node_s(self):
         edges = [{"from": {"node": "a", "port": "out"}, "to": {"node": "y", "port": "p"}}]
-        assert _ordered_edges(edges, "z") == []
+        assert sort_edges(edges, "z") == []
 
 
 class TestTwoEdgesIntoOnePort:

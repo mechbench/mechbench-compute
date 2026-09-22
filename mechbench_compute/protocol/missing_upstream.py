@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 
-class _MissingUpstream(RuntimeError):
+class MissingUpstream(RuntimeError):
     """A node needed an input its upstream never produced, and the port
     it was wired to says that is fatal (task 000399).
 

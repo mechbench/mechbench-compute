@@ -141,3 +141,12 @@ weights/parameter_names.py	parameter_names	read_parameters	weights/read_paramete
 weights/pattern.py	_pattern	compile_point_pattern	weights/compile_point_pattern.py	function	1	
 weights/project_out.py	_project_out	project_out	weights/project_out.py	function	1	already a verb phrase; only the underscore goes
 weights/truncate.py	_truncate	truncate	weights/truncate.py	function	1	already a verb phrase; only the underscore goes
+protocol/carry_arch.py	_carry_arch	copy_arch	protocol/copy_arch.py	function	1	the executor split (000632) made it cross-file; carry is not a verb here and the body copies the landmarks off an input onto a result that has none
+protocol/is_remote.py	_is_remote	is_remote	protocol/is_remote.py	function	2	already reads as a question; the underscore said mine-alone on a name two modules and a test say
+protocol/missing_policy.py	_missing_policy	read_missing_policy	protocol/read_missing_policy.py	function	1	it reads the policy off the port declaration and the edge; the house verb, beside read_tokenizer_id in the same package
+protocol/missing_upstream.py	_MissingUpstream	MissingUpstream	protocol/missing_upstream.py	class	1	an exception the graph walk raises by name; only the underscore goes
+protocol/node_summary.py	node_summary	summarize_node	protocol/summarize_node.py	function	1	a noun for a call that does something; summarize is the house verb and the op records/summarize already spells it
+protocol/ordered_edges.py	_ordered_edges	sort_edges	protocol/sort_edges.py	function	2	the one order the platform reads a node's in-edges in; the call site should say the sorting is the point
+protocol/preflight.py	_preflight	check_graph	protocol/check_graph.py	function	1	preflight is a metaphor, not a verb; it checks a graph's blocks, params and ports before anything runs
+protocol/spend_total.py	_spend_total	total_spend	protocol/total_spend.py	function	1	the same two words, as an action: it totals the spend
+protocol/legacy_kinds.py	_last_logp	(delete)	protocol/legacy_kinds.py	function	0	not a rename: a byte-for-byte copy of interp/read_last_logp.py, which 000629 named. The copy goes and the layer-ablation kind calls the shared one, which also takes the module-level mlx import out of the file

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def _spend_total(by_node: dict[str, Any]) -> dict[str, Any]:
+def total_spend(by_node: dict[str, Any]) -> dict[str, Any]:
     """The run's bill: total, per provider, per node (task 000337)."""
     by_provider: dict[str, dict[str, Any]] = {}
     total = 0.0

@@ -22,7 +22,7 @@ import pytest
 from mechbench_compute.protocol import (
     ProtocolExecutor,
     ProtocolSpec,
-    _is_remote,
+    is_remote,
 )
 
 ENDPOINT = {"provider": "mock", "model": "mock-large"}
@@ -47,13 +47,13 @@ def _spec(nodes, edges=()):
 
 class TestWhatCountsAsRemote:
     def test_a_provider_backed_chat_is_remote(self):
-        assert _is_remote("text/chat", {"model": ENDPOINT})
-        assert _is_remote("eval/judge", {"judge": ENDPOINT})
+        assert is_remote("text/chat", {"model": ENDPOINT})
+        assert is_remote("eval/judge", {"judge": ENDPOINT})
 
     def test_local_weights_are_not(self):
-        assert not _is_remote("text/chat", {"model": LOCAL})
-        assert not _is_remote("text/generate", {"model": ENDPOINT})
-        assert not _is_remote("records/select", {})
+        assert not is_remote("text/chat", {"model": LOCAL})
+        assert not is_remote("text/generate", {"model": ENDPOINT})
+        assert not is_remote("records/select", {})
 
 
 class TestBranchesRunTogether:

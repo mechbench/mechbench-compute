@@ -374,6 +374,8 @@ class Renamer:
         for rel, text in after.items():
             (ROOT / rel).write_text(text)
         for old, new in sorted(self.moves.items()):
+            if not (PKG / old).exists() and (PKG / new).exists():
+                continue          # already applied: the table is cumulative
             subprocess.run(["git", "mv", f"mechbench_compute/{old}", f"mechbench_compute/{new}"],
                            cwd=ROOT, check=True)
         if self.verify(before, after):

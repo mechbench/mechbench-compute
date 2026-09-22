@@ -11,7 +11,6 @@ from __future__ import annotations
 from datetime import UTC
 from typing import Any
 
-import mlx.core as mx
 import numpy as np
 from mechbench_schema import (
     AblationPrompt,
@@ -20,6 +19,7 @@ from mechbench_schema import (
 )
 
 from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, lexicon
+from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 
 
@@ -33,7 +33,7 @@ class LegacyKinds:
 
         ids = model.tokenize(prompt)
         baseline = model.run(ids)
-        baseline_lp = _last_logp(baseline.logits)
+        baseline_lp = read_last_logp(baseline.logits)
         top1_id = int(np.argmax(baseline_lp))
         baseline_top1 = float(baseline_lp[top1_id])
 
@@ -41,7 +41,7 @@ class LegacyKinds:
         for layer in range(N_LAYERS):
             ids = model.tokenize(prompt)
             result = model.run(ids, interventions=[Ablate.layer(layer)])
-            lp = _last_logp(result.logits)
+            lp = read_last_logp(result.logits)
             damage[layer] = float(lp[top1_id]) - baseline_top1
 
         prompts = [
@@ -107,10 +107,3 @@ class LegacyKinds:
                 "logits/decision", lexicon.items_of(result),
                 model=spec.model_id)),
             provenance=prov)
-
-
-def _last_logp(logits: mx.array) -> np.ndarray:
-    last = logits[0, -1, :].astype(mx.float32)
-    lp = last - mx.logsumexp(last)
-    mx.eval(lp)
-    return np.array(lp)

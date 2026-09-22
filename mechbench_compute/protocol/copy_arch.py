@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 
-def _carry_arch(inputs: Mapping[str, Any], result: Any) -> Any:
+def copy_arch(inputs: Mapping[str, Any], result: Any) -> Any:
     """`result` with the model's depth landmarks on it, when the result
     is an object without them. A bare list has no header to carry them
     on and is returned as is.

@@ -38,13 +38,11 @@ from mechbench_compute.protocol.chat import Chat
 from mechbench_compute.protocol.dispatch import Dispatch
 from mechbench_compute.protocol.is_remote import (  # noqa: F401
     REMOTE_BLOCKS,
-    _is_remote,
+    is_remote,
 )
 from mechbench_compute.protocol.legacy_kinds import LegacyKinds
 from mechbench_compute.protocol.memo import Memo
 from mechbench_compute.protocol.model import ModelLoading
-from mechbench_compute.protocol.node_summary import node_summary  # noqa: F401
-from mechbench_compute.protocol.ordered_edges import _ordered_edges  # noqa: F401
 from mechbench_compute.protocol.pipeline import Pipeline
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 from mechbench_compute.protocol.read_tokenizer_id import read_tokenizer_id  # noqa: F401
@@ -54,6 +52,8 @@ from mechbench_compute.protocol.remote import (  # noqa: F401
 )
 from mechbench_compute.protocol.serialize_model import serialize_model  # noqa: F401
 from mechbench_compute.protocol.serialize_params import serialize_params  # noqa: F401
+from mechbench_compute.protocol.sort_edges import sort_edges  # noqa: F401
+from mechbench_compute.protocol.summarize_node import summarize_node  # noqa: F401
 from mechbench_compute.protocol.tools import Tools
 
 

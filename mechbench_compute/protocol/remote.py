@@ -12,8 +12,8 @@ from __future__ import annotations
 from typing import Any
 
 from mechbench_compute import lexicon
-from mechbench_compute.protocol.is_remote import _is_remote
-from mechbench_compute.protocol.ordered_edges import _ordered_edges
+from mechbench_compute.protocol.is_remote import is_remote
+from mechbench_compute.protocol.sort_edges import sort_edges
 
 #: How many remote nodes may be in flight at once. The provider's own
 #: rate limiter (000344) bounds the requests WITHIN a node; this bounds
@@ -58,16 +58,16 @@ class Remote:
                 except KeyError:
                     continue
                 peer_params = resolve_params(node.get("params"))
-                if not _is_remote(peer_block, peer_params):
+                if not is_remote(peer_block, peer_params):
                     continue
                 if resume.get(other) if isinstance(resume, dict) else None:
                     continue
-                sources = {e["from"]["node"] for e in _ordered_edges(edges, other)}
+                sources = {e["from"]["node"] for e in sort_edges(edges, other)}
                 if not sources <= set(results):
                     continue        # it is waiting for something, not for us
                 peer_inputs = {
                     e["to"]["port"]: results[e["from"]["node"]]
-                    for e in _ordered_edges(edges, other)}
+                    for e in sort_edges(edges, other)}
                 for port, raw in (node.get("inputs") or {}).items():
                     if raw is not None and port not in peer_inputs:
                         peer_inputs[port] = resolve_value(raw)

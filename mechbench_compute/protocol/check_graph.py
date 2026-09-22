@@ -8,7 +8,7 @@ from mechbench_compute import lexicon
 MISSING_POLICIES = ("fail", "skip", "placeholder")
 
 
-def _preflight(nodes, edges, order) -> None:
+def check_graph(nodes, edges, order) -> None:
     """Everything about a graph that is decidable before it runs, decided
     before it runs (tasks 000512, 000513).
 

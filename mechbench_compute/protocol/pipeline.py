@@ -18,16 +18,16 @@ from datetime import UTC
 from typing import Any
 
 from mechbench_compute import lexicon, ops
-from mechbench_compute.protocol.carry_arch import _carry_arch
-from mechbench_compute.protocol.is_remote import _is_remote
-from mechbench_compute.protocol.missing_policy import _missing_policy
-from mechbench_compute.protocol.missing_upstream import _MissingUpstream
-from mechbench_compute.protocol.node_summary import node_summary
-from mechbench_compute.protocol.ordered_edges import _ordered_edges
-from mechbench_compute.protocol.preflight import _preflight
+from mechbench_compute.protocol.check_graph import check_graph
+from mechbench_compute.protocol.copy_arch import copy_arch
+from mechbench_compute.protocol.is_remote import is_remote
+from mechbench_compute.protocol.missing_upstream import MissingUpstream
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
+from mechbench_compute.protocol.read_missing_policy import read_missing_policy
 from mechbench_compute.protocol.serialize_params import serialize_params
-from mechbench_compute.protocol.spend_total import _spend_total
+from mechbench_compute.protocol.sort_edges import sort_edges
+from mechbench_compute.protocol.summarize_node import summarize_node
+from mechbench_compute.protocol.total_spend import total_spend
 
 
 class Pipeline:
@@ -404,7 +404,7 @@ class Pipeline:
         # cannot run should say so in the first second rather than after
         # the nodes upstream of the mistake have been computed (000512,
         # 000513).
-        _preflight(nodes, edges, order)
+        check_graph(nodes, edges, order)
         if declared:
             dataflow.check_refs(nodes, bound_params)
 
@@ -518,7 +518,7 @@ class Pipeline:
             # on the order its author happened to write the edges in —
             # before this, moving an edge in the JSON restarted every
             # cached and resumed thing downstream of it.
-            in_edges = _ordered_edges(edges, nid)
+            in_edges = sort_edges(edges, nid)
             by_port: dict[str, list[Any]] = {}
             for e in in_edges:
                 by_port.setdefault(e["to"]["port"], []).append(e)
@@ -538,11 +538,11 @@ class Pipeline:
                 policy_skip = False
                 for port, es in sorted(absent.items()):
                     decl = op_here.port(port) if op_here else None
-                    policy = _missing_policy(decl, es)
+                    policy = read_missing_policy(decl, es)
                     source = es[0]["from"]["node"]
                     why = missing[source]
                     if policy == "fail":
-                        raise _MissingUpstream(nid, port, source, why) from None
+                        raise MissingUpstream(nid, port, source, why) from None
                     if policy == "skip":
                         policy_skip = True
                     tolerated.update(e["from"]["node"] for e in es)
@@ -693,7 +693,7 @@ class Pipeline:
                     if isinstance(done_ahead, BaseException):
                         raise done_ahead
                     results[nid] = done_ahead
-                elif _is_remote(block, params):
+                elif is_remote(block, params):
                     # This node waits on somebody else's machine, so
                     # every other remote node that is ready waits with
                     # it rather than after it.
@@ -724,7 +724,7 @@ class Pipeline:
                     results[nid] = PURE_BLOCKS[block](inputs, params)
                 else:
                     raise ValueError(f"unknown block: {block!r}")
-            except _MissingUpstream:
+            except MissingUpstream:
                 raise
             except Exception as exc:  # noqa: BLE001 — recorded, then decided on
                 failures[nid] = exc
@@ -747,7 +747,7 @@ class Pipeline:
             # A result about a model's layers stays about them through
             # every records op (000624): the landmarks on any input's
             # header ride onto an output that has none.
-            results[nid] = _carry_arch(inputs, results[nid])
+            results[nid] = copy_arch(inputs, results[nid])
             node_hashes[nid] = resume_mod.content_hash(results[nid])
             if result_base and discard and not outputs_of.get(nid):
                 # Held, not emitted (000561): the consumers read it from
@@ -884,13 +884,13 @@ class Pipeline:
             # intermediate was held rather than stored — and a record
             # worth having either way.
             "node_hashes": {nid: node_hashes[nid] for nid in order if nid in node_hashes},
-            "node_inputs": {nid: [e["from"]["node"] for e in _ordered_edges(edges, nid)]
+            "node_inputs": {nid: [e["from"]["node"] for e in sort_edges(edges, nid)]
                             for nid in order if nid in results and nid not in missing},
             **({"keep": keep, "nodes_held": sorted(held)} if discard else {}),
             # What each node produced, small enough to read beside the
             # node in the composer without fetching its object (task
             # 000525): the kind, and how many items or rows.
-            "node_summaries": {nid: node_summary(results[nid], spend_by_node.get(nid))
+            "node_summaries": {nid: summarize_node(results[nid], spend_by_node.get(nid))
                                for nid in order if nid in results and nid not in missing},
             # What did not run, and why (000399). A reader of this result
             # must never have to infer an absence from a shorter list.
@@ -900,7 +900,7 @@ class Pipeline:
             # Where this ran (000402). Recorded, never fingerprinted:
             # bit-identity is promised within a hardware class.
             "resources": {"hardware": hardware_class(),
-                          **({"spend": _spend_total(spend_by_node)}
+                          **({"spend": total_spend(spend_by_node)}
                              if spend_by_node else {})},
         }
         prov = ms.Provenance(

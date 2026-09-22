@@ -15,7 +15,7 @@ from typing import Any
 REMOTE_BLOCKS = ("text/chat", "eval/judge")
 
 
-def _is_remote(block: str, params: Mapping[str, Any]) -> bool:
+def is_remote(block: str, params: Mapping[str, Any]) -> bool:
     """Whether this node's work happens on somebody else's machine: a
     chat-shaped block whose model reference names a provider."""
     if block not in REMOTE_BLOCKS:

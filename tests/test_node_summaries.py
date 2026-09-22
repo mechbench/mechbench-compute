@@ -8,7 +8,7 @@ summary per executed node — and none for a node that did not run, which
 """
 from __future__ import annotations
 
-from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec, node_summary
+from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec, summarize_node
 
 GRAPH = {
     "nodes": [
@@ -40,12 +40,12 @@ def test_every_executed_node_is_summarized():
 
 
 def test_a_summary_reads_every_spelling():
-    assert node_summary([{"id": "a"}, {"id": "b"}]) == {"kind": "collection", "collection": True, "items": 2}
-    assert node_summary({"kind": "residual_vectors", "rows": [{}, {}, {}]}) == {
+    assert summarize_node([{"id": "a"}, {"id": "b"}]) == {"kind": "collection", "collection": True, "items": 2}
+    assert summarize_node({"kind": "residual_vectors", "rows": [{}, {}, {}]}) == {
         "kind": "activations/vector", "collection": True, "items": 3}
-    assert node_summary({"kind": "direction/vector", "vector": [0.1]}) == {
+    assert summarize_node({"kind": "direction/vector", "vector": [0.1]}) == {
         "kind": "direction/vector", "collection": False}
-    assert node_summary("text") == {}
-    assert node_summary({"kind": "collection", "item_kind": "text/document", "items": [{}]},
+    assert summarize_node("text") == {}
+    assert summarize_node({"kind": "collection", "item_kind": "text/document", "items": [{}]},
                         {"cost_usd": 0.0123, "calls": 2}) == {
         "kind": "text/document", "collection": True, "items": 1, "spend_usd": 0.0123}

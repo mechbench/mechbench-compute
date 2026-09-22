@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-def _missing_policy(decl, edges) -> str:
+def read_missing_policy(decl, edges) -> str:
     """What to do about an absent input on this port.
 
     The OP declares what its port can meaningfully do without the input;

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def _ordered_edges(edges, nid: str) -> list[Any]:
+def sort_edges(edges, nid: str) -> list[Any]:
     """The edges into a node, in the one order the platform reads them:
     port, then the edge's declared `index`, then the source node's id
     (task 000397). Every use of a node's in-edges — its inputs, its
