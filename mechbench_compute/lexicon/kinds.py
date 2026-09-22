@@ -12,8 +12,7 @@ are fields, not kinds; `values.py` declares their shapes and prose,
 `shapes.py` constructs them and every op builds its items through it.
 The lattice (§6) is declared with `extends`.
 
-Names retired on 2026-09-14 (task 000496) resolve through `KIND_ALIASES`
-until the release named in `lexicon.ALIASES_REMOVED_IN`.
+Retired kind names resolve through `KIND_ALIASES`.
 """
 
 from __future__ import annotations
@@ -841,17 +840,15 @@ KINDS: tuple[Kind, ...] = (
 
 BY_KIND: dict[str, Kind] = {k.name: k for k in KINDS}
 
-#: Retired kind names (2026-09-14, task 000496): old string -> (new kind
-#: name, whether the old object was a collection of it). A plural old
-#: kind maps to its item kind and `True`.
+#: Retired kind names: old string -> (new kind name, whether the old
+#: object was a collection of it). A plural old kind maps to its item
+#: kind and `True`.
 KIND_ALIASES: dict[str, tuple[str, bool]] = {
-    # A `document_collection` was a collection of documents; resolving it
-    # to the bare container told a `records/record` port it had been
-    # wired "a collection of `collection`" and refused every corpus
-    # generated before the typology.
+    # A plural old name resolves to its ITEM kind with `True`, never to
+    # the bare container: a `records/record` port wired "a collection of
+    # `collection`" refuses every object stored under the old spelling.
     "document_collection": ("text/document", True),
     "record_set": ("records/record", True),
-    # What the experiment authors wrote on their prompt objects.
     "records": ("records/record", True),
     "~canonical/kinds/text": ("text/document", False),
     "~canonical/kinds/transcript": ("text/transcript", False),
@@ -911,8 +908,8 @@ KIND_ALIASES: dict[str, tuple[str, bool]] = {
     "pipeline_result": ("run/result", False),
 }
 
-#: Where the legacy plural objects kept their items, by old kind. The
-#: old shapes are still on the bench; `items_of` reads them.
+#: The field a plural object stored under a retired kind keeps its items
+#: in, by that kind. `items_of` reads it.
 _LEGACY_ITEMS_FIELD: dict[str, str] = {
     "document_collection": "items", "record_set": "records", "records": "records",
     "decision_read": "conditions", "decision_distribution": "conditions",
@@ -967,10 +964,10 @@ def canonical_kind_path(name: str) -> str:
 
 
 class RetiredKindName(DeprecationWarning):
-    """A kind string that the typology renamed. The bench keeps every
-    object as it was stored, so the alias table is not scheduled for
-    removal; the warning is for a protocol that still writes the old
-    spelling in a param or a fixture."""
+    """A kind string that has been renamed. Stored objects keep whatever
+    spelling they were written with, so the alias table is permanent; the
+    warning is for a protocol that still writes a retired spelling in a
+    param or a fixture."""
 
 
 _warned: set[str] = set()
@@ -1001,7 +998,7 @@ def resolve_kind(kind: str, *, warn: bool = True) -> tuple[str, bool]:
 
 def item_kind_of(obj: Mapping[str, Any]) -> str | None:
     """The kind of the items in `obj`, whether it is a `collection` or a
-    legacy plural object; None for a singular object."""
+    plural object under a retired kind; None for a singular object."""
     k = obj.get("kind")
     if k == COLLECTION:
         ik = obj.get("item_kind")
@@ -1020,15 +1017,15 @@ def item_kind_of(obj: Mapping[str, Any]) -> str | None:
 
 def items_of(obj: Any) -> list[Any]:
     """The items of a collection, however it is spelled: the `collection`
-    container, a legacy plural object, or a bare list."""
+    container, a plural object under a retired kind, or a bare list."""
     if isinstance(obj, list):
         return obj
     if not isinstance(obj, Mapping):
         raise ValueError("not a collection: a list or a mapping was expected")
     k = obj.get("kind")
     if k == COLLECTION and obj.get("storage") == "tensor":
-        # The rows live in shards (000613): a lazy sequence over them,
-        # one shard in memory at a time. `list()` is the reader's choice.
+        # The rows live in shards: a lazy sequence over them, one shard in
+        # memory at a time. `list()` is the reader's choice.
         from mechbench_compute import tensors
 
         return tensors.items_of(obj)  # type: ignore[return-value]
@@ -1036,8 +1033,8 @@ def items_of(obj: Any) -> list[Any]:
         return list(obj["items"])
     if isinstance(k, str) and k in _LEGACY_ITEMS_FIELD:
         return list(obj.get(_LEGACY_ITEMS_FIELD[k]) or [])
-    # An unkinded object, or a container written with the list under an
-    # older field name: the older names win, as they always did.
+    # An unkinded object, or a container whose list is under one of the
+    # field names a retired shape used. Tried in this order.
     for f in ("records", "conditions", "rows", "items"):
         if isinstance(obj.get(f), list):
             return list(obj[f])

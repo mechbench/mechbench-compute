@@ -78,8 +78,8 @@ def _read_field(record: Mapping[str, Any], name: str) -> Any:
 
 
 def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    """`records/contrast` (000609): the difference between two
-    conditions' means of a field — `a` minus `b` on the coordinate `on`
+    """`records/contrast`: the difference between two conditions'
+    means of a field — `a` minus `b` on the coordinate `on`
     — with a bootstrap interval, one row per combination of the other
     `by` coordinates.
 

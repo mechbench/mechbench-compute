@@ -87,8 +87,8 @@ came from rather than as a bare number.
 
 
 def run(ctx, inputs, params):
-    """activations/examples (task 000615) — the corpus windows that
-    most excite a direction or a neuron, the corpus never held."""
+    """activations/examples — the corpus windows that most excite a
+    direction or a neuron, the corpus never held."""
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
@@ -106,7 +106,7 @@ def find_top_examples(
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
     """The corpus windows that most excite a direction or a neuron, with
-    the corpus never held (task 000615).
+    the corpus never held.
 
     The first thing anyone asks of a direction, a neuron or a feature is
     "what turns it on" — and the answer is a handful of windows out of a
@@ -179,8 +179,8 @@ def find_top_examples(
                     "text": "".join(toks[a:b]),
                     "tokens": list(toks[a:b]),
                     # Every token of the window, not only the one that
-                    # won it: a token strip (000616) colours them all,
-                    # and the shape of the rise is the interesting part.
+                    # won it: a token strip colours them all, and the
+                    # shape of the rise is the interesting part.
                     "values": [round(float(v), 5) for v in values[a:b]],
                     "hit": int(pos - a)}
 

@@ -12,8 +12,7 @@ callers should hold the executor for the process's lifetime rather
 than instantiating per request.
 
 `ProtocolExecutor` is composed from one mixin per topic, each a file of
-its own (task 000632), because at 1,729 lines this module was not
-something an agent could read to answer one question about it:
+its own, so that one question about it is answered by one file:
 
     pipeline.py       walking the graph: order, resume, emission
     dispatch.py       how a node reaches an operation's run()
@@ -22,10 +21,10 @@ something an agent could read to answer one question about it:
     tools.py          what a model may call mid-turn
     chat.py           the local half of text/chat
     memo.py           a node's memo of the remote calls it made
-    legacy_kinds.py   the two spec kinds that came before the graph
+    legacy_kinds.py   the two spec kinds that are not graphs
 
-The methods are unchanged by that move, and so are their call sites: a
-mixin is how a method keeps its `self`.
+A mixin is how a method keeps its `self`: every method reads the same
+executor state whichever file it is written in.
 """
 
 from __future__ import annotations
@@ -73,30 +72,29 @@ class ProtocolExecutor(Chat, Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline
         # uses it to announce a wait that can run to gigabytes.
         self._on_download = on_download
         self._on_download_bytes = on_download_bytes
-        # Resume plumbing (epic 000320 / 000322). All optional; the
-        # runner wires them to its spool. `on_node_start(nid, fp)`
-        # names the process identity a node runs under;
-        # `on_spool_item(nid, key, item)` hands over each completed
-        # item of an item-resumable block; `on_checkpoint(nid, state)`
-        # a training checkpoint; `on_node_done(nid, path, fp)` a
-        # finished node's emitted object; `on_node_kept(nid, fp, result)`
-        # a finished node's result HELD on the device instead of emitted
-        # (a run with `keep: "outputs"`, 000561), so a resume on this
-        # device can pick it up without the bench ever having seen it.
+        # Resume plumbing. All optional; the runner wires them to its
+        # spool. `on_node_start(nid, fp)` names the process identity a
+        # node runs under; `on_spool_item(nid, key, item)` hands over
+        # each completed item of an item-resumable block;
+        # `on_checkpoint(nid, state)` a training checkpoint;
+        # `on_node_done(nid, path, fp)` a finished node's emitted object;
+        # `on_node_kept(nid, fp, result)` a finished node's result HELD
+        # on the device instead of emitted (a run with `keep: "outputs"`),
+        # so a resume on this device can pick it up without the bench
+        # ever having seen it.
         self._on_node_start = on_node_start
         self._on_spool_item = on_spool_item
         self._on_checkpoint = on_checkpoint
         self._on_node_done = on_node_done
         self._on_node_kept = on_node_kept
-        # Rate limits are the runner's business (000338): it knows what
-        # else is running against the same account. Absent one, remote
-        # calls are unthrottled and only the provider's own 429s slow
-        # them down.
+        # Rate limits are the runner's business: it knows what else is
+        # running against the same account. Absent one, remote calls are
+        # unthrottled and only the provider's own 429s slow them down.
         self._limiter = limiter
-        # A JOB-level budget (000338), when the runner sets one: every
-        # remote node's own cap is chained under it, so a graph whose
-        # node caps sum past the job's cannot spend past the job's. The
-        # runner reads `spent_usd` off it live to report spend.
+        # A JOB-level budget, when the runner sets one: every remote
+        # node's own cap is chained under it, so a graph whose node caps
+        # sum past the job's cannot spend past the job's. The runner
+        # reads `spent_usd` off it live to report spend.
         self._budget = budget
 
     def run(self, spec: ProtocolSpec, on_progress=None,
@@ -106,7 +104,7 @@ class ProtocolExecutor(Chat, Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline
         (decision_distribution: one condition); it must be cheap and
         may be None.
 
-        `resume` (epic 000320): `{node_id: {"fingerprint": str, and
+        `resume`: `{node_id: {"fingerprint": str, and
         one of "done": <emitted object path> | "items": {key: item} |
         "checkpoint": <training state>}}`. Each entry is honoured
         only under an equal node fingerprint — otherwise that node
@@ -131,10 +129,9 @@ class ProtocolExecutor(Chat, Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline
 def canonical_json(payload: Any) -> str:
     """Python-side canonical JSON for the mechbench-api hash contract.
 
-    Caveat: cross-language byte-identity is *aspirational* with JSON
-    (Python emits `0.0`, JS emits `0`). The mechbench-api side hashes
-    the bytes as received, so this canonical form only needs to be
-    stable across Python invocations — task 000186 moves the
-    contract to canonical CBOR, which pins the form across languages.
+    Cross-language byte-identity is not available with JSON (Python
+    emits `0.0`, JS emits `0`). The mechbench-api side hashes the bytes
+    as received, so this form only has to be stable across Python
+    invocations; pinning it across languages needs canonical CBOR.
     """
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)

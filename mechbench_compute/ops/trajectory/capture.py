@@ -126,8 +126,8 @@ the model saw.
 
 
 def run(ctx, inputs, params):
-    """trajectory/capture (task 000368) — one
-    position's vector at every layer, or one layer's vector at every
+    """trajectory/capture — one position's vector at every layer, or
+    one layer's vector at every
     position along a sequence, replayed from the trace when the
     records carry one."""
 
@@ -179,7 +179,8 @@ def capture(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """trajectory/capture."""
+    """The mechanism: one `trajectory/point` per (record, step), or the
+    reduced or projected forms `params` asks for."""
     import mlx.core as mx
 
     from mechbench_compute import Capture
@@ -241,9 +242,8 @@ def capture(
     # The cap counts the floats this node will EMIT, not the ones it
     # reads: `project` emits one scalar per step and no vectors at all,
     # and `reduce` emits one pooled vector per record. Counting steps ×
-    # width regardless refused exactly the two configurations that exist
-    # to stay under it (a 100-story trace is 23M floats as vectors and
-    # 15k numbers as coordinates).
+    # width regardless would refuse exactly the two configurations that
+    # exist to stay under it.
     if direction is not None:
         per_record = 0
     elif pool:

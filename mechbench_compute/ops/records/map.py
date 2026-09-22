@@ -90,14 +90,13 @@ collect.
 
 
 def run(ctx, inputs, params):
-    """`records/map` (task 000400): run a sub-protocol once per record.
+    """`records/map`: run a sub-protocol once per record.
 
-    Run sets fan out over whole runs and a node fans out over the
-    items inside it; between those two there was nothing. This is
-    that: a body — a graph — applied to every record of a stream,
-    each invocation an item keyed by the record's id, so the spool
-    and the resume machinery treat it exactly as they treat a chat
-    node's items.
+    Run sets fan out over whole runs and a node fans out over the items
+    inside it; this is the shape between them — a body, a graph,
+    applied to every record of a stream, each invocation an item keyed
+    by the record's id, so the spool and the resume machinery treat it
+    exactly as they treat a chat node's items.
 
     `bind` maps a record's fields into the body's holes, so the body
     is written once with `$holes` and the stream supplies them. The
@@ -106,9 +105,9 @@ def run(ctx, inputs, params):
     run's `$model` should get the run's model — with `bind`
     shadowing them, since the per-record value is the specific one.
 
-    The isomorphism the chunking law wants (000407) is structural
-    here: the body sees ONE record at a time and nothing else, so
-    map over chunks is map over records by construction.
+    The isomorphism the chunking law wants is structural here: the body
+    sees ONE record at a time and nothing else, so map over chunks is
+    map over records by construction.
     """
     from mechbench_compute.lexicon import kinds as K
 
@@ -122,10 +121,10 @@ def run(ctx, inputs, params):
     bind = dict(params.get("bind") or {})
     over = params.get("over")
     if over is not None:
-        # A map over plain values (000603): the values ARE the
-        # stream, so they become records here and everything below
-        # is the map it always was. A layers sweep needs no corpus
-        # of integers stored on the bench to iterate.
+        # A map over plain values: the values ARE the stream, so they
+        # become records here and everything below is the ordinary
+        # map. A layers sweep needs no corpus of integers stored on
+        # the bench to iterate.
         if records:
             raise ValueError(
                 "records/map takes `over` or a `records` port, not both: "
@@ -165,12 +164,12 @@ def run(ctx, inputs, params):
     # nothing about any model — so the landmarks cannot come from the
     # input the way they do for an ordinary records op. They are on
     # the BODY's header, where the executor's model-block wrapper
-    # stamped them, and only the body's items were kept (000622).
+    # stamped them.
     out_arch: dict[str, Any] | None = None
     # Under `stream` and `first` the items ARE the body's, so the
     # collection is of the body's kind: a map over transcripts that
     # produces transcripts emits transcripts, and the next node's
-    # port is satisfied by what it actually holds (000617).
+    # port is satisfied by what it actually holds.
     out_kind: str | None = None
     # What the body is handed one of: the stream's own kind, or a
     # plain record when the values came from `over` or a bare list.
@@ -189,18 +188,17 @@ def run(ctx, inputs, params):
             raise ValueError(
                 f"record {key!r} has no {', '.join(missing_fields)} to "
                 f"bind into the body's holes")
-        # A body in the declared form (epic 000553) reads its
-        # `{"$param"}`s from `params`: the record's bound fields,
-        # over the enclosing run's params reached by name. A legacy
-        # body reads `bindings` as it always did.
+        # A body in the declared form reads its `{"$param"}`s from
+        # `params`: the record's bound fields, over the enclosing run's
+        # params reached by name. A body in the older form reads
+        # `bindings`, so both are passed.
         child_bound = {**(ctx.bindings or {}), **bound}
         out = child.run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None,
             # The record itself, for a body that needs more of it
             # than `bind` can name: an edge from `{"input":
             # "record"}` carries it, the way a fold's body takes its
-            # `state`. A declared body may read it; a legacy one
-            # never named it and is untouched.
+            # `state`. Only a body that names the input reads it.
             extra={"graph": body, "bindings": child_bound,
                    "params": child_bound,
                    "inputs": {"record": K.collection(record_kind, [rec])}}),

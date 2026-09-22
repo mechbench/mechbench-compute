@@ -23,9 +23,8 @@ class Dispatch:
         mod = ops.find(block)
         ctx = ops.Context(executor=self, **lent)
         if ops.fuses_adapter(block):
-            # The progress callbacks go through the wrapper as well as
-            # the context: a test that stands in for the wrapper reports
-            # progress from there, as the executor's methods once did.
+            # The progress callbacks go through the wrapper as well as the
+            # context, so a stand-in wrapper can report progress itself.
             return self._run_model_block(
                 lambda i, p, on_item=None, on_start=None: mod.run(ctx, i, p),
                 inputs, params, on_item=lent.get("on_item"), on_start=lent.get("on_start"))

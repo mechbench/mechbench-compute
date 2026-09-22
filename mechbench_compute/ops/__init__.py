@@ -106,11 +106,10 @@ def run_standalone(op: str, inputs: Mapping[str, Any], params: Mapping[str, Any]
 
 
 # Last, and deliberately: an operation's file imports its declaration's
-# vocabulary from `mechbench_compute.lexicon`, and the lexicon, as it
-# initialises, walks this package to find the operations. If an
-# operation's file were the first thing imported, the lexicon would walk
-# into that same half-imported file and find no OP in it. A parent
-# package initialises before any module inside it starts, so importing
-# the lexicon here means it is always whole, or at least past the point
-# of walking, before any operation's file begins to execute.
+# vocabulary from `mechbench_compute.lexicon`, and the lexicon walks this
+# package as it initialises. Importing it here — from the parent package,
+# which finishes before any module inside it starts — means the lexicon
+# is past its walk before any operation's file executes. Import it from
+# an operation's file first and that walk reads a half-imported module
+# and finds no OP in it.
 import mechbench_compute.lexicon  # noqa: E402,F401

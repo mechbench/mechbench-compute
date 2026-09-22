@@ -8,7 +8,7 @@ from typing import Any
 
 class MissingUpstream(RuntimeError):
     """A node needed an input its upstream never produced, and the port
-    it was wired to says that is fatal (task 000399).
+    it was wired to says that is fatal.
 
     Carries the chain, because the useful question is never "what
     raised" but "what was this waiting for": the node, its port, the

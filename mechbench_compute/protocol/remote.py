@@ -16,9 +16,9 @@ from mechbench_compute.protocol.is_remote import is_remote
 from mechbench_compute.protocol.sort_edges import sort_edges
 
 #: How many remote nodes may be in flight at once. The provider's own
-#: rate limiter (000344) bounds the requests WITHIN a node; this bounds
-#: the nodes, so a twenty-branch fan-out does not open twenty
-#: connections' worth of concurrency on top of it.
+#: rate limiter bounds the requests WITHIN a node; this bounds the
+#: nodes, so a twenty-branch fan-out does not open twenty connections'
+#: worth of concurrency on top of it.
 MAX_PARALLEL_NODES = 8
 
 
@@ -35,7 +35,7 @@ class Remote:
         the topological order whose inputs are ALL computed already does
         not depend on this one, so waiting for this one buys nothing but
         latency. Two prompts to two providers, then a judge, is the shape
-        this exists for — it used to take the sum of the two calls.
+        this exists for: the wave costs the longer call, not the sum.
 
         What stays on the calling thread, deliberately: every result is
         returned and the caller does the hashing, the emitting and the

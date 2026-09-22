@@ -70,9 +70,9 @@ to exactly that depth.
 
 
 def run(ctx, inputs, params):
-    """text/tokenize (task 000377) — the bound
-    model's tokenizer over items, a vocabulary or records: depth
-    inventory, fragmentation, scripts, the naturalism gate."""
+    """text/tokenize — the bound model's tokenizer over items, a
+    vocabulary or records: depth inventory, fragmentation, scripts,
+    the naturalism gate."""
 
     model = ctx.model(params.get("model"))
     return measure_model_tokenizer(model, inputs, params)

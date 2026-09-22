@@ -13,10 +13,8 @@ class Tools:
     """Tools: see this module's docstring."""
 
     def _tool_block_runner(self, secrets=None):
-        """Handlers the toolbox cannot run itself (task 000340): model
-        blocks and, later, sub-protocols. This is what makes
-        `decision-read` available AS A TOOL — a model that can consult
-        another model, or the bench, mid-turn."""
+        """Handlers the toolbox cannot run itself: model blocks, and the
+        recording fetch off the bench — see this module's docstring."""
         def run_block(ref, inputs, params):
             if ref in ("logits/read", "text/generate"):
                 return self._run_op(ref, inputs, params, secrets=secrets)

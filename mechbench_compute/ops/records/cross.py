@@ -99,7 +99,8 @@ def run(ctx, inputs, params):
     return build_collection(cross_factors(params))
 
 
-# The original ai-randomness noise charset, reproduced exactly.
+# The noise charset, fixed: a change here changes every sampled value
+# a protocol has drawn from it.
 SEED_CHARS = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
               "1234567890!@#$%^&*-_=+`~[]{}\\|;'\"/?.>,<")
 
@@ -132,11 +133,11 @@ def _sample_value(gen: Mapping[str, Any], index: int) -> str:
 def _materialize_levels(factor: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Materialize a factor to its [{key, value, coords}] levels. A
     factor may carry enumerated `levels`, `sampled` generators (one or
-    a list — the Marcus seed factor uses five), or both (enumerated
-    first). Levels and generators may attach extra `coords` merged
-    into each record (generators stamp a `<name>_kind` coordinate by
-    default, so analysis groups by generator type, never by parsing
-    keys). (`values` accepted as a legacy spelling of `levels`.)"""
+    a list), or both (enumerated first). Levels and generators may
+    attach extra `coords` merged into each record (generators stamp a
+    `<name>_kind` coordinate by default, so analysis groups by
+    generator type, never by parsing keys). `values` is an accepted
+    spelling of `levels`."""
     name = factor.get("name", "")
     out: list[dict[str, Any]] = []
     enumerated = factor.get("levels", factor.get("values"))
@@ -165,8 +166,8 @@ def _materialize_levels(factor: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def cross_factors(params: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Fully crossed factors: the Cartesian product of every factor's
-    levels, as coordinate-carrying records. (`axes` accepted as a
-    legacy spelling of `factors` for pre-rename protocol versions.)"""
+    levels, as coordinate-carrying records. `axes` is an accepted
+    spelling of `factors`."""
     factors = params.get("factors", params.get("axes")) or []
     records: list[dict[str, Any]] = [
         {"id": "", "coords": {}, "values": {}}

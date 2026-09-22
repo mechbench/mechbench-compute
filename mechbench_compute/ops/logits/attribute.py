@@ -100,7 +100,7 @@ def run(ctx, inputs, params):
     through the unembedding, not what would happen without it. The
     self-check is the point — a decomposition that does not reconstruct
     the logit is measuring the wrong thing, which is why the final
-    norm's per-position scale has to be folded in. (Steps 32/33.)
+    norm's per-position scale has to be folded in.
     """
 
     model = ctx.model(params.get("model"))
@@ -116,13 +116,13 @@ def attribute_logits(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Steps 32/33 as a block: direct logit attribution per layer.
+    """Direct logit attribution per layer.
 
     One forward per condition captures every layer's residual plus the
     final norm's scale; the residual stream is decomposed into exactly
     additive components (embedding, then each layer's delta), and each
     component's contribution to the target logit is read through the
-    norm-folded unembed (apply_ln, task 000142).
+    norm-folded unembed (`apply_ln`).
 
     SELF-VALIDATING: every row reports its additivity residual — the
     summed contributions minus the model's true final logit. A reader
@@ -154,7 +154,7 @@ def attribute_logits(
     ]
     if per_head_layers:
         # Forces the manual attention path at these layers — per-head
-        # writes (000145) cost real time, so they are opt-in by layer.
+        # writes cost real time, so they are opt-in by layer.
         interventions.append(Cap.per_head_out(per_head_layers))
     rows: list[dict[str, Any]] = []
     for record in records:
@@ -164,8 +164,8 @@ def attribute_logits(
         lp = read_last_logp(result.logits)
         tok, tracked = resolve_target(model, record, params, lp)
         # Two tracked tokens: the contributions are to the DIFFERENCE of
-        # their logits (target minus the second). A record from before
-        # the spellings were one may still name the second as `contrast`.
+        # their logits (target minus the second). A record may name the
+        # second as `contrast` instead.
         others = [t for t in tracked.values() if t != tok]
         contrast = record.get("contrast")
         ctok = (encode_target_token(model, str(contrast)) if contrast
@@ -185,8 +185,8 @@ def attribute_logits(
 
         # The honesty number: does the decomposition sum to the truth?
         # The comparison lives in PRE-softcap space — the decomposition
-        # is linear and the cap is not, so a capped "true" logit would
-        # disagree structurally (gemma4 caps; e2b's first run showed it).
+        # is linear and the cap is not, so on a model that caps its
+        # logits a capped "true" logit would disagree structurally.
         last = result.logits[0, -1, :].astype(mx.float32)
         mx.eval(last)
         last_np = np.array(last, dtype=np.float64)

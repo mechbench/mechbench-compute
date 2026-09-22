@@ -79,9 +79,8 @@ whole model by accident.
 
 
 def run(ctx, inputs, params):
-    """weights/decompose (task 000457): a parameter's principal
-    directions in the residual stream, as directions the direction
-    family can take."""
+    """weights/decompose: a parameter's principal directions in the
+    residual stream, as directions the direction family can take."""
 
     model = ctx.model(params.get("model"))
     ref = params.get("model")

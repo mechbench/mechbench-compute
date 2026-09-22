@@ -128,7 +128,7 @@ resumability and per-call provenance; a local model is the cheap first test.
 
 
 def run(ctx, inputs, params):
-    """eval/judge (task 000356): model-graded scoring.
+    """eval/judge: model-graded scoring.
     A local judge is the cheap first test, so it loads here through
     the same path as any other model block; an endpoint judge needs
     only its credentials and its cap."""
@@ -429,10 +429,9 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         "max_tokens": int(judge.get("max_tokens", 512)),
         # Sent only when the author asks for one. A judge's steadiness
         # is bought with `n_votes` and reported as `agreement`, not
-        # assumed from a sampling parameter — and a parameter some
-        # models now REFUSE outright (claude-sonnet-5 answers HTTP 400,
-        # "`temperature` is deprecated for this model") cannot be a
-        # silent default: it made those models unusable as judges.
+        # assumed from a sampling parameter — and some models refuse
+        # `temperature` outright with an HTTP 400, so a silent default
+        # would make them unusable as judges.
         "temperature": judge.get("temperature"),
         "seed": seed,
         "budget_usd": params.get("budget_usd") or judge.get("budget_usd"),
@@ -468,12 +467,10 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         # The judge answers about what it SAW, and half the time it saw
         # the sides swapped. Map the answer back to the record's own
         # `text_a`/`text_b` before anything counts it, keeping the seen
-        # label beside it. Without this the position randomisation
-        # scrambled the result it was supposed to make trustworthy: a
-        # judge that picked the same passage every time was reported as
-        # disagreeing with itself, and `first_shown_win_rate` — the
-        # diagnostic for exactly this — was computed from labels that
-        # had never been mapped.
+        # label beside it as `shown_winner`. Counting unmapped labels
+        # reads a steady judge as disagreeing with itself, and leaves
+        # `first_shown_win_rate` — the diagnostic for exactly this —
+        # measuring nothing.
         if scale.kind == "pairwise" and read.get("winner"):
             read["shown_winner"] = read["winner"]
             if order == "BA":

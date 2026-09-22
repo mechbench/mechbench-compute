@@ -90,8 +90,8 @@ query-side composers.
 
 
 def run(ctx, inputs, params):
-    """weights/circuit (task 000610): what a head does, read from its
-    own weights and the vocabulary — the OV and QK circuits, and the
+    """weights/circuit: what a head does, read from its own weights
+    and the vocabulary — the OV and QK circuits, and the
     composition of earlier heads with this one. No forward pass."""
 
     model = ctx.model(params.get("model"))
@@ -102,7 +102,7 @@ def run(ctx, inputs, params):
 def read_head_circuits(model, params: Mapping[str, Any] | None = None,
                        on_item=None, on_start=None) -> dict[str, Any]:
     """What a head does, read from its weights and the vocabulary — no
-    forward pass, no corpus (task 000610).
+    forward pass, no corpus.
 
     `ov`: the top singular components of W_O·W_V, each an input
     direction (tokens that trigger it) paired with an output direction

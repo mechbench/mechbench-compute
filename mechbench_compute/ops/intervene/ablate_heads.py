@@ -74,7 +74,6 @@ def run(ctx, inputs, params):
     A drop is evidence that the head PARTICIPATES in the prediction,
     not that it is responsible for it: ablation removes a
     contribution without telling you what the contribution was.
-    (The mechbench-experiments port of step 07's head sweep.)
     """
 
     model = ctx.model(params.get("model"))
@@ -90,9 +89,9 @@ def ablate_heads(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Step 07: zero one head at a time across (layers × heads) and
-    measure Δ log p of the target — the head-level version of the
-    layer sweep. Progress ticks per (condition, layer)."""
+    """Zero one head at a time across (layers × heads) and measure
+    Δ log p of the target — the head-level version of the layer sweep.
+    Progress ticks per (condition, layer)."""
     layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     n_heads = model.arch.n_heads
     if not records:

@@ -1,9 +1,8 @@
-"""The two spec kinds that came before the graph.
+"""The two spec kinds that are not graphs.
 
-`layer_ablation` is the v0 protocol, still run as itself;
-`decision_distribution` is a thin shim over the decision-read operation,
-kept so a spec written for it still answers. Everything since is a
-`pipeline` spec, in protocol/pipeline.py.
+`layer_ablation` is run as itself; `decision_distribution` is a thin
+shim over the decision-read operation, so a spec written for it still
+answers. Every other spec is a `pipeline` spec, in protocol/pipeline.py.
 """
 
 from __future__ import annotations
@@ -74,9 +73,8 @@ class LegacyKinds:
 
     def _legacy_decision_distribution(self, spec: ProtocolSpec,
                                       on_progress=None) -> Any:
-        """The pre-protocol decision_distribution kind, kept as a thin
-        shim over the decision-read block (superseded-code cleanup,
-        2026-08-19): same spec in, same payload shape out, one
+        """The decision_distribution kind, as a thin shim over the
+        decision-read block: same spec in, same payload shape out, one
         implementation."""
         from datetime import datetime
 

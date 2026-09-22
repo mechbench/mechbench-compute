@@ -91,8 +91,8 @@ conversation is three ops and a loop, not an operation of its own.
 
 
 def run(ctx, inputs, params):
-    """`records/fold` (task 000617): run a body step after step, each
-    step reading the state the last one wrote.
+    """`records/fold`: run a body step after step, each step reading
+    the state the last one wrote.
 
     `records/map` runs its body once per record with no memory
     between runs; a conversation, a refinement, an agentic round

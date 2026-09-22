@@ -87,7 +87,7 @@ def measure_residual_divergence(
 ) -> dict[str, Any]:
     """Matched-pair divergence: run prompts `a` and `b`, and per
     (layer, position) report 1 − cosine of the residual streams. The
-    map shows WHERE a one-token change ripples (000050/000052).
+    map shows WHERE a one-token change ripples.
 
     Pairs must tokenize to equal lengths — that is what 'matched'
     means; unequal pairs are reported as errors, not silently aligned.

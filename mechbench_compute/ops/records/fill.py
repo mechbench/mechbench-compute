@@ -60,8 +60,8 @@ def fill_templates(records: list[dict[str, Any]],
         for fname, tmpl in templates.items():
             s = str(tmpl)
             # Fixpoint substitution (bounded): a level's text may itself
-            # contain placeholders (the Marcus elaborate opening embeds
-            # {gender}) — passes repeat while substitutions still fire.
+            # contain placeholders, so passes repeat while substitutions
+            # still fire.
             for _ in range(4):
                 before = s
                 for axis, value in rec.get("values", {}).items():

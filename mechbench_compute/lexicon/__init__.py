@@ -12,10 +12,8 @@ nobody documented fails the same test.
 Naming (docs/LEXICON.md in the meta repo): an op is spelled bare,
 `records/select`, exactly two levels, no version segment. Its stored
 identity is `~canonical/ops/records/select`; `canonical_path` makes
-one from the other and `resolve` accepts any spelling a protocol may
-carry — bare, stored, with the retired `/1`, or one of the names from
-before the 2026-09 renames — and returns the bare name, warning once
-per retired spelling.
+one from the other and `resolve` accepts either spelling and returns
+the bare name.
 
 Every operation's entry is declared whole in the operation's own file
 (docs/OPS_LAYOUT.md) and assembled here; the kinds, the value types and
@@ -65,10 +63,8 @@ from mechbench_compute.lexicon.kinds import (
     satisfies,
 )
 
-# An operation that has its own file is declared there
-# (docs/OPS_LAYOUT.md). This import sits below every name an operation's
-# file may want from this package, because finding the operations
-# imports them.
+# Finding the operations imports their files, and each one imports the
+# vocabulary above from this package, so this import comes last.
 from mechbench_compute import ops as _ops  # noqa: E402
 
 OPS: tuple[Op, ...] = tuple(
@@ -79,15 +75,9 @@ BY_NAME: dict[str, Op] = {op.name: op for op in OPS}
 
 #: Names that are no longer operations, old -> what replaced it.
 #:
-#: These DO NOT RESOLVE (task 000512, compute 0.82.0). The table is kept
-#: for one purpose: so a protocol that still spells one of them is
-#: refused with the name to write instead, rather than with "unknown
-#: block" and a shrug. The first table was introduced in 0.75.0 with a
-#: removal scheduled for 0.77.0, moved twice — to 0.80.0, then to 0.82.0
-#: so that one release would drop the 2026-09-14 family renames and the
-#: 2026-09-16 verbs together, after the protocols stored on the bench
-#: had been migrated (they were, on 2026-09-16; a dry run on 2026-09-16
-#: found nothing left to rewrite).
+#: These DO NOT RESOLVE. The table is kept for one purpose: so a
+#: protocol that still spells one of them is refused with the name to
+#: write instead, rather than with "unknown block" and a shrug.
 RETIRED: dict[str, str] = {
     "factor-cross": "records/cross",
     "grid": "records/cross",
@@ -125,14 +115,11 @@ RETIRED: dict[str, str] = {
     "merge": "adapter/merge",
     "hf/push-adapter": "adapter/publish",
     "tools/bench-lookup": "tools/lookup",
-    # Retired 2026-09-15 (metrics on kinds): a cosine between directions
-    # is `geometry/compare` over a collection of them — `records/union`
-    # the directions first. The alias lands the protocol on the new op,
-    # whose port check then names the port to wire.
+    # A cosine between directions is `geometry/compare` over a collection
+    # of them — `records/union` the directions first. The entry lands the
+    # protocol on the new op, whose port check then names the port to wire.
     "direction/similarity": "geometry/compare",
-    # Retired 2026-09-16: operations are verbs. The twenty-eight names
-    # below — fifteen of them the names of the kinds they emit — became
-    # imperatives; the kinds keep the nouns.
+    # Operations are verbs; the kinds keep the nouns.
     "records/template": "records/fill",
     "records/delta": "records/subtract",
     "records/stats": "records/summarize",
@@ -162,9 +149,8 @@ RETIRED: dict[str, str] = {
     "direction/vocab": "direction/unembed",
 }
 
-#: The release the aliases were dropped in. Kept as a fact, not a
-#: schedule: a message that says when a spelling stopped working is
-#: worth more than one that says it stopped.
+#: The release in which a retired spelling stopped resolving.
+#: `explain_unknown` names it, so a refusal says when, not just that.
 ALIASES_REMOVED_IN = "0.82.0"
 
 _VERSION_TAIL = re.compile(r"/\d+$")
@@ -191,15 +177,13 @@ def resolve(block: str, *, warn: bool = True) -> str:
     Accepts the bare name and the stored path (`~canonical/ops/<name>`).
     Returns the bare name.
 
-    A string that is neither — a user op `owner/project/ops/x`, a name
-    retired before 0.82.0, or a typo — raises `KeyError` with the
-    string, so the executor can refuse it by name and an extension
-    resolver can try next. `explain_unknown` turns that into a sentence
-    that names the current spelling where there is one.
+    A string that is neither — a user op `owner/project/ops/x`, a
+    retired name, or a typo — raises `KeyError` with the string, so the
+    executor can refuse it by name and an extension resolver can try
+    next. `explain_unknown` turns that into a sentence that names the
+    current spelling where there is one.
 
-    `warn` is accepted and ignored: nothing resolves with a warning any
-    more, and a caller that passed `warn=False` to silence one should
-    not have to change.
+    `warn` is accepted and ignored: nothing resolves with a warning.
     """
     s = block.strip()
     if s.startswith(ROOT):
@@ -212,10 +196,9 @@ def resolve(block: str, *, warn: bool = True) -> str:
 def explain_unknown(block: str) -> str:
     """Why this block string names no operation — as a sentence.
 
-    A retired spelling, a version segment (`…/1`, which stored protocols
-    carried until the 2026-09-16 migration), or something else entirely;
-    each gets the answer that helps, and the first two name what to
-    write instead.
+    A retired spelling, a version segment (`…/1`), or something else
+    entirely; each gets the answer that helps, and the first two name
+    what to write instead.
     """
     s = block.strip()
     if s.startswith(ROOT):

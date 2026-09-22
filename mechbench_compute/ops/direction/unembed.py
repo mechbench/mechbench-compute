@@ -51,8 +51,8 @@ reads.
 
 
 def run(ctx, inputs, params):
-    """direction/unembed (task 000367): a direction
-    through the unembedding — its top tokens in both signs."""
+    """direction/unembed: a direction through the unembedding — its top
+    tokens in both signs."""
 
     model = ctx.model(params.get("model"))
     d = inputs.get("direction")

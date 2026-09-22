@@ -129,8 +129,7 @@ PERSPECTIVES = ("others_as_user_attributed", "others_as_user_merged")
 #: What a participant re-reads of the room's reasoning, by default:
 #: nothing. A scratchpad is written to be thrown away, and a
 #: conversation that replays it by accident is feeding on its own
-#: reasoning (task 000592). Anything else is a choice — a declared,
-#: sweepable one.
+#: reasoning. Anything else is a choice — a declared, sweepable one.
 SEES_DEFAULT: dict[str, Any] = {"own_thinking": "none", "others_thinking": "none"}
 
 
@@ -144,7 +143,7 @@ def parse_sees(value: Any) -> dict[str, Any]:
     if value is None:
         return dict(SEES_DEFAULT)
     if isinstance(value, bool):
-        # The 000592 boolean, read as the clause it meant.
+        # A bare boolean is the clause "my own thinking, all of it".
         return {"own_thinking": "full" if value else "none", "others_thinking": "none"}
     if not isinstance(value, Mapping):
         raise ValueError("`sees` is an object: {own_thinking, others_thinking}")
@@ -188,7 +187,7 @@ def apply_window(messages: Sequence[Mapping[str, Any]],
                  window: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(kept, dropped) under a window policy. How much of a transcript a
     participant sees is part of what it sees, which is why this belongs
-    beside the rendering and not in a loop (000617)."""
+    beside the rendering and not in a loop."""
     messages = [dict(m) for m in messages]
     if not window:
         return messages, []

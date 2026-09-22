@@ -192,12 +192,10 @@ def _read_vocabulary(name: str, items: Any) -> list[str]:
 
 def measure_texts(inputs: Mapping[str, Any],
                   params: Mapping[str, Any]) -> Any:
-    """text/measure — configurable per-text measurements
-    over a corpus of records or a document_collection (the generate
-    block's output). The measurement layer the story-corpus readouts
-    need (meta-leak counts, opening-phrase counts, lexical spread,
-    corpus-frequency of vocabulary) with lineage instead of ad-hoc
-    scripts.
+    """text/measure — configurable per-text measurements over a corpus
+    of records or a collection of documents (what `text/generate`
+    produces): meta-leak counts, opening-phrase counts, lexical spread,
+    corpus-frequency of vocabulary, each as a node with lineage.
 
     params:
       field       which field holds the text (default "text")
@@ -220,7 +218,7 @@ def measure_texts(inputs: Mapping[str, Any],
               rarer vocabulary ⇒ lower mean_log10.
         {"type": "list", "name": n, "separator": ", ", "extract": regex,
          "items": [...] | target spec, "count": int, "ignore_case": bool}
-            → per-record parse of a drawn list (000548): items,
+            → per-record parse of a drawn list: items,
               distinct, duplicates, unknown (outside `items`), first,
               parsed, valid. `extract`'s first group (else its whole
               match) is the list; without it the whole text is.
@@ -231,7 +229,7 @@ def measure_texts(inputs: Mapping[str, Any],
                   means of per-record frequency stats.
                   "items": one record per distinct item a `list` measure
                   parsed, with its count — what the corpus SAID, whether
-                  or not `items` contains it (000551).
+                  or not `items` contains it.
     """
     import math as _math
     import re
@@ -250,7 +248,7 @@ def measure_texts(inputs: Mapping[str, Any],
         raise ValueError(
             "text/measure mode must be 'annotate', 'corpus' or 'items', not "
             f"{mode!r}")
-    # `keep` (task 000368): an annotated row carries the whole item —
+    # `keep`: an annotated row carries the whole item —
     # text, trace, metadata — not just id + coords + measures, so a
     # capture downstream can replay the story it was labelled on.
     keep = bool(params.get("keep", False))
@@ -311,10 +309,9 @@ def measure_texts(inputs: Mapping[str, Any],
                               "lowercase": lower,
                               "min_length": int(m.get("min_length", 1))}))
         elif kind == "capture":
-            # One value, under the name asked for (000618). A `list`
-            # measure could already read it, as "the first item of a
-            # list this text said" — with five columns of list
-            # statistics and a `_first` suffix nobody wanted.
+            # One value, under the name asked for: a `list` measure can
+            # read the same thing, but only as the first item of a list,
+            # with five columns of list statistics beside it.
             if not m.get("pattern"):
                 raise ValueError(
                     f"text/measure measure {name!r}: a capture needs a `pattern`")
@@ -366,7 +363,7 @@ def measure_texts(inputs: Mapping[str, Any],
 
     out = []
     corpus_items: dict[str, set[str]] = {}
-    # What the corpus said, item by item (000551): the vocabulary labels
+    # What the corpus said, item by item: the vocabulary labels
     # an answer, it does not decide whether the answer counts.
     said: dict[str, dict[str, dict]] = {}
     captured: dict[str, list[Any]] = {}

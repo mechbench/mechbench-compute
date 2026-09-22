@@ -81,7 +81,7 @@ def run(ctx, inputs, params):
 
 
 def _measure_adapter(adapter: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    pass  # its imports now live in this file
+    pass
 
     payload = adapter.get("payload", adapter) if isinstance(adapter, Mapping) else adapter
     return measure_adapter(payload, params)

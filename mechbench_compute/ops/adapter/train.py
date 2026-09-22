@@ -232,11 +232,11 @@ draw gives.
 
 
 def run(ctx, inputs, params):
-    """The finetune/lora block (epic 000259): Regime D soft-target
-    training as an artifact-producing operation. Consumes training
-    prompt records (and optionally anchor records with an answer
-    field); produces an ADAPTER OBJECT — safetensors bytes plus
-    config — whose lineage is the training's methods section.
+    """Soft-target LoRA training as an artifact-producing operation.
+    Consumes training prompt records (and optionally anchor records
+    with an answer field); produces an ADAPTER OBJECT — safetensors
+    bytes plus config — whose lineage is the training's methods
+    section.
 
     The training mutates the in-process model via apply_lora; after
     saving the adapter the runner's model is force-reloaded so
@@ -268,8 +268,8 @@ def run(ctx, inputs, params):
     model = ctx.model(params.get("model"))
     tok = model.tokenizer
 
-    # Successive rounds (000312 Arc B): a ModelRef base with prior
-    # adapters trains on the FUSED weights — the new round learns a
+    # Successive rounds: a ModelRef base with prior adapters trains
+    # on the FUSED weights — the new round learns a
     # delta on top of the stack, which is what makes {B, [a1, a2]}
     # mean what it says. No restore here: the block evicts the
     # in-process model after saving, so every later block reloads a
@@ -301,8 +301,8 @@ def run(ctx, inputs, params):
     marginals: list = []
     continuations: list = []
     if depth <= 1:
-        # The 002 shape: trie marginal + continuation rows; `path`
-        # trains the whole trie (000548).
+        # One slot: trie marginal + continuation rows; `path` trains
+        # the whole trie.
         from mechbench_compute.finetune import target_map_from_spec
 
         target = target_map_from_spec(target_spec)
@@ -314,8 +314,8 @@ def run(ctx, inputs, params):
         if batch.get("path", 0):
             factories["path"] = build_path_factory(tries)
     elif unit == "item":
-        # Item slots (000548): whole outcomes per slot, soft rows at
-        # every token, optionally drawn without replacement. Every
+        # Item slots: whole outcomes per slot, soft rows at every
+        # token, optionally drawn without replacement. Every
         # path trains every position from its slot's own root, so
         # the token-slot position controls have nothing to act on.
         if params.get("positions", "all") != "all" or params.get("marginal", True) is not True:
@@ -330,12 +330,12 @@ def run(ctx, inputs, params):
             tok, slot_targets, rendered_all, join=join, closer=closer,
             replace=replace, gate=bool(gate))
     else:
-        # The 016–018 deep-trie shape: freshly sampled depth-N
-        # sequences per step, per-slot targets, configurable
-        # trained positions ("all" | "skip_first" — the 018
-        # position-0 cap — | explicit slot list), and an optional
-        # first-slot marginal row (params.marginal; the cap drops
-        # it, since that row IS position-0 pressure).
+        # Token slots, deep trie: freshly sampled depth-N sequences
+        # per step, per-slot targets, configurable trained positions
+        # ("all" | "skip_first" | an explicit slot list), and an
+        # optional first-slot marginal row (params.marginal). Under
+        # "skip_first" the marginal row is dropped too, since that row
+        # IS position-0 pressure.
         slot_targets = resolve_slot_targets(target_spec, depth)
         if not replace:
             check_enough_to_draw(slot_targets)
@@ -371,16 +371,16 @@ def run(ctx, inputs, params):
     lr = float(params.get("lr", 1e-4))
     seed = int(params.get("seed", 7))
 
-    # One seed for the whole run (000507): the adapters' initial A
-    # matrices AND the sampling order. The init used to come from the
-    # global generator, so two runs of the same protocol with the
-    # same seed trained different adapters.
+    # One seed for the whole run: the adapters' initial A matrices AND
+    # the sampling order. An init drawn from the global generator
+    # instead would make two runs of one protocol, at one seed, train
+    # different adapters.
     n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules,
                         seed=seed)
     if ctx.on_start:
         ctx.on_start(steps)
-    # Training resume (epic 000320, state-restorable): checkpoint
-    # every `checkpoint_every` steps through the executor's hook;
+    # Training resume, state-restorable: checkpoint every
+    # `checkpoint_every` steps through the executor's hook;
     # a `resume_state` restores weights, optimizer, step and the
     # sampling RNG, so the continuation is the same trajectory.
     checkpoint_every = int(params.get("checkpoint_every", 50))
@@ -424,7 +424,7 @@ def run(ctx, inputs, params):
         "format": "safetensors",
         # The full stack this round was trained on — a dataclass
         # would not serialize, and a bare string would lose the
-        # prior rounds (000312 Arc B).
+        # prior rounds.
         "base_model": trained_on["base"],
         "trained_on": trained_on,
         "lora": {"rank": rank, "alpha": alpha,

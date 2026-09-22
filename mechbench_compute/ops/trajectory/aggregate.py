@@ -82,9 +82,9 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                  vectors → mean vector, mean norm, spread (mean cosine
                  to the mean); coords → mean, std.
              "window":  ONE value per group over the step window —
-                 coords → mean/std/n (014's late-window commitment per
-                 story, with by: "id"); vectors → mean vector.
-             "vectors": one `residual_vectors` row per group (mean over
+                 coords → mean/std/n (one number per item, with
+                 by: "id"); vectors → mean vector.
+             "vectors": one `activations/vector` row per group (mean over
                  items and steps in the window), labelled by the group —
                  what `direction/fit` reads, so an outcome axis
                  is this block followed by that one.

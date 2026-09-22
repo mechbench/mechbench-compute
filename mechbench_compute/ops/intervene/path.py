@@ -112,8 +112,8 @@ are far apart, and treat a delta of that size as no path at all.
 
 
 def run(ctx, inputs, params):
-    """intervene/path (task 000607): a sender's effect through one
-    receiver, with everything between them held at its clean value —
+    """intervene/path: a sender's effect through one receiver, with
+    everything between them held at its clean value —
     the edge test a circuit claim stands on."""
 
     model = ctx.model(params.get("model"))

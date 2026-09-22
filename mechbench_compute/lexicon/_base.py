@@ -31,8 +31,8 @@ KIND_ROOT = "~canonical/kinds/"
 #: item_kind, key, items, ...header}`. Every plural is this.
 COLLECTION = "collection"
 
-#: A stored path may carry a version tail from before the 2026-09
-#: renames (`~canonical/ops/factor-cross/1`); the name is what is inside.
+#: A stored path may carry a version tail
+#: (`~canonical/ops/factor-cross/1`); the name is what is inside.
 _VERSION_TAIL = re.compile(r"/\d+$")
 
 
@@ -50,14 +50,11 @@ def title(name: str) -> str:
     Cross`, `activations/capture-attention` -> `Activations :: Capture
     Attention`.
 
-    A rendering, not a second name, which is a distinction this codebase
-    has paid for: the composer used to carry a hand-written PascalCase
-    label per operation — `FactorCross` for `records/cross` — and it
-    drifted out of the lexicon unnoticed until one graph rendered a
-    label beside four bare names. So this is MECHANICAL (no table maps
-    an operation to a prettier word), TOTAL (a name nobody has declared
-    yet renders the same way), and REVERSIBLE (`name_of_title` is the
-    inverse, and the tests hold the pair to it).
+    A rendering, not a second name, and so MECHANICAL (no table maps an
+    operation to a prettier word), TOTAL (a name nobody has declared yet
+    renders the same way), and REVERSIBLE (`name_of_title` is the
+    inverse, and the tests hold the pair to it). A hand-written label
+    per operation would be a second name, and would drift.
 
     Which form goes where is written down on the platform's Names page.
     The short version: a surface a person READS is set this way, and
@@ -236,8 +233,8 @@ class Output:
     """What an op produces — its one output: a kind, singly or as a
     collection of it, and the prose that says which fields matter.
     `otherwise` are the kinds it produces instead under a condition the
-    node states. An op and a protocol are declared in the same words
-    (epic 000553): params, inputs, output(s)."""
+    node states. An op and a protocol are declared in the same words:
+    params, inputs, output(s)."""
 
     kind: str
     collection: bool = False
@@ -251,7 +248,7 @@ class Output:
         return d
 
 
-#: The old name of `Output`, read until 000565.
+#: An accepted spelling of `Output`.
 Emits = Output
 
 
@@ -285,10 +282,9 @@ REQUIRED: Any = _Required()
 #: * `map[string, T]` — string keys to `T`: `tracked`, `templates`.
 TYPE_WORDS = frozenset({"string", "int", "float", "bool", "null",
                         "selector", "model", "object", "json", "callable",
-                        # A reference to a stored object (epic 000553): the
-                        # type of a protocol param whose value is an address
-                        # — `{"$ref": {"bench": …}}` — rather than what is
-                        # at it.
+                        # A reference to a stored object: the type of a
+                        # protocol param whose value is an address —
+                        # `{"$ref": {"bench": …}}` — rather than what is at it.
                         "ref"})
 
 
@@ -386,11 +382,11 @@ class Param:
     #: `target_modules`. Fields are params, so a field may be an object
     #: with fields of its own.
     fields: tuple[Param, ...] = ()
-    #: The kind of stored object this param may be given BY REFERENCE
-    #: (epic 000553): `{"$ref": {"bench": …}}` here is fetched by the
-    #: executor at the node's boundary, recorded as a lineage input, and
-    #: handed to the block as the value. A `$ref` anywhere this is not
-    #: declared is refused before the node runs.
+    #: The kind of stored object this param may be given BY REFERENCE:
+    #: `{"$ref": {"bench": …}}` here is fetched by the executor at the
+    #: node's boundary, recorded as a lineage input, and handed to the
+    #: block as the value. A `$ref` anywhere this is not declared is
+    #: refused before the node runs.
     stored: str | None = None
     #: The block wants the reference ITSELF — the address, unresolved — to
     #: stream from it lazily or to publish to it.
@@ -442,7 +438,7 @@ class Port:
     it computes with is a param.
 
     `many` and `variadic` are different things, and a port may be
-    either, both or neither (task 000397):
+    either, both or neither:
 
     * **`many`** — ONE value that is a collection of the kind. A capture
       node's `records` port takes one collection of records.
@@ -451,9 +447,8 @@ class Port:
       and which branch is which is the point. The block receives
       `[{node, value}, …]`, so it knows where each came from.
 
-    A port that is neither takes exactly one edge. Two edges into one
-    used to keep whichever came last in the edge list, silently; that is
-    refused at load now.
+    A port that is neither takes exactly one edge; a second edge into it
+    is refused at load rather than resolved by edge order.
     """
 
     name: str
@@ -466,11 +461,10 @@ class Port:
     min_edges: int | None = None
     max_edges: int | None = None
     #: What this port does when its upstream produced nothing — it failed,
-    #: or was itself skipped (task 000399):
+    #: or was itself skipped:
     #:
-    #: * `fail` (the default) — the run fails, as it always did. A node
-    #:   that cannot have this input cannot be trusted to mean anything
-    #:   without it.
+    #: * `fail` (the default) — the run fails. A node that cannot have
+    #:   this input cannot be trusted to mean anything without it.
     #: * `skip` — this node is skipped too, and its own consumers see it
     #:   as missing in turn.
     #: * `placeholder` — the port gets its kind's empty value carrying a
@@ -538,13 +532,10 @@ class Op:
     #: The kind produced, or None for an op whose result is not a bench
     #: object (a tool handler's).
     output: Output | None = None
-    #: What a machine must have to run this operation (task 000516).
-    #: Declared here and nowhere else: the composer used to carry it per
-    #: block in a hand-written table, and that table decides which
-    #: runner may claim a job (`/jobs/next` filters on it), so a wrong
-    #: entry routes work to a machine that cannot do it. It also drifted
-    #: — `adapter/merge` was marked as needing local weights, and it
-    #: never loads a model; its docstring says so.
+    #: What a machine must have to run this operation. Declared here and
+    #: nowhere else, because it decides which runner may claim a job
+    #: (`/jobs/next` filters on it): a second copy would route work to a
+    #: machine that cannot do it.
     #:
     #: * `pure` — arithmetic over records and objects. No model, no
     #:   network; runnable anywhere, eventually API-side.
@@ -597,7 +588,7 @@ class Op:
 
     @property
     def emits(self) -> Output | None:
-        """The old name of `output`, read until 000565."""
+        """An accepted spelling of `output`."""
         return self.output
 
     def to_dict(self) -> dict[str, Any]:
@@ -611,8 +602,7 @@ class Op:
             "description": self.description,
             "inputs": [p.to_dict() for p in self.inputs],
             "output": self.output.to_dict() if self.output else None,
-            # The old key, for a reader from before the rename (000565
-            # removes it).
+            # The same output under its other accepted key.
             "emits": self.output.to_dict() if self.output else None,
             "params": [p.to_dict() for p in self.params],
             "example": self.example,

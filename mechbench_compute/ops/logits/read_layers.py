@@ -59,13 +59,11 @@ decides. A set of records renders as overlaid curves.
 
 
 def run(ctx, inputs, params):
-    """The LensTrajectory model block: per condition record, the
-    logit-lens trajectory at the final position — every layer's
-    residual projected through the head, recording top-1 token, its
-    probability, and entropy (the commitment-funnel instrument,
-    020's lens_rows as a registered block). Output items are
-    lens-trajectory/2, so collections render as overlaid funnel
-    curves."""
+    """The logit-lens trajectory at the final position, per condition
+    record: every layer's residual projected through the head,
+    recording top-1 token, its probability, and entropy — the
+    commitment-funnel instrument. Items are `logits/funnel`, so a
+    collection renders as overlaid funnel curves."""
     import numpy as _np
 
     from mechbench_compute import Capture
@@ -74,8 +72,8 @@ def run(ctx, inputs, params):
     model = ctx.model(params.get("model"))
     tok = model.tokenizer
     # By edge, or the common `records` param (a literal or a $fetch),
-    # like every other model block. This one read only the edge, so a
-    # protocol that fetched its prompts by param ran over nothing.
+    # like every other model block: a block that read only the edge
+    # would run over nothing when the prompts arrive by param.
     records = lexicon.items_of(inputs.get("records") or [])
     if not records:
         raise ValueError(

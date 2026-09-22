@@ -85,8 +85,7 @@ def run(ctx, inputs, params):
 
     The coarsest causal readout there is, and usually the first one
     worth running: it says WHERE in the stack the prediction is being
-    built before any finer instrument is pointed at it. (The
-    mechbench-experiments port of steps 02/04/34/35.)
+    built before any finer instrument is pointed at it.
     """
 
     model = ctx.model(params.get("model"))
@@ -141,8 +140,7 @@ def ablate_layers(
 
     def intervene(layer: int) -> list[Any]:
         # Zeroing both sub-layer outputs leaves the stream as it entered
-        # the layer — the whole-layer skip, on the path that has always
-        # computed it.
+        # the layer, which is the whole-layer skip.
         if set(points) == {"attn_out", "mlp_out"}:
             return [Ablate.layer(layer)]
         return [_ABLATE_AT[p](layer) for p in points]
@@ -174,9 +172,8 @@ def ablate_layers(
             "baseline_logp": round(baseline, 4),
             # How the prompt reached the model. A record with only
             # `text` renders RAW — no chat template — and an instruct
-            # model completing raw text answers with function words. The
-            # target above was the only place that showed, as a symptom;
-            # this says it (task 000596).
+            # model completing raw text answers with function words, so
+            # a reader has to be able to see which envelope was used.
             "template": "chat" if r.chat else "raw",
             **report_own_top1(model, tok, base_lp),
         })

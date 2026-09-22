@@ -54,14 +54,13 @@ between its releases, so the version is part of the measurement.
 
 
 def run(ctx, inputs, params):
-    """eval/benchmark — the lm-eval-harness bridge
-    (task 000256): run standard benchmark tasks against the bound
-    model THROUGH OUR OWN Model (lm_bridge.MechbenchLM), so
-    revision pinning, VLM-shaped checkpoints, and adapter fusion
-    (the standard `adapter` input port) all come free. Publishes a
-    metric table whose rows carry (task, metric, variant) coords —
-    composable straight into union/paired-delta for
-    base-vs-adapter deltas.
+    """eval/benchmark — the lm-eval-harness bridge: run standard
+    benchmark tasks against the bound model THROUGH OUR OWN Model
+    (lm_bridge.MechbenchLM), so revision pinning, VLM-shaped
+    checkpoints, and adapter fusion (the standard `adapter` input port)
+    all come free. Publishes a metric table whose rows carry (task,
+    metric, variant) coords — composable straight into
+    `records/union` and `records/subtract` for base-vs-adapter deltas.
 
     Harness versions ride in the description: prompt templates
     change across lm-eval releases, so the version IS part of the
@@ -69,7 +68,7 @@ def run(ctx, inputs, params):
     """
     import lm_eval
 
-    pass  # its imports now live in this file
+    pass
     from mechbench_compute.lm_bridge import MechbenchLM
 
     tasks = list(params.get("tasks") or [])
@@ -137,8 +136,8 @@ def build_metric_records(results: Mapping[str, Any],
     """Shape lm-eval-harness `results` (task -> {"acc,none": v,
     "acc_stderr,none": s, ...}) into coord-carrying records:
     one record per (task, metric) with value/stderr/n and coords
-    {task, metric, variant} — composable straight into union /
-    subtract_baseline for base-vs-adapter deltas."""
+    {task, metric, variant} — composable straight into `records/union`
+    and `records/subtract` for base-vs-adapter deltas."""
     out: list[dict[str, Any]] = []
     for task in sorted(results):
         metrics = results[task]

@@ -93,7 +93,7 @@ the surprise-direction probe.
 
 def run(ctx, inputs, params):
     """activations/capture-tokens — one vector per token, each
-    carrying that token's own surprisal (task 000594)."""
+    carrying that token's own surprisal."""
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
@@ -107,10 +107,9 @@ def run(ctx, inputs, params):
 #:
 #: The number is set by what the platform can STORE, not by taste. A
 #: canonical float costs about 8.3 bytes on the wire, and the API
-#: refuses an object over 64 MiB, so ~8.1M floats is the real wall.
-#: 0.107.x set this at 20M: the op then passed its own check, did the
-#: whole capture, and died at the emit — the worst place to learn a
-#: limit. A ceiling that does not bind is not a ceiling.
+#: refuses an object over 64 MiB, so ~8.1M floats is the wall. This
+#: ceiling must stay under it: one set above it lets the whole capture
+#: run and fails at the emit, which is the worst place to learn a limit.
 MAX_TOKEN_VECTOR_FLOATS = 7_000_000
 
 
@@ -122,13 +121,13 @@ def capture_tokens(
     on_start=None,
     on_item=None,
 ):
-    """The residual at EVERY position, one vector per token (000594).
+    """The residual at EVERY position, one vector per token.
 
     `capture` reads one position per record — a decision point, a
     subject, a pooled span. Some questions are about the sequence
     itself: which way the residual moves as a token's surprisal rises,
     how a representation builds across a passage. Those need a row per
-    token, and there was no way to ask for one.
+    token, which is this.
 
     Each vector carries the token's own surprisal, in bits, because the
     forward pass that produced the vector already computed it. Joining
@@ -151,10 +150,10 @@ def capture_tokens(
         kept_per_record.append((record, r, idx))
 
     total = sum(len(idx) for _, _, idx in kept_per_record) * len(layers) * width
-    # Where the rows go (000613): `"json"` is the collection as it always
-    # was, under the cap a stored object can hold; `"tensor"` writes the
-    # rows to shards beside the object, with no cap but disk; `"auto"`
-    # is json under the cap and tensor above it.
+    # Where the rows go: `"json"` is the collection itself, under the cap
+    # a stored object can hold; `"tensor"` writes the rows to shards
+    # beside the object, with no cap but disk; `"auto"` is json under the
+    # cap and tensor above it.
     storage = str(params.get("storage", "auto"))
     if storage not in ("auto", "json", "tensor"):
         raise ValueError(f"storage is 'auto', 'json' or 'tensor', not {storage!r}")

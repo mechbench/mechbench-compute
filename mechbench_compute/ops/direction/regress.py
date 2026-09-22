@@ -83,7 +83,7 @@ def fit_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
                    seed: int = 0, point: str | None = None,
                    source: str | None = None) -> dict[str, Any]:
     """Ridge regression of the items' vectors against a continuous
-    coordinate; the fitted weight vector IS the direction (task 000586).
+    coordinate; the fitted weight vector IS the direction.
 
     `fit_mean_difference` answers "which way does THIS group lie from THAT
     one" — two labels and a difference of centroids. Some signals are
@@ -96,7 +96,7 @@ def fit_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
     always exists, and R² on unseen items is what says whether it means
     anything. The alpha is the one that does best on the holdout.
 
-    The rows are read in two passes and never held whole (000613): the
+    The rows are read in two passes and never held whole: the
     first accumulates the training normal equations (d × d, with an
     unpenalised intercept), which are solved for every alpha at once;
     the second scores every alpha on the held-out rows. A collection of

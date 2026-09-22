@@ -76,8 +76,8 @@ the adapter's own deltas and needs no model at all.
 
 
 def run(ctx, inputs, params):
-    """weights/capture (task 000457): the model's own parameters as
-    data. No prompt, no forward pass — and an adapter on the port is
+    """weights/capture: the model's own parameters as data. No prompt,
+    no forward pass — and an adapter on the port is
     fused first, so what is read is the model as this node has it."""
 
     model = ctx.model(params.get("model"))

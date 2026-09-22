@@ -105,9 +105,9 @@ layers or records.
 
 
 def run(ctx, inputs, params):
-    """activations/capture — residual vectors at
-    (layers × position) per condition, as data downstream blocks
-    (vectors/similarity, future probes) consume."""
+    """activations/capture — residual vectors at (layers × position) per
+    condition, as `geometry/compare` and the direction family read
+    them."""
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
@@ -124,8 +124,8 @@ def capture_residual_vectors(
 ) -> dict[str, Any]:
     """Residual-stream vectors at (layers × position) per condition —
     the substrate every geometry experiment reads. Labels ride along
-    (`label` field, or the coords key named by params.label_coord) so
-    similarity blocks can group without re-parsing ids."""
+    (`label` field, or the coords key named by params.label_coord) so a
+    comparison groups without re-parsing ids."""
     point = hookpoints.residual(params.get("point"))
     source = str(params.get("source", "resid"))
     if source not in ("resid", "queries", "keys"):
@@ -149,8 +149,8 @@ def capture_residual_vectors(
         if not records:
             raise ValueError(
                 "residuals/vectors: every record was empty under skip_empty")
-    # Q/K live in per-head subspaces (step 28's question: which heads
-    # specialize?), so those sources emit one row per (layer, head).
+    # Q/K live in per-head subspaces, so those sources emit one row per
+    # (layer, head) rather than one per layer.
     n_heads = (model.arch.n_heads if source == "queries"
                else model.arch.n_kv_heads if source == "keys" else 1)
     width = (model.arch.d_model if source == "resid"

@@ -149,10 +149,10 @@ readings.
 
 
 def run(ctx, inputs, params):
-    """The decision-read model block: per condition record, the
-    exact decision-token distribution (prefix-cached) and optional
-    best-first outcome expansion. Records keep their coords — the
-    whole point of the Grid split."""
+    """The decision-read model block: per condition record, the exact
+    decision-token distribution (prefix-cached) and optional best-first
+    outcome expansion. Records keep their coords, so a downstream
+    grouping reads the design that produced them."""
     import numpy as np
 
     from mechbench_compute.distill import (
@@ -212,8 +212,8 @@ def run(ctx, inputs, params):
         if rollout:
             entry["rollout"] = expand_top_outcomes_cached(
                 model, tok, ids, rollout, prefill=prefill)
-        # Complete outcomes (000548), exactly: each scored whole and
-        # closed, into `tracked` under its own name, so `eval/expect`
+        # Complete outcomes, exactly: each scored whole and closed,
+        # into `tracked` under its own name, so `eval/expect`
         # judges multi-token outcomes as it judges tokens. A record's
         # own `complete` is laid over the block's field by field, so a
         # probe at a later list slot names only its opener and closer

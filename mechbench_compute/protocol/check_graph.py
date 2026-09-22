@@ -4,19 +4,17 @@ from __future__ import annotations
 
 from mechbench_compute import lexicon
 
-#: What a port may do when its upstream produced nothing (task 000399).
+#: What a port may do when its upstream produced nothing.
 MISSING_POLICIES = ("fail", "skip", "placeholder")
 
 
 def check_graph(nodes, edges, order) -> None:
     """Everything about a graph that is decidable before it runs, decided
-    before it runs (tasks 000512, 000513).
+    before it runs.
 
-    The executor used to check a node's block, params and ports when
-    execution reached it, so a graph that could not run spent everything
-    upstream of the first bad node proving so — one 014 trace took five
-    resumes and most of a day to arrive at a param refusal that was
-    decidable at load. Three things are known here, for every node:
+    Checked here rather than when execution reaches a node, so that a
+    graph that cannot run costs nothing upstream of its first mistake.
+    Three things are known here, for every node:
 
     - its **operation** exists (a retired spelling names its
       replacement);
@@ -29,8 +27,8 @@ def check_graph(nodes, edges, order) -> None:
     node's output — so the kind check stays where it is, in the loop.
 
     Every problem is reported, not the first: a protocol being carried
-    forward usually has several, and fix-one-run-again over a long
-    protocol is the expensive version of this bug.
+    forward usually has several, and one refusal per run is the
+    expensive way to find them.
     """
     from mechbench_compute.block_params import check_params
 
@@ -68,10 +66,9 @@ def check_graph(nodes, edges, order) -> None:
                 problems.append(
                     f"  {nid} ({name}): no input port {port_name!r}. "
                     f"Its ports: {known}.")
-        # How MANY edges reach each port (task 000397). A port that takes
-        # one and is wired twice used to keep whichever edge came last in
-        # the list — silently, and the winner depended on the order the
-        # author wrote them in.
+        # How MANY edges reach each port. A port that takes one and is
+        # wired twice is refused here, so no result ever depends on the
+        # order the author wrote the edges in.
         for port_name, n in sorted(edge_counts.get(nid, {}).items()):
             decl = op.port(port_name)
             if decl is None:
@@ -79,8 +76,8 @@ def check_graph(nodes, edges, order) -> None:
             bad = decl.arity_error(n)
             if bad:
                 problems.append(f"  {nid} ({name}): port {port_name!r} {bad}.")
-        # What each port does when its upstream produces nothing (000399):
-        # the policy must be one of the three, and `placeholder` needs a
+        # What each port does when its upstream produces nothing: the
+        # policy must be one of the three, and `placeholder` needs a
         # kind with an empty value — an empty collection is a real value,
         # an empty `direction/vector` is not.
         for e in edges:

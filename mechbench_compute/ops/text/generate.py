@@ -216,13 +216,12 @@ seed it reproduces the un-intervened sample byte for byte.
 
 
 def run(ctx, inputs, params):
-    """The Generate model block: per condition record, sample n
-    completions into a text-fidelity DocumentCollection. Range
-    rule (epic 000258 amendment 4): each sample's rng derives from
-    (seed, record id, index), indices [start, start+n) — growing a
-    corpus is the same node over a later range plus Union. The
-    prompt is prefilled once per record and the KV cache copied
-    per sample."""
+    """The generate model block: per condition record, sample n
+    completions into a collection of text documents. The range rule:
+    each sample's rng derives from (seed, record id, index), indices
+    [start, start+n) — so growing a corpus is the same node over a
+    later range plus `records/union`. The prompt is prefilled once per
+    record and the KV cache copied per sample."""
     import numpy as _np
 
     from mechbench_compute.distill import prefill_decision, render
@@ -245,22 +244,20 @@ def run(ctx, inputs, params):
     fidelity = params.get("fidelity", "text")
     if fidelity not in ("text", "trace"):
         raise ValueError(f"generate: unsupported fidelity {fidelity!r}")
-    # A record's prefill begins the assistant's turn when asked
-    # (000549): the samples then continue exactly the envelope a
-    # decision read and a training step condition on, and `stop`
-    # ends them where the answer does. Off, the prefill is dropped,
-    # as it always was.
+    # A record's prefill begins the assistant's turn when asked: the
+    # samples then continue exactly the envelope a decision read and a
+    # training step condition on, and `stop` ends them where the answer
+    # does. Off, the prefill is dropped.
     continue_prefill = bool(params.get("continue_prefill", False))
     stop_strings = tuple(s for s in (params.get("stop") or ()) if s)
 
     from mechbench_compute import intervene as intervene_mod
     from mechbench_compute.generate import offsets_by_cumulative_decode
 
-    # An intervention (000601) — inline items or an intervene/spec on
-    # the port — makes the node a sweep: one set of samples per
-    # cell, its axes coordinates, weight edits scoped per strength.
-    # Without one, `cells` is a single None and the loop below is the
-    # one it always was, byte for byte.
+    # An intervention — inline items or an intervene/spec on the port —
+    # makes the node a sweep: one set of samples per cell, its axes
+    # coordinates, weight edits scoped per strength. Without one,
+    # `cells` is a single None and the loop below runs once.
     plan = intervene_mod.plan(model, params, inputs)
     cells: list = plan.cells if plan else [None]
 
@@ -283,16 +280,15 @@ def run(ctx, inputs, params):
                 for k in range(start, start + n):
                     key = f"{rec['id']}:{k}" + (f":{cell.slug}" if plan else "")
                     if ctx.resume_items and key in ctx.resume_items:
-                        # Reproducible (epic 000320): this item is a pure
-                        # function of its key; the spooled copy IS what
-                        # this loop would produce. Same position, same
-                        # bytes.
+                        # Reproducible: this item is a pure function of
+                        # its key, so the spooled copy IS what this loop
+                        # would produce. Same position, same bytes.
                         items.append(ctx.resume_items[key])
                         if ctx.on_item:
                             ctx.on_item(key, ctx.resume_items[key], True)
                         continue
-                    # The item rule (000258 am. 4), now in seeds.py (000402):
-                    # a leaf's seed comes from its key, never its position.
+                    # The item rule, in seeds.py: a leaf's seed comes
+                    # from its key, never its position.
                     rng = _np.random.default_rng(item_seed(seed, rec["id"], k))
                     text, out_ids = sample_completion_cached(
                         model, ids, max_tokens=max_tokens,
@@ -326,7 +322,7 @@ def run(ctx, inputs, params):
                                          **({"prefill": lead} if lead else {}),
                                          **({"stop": list(stop_strings)} if stop_strings else {})},
                             # The wire form, never the resolved object: the
-                            # object carries the adapter bytes (000488).
+                            # object carries the adapter bytes.
                             "model": serialize_model(params.get("model")),
                         },
                     }
@@ -358,11 +354,11 @@ def run(ctx, inputs, params):
                             ],
                         }]
                         # Where the model reasoned, when its own vocabulary
-                        # declares reasoning delimiters (task 000592). A
-                        # second segmentation beside the envelope, so a
-                        # reader that knows only `prompt`/`body` is
-                        # unaffected and a position selector can name the
-                        # thinking span.
+                        # declares reasoning delimiters. A second
+                        # segmentation beside the envelope, so a reader
+                        # that knows only `prompt`/`body` is unaffected
+                        # and a position selector can name the thinking
+                        # span.
                         reasoning = THINK.segmentation(
                             full_ids, start=len(ids), pair=THINK.delimiter_ids(tok))
                         if reasoning is not None:

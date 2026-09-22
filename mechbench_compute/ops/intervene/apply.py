@@ -324,8 +324,8 @@ one item can zero every layer's `o_proj`.
 
 
 def run(ctx, inputs, params):
-    """intervene/apply (task 000366): the declarative
-    points × operations grammar with a decision or capture readout.
+    """intervene/apply: the declarative points × operations grammar
+    with a decision or capture readout.
     Items are (record, sweep cell); spooled items are reused in
     canonical order under a matching fingerprint."""
 
@@ -361,8 +361,8 @@ def _walk_cells(records: Sequence[Mapping[str, Any]], cells: Sequence[Cell],
                 weight_items: Sequence[Mapping[str, Any]], model):
     """(record, cell) pairs, with any weight edits in scope.
 
-    Without weight items this is the loop it always was: record outer,
-    cell inner. With them the strength goes outside, because a weight
+    Without weight items the loop is record outer, cell inner. With
+    them the strength goes outside, because a weight
     edit is applied once for every record that runs under it — and the
     edit is undone before the next strength, and before the generator
     returns, whatever happens in between. A run that left a model edited
@@ -432,9 +432,9 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
             tracked = collect_tracked_ids(model, record, tracked=params.get("tracked"))
             factor = cell.factor
             key = f"{record.get('id')}:{cell.key}"
-            # The cell's axes ride on every row it produces: `factor` as
-            # it always has, and a coordinate per other swept axis, so a
-            # layer sweep groups on `layer` (000602).
+            # The cell's axes ride on every row it produces: `factor`,
+            # and a coordinate per other swept axis, so a layer sweep
+            # groups on `layer`.
             coords = {**record.get("coords", {}), **cell.coords}
             named = {"cell": cell.label} if cell.label else {}
             if factor == 0.0:
@@ -463,7 +463,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
                 # capture — `geometry/compare`, `direction/regress`,
                 # another intervention's `source` — reads this one too.
                 # `factor` rides on each vector, since a sweep's rows
-                # differ only by it (000599).
+                # differ only by it.
                 for p in points:
                     t = res.cache[p]
                     v = t[0, pidx] if t.ndim == 3 else t[0]
@@ -483,8 +483,8 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
             if on_item:
                 on_item(key, row)
     # The weight edits ride in the header beside the activation spec, so
-    # a reader of the result knows the model was not the one on the shelf
-    # (task 000457: "the manifest says so").
+    # a reader of the result knows the model was not the one on the
+    # shelf.
     weights_wire = [dict(it) for it in weight_items] or None
     what = []
     if specs:

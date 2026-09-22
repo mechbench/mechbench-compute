@@ -127,7 +127,7 @@ def run(ctx, inputs, params):
     Causal tracing: where a clean run and a corrupted one differ, the
     activation whose restoration recovers the prediction is where the
     information was being carried. Unlike ablation this localizes
-    content rather than participation. (Step 09.)
+    content rather than participation.
     """
 
     model = ctx.model(params.get("model"))
@@ -143,7 +143,7 @@ def patch_trace(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Causal tracing (step 09): run CLEAN capturing every layer, run
+    """Causal tracing: run CLEAN capturing every layer, run
     CORRUPT for the baseline, then patch the clean residual into the
     corrupt run one (layer, position) at a time and measure how much of
     the clean answer's probability comes back. The map localizes WHERE
@@ -195,11 +195,10 @@ def patch_trace(
         clean_lp = read_last_logp(clean_run.logits)
         tok, _ = resolve_target(model, record, params, clean_lp)
         # 'prob' only registers when the clean prompt puts real mass on
-        # the target (the original step 09 used the clean top-1, which
-        # guarantees it); 'logprob' registers recovery at ANY mass —
-        # explicit rare targets measured exactly nothing in prob space
-        # on the first prod run. 'logit' is the raw logit, which is what
-        # a first-order estimate is most nearly linear in.
+        # the target, so an explicitly named rare target measures nothing
+        # in prob space; 'logprob' registers recovery at ANY mass.
+        # 'logit' is the raw logit, which is what a first-order estimate
+        # is most nearly linear in.
         def read(lp: np.ndarray, logits: np.ndarray | None = None, tok: int = tok) -> float:
             if metric == "logit":
                 return float(logits[tok])

@@ -37,10 +37,7 @@ class Memo:
             # Derived from the PROTOCOL's identity and the node's id —
             # both stable across compute releases, which a node
             # fingerprint is not. The request hash inside the memo is
-            # what decides a hit; this only decides where the memo
-            # lives. Reconsidered 2026-09-11: refusing `cache: true` and
-            # demanding a name was friction for no gain, since the job
-            # spec already carries the identity needed.
+            # what decides a hit; this only decides where the memo lives.
             pid, _ = getattr(self, "_protocol_ref", (None, None))
             nid = (getattr(self, "_current", None) or {}).get("nid") \
                 if hasattr(self, "_current") else None

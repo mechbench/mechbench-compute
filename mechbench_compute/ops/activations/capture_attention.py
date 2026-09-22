@@ -60,7 +60,8 @@ million values.
 
 
 def run(ctx, inputs, params):
-    """activations/capture-attention — steps 05/06."""
+    """activations/capture-attention — post-softmax attention weights per
+    head at the named layers."""
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
@@ -80,9 +81,9 @@ def capture_attention_patterns(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Steps 05/06: post-softmax attention weights per head at chosen
-    layers. Layers must be named explicitly — every layer of every
-    head of a long prompt is a picture nobody asked for."""
+    """Post-softmax attention weights per head at chosen layers. Layers
+    must be named explicitly — every layer of every head of a long
+    prompt is a picture nobody asked for."""
     spec = params.get("layers")
     if spec in (None, "all"):
         raise ValueError(

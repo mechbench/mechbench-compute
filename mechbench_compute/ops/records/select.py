@@ -52,8 +52,8 @@ def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
     where: {key: value | [values]} — a key is read from `coords` when it
     is a coord, and from the record itself otherwise, so a field that
     `text/measure` `annotate` wrote (a pattern hit is a field, not a
-    coord) filters too (task 000368). fields: [names] keeps id+coords
-    plus the named fields."""
+    coord) filters too. fields: [names] keeps id+coords plus the named
+    fields."""
     recs = read_items(records)
     where: Mapping[str, Any] = params.get("where") or {}
     out = []

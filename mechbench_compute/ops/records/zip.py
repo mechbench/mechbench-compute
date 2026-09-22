@@ -70,8 +70,8 @@ def run(ctx, inputs, params):
 
 def zip_branches(inputs: Mapping[str, Any],
                  params: Mapping[str, Any]) -> dict[str, Any]:
-    """`records/zip` (task 000398): align several branches' records into
-    one record per key, keeping which branch each came from.
+    """`records/zip`: align several branches' records into one record
+    per key, keeping which branch each came from.
 
     Two branches over the same prompts produce two streams; a judge that
     compares them needs record 7 of one beside record 7 of the other.

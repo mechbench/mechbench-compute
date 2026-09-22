@@ -102,7 +102,7 @@ def summarize_groups(groups: Mapping[tuple, Sequence[float]], params: Mapping[st
     """The `records/summarize` table from values grouped by the `by`
     key — shared by the flat block and its monoid, so the two are the
     same rows by construction. With `interval`, every row carries the
-    bootstrap `lo`/`hi` of its mean (000609)."""
+    bootstrap `lo`/`hi` of its mean."""
     from statistics import median
 
     by = params.get("by") or []
@@ -145,14 +145,14 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     MetricTable-shaped rows. by: [coord names] ([] = one overall
     group); value: field name; stats fixed: n/median/mean/min/max +
     share_negative (useful for deltas), and with `interval` the
-    bootstrap `lo`/`hi` of the mean (000609).
+    bootstrap `lo`/`hi` of the mean.
 
     `on_missing` says what a record without the value field means:
     `error` (default) refuses by name, because a mean over the records
     that happened to have the field is the kind of number nobody
     notices is wrong; `skip` omits them and REPORTS the count, which is
-    what a judged corpus needs — an unreadable verdict is not a zero
-    (task 000356), and the rows that were dropped must be visible."""
+    what a judged corpus needs — an unreadable verdict is not a zero,
+    and the rows that were dropped must be visible."""
     recs = expand_cells(read_items(records))
     by = params.get("by") or []
     value_field = params["value"]
@@ -206,7 +206,7 @@ class GroupStats(Monoid):
         return out
 
     def finalize(self, p, params):
-        pass  # its imports now live in this file
+        pass
 
         ordered = {key: list(p[key]) for key in sorted(p, key=lambda k: tuple(str(x) for x in k))}
         return summarize_groups(ordered, params)

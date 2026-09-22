@@ -94,7 +94,7 @@ def fit_probe(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
               seed: int = 0, C: float = 1.0, point: str | None = None,
               source: str | None = None) -> dict[str, Any]:
     """A linear probe per space: which way the items of one label lie
-    from the rest, and how much of that a held-out item shows (000608).
+    from the rest, and how much of that a held-out item shows.
 
     `direction/fit` takes the difference of two centroids — an answer
     that always exists and never says how good it is. A probe is the

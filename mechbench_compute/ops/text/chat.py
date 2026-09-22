@@ -366,8 +366,8 @@ name.
 
 
 def run(ctx, inputs, params):
-    """text/chat (task 000337): one block for local
-    weights and remote endpoints. The ModelRef decides which — an
+    """text/chat: one block for local weights and remote
+    endpoints. The ModelRef decides which — an
     endpoint ref goes to the provider transport, anything else to
     MLX through the usual model-block path, so a chat node with a
     LoRA adapter still fuses its stack."""
@@ -383,7 +383,7 @@ def run(ctx, inputs, params):
         # never reaches a node's identity or its emitted params.
         params = {**params, "_block_runner": ctx.executor._tool_block_runner(ctx.secrets)}
     if ref.is_endpoint:
-        # A remote model has no forward pass to intervene on (000601).
+        # A remote model has no forward pass to intervene on.
         if params.get("spec") or inputs.get("intervention") is not None:
             raise ValueError(
                 "text/chat: an intervention needs local weights — a remote "

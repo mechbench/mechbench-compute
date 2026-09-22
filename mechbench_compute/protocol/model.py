@@ -17,16 +17,14 @@ class ModelLoading:
     def _model_loaded(self, model_id) -> Model:
         """The model an operation declared, loading it if it is not resident.
 
-        Accepts a bare "repo[@rev]" string or a ModelRef (000312 Arc A),
-        whose BASE is what loads here — adapters are the fuse layer's
-        business, not the loader's.
+        Accepts a bare "repo[@rev]" string or a ModelRef, whose BASE is
+        what loads here — adapters are the fuse layer's business, not the
+        loader's.
 
-        `model_id` is required, and there is no fallback to whatever happens
-        to be loaded. An operation that ran a model it did not name produces
-        a result whose recorded model is a claim rather than a fact — which is
-        precisely the bug this signature exists to prevent (the flat
-        layer_ablation path did exactly that: it recorded the requested model
-        and executed the warmed one).
+        `model_id` is required, and there is no fallback to whatever
+        happens to be resident: an operation that ran a model it did not
+        name would produce a result whose recorded model is a claim
+        rather than a fact.
         """
         if getattr(model_id, "is_endpoint", False):
             # An endpoint has no weights to load, and handing a provider
@@ -38,14 +36,10 @@ class ModelLoading:
                 "text/chat, which serves both.")
         if hasattr(model_id, "base"):
             # The ref's base names WHERE the weights come from, and a
-            # bench base must be translated to its materialized local
-            # directory HERE — in the one place every call site funnels
-            # through. The wrapper used to translate and the block's own
-            # no-op re-call did not, so the label reached the hub as if
-            # it were a repo id ("Repo id must be in the form
-            # 'namespace/repo_name'") — after a 54-minute download had
-            # already succeeded (2026-08-25, the first read ever run on
-            # a bench-based checkpoint).
+            # bench base is translated to its materialized local directory
+            # HERE — the one place every call site funnels through. A
+            # second translation anywhere else would let a bench label
+            # reach the hub as if it were a repo id.
             if getattr(model_id, "base_kind", None) == "bench":
                 model_id = str(self._materialize_checkpoint(model_id.base))
             else:
@@ -89,9 +83,9 @@ class ModelLoading:
             # result says so, next to its numbers, never only in a log.
             result["adapter_skipped_modules"] = skipped
         # The model's depth landmarks ride on every result a model block
-        # writes (000624), so a figure downstream can draw them without
-        # being told: which layers attend globally, and where fresh keys
-        # and values stop. One place, for every block present and future.
+        # writes, so a figure downstream can draw them without being
+        # told: which layers attend globally, and where fresh keys and
+        # values stop. One place, for every block.
         arch = getattr(model, "arch", None)
         if isinstance(result, dict) and "arch" not in result and arch is not None:
             from mechbench_compute.blocks import arch_header
@@ -100,8 +94,8 @@ class ModelLoading:
         return result
 
     def _adapter_fused(self, model, inputs, params, ref=None, skipped=None):
-        """Context manager: fuse the model's adapter STACK (000312 Arc
-        B), run the block, restore in reverse.
+        """Context manager: fuse the model's adapter STACK, run the block,
+        restore in reverse.
 
         Layering, not precedence: the ModelRef's adapters are part of
         what "the model" MEANS and fuse first, in order; an adapter
@@ -109,8 +103,8 @@ class ModelLoading:
         is the node's own operand and fuses last, on top. That is the
         successive-rounds composition: read on {B, [a1]} plus an edge
         from this graph's train node reads through a1 then the new
-        round. params.adapter_scale keeps its old meaning by applying
-        to that last, node-level adapter only."""
+        round. params.adapter_scale applies to that last, node-level
+        adapter only."""
         import contextlib
 
         from mechbench_compute.lora import (
@@ -184,8 +178,8 @@ class ModelLoading:
             on_bytes=self._on_download_bytes,
         )
         # A human-readable note of WHICH label this hash-keyed directory
-        # holds, for `mechbench models` and the eviction report (000297).
-        # The dot prefix keeps it out of every safetensors glob.
+        # holds, for `mechbench models` and the eviction report. The dot
+        # prefix keeps it out of every safetensors glob.
         (target / ".label").write_text(label)
         memo[label] = target
         return target

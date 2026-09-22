@@ -35,13 +35,12 @@ class Pipeline:
 
     def _run_pipeline(self, spec: ProtocolSpec, on_progress=None,
                       secrets=None, resume=None) -> Any:
-        """Execute a protocol graph (epic 000258, arc B): topological
-        order over the nodes, pure blocks resolved from the core
-        registry, model blocks executed in-process with the prefix
-        cache. v1 restrictions: single output per node (edges' port
-        names select inputs but every node produces one value) and the
-        whole graph runs in this one job — multi-job planning is the
-        planner's future concern, not the executor's.
+        """Execute a protocol graph: topological order over the nodes,
+        pure blocks resolved from the core registry, model blocks
+        executed in-process with the prefix cache. A node produces one
+        value (edges' port names select inputs, not outputs), and the
+        whole graph runs in this one job — the executor does no
+        multi-job planning.
 
         Params may reference bindings: any string param "$name"
         resolves to spec bindings[name]."""
@@ -61,23 +60,22 @@ class Pipeline:
         extra = spec.extra or {}
         graph = extra.get("graph") or {}
         bindings = extra.get("bindings") or {}
-        # The declared form (epic 000553): the run binds `params` and
-        # `inputs` by name, and the graph refers to them with values no
-        # literal can be. It is lowered here into the shapes this executor
-        # has always run, so everything below — ordering, resume, missing
-        # nodes, fingerprints — sees what it saw before.
+        # The declared form: the run binds `params` and `inputs` by name,
+        # and the graph refers to them with values no literal can be. It
+        # is lowered here, so everything below — ordering, resume, missing
+        # nodes, fingerprints — sees one graph shape.
         declared = dataflow.is_declared(graph)
         bound_params = extra.get("params") or {}
         if declared:
             graph = dataflow.lower(graph, extra.get("inputs") or {})
         nodes = {n["id"]: n for n in graph.get("nodes", [])}
         edges = graph.get("edges", [])
-        # What the protocol declares it keeps (000558): `[{name, from:
-        # {node}}]`, from its signature. With these, a result is stored
-        # under its declared NAME and every other node's value apart, as
-        # an intermediate — so a node can be renamed without moving a
-        # result anyone depends on. Without them (every legacy protocol)
-        # nothing changes: terminals are the outputs, under their ids.
+        # What the protocol declares it keeps: `[{name, from: {node}}]`,
+        # from its signature. With these, a result is stored under its
+        # declared NAME and every other node's value apart, as an
+        # intermediate — so a node can be renamed without moving a result
+        # anyone depends on. Without them, terminals are the outputs,
+        # under their ids.
         declared_outputs = extra.get("outputs") if declared else None
         outputs_of: dict[str, list[str]] = {}
         for o in declared_outputs or []:
@@ -90,11 +88,10 @@ class Pipeline:
                     f"an output cannot be named {dataflow.INTERMEDIATES!r}: that is "
                     f"where intermediates are stored")
             outputs_of.setdefault(source, []).append(o["name"])
-        # Eager discard (000561): with `keep: "outputs"` a node that is not
-        # a declared output is never emitted. Its result stays here for
-        # its consumers, goes to the runner's spool for a resume, and is
-        # cited downstream by content hash. The default keeps everything,
-        # as it always has.
+        # Eager discard: with `keep: "outputs"` a node that is not a
+        # declared output is never emitted. Its result stays here for its
+        # consumers, goes to the runner's spool for a resume, and is
+        # cited downstream by content hash. The default keeps everything.
         keep = str(extra.get("keep") or "all")
         if keep not in ("all", "outputs"):
             raise ValueError(f"keep must be 'all' or 'outputs', not {keep!r}")
@@ -103,10 +100,9 @@ class Pipeline:
         #: emit of the evidence needs should the run fail.
         held: dict[str, tuple[str, Any]] = {}
 
-        # What actually resolved (task 000260): every $fetch's content
-        # hash and every model ref's snapshot commit, recorded into the
-        # result manifest — reproducibility by record; pins opt into
-        # strictness.
+        # What actually resolved: every $fetch's content hash and every
+        # model ref's snapshot commit, recorded into the result manifest
+        # — reproducibility by record; pins opt into strictness.
         resolved: dict[str, dict] = {"objects": {}, "models": {}}
 
         def fetch_object(ref, want=None):
@@ -120,10 +116,9 @@ class Pipeline:
                     f"expected sha256 {want!r}")
             payload = fetched.get("payload", fetched) if isinstance(fetched, dict) else fetched
             if tensors_mod.is_tensor(payload):
-                # A tensor collection's rows are shards beside it
-                # (000613): fetched into the cache, verified, and the
-                # consumer reads them one shard at a time. The same
-                # progress callbacks a checkpoint's fetch uses.
+                # A tensor collection's rows are shards beside it: fetched
+                # into the cache, verified, and read one shard at a time.
+                # The same progress callbacks a checkpoint's fetch uses.
                 if self._on_download is not None:
                     self._on_download(str(ref), None)
                 payload = tensors_mod.materialize(
@@ -134,12 +129,12 @@ class Pipeline:
 
         def stored_inputs_of(node):
             """The bench objects a node reads by reference, in the order it
-            names them: its lineage inputs beside its upstream nodes
-            (000557). A frequency table fetched into a param is an input of
-            the node that trained on it, and until now lineage did not say
-            so. Read off the node itself rather than collected as fetches
-            happen, because remote nodes resolve alongside their siblings
-            and a fetch's timing says nothing about whose it was."""
+            names them: its lineage inputs beside its upstream nodes. A
+            frequency table fetched into a param is an input of the node
+            that trained on it. Read off the node itself rather than
+            collected as fetches happen, because remote nodes resolve
+            alongside their siblings and a fetch's timing says nothing
+            about whose it was."""
             found: list[str] = []
 
             def walk(v):
@@ -265,9 +260,8 @@ class Pipeline:
 
         def resolve_hf_adapter(spec):
             """{"$hf_adapter": {repo, revision?}} -> an adapter object
-            payload imported from a hub PEFT LoRA repo. Token plumbing
-            arrives with 000264 (huggingface_hub token= kwarg); the
-            resolved snapshot commit is recorded."""
+            payload imported from a hub PEFT LoRA repo. The resolved
+            snapshot commit is recorded."""
             from huggingface_hub import snapshot_download
 
             from mechbench_compute.peft import peft_import
@@ -335,11 +329,11 @@ class Pipeline:
         # denominator to their item count on entry and tick per item —
         # the board's bar moves per condition/story, not per node.
         #
-        # Alongside the flat scalar, STRUCTURE (000316): which node the
-        # run is in and how far through it. A denominator that grows
-        # mid-run reads as a bug to anyone watching; "node 3/5, 12/40"
-        # only ever counts up. Passed as a third argument when the
-        # callback accepts one, so an older runner keeps working.
+        # Alongside the flat scalar, STRUCTURE: which node the run is in
+        # and how far through it. A denominator that grows mid-run reads
+        # as a bug to anyone watching; "node 3/5, 12/40" only ever counts
+        # up. Passed as a third argument only when the callback accepts
+        # one, so a two-argument callback keeps working.
         import inspect
 
         results: dict[str, Any] = {}
@@ -380,9 +374,8 @@ class Pipeline:
         def item_reporter(nid: str):
             """One node's item callback. Bound to the node rather than
             reading a shared `current`, because two nodes can be in
-            flight at once (task 000396) and an item spooled under the
-            wrong node's id is a resumed job reusing another node's
-            work."""
+            flight at once and an item spooled under the wrong node's id
+            is a resumed job reusing another node's work."""
 
             def on_item(key=None, item=None, reused=False):
                 # Blocks that know nothing of resume call this bare; an
@@ -400,10 +393,9 @@ class Pipeline:
         from mechbench_compute import resume as resume_mod
 
         # Before anything runs: is this graph runnable at all? Blocks,
-        # params and ports are decidable at load, and a graph that
-        # cannot run should say so in the first second rather than after
-        # the nodes upstream of the mistake have been computed (000512,
-        # 000513).
+        # params and ports are decidable at load, and a graph that cannot
+        # run says so in the first second rather than after the nodes
+        # upstream of the mistake have been computed.
         check_graph(nodes, edges, order)
         if declared:
             dataflow.check_refs(nodes, bound_params)
@@ -428,12 +420,12 @@ class Pipeline:
                 if not resume_mod.satisfies(offered, str(level)):
                     forced_restart.add(src)
         node_hashes: dict[str, str] = {}
-        # Remote nodes run ahead of their turn, alongside a sibling
-        # (task 000396); their results wait here for the loop to
-        # reach them and do the bookkeeping in topological order.
+        # Remote nodes run ahead of their turn, alongside a sibling;
+        # their results wait here for the loop to reach them and do the
+        # bookkeeping in topological order.
         ahead: dict[str, Any] = {}
-        # Nodes that produced nothing, and why (task 000399). A node
-        # lands here by failing, or by being skipped because something
+        # Nodes that produced nothing, and why. A node lands here by
+        # failing, or by being skipped because something
         # upstream of it did. `tolerated` records the ones some consumer
         # answered for; a failure nothing answered for is raised when
         # the run is otherwise over, so sibling branches still finish.
@@ -441,8 +433,8 @@ class Pipeline:
         failures: dict[str, BaseException] = {}
         tolerated: set[str] = set()
 
-        # Per-node emission (arc B second half): every node's output
-        # becomes a bench object under the job's result namespace, with
+        # Per-node emission: every node's output becomes a bench object
+        # under the job's result namespace, with
         # lineage inputs = its upstream nodes' paths and operation =
         # the block ref. The protocol graph and the lineage graph are
         # then the same graph, by construction.
@@ -450,17 +442,16 @@ class Pipeline:
 
         result_base = extra.get("resultPath")
         node_paths: dict[str, str] = {}
-        # What this run bought from other people (000337): per node, and
-        # summed in the manifest, so the bill is a property of the run
-        # rather than something a reader reconstructs from items.
+        # What this run bought from other people: per node, and summed in
+        # the manifest, so the bill is a property of the run rather than
+        # something a reader reconstructs from items.
         spend_by_node: dict[str, dict[str, Any]] = {}
 
         for pos, nid in enumerate(order):
             node = nodes[nid]
-            # Any spelling a protocol may carry — bare, stored, with the
-            # retired `/1`, or a pre-rename name — becomes the one bare
-            # name here, once, before anything hashes it. A retired
-            # spelling warns; an unknown one refuses by name.
+            # Any spelling a protocol may carry — bare or stored —
+            # becomes the one bare name here, once, before anything
+            # hashes it. An unknown spelling refuses by name.
             try:
                 block = lexicon.resolve(node["block"])
             except KeyError:
@@ -472,19 +463,19 @@ class Pipeline:
             if block in ("records/map", "records/fold") and isinstance(raw_params.get("body"), Mapping):
                 # A map's or a fold's body is the CHILD run's graph,
                 # holes and all: `$topic` is bound per record by `bind`,
-                # `$participant` per step by `over`, not by this run
-                # (tasks 000400, 000617). Resolving it here would refuse
-                # a hole that is not this protocol's to fill.
+                # `$participant` per step by `over`, not by this run.
+                # Resolving it here would refuse a hole that is not this
+                # protocol's to fill.
                 params = resolve_params(
                     {k: v for k, v in raw_params.items() if k != "body"}, block)
                 params["body"] = raw_params["body"]
             else:
                 params = resolve_params(raw_params, block)
             if "model" in params:
-                # The model algebra (000312 Arc A): a binding may be a
-                # structured ModelRef. Normalize it HERE — adapters are
-                # fetched through the same recording path as $fetch, so
-                # a run's manifest names everything it actually loaded.
+                # A binding may be a structured ModelRef. Normalize it
+                # HERE — adapters are fetched through the same recording
+                # path as $fetch, so a run's manifest names everything it
+                # actually loaded.
                 mval = params.get("model")
                 if isinstance(mval, dict) or hasattr(mval, "adapter_labels"):
                     from mechbench_compute import model_ref as model_ref_mod
@@ -510,25 +501,24 @@ class Pipeline:
                         record_model(ref.base)
                 else:
                     record_model(mval)
-            # Edges in a canonical order (task 000397): by port, then by
-            # the edge's own `index` when it has one, then by source node
-            # id. Two consequences. A VARIADIC port receives them as an
-            # ordered list, so a node over several branches knows which
-            # branch is which. And a node's fingerprint no longer depends
-            # on the order its author happened to write the edges in —
-            # before this, moving an edge in the JSON restarted every
-            # cached and resumed thing downstream of it.
+            # Edges in a canonical order: by port, then by the edge's own
+            # `index` when it has one, then by source node id. Two
+            # consequences. A VARIADIC port receives them as an ordered
+            # list, so a node over several branches knows which branch is
+            # which. And a node's fingerprint does not depend on the
+            # order its author wrote the edges in, so moving a line in
+            # the JSON restarts nothing downstream.
             in_edges = sort_edges(edges, nid)
             by_port: dict[str, list[Any]] = {}
             for e in in_edges:
                 by_port.setdefault(e["to"]["port"], []).append(e)
             op_here = lexicon.BY_NAME.get(block)
             # An upstream that produced nothing — it failed, or was
-            # itself skipped — is answered by the port it was wired to
-            # (task 000399). `fail` is the default and is what every
-            # graph did before: the run stops here, with the original
-            # error. `skip` passes the absence on. `placeholder` hands
-            # the block an empty collection that says it is one.
+            # itself skipped — is answered by the port it was wired to.
+            # `fail` is the default: the run stops here, with the
+            # original error. `skip` passes the absence on.
+            # `placeholder` hands the block an empty collection that
+            # says it is one.
             absent = {
                 port: [e for e in es if e["from"]["node"] in missing]
                 for port, es in by_port.items()
@@ -607,22 +597,20 @@ class Pipeline:
                     input_paths[port] = str(resolve_value(raw["$fetch"]))
                 inline_hashes.append(
                     f"{port}:{resume_mod.content_hash(inputs[port])}")
-            # An input under `params` — where ports lived before 0.78 —
-            # was lifted onto its port with a warning until 0.82.0. It
-            # is now an unknown param, and `check_params` below refuses
-            # it by name, as the 0.78.0 notes promised.
+            # An input written under `params` is an unknown param, and
+            # `check_params` below refuses it by name.
             #
-            # Process identity for this node (epic 000320): what it
-            # computes is fixed by the block, its wire params, its
-            # inputs' content, and the compute version. A partial from a
-            # previous attempt is reused only under an equal fingerprint.
+            # Process identity for this node: what it computes is fixed
+            # by the block, its wire params, its inputs' content, and the
+            # compute version. A partial from a previous attempt is
+            # reused only under an equal fingerprint.
             current["nid"] = nid
             on_item = item_reporter(nid)
             self._current = current
             # Before anything runs: does this block actually read what
-            # the protocol asked for, and take what was wired to it?
-            # (000438 — a silently ignored param is a wrong answer with
-            # no error; an unwired required port is the same, earlier.)
+            # the protocol asked for, and take what was wired to it? A
+            # silently ignored param is a wrong answer with no error;
+            # an unwired required port is the same, earlier.
             from mechbench_compute.block_params import check_inputs, check_params
             check_params(block, serialize_params(params))
             inputs = check_inputs(block, inputs)
@@ -677,14 +665,13 @@ class Pipeline:
                 (lambda st, _n=nid: self._on_checkpoint(_n, st))
                 if self._on_checkpoint is not None else None
             )
-            # A node's failure is caught rather than thrown (task
-            # 000399): each consumer's port decides what an absent
-            # input means, and sibling branches finish either way. A
-            # failure nothing tolerates is raised at the end of the
-            # run, which is what every graph did before.
+            # A node's failure is caught rather than thrown: each
+            # consumer's port decides what an absent input means, and
+            # sibling branches finish either way. A failure nothing
+            # tolerates is raised at the end of the run.
             try:
                 if nid in ahead:
-                    # Already run, alongside its siblings (000396). The
+                    # Already run, alongside its siblings. The
                     # bookkeeping below is this node's own and stays here,
                     # in topological order, so the manifest, the hashes
                     # and the emitted objects do not depend on which
@@ -735,22 +722,20 @@ class Pipeline:
                     self._on_node_done(nid, None, fingerprint)
                 bump()
                 continue
-            # Hash BEFORE emitting (000488). The hash canonical-encodes
-            # the result, so a result carrying a live object fails here,
-            # locally and by name — instead of being serialized by the
-            # emit path, rejected or dropped by the network, and read as
-            # a transport fault. That ordering hid a 6 GB result for a
-            # night; this one makes the same mistake a failing test.
-            # A collection is stored with its items in key order: the same
-            # items in any order are the same bytes.
+            # Hash BEFORE emitting. The hash canonical-encodes the
+            # result, so a result carrying a live object fails here,
+            # locally and by name, rather than reaching the emit path and
+            # failing as a transport fault. A collection is stored with
+            # its items in key order: the same items in any order are the
+            # same bytes.
             results[nid] = lexicon.canonical_collection(results[nid])
             # A result about a model's layers stays about them through
-            # every records op (000624): the landmarks on any input's
-            # header ride onto an output that has none.
+            # every records op: the landmarks on any input's header ride
+            # onto an output that has none.
             results[nid] = copy_arch(inputs, results[nid])
             node_hashes[nid] = resume_mod.content_hash(results[nid])
             if result_base and discard and not outputs_of.get(nid):
-                # Held, not emitted (000561): the consumers read it from
+                # Held, not emitted: the consumers read it from
                 # memory, a resume from the spool, and the API never sees
                 # the bytes. Its identity is its content hash, which the
                 # manifest records and its consumers' lineage cites.
@@ -780,14 +765,12 @@ class Pipeline:
                     target,
                     to_emit,
                     # Lineage names the inputs that EXIST. A node run
-                    # under `on_missing` (000399) has an upstream that
-                    # produced nothing and so stored nothing — there is
-                    # no path to cite, and citing the absence as a path
-                    # was a KeyError that failed the very run the policy
-                    # was keeping alive. `nodes_missing` on the manifest
-                    # is where the absence is recorded. An upstream HELD
-                    # rather than stored (discard mode) is cited by its
-                    # content hash, which is a path form of its own.
+                    # under `on_missing` has an upstream that produced
+                    # nothing and so stored nothing: there is no path to
+                    # cite, and the absence is recorded under
+                    # `nodes_missing` on the manifest instead. An upstream
+                    # HELD rather than stored (discard mode) is cited by
+                    # its content hash, which is a path form of its own.
                     inputs=list(dict.fromkeys([
                         *(cited for cited in (
                             node_paths.get(e["from"]["node"])
@@ -814,16 +797,14 @@ class Pipeline:
             # emitted object for `on_node_done` to record.
             if self._on_node_done is not None and nid not in held:
                 self._on_node_done(nid, node_paths.get(nid), fingerprint)
-            # An expanded node's items already covered its worth — the
-            # old unconditional bump made done overrun total by one per
-            # expanded node ("59/57 steps").
+            # An expanded node's items already covered its worth; bumping
+            # again would push `done` past `total` by one per such node.
             if not expanded:
                 bump()
 
         # A failure nobody answered for fails the run — which is every
-        # failure in a graph that declares no `on_missing` policy, so a
-        # protocol written before this behaves exactly as it did. What
-        # changed is WHEN: the sibling branches have finished by now.
+        # failure in a graph that declares no `on_missing` policy. It is
+        # raised here, once the sibling branches have finished.
         orphaned = [nid for nid in order if nid in failures
                     and nid not in tolerated]
         if orphaned:
@@ -879,26 +860,26 @@ class Pipeline:
             **({"output_nodes": dict(kept)} if declared_outputs is not None else {}),
             "nodes_executed": [nid for nid in order if nid not in missing],
             "node_paths": node_paths,
-            # Every node's content hash and its upstream nodes (000561):
-            # what a result's lineage verifies against when an
-            # intermediate was held rather than stored — and a record
-            # worth having either way.
+            # Every node's content hash and its upstream nodes: what a
+            # result's lineage verifies against when an intermediate was
+            # held rather than stored — and a record worth having either
+            # way.
             "node_hashes": {nid: node_hashes[nid] for nid in order if nid in node_hashes},
             "node_inputs": {nid: [e["from"]["node"] for e in sort_edges(edges, nid)]
                             for nid in order if nid in results and nid not in missing},
             **({"keep": keep, "nodes_held": sorted(held)} if discard else {}),
             # What each node produced, small enough to read beside the
-            # node in the composer without fetching its object (task
-            # 000525): the kind, and how many items or rows.
+            # node in the composer without fetching its object: the kind,
+            # and how many items or rows.
             "node_summaries": {nid: summarize_node(results[nid], spend_by_node.get(nid))
                                for nid in order if nid in results and nid not in missing},
-            # What did not run, and why (000399). A reader of this result
-            # must never have to infer an absence from a shorter list.
+            # What did not run, and why. A reader of this result must
+            # never have to infer an absence from a shorter list.
             **({"nodes_missing": {nid: missing[nid] for nid in order
                                   if nid in missing}} if missing else {}),
             "resolved": resolved,
-            # Where this ran (000402). Recorded, never fingerprinted:
-            # bit-identity is promised within a hardware class.
+            # Where this ran. Recorded, never fingerprinted: bit-identity
+            # is promised within a hardware class.
             "resources": {"hardware": hardware_class(),
                           **({"spend": total_spend(spend_by_node)}
                              if spend_by_node else {})},

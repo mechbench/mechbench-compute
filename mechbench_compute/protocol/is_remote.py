@@ -5,13 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-#: The blocks whose work is somebody else's network, not this machine's
-#: (task 000396). Two of these that do not depend on each other have no
-#: reason to wait for each other: the time is latency, and the provider
-#: is answering other people's requests anyway. Everything else stays
-#: serial — a local model node MUST (one model in memory, one fused
-#: adapter at a time), and a pure block takes microseconds, where a
-#: thread would be pure risk for no gain.
+#: The blocks whose work is somebody else's network, not this machine's.
+#: Two of these that do not depend on each other have no reason to wait
+#: for each other: the time is latency. Everything else stays serial — a
+#: local model node MUST (one model in memory, one fused adapter at a
+#: time), and a pure block takes microseconds, where a thread would be
+#: risk for no gain.
 REMOTE_BLOCKS = ("text/chat", "eval/judge")
 
 

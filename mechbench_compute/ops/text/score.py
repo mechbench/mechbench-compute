@@ -40,13 +40,11 @@ item has no token ids to replay and the block refuses it.
 
 
 def run(ctx, inputs, params):
-    """The Score model block: per-token surprisal (bits) under the
-    scoring model, over a TRACE-fidelity collection — the 019
-    backfill's rows-only scorer as a registered block. Values cover
-    every position (prompt and envelope included): surprisal of
-    token i given tokens < i. Output is a numeric AnnotationLayer
-    whose anchors are token spans, rendered by the DocBrowser as an
-    overlay on the collection it scores."""
+    """Per-token surprisal (bits) under the scoring model, over a
+    TRACE-fidelity collection. Values cover every position (prompt and
+    envelope included): surprisal of token i given tokens < i. The
+    output is a numeric annotation whose anchors are token spans, drawn
+    as an overlay on the collection it scores."""
     import numpy as _np
 
     model = ctx.model(params.get("model"))

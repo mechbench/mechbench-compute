@@ -287,8 +287,7 @@ def build_chart(records: Any, params: Mapping[str, Any],
     When the executor knows the input's label the spec REFERENCES it
     (`source`, lineage-true, so the chart re-renders as the data
     changes); otherwise the rows ride inline (`data.rows`) and the viz
-    stays self-contained. Renamed from `viz_spec` by task 000309 — "viz"
-    is the level of abstraction the primitive targets.
+    stays self-contained.
 
     Beyond the mark and the encoding, a figure carries what makes it a
     visualization rather than a chart (VISUALIZATION.md): prose
@@ -306,7 +305,7 @@ def build_chart(records: Any, params: Mapping[str, Any],
             f"records/plot mark must be one of {', '.join(MARKS)}, not {mark!r}")
     # A heat mark needs a third field — the cell's value — and a token
     # strip needs the tokens and the number that colours them; neither
-    # is an x/y pair (000616).
+    # is an x/y pair.
     value = enc.get("value") or params.get("value")
     text = enc.get("text") or params.get("text")
     if mark == "heat" and not (x and y and value):

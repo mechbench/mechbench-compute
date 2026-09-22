@@ -53,9 +53,9 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
     segments; each record gains a batch coordinate named after its
     input port. Collections never mutate — growth is union.
 
-    A union of vector collections stays a vector collection (task
-    000368): a base capture and an adapted capture come from two model
-    nodes, and `direction/fit` reads ONE collection whose items
+    A union of vector collections stays a vector collection: a base
+    capture and an adapted capture come from two model nodes, and
+    `direction/fit` reads ONE collection whose items
     are grouped on a coordinate — the port name, on the `batch_axis`
     coordinate, is that grouping. Every item carries its own `space`, so
     the header carries no union of layers. Cross-model comparison is a
@@ -103,7 +103,8 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
                 item = dict(r)
                 item["space"] = S.space_of(r, header=rec)
                 item["coords"] = {**S.coords_of(r), batch_axis: port}
-                # The retired flattened spelling is not carried forward.
+                # A flat `layer`/`head`/`label` on an item is dropped:
+                # its `space` and `coords` carry them.
                 for k in ("layer", "head", "label"):
                     item.pop(k, None)
                 rows.append(item)

@@ -101,8 +101,8 @@ For anything beyond one direction at one layer and position, use
 
 
 def run(ctx, inputs, params):
-    """intervene/steer — epic 000131 arc B: a
-    data-armed residual injection with an alpha sweep."""
+    """intervene/steer — a data-armed residual injection with an alpha
+    sweep."""
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
@@ -119,15 +119,15 @@ def steer_inject(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Steering as a block (epic 000131, arc B): build a direction from
-    a labeled residual_vectors record (centroid of `positive` minus
-    centroid of `negative` at the injection layer) and ADD it to each
-    eval prompt's residual stream at (layer, position), sweeping alpha.
-    The readout is the final-position top-k under each alpha — alpha 0
-    is the built-in control.
+    """Steering as a block: build a direction from a labeled vector
+    collection (centroid of `positive` minus centroid of `negative` at
+    the injection layer) and ADD it to each eval prompt's residual
+    stream at (layer, position), sweeping alpha. The readout is the
+    final-position top-k under each alpha — alpha 0 is the built-in
+    control.
 
     The direction comes from DATA flowing through the graph, not from a
-    hardcoded vector: the same residuals/vectors block that measures
+    hardcoded vector: the same `activations/capture` that measures
     geometry also arms the intervention.
     """
     from mechbench_compute.interventions import Patch
