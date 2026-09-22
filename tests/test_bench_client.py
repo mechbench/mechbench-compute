@@ -1,5 +1,5 @@
 """The bench client library — launch / watch / results_for / result, the
-unwrapping fetch, and credential discovery (task 000450).
+unwrapping fetch, and credential discovery.
 
 Every HTTP call funnels through `bench._request`; these scripts that one
 chokepoint and assert the shape of what goes out and what comes back. The
@@ -112,8 +112,8 @@ class TestLaunch:
         assert "budgetUsd" not in json.loads(fake.calls[-1]["body"])
 
     def test_it_binds_params_and_inputs_by_name_and_asks_to_keep(self, fake):
-        # The declared form (epic 000553): a path given for an input is
-        # the stored object it names; no legacy bindings are sent.
+        # The declared form: a path given for an input is the stored
+        # object it names, and that is the only binding sent.
         fake.add("POST", "/runs", {"id": "r", "jobId": "j"})
         bench.launch("p", params={"model": "gemma", "n": 12},
                      inputs={"prompts": "lab/p/prompts", "given": [{"id": "1"}]},
@@ -132,7 +132,7 @@ class TestLaunch:
 
 class TestCreateProtocol:
     def test_it_posts_the_graph_and_returns_the_bare_protocol(self, fake):
-        # The protocols routes still wrap (`{protocol: …}`, task 000456);
+        # The protocols routes still wrap (`{protocol: …}`);
         # the library unwraps once so no author does.
         fake.add("POST", "/protocols", {"protocol": {"id": "prt_1", "version": 1,
                                                      "name": "018-axes"}})
@@ -171,9 +171,9 @@ class TestCreateProtocol:
                                   params=[], signature={"inputs": [], "outputs": []})
 
 class TestRunningAnAuthorTwice:
-    """Task 000519. The second run is the protocol's second VERSION, not
-    a second protocol — which is what the bench has forty-two duplicate
-    rows because nobody did."""
+    """The second run is the protocol's second VERSION, not a second
+    protocol: re-launching an edited protocol under a new id is what
+    fills the bench with duplicate rows."""
 
     @staticmethod
     def _taken(pid="prt_1", version=1):
@@ -222,8 +222,8 @@ PUBLISHED_VERSION = {"protocolId": "prt_1", "version": 2, "ownerHandle": "benji"
 
 
 class TestPublishing:
-    """Epic 000535: an author script publishes the exact version an
-    article will embed (task 000542)."""
+    """An author script publishes the exact version an article will
+    embed."""
 
     def test_publish_answers_the_public_page_and_the_unpublished_includes(self, fake):
         fake.add("POST", "/versions/2/publish",
@@ -262,7 +262,7 @@ class TestCopy:
 
 
 class TestDelete:
-    """Task 000545: one verb for every deletable thing, a dry run first."""
+    """One verb for every deletable thing, a dry run first."""
 
     def test_an_id_names_its_route_and_a_path_is_an_object(self, fake):
         fake.add("DELETE", "https://api.test/", {"ok": True})

@@ -1,4 +1,4 @@
-"""`activations/examples` (task 000615): the windows that most excite a
+"""`activations/examples`: the windows that most excite a
 direction, kept without holding the corpus."""
 
 from __future__ import annotations

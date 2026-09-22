@@ -1,5 +1,4 @@
-"""Tool dialects, checked against what each model's own template renders
-(epic 000439).
+"""Tool dialects, checked against what each model's own template renders.
 
 Two layers:
 
@@ -60,8 +59,8 @@ class TestIdentification:
 
 
 class TestParsingWhatTheTemplatesRender:
-    """The point of the epic: read back what the model's own template
-    writes, rather than what we wish it wrote."""
+    """Read back what the model's own template writes, rather than
+    what we wish it wrote."""
 
     @pytest.mark.parametrize("repo,name", sorted(EXPECTED.items()))
     def test_the_rendered_call_parses_back_exactly(self, repo, name):
@@ -137,8 +136,8 @@ class TestRefusal:
 @pytest.mark.skipif(os.environ.get("MECHBENCH_MODEL_TESTS") != "1",
                     reason="needs the real tokenizers (MECHBENCH_MODEL_TESTS=1)")
 class TestLiveRoundTrip:
-    """The conformance test the epic is built around. The fixtures can
-    go stale; this cannot."""
+    """The conformance test the fixtures stand in for: they can go
+    stale, this cannot."""
 
     @pytest.mark.parametrize("repo,name", sorted(EXPECTED.items()))
     def test_render_then_parse_recovers_the_call(self, repo, name):

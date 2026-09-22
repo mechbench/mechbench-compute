@@ -1,10 +1,9 @@
 """Weight space: the model's parameters, and what training wrote to them.
 
-Every readout the lexicon had until 0.81.2 reads an activation at a hook
-point during a forward pass — what the model did on this input. A
-parameter answers a different question: what the model IS, and what
-training changed. Neither needs a prompt, a sample, or anything to be
-representative of (weights-as-points, tasks 000457 and 000458).
+Most readouts read an activation at a hook point during a forward pass
+— what the model did on this input. A parameter answers a different
+question: what the model IS, and what training changed. Neither needs a
+prompt, a sample, or anything to be representative of.
 
 Three readouts live here:
 
@@ -46,9 +45,8 @@ The numbers each module gets:
   "where did training write" map, summing to 1 across the adapter.
 - **vector** — the principal left-singular direction, in the module's
   OUTPUT space, when asked for. Two adapters' writes at the same
-  module are comparable through it (`geometry/compare`), which is
-  experiment 018's cosine question asked of the weights instead of the
-  activations.
+  module are comparable through it (`geometry/compare`) — the cosine
+  question asked of the weights instead of the activations.
 """
 
 from __future__ import annotations
@@ -74,6 +72,6 @@ from mechbench_compute.weights.truncate import truncate  # noqa: F401
 from mechbench_compute.weights.compute_effective_rank import compute_effective_rank  # noqa: F401
 
 
-# --- a head's circuits, read from the weights alone (task 000610) -----------------
+# --- a head's circuits, read from the weights alone -----------------------------
 
 

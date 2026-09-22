@@ -1,4 +1,4 @@
-"""Joins under partial failure (task 000399)."""
+"""Joins under partial failure."""
 from __future__ import annotations
 
 import pytest
@@ -64,7 +64,7 @@ class TestDefaultIsUnchanged:
     def test_the_sibling_branch_finishes_first(self, monkeypatch):
         # The failure is raised at the end of the run, so the good branch
         # has already run — which is what makes the parallel scheduler
-        # (000396) safe: siblings settle before the status does.
+        # safe: siblings settle before the status does.
         from mechbench_compute.ops.records import fill
 
         real = fill.run

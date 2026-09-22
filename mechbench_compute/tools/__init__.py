@@ -1,4 +1,4 @@
-"""Tools as blocks (task 000340, epic 000334).
+"""Tools as blocks.
 
 A tool is not a special kind of code. It is a name, a JSON Schema, and
 a HANDLER that is an ordinary block — so anything the platform can
@@ -50,11 +50,9 @@ from mechbench_compute.tools.build_toolbox import BUILTIN_TOOLS, build_toolbox  
 
 
 # The tool protocol lives in `dialects`, taken from each model's own
-# chat template (epic 000439). What stood here — a markdown fence we
-# invented, a parser for it, and two more parsers for the shapes models
-# degraded into when prompted with it — is deleted rather than left
-# beside the real thing: two ways to read a tool call is how the next
-# reader picks the wrong one.
+# chat template. There is one way to read a tool call and no fence of
+# our own beside it: two ways to read one is how the next reader picks
+# the wrong one.
 
 
 def _loads(raw: str) -> Any:

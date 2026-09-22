@@ -40,7 +40,7 @@ def build_item(rec: Mapping[str, Any], k: int, text: str, *,
         # call by call. The final snapshot's digest is the last one.
         meta["sandbox"] = [c.to_wire() for c in sandbox_calls]
     if sandbox_snapshot is not None:
-        # The final workspace as a browsable fs-snapshot (task 000362).
+        # The final workspace as a browsable fs-snapshot.
         meta["sandbox_final"] = sandbox_snapshot
     tool_parts = [p.to_wire() for p in parts
                   if not isinstance(p, pm.TextPart)]

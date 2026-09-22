@@ -1,5 +1,4 @@
-"""The budget cap (task 000337; mandatory on every remote node per
-Benji's decision, 000334).
+"""The budget cap, mandatory on every remote node.
 
 A cap that is checked after the fact is an epitaph, not a control. So
 the order is: count the input tokens, price the worst case (input +
@@ -86,8 +85,8 @@ class Budget:
 
 def build_budget(params, *, required: bool = True) -> Budget:
     """A node's Budget from its params. Remote nodes MUST declare one —
-    the api refuses the protocol without it (000335), and this is the
-    second gate, in the executor, for a spec that got in another way."""
+    the api refuses the protocol without it, and this is the second
+    gate, in the executor, for a spec that got in another way."""
     cap = params.get("budget_usd") if hasattr(params, "get") else None
     if cap is None:
         if required:

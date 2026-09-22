@@ -1,5 +1,5 @@
 """`bench.emit` refuses a body over the API's object limit before any
-bytes leave the machine (task 000484).
+bytes leave the machine.
 
 The server returns 413 for the same ceiling; this is the version that
 says so in one line instead of after five retries of a minute each.

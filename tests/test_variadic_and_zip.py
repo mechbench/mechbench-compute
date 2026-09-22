@@ -1,10 +1,11 @@
-"""Variadic ports and `records/zip` (tasks 000397, 000398).
+"""Variadic ports and `records/zip`.
 
-Two edges into one port used to keep whichever came LAST in the graph's
-edge list — silently, and the winner depended on the order the author
-wrote the lines in. A port now says how many edges it takes: one, or
-several in a declared order. `records/zip` is the first op to want
-several, and is what proves the ordering is real.
+With nothing saying how many edges a port takes, two edges into one
+port silently keep whichever comes LAST in the graph's edge list — a
+winner decided by the order the author wrote the lines in. A port says
+how many edges it takes: one, or several in a declared order.
+`records/zip` is the op that wants several, and is what proves the
+ordering is real.
 """
 
 from __future__ import annotations
@@ -93,7 +94,7 @@ class TestTwoEdgesIntoOnePort:
             ProtocolExecutor().run(self._spec())
         msg = str(e.value)
         assert "port 'records' takes one edge; 2 arrive" in msg
-        assert "silently won" in msg          # says what used to happen
+        assert "silently won" in msg          # the message names the failure
 
 
 class TestZip:

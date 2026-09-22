@@ -1,4 +1,4 @@
-"""Filesystem snapshots as values (task 000358).
+"""Filesystem snapshots as values.
 
 The whole sandbox rests on one property: identical content must
 produce an identical hash, on any machine, in any order. Most of what

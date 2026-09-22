@@ -54,9 +54,9 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     # buckets, and nothing persisted names a secret.
     scope = str(params.get("limit_scope") or pl.scope_for(provider, creds))
 
-    # Tools are ordinary blocks (task 000340); each item gets its own
-    # toolbox so the runs it records are its own even under the pool. A
-    # `sandbox` image (000360) adds its tools and a per-item session.
+    # Tools are ordinary blocks; each item gets its own toolbox so the
+    # runs it records are its own even under the pool. A `sandbox` image
+    # adds its tools and a per-item session.
     image, tool_specs = resolve_sandbox_tools(params)
     max_tool_rounds = int(params.get("max_tool_rounds", 3))
     block_runner = params.get("_block_runner")
@@ -79,9 +79,9 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         for k in range(start, start + n):
             key = f"{rec.get('id')}:{k}"
             if resume_items and key in resume_items:
-                # Exchangeable (epic 000320): this item was paid for
-                # once, by this same process identity. Reuse it rather
-                # than buy it again.
+                # Exchangeable: this item was paid for once, by this
+                # same process identity. Reuse it rather than buy it
+                # again.
                 items.append(resume_items[key])
                 if on_item:
                     on_item(key, resume_items[key], True)

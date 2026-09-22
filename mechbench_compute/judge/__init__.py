@@ -1,9 +1,8 @@
-"""`eval/judge` — model-graded scoring (task 000356, epic
-000334).
+"""`eval/judge` — model-graded scoring.
 
-The first real consumer of hosted models on the bench: a judge reads
-records (or transcripts) against a rubric and returns a score, a label,
-or a preference — with its reasoning, its provenance, and its cost.
+A judge reads records (or transcripts) against a rubric and returns a
+score, a label, or a preference — with its reasoning, its provenance,
+and its cost.
 
 Three commitments make a judge's numbers usable rather than merely
 available:

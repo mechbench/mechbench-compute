@@ -1,4 +1,4 @@
-"""The sandbox session and its tools (task 000360).
+"""The sandbox session and its tools.
 
 Snapshot-only tools (read_file / write_file / list) need no guest and
 run everywhere. The shell-backed tools (bash / find / grep) run the
@@ -336,7 +336,7 @@ def both_guests(tmp_path_factory):
 
 @needs_python
 class TestThePythonGuest:
-    """CPython over the same snapshot as the shell (task 000453). The
+    """CPython over the same snapshot as the shell. The
     guest is installed with its standard library as a read-only mount;
     the session picks it for `python` and mbshell for `bash`, sharing
     one workspace."""

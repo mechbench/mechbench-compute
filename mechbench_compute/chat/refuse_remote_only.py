@@ -4,11 +4,11 @@ from collections.abc import Mapping
 from typing import Any
 
 #: Params the remote path implements by asking the provider for them,
-#: and the local path has no equivalent of (task 000509). The remote
-#: path refuses these by name when the provider cannot honour them
+#: and the local path has no equivalent of. The remote path refuses
+#: these by name when the provider cannot honour them
 #: (`providers.base.check_supported`); the local path refuses them
 #: outright, because a request field nobody reads is a wrong answer
-#: with no error — the failure 000438 exists to prevent.
+#: with no error.
 _REMOTE_ONLY = {
     "json_mode": "no local decoder constrains output to JSON; "
                  "ask for JSON in the prompt, or run this node on a provider",

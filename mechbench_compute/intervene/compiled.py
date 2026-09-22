@@ -12,7 +12,7 @@ class Compiled:
     """A spec list parsed against a model: the activation items as
     `Spec`s, the weight items as written, and the items as filled from
     the ports — what lineage records. `at(cell)` re-parses the items
-    with a sweep cell's fields overridden (000602)."""
+    with a sweep cell's fields overridden."""
 
     def __init__(self, specs: list[Spec], weight_items: list[dict[str, Any]],
                  filled: list[dict[str, Any]], *,

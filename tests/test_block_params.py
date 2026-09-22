@@ -1,21 +1,16 @@
-"""The param declarations must cover every op, and must not drift (000438, 000478).
+"""The param declarations must cover every op, and must not drift.
 
 Declaring params per block buys a loud failure when a protocol asks for
 something a block cannot do. Two bugs sit either side of that:
 
 * **Under-declaring** refuses a param the block does read — a false
   refusal, for no reason the author can see.
-* **Over-declaring** accepts a param the block never reads, which is
-  precisely the failure 000438 exists to prevent: six variety jobs
-  declared `center: true`, all six succeeded, all six were uncentered.
-  Declaring a port name as a param does exactly this, and `vectors/mst`
-  was doing it.
+* **Over-declaring** accepts a param the block never reads, which is a
+  wrong answer with no error: a job can declare `center: true`, succeed,
+  and be uncentered. Declaring a port name as a param does exactly this.
 
 So this reads the source and asserts the table equals what the code
-reads, in both directions, for EVERY registered op. 000438 made
-declaration opt-in on purpose ("listing all forty at once would be a
-refactor with no failing test behind it"); 000478 is that refactor, and
-this is the failing test behind it.
+reads, in both directions, for EVERY registered op.
 
 Finding what a block reads is not a one-function grep. A block is often a
 thin wrapper in `protocol.py` that hands `params` to a module elsewhere
@@ -302,8 +297,8 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
 }
 
 #: Params a block genuinely reads somewhere the scanner cannot follow —
-#: each with the reason, in the 000438 spirit that an exemption is a
-#: statement, not a shrug. Empty is the goal.
+#: each with the reason, because an exemption is a statement, not a
+#: shrug. Empty is the goal.
 EXEMPT: dict[str, dict[str, str]] = {}
 
 #: Names a block reads off `inputs` that are not ports — each with the
@@ -496,8 +491,8 @@ def registered_ops() -> set[str]:
 # --- the gate ----------------------------------------------------------------
 
 def test_every_registered_op_is_declared():
-    """000478: opt-in declaration left 46 of 54 ops unchecked, which is
-    the 000438 hole standing open everywhere it was not found."""
+    """Every registered op declares its params. One left out accepts
+    anything and silently ignores what it does not read."""
     missing = sorted(registered_ops() - set(ACCEPTED))
     assert not missing, (
         f"{len(missing)} registered ops declare no params: {missing}. "
@@ -529,9 +524,9 @@ def test_the_declaration_covers_what_the_block_reads(ref):
 
 @pytest.mark.parametrize("ref", sorted(SITES))
 def test_the_declaration_claims_nothing_the_block_ignores(ref):
-    """Over-declaring is the 000438 bug itself: accepted, and silently
-    ignored. `vectors/mst` declared `similarity`, which is an input PORT
-    it reads from `inputs`, never a param."""
+    """A param the block never reads is accepted and silently ignored.
+    A port name declared as a param does exactly that: `similarity` is
+    read from `inputs`, never from params."""
     read = params_read(SITES[ref])
     exempt = set(EXEMPT.get(ref, {}))
     claimed = sorted(ACCEPTED[ref] - read - COMMON - exempt)
@@ -557,8 +552,8 @@ def test_the_declaration_covers_every_port_the_block_reads(ref):
 
 @pytest.mark.parametrize("ref", sorted(SITES))
 def test_the_declaration_claims_no_port_the_block_ignores(ref):
-    """A declared port nothing reads is the 000438 bug on the input side:
-    wired, accepted, and silently unused."""
+    """A declared port nothing reads is wired, accepted, and silently
+    unused."""
     op = BY_NAME[ref]
     declared = {p.name for p in op.inputs if not p.wildcard}
     claimed = sorted(declared - ports_read(ref))
@@ -643,9 +638,8 @@ def test_the_prompt_objects_the_experiments_stored_are_record_collections():
 
 
 def test_a_port_given_as_a_param_is_refused_by_name():
-    """A protocol stored before inputs left ports (0.78.0) put a port's
-    value under `params`. That was lifted onto the port with a warning
-    until 0.82.0, and is refused now — by name, saying it is a port."""
+    """A port's value given under `params` is refused by name, saying
+    it is a port. Nothing lifts it onto the port."""
     from mechbench_compute import protocol
 
     assert not hasattr(protocol, "_lift_port_params"), \

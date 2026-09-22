@@ -1,4 +1,4 @@
-"""Fetch-on-first-use guests (task 000359). No network, no real
+"""Fetch-on-first-use guests. No network, no real
 guest: the contract is about hashes, and hashes can be tested with
 any bytes."""
 from __future__ import annotations

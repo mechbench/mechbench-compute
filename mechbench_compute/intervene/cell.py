@@ -16,7 +16,7 @@ class Cell:
         self.coords = dict(coords)
         #: A one-word name for the cell, when the sweep runs axes beyond
         #: strength; None when it does not, so a strength-only sweep's
-        #: rows are identified by `factor` exactly as they always were.
+        #: rows are identified by `factor` alone.
         self.label = label
 
     @property
@@ -25,8 +25,8 @@ class Cell:
 
     @property
     def slug(self) -> str:
-        """The cell in an id: `f1` for a strength-only sweep, as it has
-        always been; `layer0`, `factor2-layer3` when other axes run."""
+        """The cell in an id: `f1` for a strength-only sweep; `layer0`,
+        `factor2-layer3` when other axes run."""
         if not self.label:
             return f"f{self.factor:g}"
         return self.label.replace("=", "").replace("/", "-")

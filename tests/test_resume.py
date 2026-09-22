@@ -1,5 +1,5 @@
-"""Bit-identical resume (epic 000320, task 000322) — the acceptance
-tests that define the semantics.
+"""Bit-identical resume — the acceptance tests that define the
+semantics.
 
 For an item-resumable block: run a pipeline to completion; run it
 again with an interruption after item j, collecting what the runner

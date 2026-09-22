@@ -1,5 +1,5 @@
-"""The mock provider (task 000350 — built FIRST, so nothing in this
-epic ever needs a real key to be tested).
+"""The mock provider, so nothing in the provider layer needs a real
+key to be tested.
 
 Its responses are a deterministic function of the canonical request:
 the same conversation always gets the same answer, on any machine, at

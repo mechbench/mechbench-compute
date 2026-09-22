@@ -1,5 +1,4 @@
-"""`text/chat` — one block for local weights and remote
-endpoints (task 000337, epic 000334).
+"""`text/chat` — one block for local weights and remote endpoints.
 
 The same node, the same params, the same output kind, whichever side of
 the network answers:

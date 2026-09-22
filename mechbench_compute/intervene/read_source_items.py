@@ -19,9 +19,9 @@ def read_source_items(source: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     if ik == "activations/vector":
         return list(K.items_of(source))
     if ik == "intervene/readout":
-        # A capture readout stored before 0.110.0 nested its vectors under
-        # each row's `captures`; since then a capture readout IS an
-        # `activations/vector` collection and takes the branch above.
+        # A stored readout of this kind nests its vectors under each
+        # row's `captures`; a capture readout that IS an
+        # `activations/vector` collection takes the branch above.
         out: list[Mapping[str, Any]] = []
         for item in K.items_of(source):
             caps = item.get("captures")

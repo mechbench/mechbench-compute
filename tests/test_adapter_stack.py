@@ -1,4 +1,4 @@
-"""Sequential adapter fusing (task 000312 Arc B).
+"""Sequential adapter fusing.
 
 What is worth asserting is the SEQUENCING, with the fuse math faked:
 stacks fuse left to right, restore runs strictly in reverse, and the
@@ -26,7 +26,7 @@ def recorded(monkeypatch):
     monkeypatch.setattr(
         lora,
         "fuse",
-        # `**kw`: fuse also takes skip_missing / skipped (0.64.0); the
+        # `**kw`: fuse also takes skip_missing / skipped; the
         # stack's sequencing is what is under test, not those.
         lambda lm, weights, scale, **kw: calls["fused"].append((weights, scale)) or f"h{len(calls['fused'])}",
     )

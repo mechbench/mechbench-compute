@@ -1,4 +1,4 @@
-"""Directions as first-class objects (task 000367, epic 000364).
+"""Directions as first-class objects.
 
 A `direction/vector` is a unit vector in a model's activation space
 with provenance: how it was made (difference of means, PCA, a probe's

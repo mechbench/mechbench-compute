@@ -139,7 +139,7 @@ def test_weights_expectation_kind():
     assert row["pass"] is True
 
 
-# --- list (000548): drawn lists, parsed out of the model's own envelope ---
+# --- list: drawn lists, parsed out of the model's own envelope ---
 
 GENRES = ["Fiction", "Mystery", "Mystery Thriller", "Humor", "Witches"]
 LISTS = [

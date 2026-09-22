@@ -218,13 +218,12 @@ class TestAblateLayers:
 
 
 class TestRenderingIsOnTheResult:
-    """A result says how its prompts reached the model (000596).
+    """A result says how its prompts reached the model.
 
-    A record with only `text` renders RAW, with no chat template, and an
-    instruct model completing raw text answers with function words. Six
-    L23 runs measured exactly that, and nothing on the result said so —
-    the target token reading " the" was the only trace, a symptom. Now
-    the condition says `template: "raw"` in as many words.
+    A record with only `text` renders RAW, with no chat template, and
+    an instruct model completing raw text answers with function words.
+    The only trace of that in the numbers is a target token reading
+    " the", so the condition says `template: "raw"` in as many words.
     """
 
     def test_ablation_records_raw_and_chat(self):
@@ -247,7 +246,7 @@ class TestRenderingIsOnTheResult:
 
 class TestOwnTop1BesideATarget:
     """A tracked target that is not the model's answer is reported
-    beside the model's answer (000597)."""
+    beside the model's answer."""
 
     def test_a_target_the_model_would_not_say_is_flagged(self):
         model = StubModel()
@@ -259,7 +258,7 @@ class TestOwnTop1BesideATarget:
         assert "own_top1" in c and c["own_top1"]["id"] != c["target"]["id"]
         assert "logp" in c["own_top1"]
         # …and the header counts them, so a sweep over the wrong spelling
-        # announces itself at the top (000609's lesson).
+        # announces itself at the top.
         assert out["n_off_top1"] == 1
 
     def test_the_models_own_answer_is_not_flagged_against_itself(self):
@@ -276,7 +275,7 @@ class TestResidualVectors:
             model, [{"id": "c", "user": "aa bbb", "label": "en"}],
             {"layers": [1], "position": "final"})
         row = out["items"][0]
-        # The retired `label` field becomes the `label` coordinate.
+        # A top-level `label` field becomes the `label` coordinate.
         assert row["coords"] == {"label": "en"} and "label" not in row
         assert row["space"] == {"model": None, "layer": 1, "point": "resid_post", "head": None, "d": D_MODEL}
         # final token of "aa bbb" is id 1+(3%7)=4; layer 1 scale = 2
@@ -302,7 +301,7 @@ class TestResidualVectors:
 
 
 class TestCaptureTokens:
-    """One vector per token, each carrying its own surprisal (000594)."""
+    """One vector per token, each carrying its own surprisal."""
 
     def test_a_row_per_position_per_layer(self):
         model = StubModel()
@@ -343,7 +342,7 @@ class TestCaptureTokens:
                                   {"layers": "all", "storage": "json"})
 
     def test_above_the_ceiling_auto_writes_shards(self, monkeypatch):
-        # The rows go to shards beside the object (000613): the result
+        # The rows go to shards beside the object: the result
         # is the header, its items empty, and read back through
         # items_of they are the same rows the json form would carry.
         from mechbench_compute import tensors
@@ -372,7 +371,7 @@ class TestCaptureTokens:
 
 
 class TestPooledPositions:
-    """Pooling over the sequence (000431).
+    """Pooling over the sequence.
 
     The stub puts `layer + 1` at dimension `token_id % D_MODEL` for
     each position, so "aa bbb" at layer 1 is three one-hot rows of 2.0
@@ -892,9 +891,8 @@ class TestSteerTracks:
 
 
 class TestEmptyDocuments:
-    """A frontier model returned five completions with 250 output
-    tokens and no text (experiment 024): the adapter had dropped
-    content blocks it did not map. Embedding such a record is
+    """A model can answer with output tokens and no text — an adapter
+    dropping content blocks it does not map. Embedding such a record is
     impossible, and skipping it must change n visibly."""
 
     def test_a_document_is_embedded_by_its_text(self):

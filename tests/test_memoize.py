@@ -1,8 +1,8 @@
-"""Memoized remote calls (task 000355, epic 000334).
+"""Memoized remote calls.
 
-The point is money: experiment 024's judged sweep cost $4.44, and the
-capability arm ran six times. Re-running an unchanged remote node must
-not buy the same answers again.
+The point is money: a judged sweep costs real dollars and an arm of
+it is run many times. Re-running an unchanged remote node must not buy
+the same answers again.
 """
 from __future__ import annotations
 

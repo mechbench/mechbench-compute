@@ -1,4 +1,4 @@
-"""The WASI sandbox runtime (task 000359) against the real guest.
+"""The WASI sandbox runtime against the real guest.
 
 Every test here runs mbshell — go-busybox's applets behind an
 in-process shell, standard Go compiled to wasip1; the actual binary,

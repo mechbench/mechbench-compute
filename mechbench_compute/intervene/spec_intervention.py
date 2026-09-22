@@ -14,7 +14,7 @@ class SpecIntervention:
     that runs the sequence in chunks — the prompt, then one token per
     step — calls `on_token` with each token it produces, so a selector
     like `{"tokens": ["lighthouse"]}` or `"generated"` sees the words
-    as they arrive (000601)."""
+    as they arrive."""
 
     def __init__(self, specs: Sequence[Spec], tokens: Sequence[str],
                  record: Mapping[str, Any] | None = None,

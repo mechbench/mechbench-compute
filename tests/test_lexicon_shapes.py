@@ -321,7 +321,7 @@ def test_what_an_op_emits_instead_is_declared_against_the_node(op: Op) -> None:
         if o.param is not None:
             # A dotted path names a field of a structured param
             # (`readout.type`), the way `$param` paths and the dataflow
-            # checker's `_declared_at` already walk them (000599).
+            # checker's `_declared_at` already walk them.
             fields = list(op.params)
             p = None
             for key in o.param.split("."):

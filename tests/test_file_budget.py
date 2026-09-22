@@ -1,4 +1,4 @@
-"""No file is over the size budget (docs/OPS_LAYOUT.md; task 000632).
+"""No file is over the size budget (docs/OPS_LAYOUT.md).
 
 The layout's whole claim is that an agent can read one file and know one
 thing. A 3,000-line module breaks that claim silently: nothing fails, the
@@ -6,11 +6,9 @@ file just stops being readable, and the next person to need one operation
 out of it reads all of it. Nothing else in the suite notices, so this
 does.
 
-It is a RATCHET rather than a line in the sand. The nine files below were
-already over the budget when the gate went in, and refusing them outright
-would have meant either a day of unrelated refactoring or a gate nobody
-turns on. Instead each is listed at the length it had that day, and the
-list is the only thing the gate is lenient about:
+It is a RATCHET rather than a line in the sand. The files below are
+over the budget, each listed at the length it had when it was listed,
+and that list is the only thing the gate is lenient about:
 
   - a file NOT listed must be at or under the budget — a new one over it
     fails, and so does an existing one that grows past it;
@@ -23,9 +21,7 @@ smaller. When it is empty the gate is the plain rule the layout doc
 states.
 
 Adding a line to a listed file is not a crime — it is a prompt to take
-the same number of lines out of it, or to split it, which is what the
-ops move (000628) and the executor split (000632) did to the two worst
-offenders.
+the same number of lines out of it, or to split it.
 """
 
 from __future__ import annotations
@@ -39,7 +35,7 @@ PKG = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
 #: A file an agent can read in one sitting.
 BUDGET = 600
 
-#: The files over the budget on 2026-09-21, at the length they were then.
+#: The files over the budget, at the length each had when it was listed.
 #: Each is a debt, not a dispensation — see the module docstring.
 OVER_BUDGET: dict[str, int] = {
     "lexicon/kinds.py": 1101,

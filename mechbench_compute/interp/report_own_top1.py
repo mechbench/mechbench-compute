@@ -10,7 +10,7 @@ from mechbench_compute import shapes as S
 def report_own_top1(model, tok: int, lp: np.ndarray | None) -> dict[str, Any]:
     """`{"own_top1": token}` when the model's own top-1 under `lp` is not
     the target being measured — empty when it is, or when there is no
-    baseline to ask (task 000597).
+    baseline to ask.
 
     A tracked target that is not the model's answer is often the point
     (measure THIS token's dependence), so this refuses nothing. But it

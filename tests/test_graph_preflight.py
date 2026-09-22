@@ -1,12 +1,11 @@
-"""A graph that cannot run says so before it runs anything (000512).
+"""A graph that cannot run says so before it runs anything.
 
-Block resolution used to happen node by node, in execution order, so a
-protocol whose last node was misspelled computed everything upstream of
-it first — one 014 trace spent five resumes and the better part of a day
-to arrive at a refusal that was decidable at load. Every node's
-operation is checked once, up front, and every bad one is reported: a
-protocol being carried forward from retired spellings usually has more
-than one.
+Resolving blocks node by node, in execution order, means a protocol
+whose last node is misspelled computes everything upstream of it first —
+hours of work to arrive at a refusal that was decidable at load. So
+every node's operation is checked once, up front, and every bad one is
+reported: a protocol carried forward from retired spellings usually has
+more than one.
 """
 
 from __future__ import annotations
@@ -76,9 +75,9 @@ class TestPreflight:
 
 
 class TestParamsAndPorts:
-    """Task 000513. A param no block accepts, an edge onto a port that
-    does not exist, and a required port with nothing on it are all
-    decidable at load: params are static and the wiring is the graph."""
+    """A param no block accepts, an edge onto a port that does not
+    exist, and a required port with nothing on it are all decidable at
+    load: params are static and the wiring is the graph."""
 
     def test_the_failure_that_motivated_this(self, monkeypatch):
         # The 014 trace: an August graph whose LAST node passed
@@ -116,7 +115,7 @@ class TestParamsAndPorts:
             ProtocolExecutor().run(spec)
         msg = str(e.value)
         assert "2 problems" in msg
-        assert "records/summarize" in msg      # the retired block
+        assert "records/summarize" in msg      # the unresolvable block
         assert "facters" in msg                 # the misspelled param
 
     def test_an_edge_onto_a_port_that_does_not_exist(self):

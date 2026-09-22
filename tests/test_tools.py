@@ -1,4 +1,4 @@
-"""Tools as blocks (task 000340): the toolbox, the two first tools,
+"""Tools as blocks: the toolbox, the two first tools,
 local parsing, and the tool loop in a chat node — including the turn of
 a conversation, which is a chat node with a transcript on either side.
 
@@ -101,10 +101,8 @@ class TestTheToolbox:
             T.build_toolbox(["telepathy"])
 
 
-# `TestLocalParsing` stood here. It tested the markdown fence we
-# invented and the parsers for it — all deleted in 0.43.0. The same
-# ground is covered by `test_dialects.py`, against what each model's
-# own chat template actually renders.
+# Local tool-call parsing is covered by `test_dialects.py`, against
+# what each model's own chat template actually renders.
 
 
 class TestTheRemoteToolLoop:
@@ -204,9 +202,8 @@ class TestToolsInAConversation:
 
 class TestThroughTheExecutor:
     def test_decision_read_is_available_as_a_tool(self, monkeypatch):
-        """A model that can consult another model mid-turn (task
-        000340's third first-tool): the handler is a MODEL block, which
-        only the executor can run."""
+        """A model that can consult another model mid-turn: the
+        handler is a MODEL block, which only the executor can run."""
         from mechbench_compute.protocol import ProtocolExecutor
 
         ex = ProtocolExecutor()

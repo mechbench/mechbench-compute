@@ -1,4 +1,4 @@
-"""Path patching (task 000607): a sender's effect through one receiver,
+"""Path patching: a sender's effect through one receiver,
 everything between them held clean."""
 
 from __future__ import annotations

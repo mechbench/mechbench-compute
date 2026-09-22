@@ -1,4 +1,4 @@
-"""Where a model's reasoning is, in the tokens it produced (000592)."""
+"""Where a model's reasoning is, in the tokens it produced."""
 
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ class TestSelector:
 
 class TestThroughTheTurn:
     """A conversation keeps each turn's reasoning and does not replay it
-    into the room (000592). `text/render` decides what comes back;
+    into the room. `text/render` decides what comes back;
     `text/extend` is what wrote it down."""
 
     def _history(self):

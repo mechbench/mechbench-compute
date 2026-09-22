@@ -1,4 +1,4 @@
-"""The fingerprint contract (task 000433).
+"""The fingerprint contract.
 
 A run that errors is a nuisance. A run that returns different numbers
 with no signal is a corrupted finding that gets written up and built
@@ -49,8 +49,8 @@ class TestWhatMovesTheFingerprint:
         assert a == b
 
     def test_adding_a_param_moves_it(self):
-        # The 000431 case: `pool` is new, and a record made with it is
-        # not the record made without it.
+        # A param added to the set moves the fingerprint: a record
+        # made with `pool` is not the record made without it.
         assert fp(params={**BASE["params"], "pool": "mean"}) != fp()
 
 
@@ -79,13 +79,11 @@ class TestWhatDoesNotMoveIt:
 
 class TestTheVersionIsHonest:
     """`core_version` is `mechbench_compute.__version__`, which reads
-    installed dist METADATA — a promise the source need not keep.
-
-    Observed on this project: the runner's repo venv reported 0.20.0
-    while executing 0.36.0 code, sixteen versions of drift, because an
-    editable install's metadata only updates when someone reinstalls.
+    installed dist METADATA — a promise the source need not keep, since
+    an editable install's metadata only updates when someone reinstalls.
     Since params are hashed as declared, that string is the ONLY guard
-    against reusing work computed by different code."""
+    against reusing work computed by different code, so a source import
+    must report a digest of the tree it is actually running."""
 
     def test_a_source_import_reports_its_source(self):
         # This suite runs against the source tree, so the version must
@@ -112,8 +110,8 @@ class TestTheVersionIsHonest:
     def test_a_source_import_labels_itself_with_the_tree_s_own_number(self):
         # The label beside the digest is the checkout's pyproject
         # version, not the metadata of whenever `pip install -e` last
-        # ran — the docs site was stamped "0.60.0+src…" from a tree at
-        # 0.74.0 because nobody reinstalls on a bump.
+        # ran: nobody reinstalls on a bump, so the metadata's number
+        # names a tree that is no longer there.
         import pathlib
         import re
 

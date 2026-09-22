@@ -1,4 +1,4 @@
-"""MST-based variety (task 000430).
+"""MST-based variety.
 
 The measure has to tell three corpus shapes apart: collapsed (every
 item the same), clustered (genre attractors with bridges between them),
@@ -116,8 +116,8 @@ class TestTheBlock:
         assert out["metric"] == "cosine" and out["over"] == "activations/vector"
 
     def test_a_table_reads_the_items_directly(self):
-        # One item per group, and `records/tabulate` reads them as rows: the
-        # flat duplicate the old shape carried is gone.
+        # One item per group, and `records/tabulate` reads them as
+        # rows — there is no flat duplicate beside them.
         out = PURE_BLOCKS["geometry/span"](
             {"similarity": similarity_of(corpus("even"))}, {})
         item = out["items"][0]
@@ -133,8 +133,7 @@ class TestTheBlock:
 
 class TestCentering:
     """Anisotropy: transformer vectors sit in a narrow cone, so raw
-    cosine mostly measures the cone. Centering removes it (000431
-    follow-up, found when 024's pooled re-run disagreed with itself)."""
+    cosine mostly measures the cone. Centering removes it."""
 
     def _cone(self, n=40, d=16, spread=0.05, seed=0):
         """Vectors with a large shared component and small differences —
@@ -188,7 +187,7 @@ class TestCentering:
 
 
 class TestParamChecking:
-    """000438: a block must refuse a param it cannot honour."""
+    """A block must refuse a param it cannot honour."""
 
     def test_an_unknown_param_is_refused_by_name(self):
         from mechbench_compute.block_params import check_params
@@ -212,10 +211,9 @@ class TestParamChecking:
             check_params("geometry/span", {"similarity": {}})
 
     def test_an_unregistered_block_is_unchecked(self):
-        # Every CANONICAL op is declared now (000478), so the unchecked
-        # case is a block this runner does not know — an extension's op
-        # (000410), which is the api's business and not ours. This test
-        # used to name `text/measure`, which was merely undeclared.
+        # Every canonical op is declared, so the unchecked case is a
+        # block this runner does not know — an extension's op, which is
+        # the api's business and not ours.
         from mechbench_compute.block_params import check_params
         check_params("~someone/ops/custom/1", {"anything": 1})
 

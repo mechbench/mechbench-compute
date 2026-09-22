@@ -1,19 +1,15 @@
 """What a decision read's rollout COSTS, asserted as work rather than
-timed against a clock (task 000552).
+timed against a clock.
 
-A matrix of 312 reads once took 36 minutes where it had taken 4 (task
-000506). That one was **not** a code regression at all: the runner's
-launchd job carried `ProcessType: Background`, so the OS ran it on the
-efficiency cores. No test of this shape would have caught it, and the
-release-time stopwatch it left behind could not tell a slow path from a
-slow machine.
+A stopwatch cannot tell a slow path from a slow machine: the same
+matrix of reads takes minutes or tens of minutes depending on which
+cores the OS gives the runner.
 
-What IS worth pinning here is the work the cached path promises, which a
-stub counts in milliseconds: the prompt is encoded ONCE; every expansion
-feeds only its own partial outcome (task 000227's whole point); each
-node's children are picked without sorting the whole vocabulary. Those
-are properties of the code, so they belong in the suite rather than on a
-clock.
+What IS worth pinning is the work the cached path promises, which a stub
+counts: the prompt is encoded ONCE; every expansion feeds only its own
+partial outcome; each node's children are picked without sorting the
+whole vocabulary. Those are properties of the code, so they belong in
+the suite rather than on a clock.
 """
 
 from __future__ import annotations
@@ -95,7 +91,7 @@ def test_the_prompt_is_encoded_once_and_expansions_feed_only_their_own_tokens(ex
         f"an expansion fed {max(len(s) for s in later)} tokens; the prompt is {len(PROMPT)}"
     assert all(seq[0] not in PROMPT[10:] for seq in later)
     # Total work after the prefill is bounded by the outcome length, not
-    # by the prompt — the promise of the cached path (000227), and the
+    # by the prompt — the promise of the cached path, and the
     # one a future edit could quietly drop.
     assert sum(len(s) for s in later) <= CFG["max_forwards"] * CFG["max_tokens"]
 

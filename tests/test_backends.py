@@ -1,4 +1,4 @@
-"""Installing anywhere, computing where a backend exists (Benji, 2026-08-22).
+"""Installing anywhere, computing where a backend exists.
 
 `pip install mechbench-compute` resolves its own substrate — MLX on Apple
 Silicon, nothing yet elsewhere — so a machine without one has to explain
@@ -67,13 +67,11 @@ def test_backend_detection_does_not_import_the_substrate(monkeypatch):
 
 
 class TestImportableWithoutABackend:
-    """The package loads anywhere (task 000285).
+    """The package loads anywhere.
 
-    It used to raise at import time, which meant `backends` and
-    `inventory` — the two modules whose whole job is reporting on a
-    machine that cannot run anything — were reachable only from a
-    machine that could. `mechbench-runner doctor` is exactly that
-    machine's tool.
+    `backends` and `inventory` report on a machine that cannot run
+    anything, so importing them must not raise there — `mechbench-runner
+    doctor` is exactly that machine's tool.
     """
 
     @staticmethod
@@ -101,7 +99,7 @@ class TestImportableWithoutABackend:
         from mechbench_compute import backends, inventory
 
         assert backends.active() is None
-        # The one that used to be shadowed by the attribute hook.
+        # The attribute hook must not shadow a real attribute.
         assert callable(inventory.scan)
 
     def test_touching_the_model_api_explains_itself(self, monkeypatch):

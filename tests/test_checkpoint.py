@@ -1,4 +1,4 @@
-"""The merge is a delta-shard rewrite (000312 Arc C).
+"""The merge is a delta-shard rewrite.
 
 Tiny real tensors, real mx arithmetic: the assertions that matter are
 W' == W + scale·(B@A) on exactly the targeted tensors, byte-identical
@@ -156,7 +156,7 @@ class TestMaterialize:
         assert d2 == d1
         assert len(calls) == n_first  # complete mark short-circuits
         # ...and the hit refreshed the mark: last-used, not fetched-at,
-        # is what the eviction pass reads (000297).
+        # is what the eviction pass reads.
         assert mark.stat().st_mtime > then + 3000
 
     def test_a_corrupt_fetch_caches_nothing(self, tmp_path):
@@ -202,8 +202,8 @@ class TestHfCacheLayout:
 
 class TestMaterializeProgress:
     def test_reports_cumulative_bytes_against_the_manifest_total(self, tmp_path):
-        """A silent fetch got a healthy 10 GB download killed as a wedge
-        (2026-08-25): on_bytes is the download's proof of life."""
+        """`on_bytes` is a download's proof of life: a silent fetch of
+        tens of gigabytes is indistinguishable from a wedged one."""
         src = tmp_path / "src"
         src.mkdir()
         (src / "a.bin").write_bytes(b"\x01" * (5 << 20))

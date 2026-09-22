@@ -1,10 +1,9 @@
-"""The canonical message model (task 000337, epic 000334).
+"""The canonical message model.
 
 One shape of conversation crosses every provider and the local MLX
 path: a system string, an alternating sequence of user/assistant
 messages, and content parts that are `text`, `tool_call` or
-`tool_result`. Tools are JSON Schema. Text and tools only — multimodal
-parts arrive with 000343.
+`tool_result`. Tools are JSON Schema. Text and tools only.
 
 Two rules keep this honest:
 
@@ -161,7 +160,7 @@ def message(value: Any, *, default_role: str = "user") -> Message:
 def messages(value: Any) -> tuple[Message, ...]:
     """Coerce a conversation: a string (one user turn), a list of
     messages, or a transcript record (`{"kind": "text/transcript", "messages":
-    [...]}`) as 000341's conversation block emits."""
+    [...]}`) as a conversation emits it."""
     if value is None:
         return ()
     if isinstance(value, str):
@@ -209,8 +208,8 @@ class ChatRequest:
         return dict(opts)
 
     def check_options(self) -> None:
-        """Every key of `provider_options` must name a provider (task
-        000509). The bag is keyed by provider, so a caller who writes
+        """Every key of `provider_options` must name a provider. The
+        bag is keyed by provider, so a caller who writes
         the provider-native field at the top level —
         `provider_options: {"thinking": …}` — has written something no
         adapter will ever read, and nothing would have said so."""

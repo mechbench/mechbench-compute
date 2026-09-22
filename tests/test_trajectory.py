@@ -1,4 +1,4 @@
-"""Trajectories (task 000368): capture along either axis, replay from a
+"""Trajectories: capture along either axis, replay from a
 trace, projection, comparison and aggregation — against a stub model
 whose residuals are a known function of (layer, token), so every
 number is checkable by hand."""

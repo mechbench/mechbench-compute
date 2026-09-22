@@ -1,4 +1,4 @@
-"""What can go wrong when someone else's model answers (task 000337).
+"""What can go wrong when someone else's model answers.
 
 The distinctions here are the ones the runner acts on, not a taxonomy
 for its own sake:
@@ -7,8 +7,8 @@ for its own sake:
   `RateLimited`         the provider said slow down, and said how long;
                         the limiter waits that long, never a guess.
   `ProviderUnavailable` a sustained failure window; the runner maps it
-                        to an INTERRUPT (000321), so the job keeps its
-                        partials and resumes later instead of failing.
+                        to an INTERRUPT, so the job keeps its partials
+                        and resumes later instead of failing.
   `CapabilityUnsupported` asked for something this provider cannot do
                         (logprobs from Anthropic, say) — a protocol
                         error, caught before the job starts where the

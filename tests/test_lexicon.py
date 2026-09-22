@@ -18,10 +18,10 @@ from mechbench_compute import lexicon
 from mechbench_compute.block_params import ACCEPTED, COMMON, check_inputs, check_params
 from mechbench_compute.lexicon import BY_NAME, OPS, Op
 
-# What must never appear in published text. A bare six-digit id, "task
-# 000123", "epic 000364", "step 07", "experiment 014", "000258 am. 4":
-# every one of these is an argument to us and an opaque string to a
-# reader of the documentation site.
+# What must never appear in published text: a bare six-digit id, a
+# tracker reference, a numbered step or experiment. Every one of these
+# is an argument to us and an opaque string to a reader of the
+# documentation site.
 INTERNAL = [
     re.compile(r"\b0\d{5}\b"),
     re.compile(r"\b(?:task|tasks|epic|epics)\s+\d", re.I),
@@ -241,16 +241,15 @@ def test_every_value_type_is_described() -> None:
 
 
 class TestTheNameAndItsRendering:
-    """One name, set two ways (2026-09-17).
+    """One name, set two ways.
 
     A surface that shows an operation to a person shows
     `Records :: Cross`; a surface that shows it to a machine — a stored
     graph, `ops.json`, provenance — shows `records/cross`, or its full
     identity `~canonical/ops/records/cross`. The rendering is derived
     from the name by rule, which is what keeps it from BEING a second
-    name: the composer used to carry a hand-written `FactorCross` per
-    operation, and it drifted out of the lexicon without anyone noticing
-    until a graph rendered one label beside four bare refs.
+    name: a hand-written label per operation drifts out of the lexicon
+    with nothing to notice.
     """
 
     def test_it_reads_as_a_family_and_a_verb(self) -> None:
@@ -285,15 +284,14 @@ class TestTheNameAndItsRendering:
 
 
 class TestWhatAnOperationNeeds:
-    """`requires` is declared in the lexicon and proved against the code
-    (task 000516).
+    """`requires` is declared in the lexicon and proved against the
+    code.
 
     It decides which machine may run a node: the composer copies it onto
     every node and `/jobs/next` filters claims by it, so a wrong value
-    routes work to a machine that cannot do it. It lived in a
-    hand-written table in the UI until 2026-09-17, where it had already
-    drifted — `adapter/merge` was marked as needing local weights, and
-    its own docstring says the merge never loads a model.
+    routes work to a machine that cannot do it. Declared anywhere but
+    beside the code it describes, it drifts — a merge marked as needing
+    local weights that never loads a model.
     """
 
     @staticmethod

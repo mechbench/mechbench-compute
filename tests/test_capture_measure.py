@@ -1,4 +1,4 @@
-"""The `capture` measure (task 000618): read one value out of each text
+"""The `capture` measure: read one value out of each text
 and call it what it is."""
 
 from __future__ import annotations

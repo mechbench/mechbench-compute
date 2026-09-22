@@ -1,5 +1,5 @@
-"""Intervals on a summary and a contrast between two conditions (task
-000609): a sweep's peak becomes a claim with a width."""
+"""Intervals on a summary and a contrast between two conditions: a
+sweep's peak becomes a claim with a width."""
 
 from __future__ import annotations
 

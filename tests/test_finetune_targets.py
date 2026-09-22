@@ -1,7 +1,7 @@
-"""The declarative target layer and sequence machinery (experiment 023
-platform work): transform chains, entropy-matched tempering, position
-runs (the 018 position-0 cap), and the per-step sequence factory —
-all exercised against a char-level fake tokenizer, no model."""
+"""The declarative target layer and sequence machinery: transform
+chains, entropy-matched tempering, position runs (the position-0 cap),
+and the per-step sequence factory — all exercised against a char-level
+fake tokenizer, no model."""
 
 import math
 

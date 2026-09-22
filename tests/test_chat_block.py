@@ -1,4 +1,4 @@
-"""`text/chat` end to end (task 000337): the endpoint
+"""`text/chat` end to end: the endpoint
 ModelRef, the remote path through the executor, ordering under
 concurrency, resume, the budget, cassettes, and the local path.
 
@@ -187,18 +187,18 @@ class TestLocalPath:
         out = chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
                                  _records(2), {"n": 1, "seed": 3})
         assert [i["text"] for i in out["items"]] == ["a local answer"] * 2
-        # System merges into the first user turn, as render_chat has
-        # always driven these templates.
+        # System merges into the first user turn: these templates
+        # take no system role of their own.
         assert rendered[0] == "user:be brief\n\nquestion 0"
         assert "spend" not in out       # nothing was bought
 
     def test_a_local_model_calls_tools_by_writing_them(self, monkeypatch):
-        """A local model's tools go through its OWN chat template
-        (epic 000439): the template declares them, renders the call and
-        renders the result. The stub below is a Qwen-shaped template —
-        it changes when `tools` is passed, and writes calls in Qwen's
-        envelope — because a template that ignores `tools` is refused
-        now, which is the next test."""
+        """A local model's tools go through its OWN chat template: the
+        template declares them, renders the call and renders the result.
+        The stub below is a Qwen-shaped template — it changes when
+        `tools` is passed, and writes calls in Qwen's envelope — because
+        a template that ignores `tools` is refused, which is the next
+        test."""
         from mechbench_compute import distill, generate
 
         prompts: list[str] = []
@@ -260,9 +260,8 @@ class TestLocalPath:
 
     def test_a_model_with_no_tool_protocol_refuses_rather_than_inventing_one(
             self, monkeypatch):
-        """The rule that would have saved experiment 024's P2: a model
-        that cannot receive a tool declaration must say so, not quietly
-        do worse."""
+        """A model that cannot receive a tool declaration must say so,
+        not quietly do worse."""
         from mechbench_compute import dialects, distill, generate
 
         class IgnoresTools:
@@ -400,10 +399,10 @@ class TestJobBudget:
 
 
 class TestEveryParamIsAPromise:
-    """Task 000509. A param the block cannot honour is a wrong answer
-    with no error — the failure `check_params` exists to prevent, one
-    path at a time. The remote path refuses by capability; the local
-    path had no equivalent of four of these and silently dropped them.
+    """A param the block cannot honour is a wrong answer with no
+    error, which is what `check_params` exists to prevent. The remote
+    path refuses by capability; the local path, having no equivalent of
+    these four, refuses them outright.
     """
 
     def _local(self, params, monkeypatch, sampled="a local answer"):

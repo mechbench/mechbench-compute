@@ -30,7 +30,7 @@ BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
 def build_toolbox(value: Any, *, block_runner=None, session=None) -> Toolbox:
     """A toolbox from a params list: tool objects, or the NAME of a
     built-in ("calc"), so the common case is one word. `session` binds
-    a sandbox session (task 000360) for any `{"sandbox": …}` handlers."""
+    a sandbox session for any `{"sandbox": …}` handlers."""
     tools: list[Any] = []
     for entry in value or ():
         if isinstance(entry, str):

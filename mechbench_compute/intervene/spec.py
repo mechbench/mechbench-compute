@@ -53,7 +53,7 @@ class Spec:
         self.neurons = None if item.get("neurons") is None else coerce_int_list(item["neurons"])
         # `except` inverts the sets this item names — everything BUT
         # these layers, heads or neurons — which is how a circuit's
-        # completeness is measured against its faithfulness (000604).
+        # completeness is measured against its faithfulness.
         # Layers invert here, where the count is known; heads and
         # neurons invert in the hook, where the tensor's own axis says
         # how many there are.
@@ -73,7 +73,7 @@ class Spec:
                 self.layers = [i for i in range(n_layers) if i not in keep]
         # A `patch` may take its row from ANOTHER layer or point — the
         # patchscope's move, reading a hidden state by writing it where
-        # a different prompt would read it (000605).
+        # a different prompt would read it.
         self.patch_from = item.get("from")
         if self.patch_from is not None:
             if op != "patch":
@@ -82,7 +82,7 @@ class Spec:
             if not isinstance(self.patch_from, Mapping):
                 raise SpecError("`from` is an object: {layer, point}")
         # An attention edge: which SOURCE positions the selected
-        # destinations may attend to (000612).
+        # destinations may attend to.
         self.pattern = item.get("pattern")
         if self.pattern is not None:
             if point not in ("attn.scores", "attn.weights"):
@@ -128,7 +128,7 @@ class Spec:
               prompt_len: int | None = None, growing: bool = False) -> Callable:
         """The hook for one layer. `tokens` is the WHOLE sequence the
         positions resolve against — a list the caller may grow while
-        decoding (000601) — and `prompt_len` where the prompt ends, for
+        decoding — and `prompt_len` where the prompt ends, for
         `"generated"`; None means the tokens as first given. `growing`
         says the sequence is still being written, so a token the
         selector names that has not arrived selects nothing rather than
@@ -226,7 +226,7 @@ class Spec:
 
             if op == "zero":
                 # At a score, zero is a SCORE of zero, not a cut: what
-                # removes an edge before the softmax is −inf (000612).
+                # removes an edge before the softmax is −inf.
                 new = (mx.full(shape, float("-inf"), act.dtype)
                        if self.point == "attn.scores" else mx.zeros_like(act))
             elif op == "scale":

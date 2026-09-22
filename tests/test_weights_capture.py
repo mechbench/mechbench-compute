@@ -1,4 +1,4 @@
-"""`weights/capture` and `weights/decompose` (task 000457).
+"""`weights/capture` and `weights/decompose`.
 
 The parameter half of the points × operations grammar: what the model
 IS, rather than what it did on an input. The model here is a stub whose
@@ -197,7 +197,7 @@ class TestDecompose:
 
 
 class TestParameterIntervention:
-    """The write half (000457): a spec item that names a `parameter`
+    """The write half: a spec item that names a `parameter`
     edits the model for the life of the node, and the original tensor is
     put back — the tensor itself, not a subtraction that would not
     round-trip."""

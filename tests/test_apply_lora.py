@@ -69,11 +69,10 @@ class TestConditionalProjections:
 
 
 class TestSeededInitialization:
-    """Task 000507. `B` starts at zero, so the `A` draw changes nothing
-    at step 0 and everything after it: two runs of the same protocol
-    with the same seed trained different adapters, by up to 0.19 bits of
-    KL on 002's battery — wider than the drift the experiments compare
-    releases by."""
+    """The `A` draw is seeded. `B` starts at zero, so `A` changes
+    nothing at step 0 and everything after it: unseeded, two runs of one
+    protocol at one seed train different adapters, by more than the
+    drift an experiment compares releases by."""
 
     def _a_matrices(self, lm):
         return [np.array(layer.self_attn.q_proj.lora_a.astype(mx.float32))

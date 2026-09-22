@@ -1,4 +1,4 @@
-"""Provider transports (epic 000334, task 000337).
+"""Provider transports.
 
 `make_transport(provider, credential)` is the one door. It knows which
 adapter speaks which wire format, and it takes the two flags that make

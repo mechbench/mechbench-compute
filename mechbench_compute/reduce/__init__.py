@@ -1,5 +1,5 @@
-"""Reduce algebra (task 000406, epic 000364; the map/reduce isomorphism
-law of DATAFLOW.md / task 000405).
+"""Reduce algebra, under the map/reduce isomorphism law of
+DATAFLOW.md.
 
 A hierarchy of map/reduce must equal the flat iteration over all
 leaves. Every reduce block therefore declares its algebra:

@@ -1,6 +1,6 @@
-"""Task 000365: the forward-pass grammar's new points — registry,
-selectors and validation without a model; an opt-in smoke test on the
-real Gemma 4 E2B when it is cached locally (MECHBENCH_MODEL_TESTS=1)."""
+"""The forward-pass grammar's points — registry, selectors and
+validation without a model; an opt-in smoke test on the real Gemma 4
+E2B when it is cached locally (MECHBENCH_MODEL_TESTS=1)."""
 
 from __future__ import annotations
 

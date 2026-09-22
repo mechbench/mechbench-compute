@@ -1,4 +1,4 @@
-"""`eval/judge` (task 000356): scales and parsing, votes
+"""`eval/judge`: scales and parsing, votes
 and spread, position randomization, and the block end to end on the
 mock provider.
 

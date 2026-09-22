@@ -1,11 +1,11 @@
-"""A bench-based ModelRef loads from its materialized directory —
-from EVERY call site (2026-08-25).
+"""A bench-based ModelRef loads from its materialized directory — from
+EVERY call site.
 
-The wrapper translated bench label -> local dir, but the block's own
-no-op `_model_loaded` re-call did not, so the label went to the
-HuggingFace hub as if it were a repo id — after the 10 GB
-materialization had already succeeded. The translation now lives in
-`_model_loaded` itself; these tests drive the exact production shape.
+The translation from bench label to local directory lives in
+`_model_loaded` itself, not in a wrapper around it: a call site that
+skips the wrapper would otherwise send the label to the HuggingFace hub
+as if it were a repo id, after the materialization had already
+succeeded. These tests drive the exact production shape.
 """
 
 from __future__ import annotations
@@ -51,8 +51,8 @@ class TestBenchBase:
         ref = _bench_ref()
 
         def block(inputs, params, on_item=None, on_start=None):
-            # Real blocks re-ask for their model by the ref in params —
-            # this is the call that used to reach the hub with a label.
+            # Real blocks re-ask for their model by the ref in params,
+            # so this is the call that must translate the label.
             return executor._model_loaded(params.get("model"))
 
         result = executor._run_model_block(block, {}, {"model": ref})

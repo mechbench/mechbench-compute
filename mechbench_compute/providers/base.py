@@ -1,4 +1,4 @@
-"""The Transport interface (task 000337).
+"""The Transport interface.
 
 An adapter's whole job is the wire mapping: canonical request in,
 `AdapterResponse` out. Everything a caller can get wrong is done ONCE,
@@ -43,9 +43,9 @@ from mechbench_compute.providers.limiter import Limiter, NullLimiter, RateLimits
 @dataclass(frozen=True)
 class Capabilities:
     """What a provider can actually do. The protocol validator checks a
-    node's needs against this before the job starts (000335 carries the
-    registry), so "Anthropic has no logprobs" is a protocol error at
-    seal, not a surprise at item 400."""
+    node's needs against this before the job starts, so "Anthropic has
+    no logprobs" is a protocol error at seal, not a surprise at item
+    400."""
 
     chat: bool = True
     complete: bool = False
@@ -97,7 +97,7 @@ class AdapterResponse:
 @dataclass
 class CallRecord:
     """One call's provenance. Items carry theirs; the manifest sums
-    them (000324's partials carry the running total)."""
+    them, and a partial result carries the running total."""
 
     provider: str
     model: str
@@ -207,7 +207,7 @@ class Transport(ABC):
         if req.tools and not caps.tools:
             raise CapabilityUnsupported(self.name, "tools")
         if req.tool_choice is not None and not req.tools:
-            # A choice among nothing (task 000509). Every adapter puts
+            # A choice among nothing. Every adapter puts
             # `tool_choice` on the wire, so this would be sent and either
             # ignored or refused by the provider in its own words.
             raise CapabilityUnsupported(
@@ -281,7 +281,7 @@ class Transport(ABC):
         limiter.observe(self.name, req.model, scope, limits)
         cost, cost_priced = pricing.cost_usd(self.name, req.model, usage)
         if resp.replayed:
-            # A replayed call bought nothing (000355). Its usage is
+            # A replayed call bought nothing. Its usage is
             # kept — it is what the ORIGINAL call spent, and a reader
             # comparing a memoized run to its first run needs it — but
             # the cost is zero and the reservation is released rather
@@ -319,7 +319,7 @@ class Transport(ABC):
         """Retry 429/5xx with the provider's own backoff. A failure
         window longer than `outage_seconds` is not a retry problem —
         it is an outage, and the job should keep its partials and come
-        back (000321)."""
+        back."""
         first_failure: float | None = None
         waited = 0.0
         last: Exception | None = None

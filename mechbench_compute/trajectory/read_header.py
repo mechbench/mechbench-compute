@@ -6,6 +6,6 @@ from typing import Any
 
 def read_header(traj: Mapping[str, Any]) -> dict[str, Any]:
     """A trajectory collection's header: everything but the container
-    fields and the items (or the retired `rows`)."""
+    fields and the items, under either spelling."""
     return {k: v for k, v in traj.items()
             if k not in ("kind", "item_kind", "key", "items", "rows")}

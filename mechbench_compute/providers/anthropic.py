@@ -1,4 +1,4 @@
-"""The Anthropic Messages API (task 000337).
+"""The Anthropic Messages API.
 
 The canonical model was shaped after this one (system as a field,
 content parts, tool_use / tool_result), so the mapping is nearly
@@ -124,9 +124,9 @@ class AnthropicTransport(Transport):
                              if block.get("thinking") else msg.TextPart(""))
                 unmapped.append(kind)
             else:
-                # An unknown block type must never vanish silently: an
-                # empty completion beside 250 output tokens is how
-                # experiment 024 found this.
+                # An unknown block type must never vanish silently, or
+                # a completion reads as empty beside a usage record
+                # saying hundreds of output tokens were written.
                 unmapped.append(str(kind))
         u = data.get("usage") or {}
         usage = Usage(

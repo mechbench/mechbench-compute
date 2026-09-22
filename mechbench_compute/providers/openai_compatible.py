@@ -1,4 +1,4 @@
-"""The chat-completions shape (task 000337).
+"""The chat-completions shape.
 
 One adapter serves OpenAI, xAI, Fireworks, Together, Groq, DeepSeek,
 Mistral, OpenRouter, and a llama.cpp or vLLM server on localhost —

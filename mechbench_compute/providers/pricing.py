@@ -1,4 +1,4 @@
-"""Prices as data (task 000337).
+"""Prices as data.
 
 A cost that a run reports must be reproducible from what the run
 recorded, so prices are a versioned table with an `as_of` date, matched

@@ -1,4 +1,4 @@
-"""JSON over HTTPS, on the standard library (task 000337).
+"""JSON over HTTPS, on the standard library.
 
 Deliberately small and dependency-free: `urllib.request` with certifi's
 CA bundle, a timeout, and one place that turns a status code into the
@@ -85,9 +85,8 @@ def request_json(method: str, url: str, *, headers: Mapping[str, str],
         # that hangs up mid-response raises `RemoteDisconnected`
         # (an OSError), a truncated body raises `IncompleteRead` (an
         # HTTPException), and neither passes through urllib's wrapper —
-        # so both escaped the retry loop entirely and failed a job that
-        # should merely have paused. Experiment 024 lost a judged
-        # corpus at 293/601 to exactly this.
+        # so both must be caught here, or they escape the retry loop and
+        # fail a job that should merely have paused.
         raise TransientError(
             f"{method} {_host(url)}: {type(e).__name__}: {e}") from None
 

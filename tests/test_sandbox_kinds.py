@@ -1,7 +1,7 @@
-"""The sandbox catalog (task 000361): the kind schemas are the contract
-the composer (000341) and the UI trace/browser (000362) share, so they
-are tested against the ACTUAL wire shapes compute emits — not against a
-hand-written example that can drift from the code.
+"""The sandbox catalog: the kind schemas are the contract the composer
+and the UI trace browser share, so they are tested against the ACTUAL
+wire shapes compute emits — not against a hand-written example that can
+drift from the code.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ class TestTheSchemasMatchTheCode:
 
     def test_real_sandbox_calls_validate(self):
         # Every provenance record a session produces must fit the
-        # tool-call schema — the shape the 000362 trace reads.
+        # tool-call schema — the shape the trace browser reads.
         s = SandboxSession(SandboxImage.parse({"snapshot": {"a.txt": "one two\n"}}))
         s.write_file("r.txt", "x")
         s.read_file("a.txt")

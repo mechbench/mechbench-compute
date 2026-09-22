@@ -1,5 +1,5 @@
 """The provider transport: canonical requests, metering, limits,
-adapters, and the two ways a test never spends (tasks 000337 / 000350).
+adapters, and the two ways a test never spends.
 
 Nothing here touches the network. The adapters are exercised against a
 captured `post_json`, which is where the wire mapping actually lives.
@@ -398,7 +398,7 @@ class TestFactory:
 
 class TestSchemaConformance:
     """What compute emits per call must be what mechbench-schema says a
-    call is (task 000351): the shared package is the contract, and a
+    call is: the shared package is the contract, and a
     consumer that renders a transcript reads it from there."""
 
     def test_a_call_record_validates_as_the_schema_kind(self):
@@ -424,10 +424,9 @@ class TestSchemaConformance:
 
 class TestTransientNetworkFailures:
     """Every way a connection can die mid-call must reach the retry
-    loop as a TransientError. Experiment 024 lost a judged corpus at
-    293/601 to a `RemoteDisconnected`, which is an OSError and not a
-    URLError, so it escaped the loop and failed the job instead of
-    pausing it."""
+    loop as a TransientError. A `RemoteDisconnected` is an OSError and
+    not a URLError, so anything that catches only URLError lets it
+    escape the loop and fail the job instead of pausing it."""
 
     @pytest.mark.parametrize("boom", [
         __import__("http.client", fromlist=["client"]).RemoteDisconnected(

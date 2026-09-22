@@ -1,4 +1,4 @@
-"""The model inventory (task 000285).
+"""The model inventory.
 
 The point of these is the arithmetic nobody expects: revisions of one
 repository share their blobs, so a revision's apparent size is not what
@@ -145,7 +145,7 @@ class TestScan:
 
 
 def test_a_machine_with_no_cache_directory_reports_empty(monkeypatch):
-    """The fresh-install truth (000300): no downloads yet means an empty
+    """The fresh-install truth: no downloads yet means an empty
     inventory, never a CacheNotFound traceback out of `mechbench models`.
     (HF_HUB_CACHE is baked into huggingface_hub at import time, so the
     absent-directory condition is simulated at the API boundary.)"""

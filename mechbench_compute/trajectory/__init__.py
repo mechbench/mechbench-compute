@@ -1,15 +1,13 @@
-"""Residual trajectories as objects (task 000368, lexicon epic 000364).
+"""Residual trajectories as objects.
 
-The lens computes a position's vector at every layer implicitly and
-throws it away; experiment 014 computed a layer's vector at every
-position along a story by hand. Both are the same object read along a
-different axis, and this module makes it a kind:
+A position's vector at every layer and a layer's vector at every
+position are the same object read along a different axis, and that
+object is a kind here:
 
     axis "layers"     one POSITION's vector at every captured layer —
-                      the funnel (013), where in depth a commitment forms.
+                      the funnel: where in depth a commitment forms.
     axis "positions"  one LAYER's vector at every position along a
-                      sequence — the trace (014), where in a story it
-                      forms.
+                      sequence — the trace: where in a story it forms.
 
 A trajectory is a collection of `trajectory/point` — vector items
 (`space`, `vector`, `norm`) with `step`, `position` and the token read —
@@ -18,15 +16,15 @@ A trajectory is a collection of `trajectory/point` — vector items
 
     trajectory/capture    the model block: capture one per record.
     trajectory/project    scalar coordinate of every row along a
-                          direction (directions.py), for a trace to read.
+                          direction, for a trace to read.
     trajectory/compare    two trajectories → per-step cosine, angle,
                           norm ratio, and the divergence step.
     trajectory/aggregate  group rows and reduce: mean trajectory + spread
                           per step; or a windowed mean per group emitted
                           as `residual_vectors`, so `direction/fit`
-                          reads it unchanged (014's outcome axis is
-                          "lighthouse-story mean minus other-story mean
-                          over tokens 5..30" — exactly that).
+                          reads it unchanged — which is how an axis like
+                          "one group's mean minus another's over tokens
+                          5..30" is built.
 
 REPLAY. A stored corpus at trace fidelity carries the exact token ids a
 story was generated as (`trace.token_ids`) and where generation began

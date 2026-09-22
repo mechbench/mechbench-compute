@@ -1,4 +1,4 @@
-"""`records/map`: a sub-protocol per record (task 000400).
+"""`records/map`: a sub-protocol per record.
 
 A run set fans out over runs; a node fans out over its own items.
 Between them there was nothing, so a graph that wanted to do several
@@ -200,7 +200,7 @@ class TestResumeAndIsomorphism:
 
 
 class TestDeclaredBody:
-    """The declared form (epic 000553): a body refers to the map's
+    """The declared form: a body refers to the map's
     bound names and the run's params with `{"$param"}`; nothing is a
     `$` string, and the map's own names are not the protocol's."""
 

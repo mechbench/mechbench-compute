@@ -1,4 +1,4 @@
-"""`records/fold` (task 000617): a body run step after step, each step
+"""`records/fold`: a body run step after step, each step
 reading the state the last one wrote — and a conversation composed from
 it saying what `text/converse` says."""
 
@@ -98,11 +98,10 @@ class TestAConversationIsAFold:
                   "steps": turns, "output": "next", "until": {"field": "stopped"}},
                  {"state": start})], "edges": []}
 
-    #: What `text/converse` said, the last time it was asked (compute
-    #: 0.122.1, mock provider, four turns of round robin). The op was
-    #: retired in 0.123.0; its answer is kept here as data, so the
-    #: composition that replaced it still has to reproduce it word for
-    #: word rather than merely run.
+    #: What a single conversation op said (mock provider, four turns of
+    #: round robin). Its answer is kept here as data, so the
+    #: composition that computes the same conversation has to reproduce
+    #: it word for word rather than merely run.
     CONVERSE_SAID = [
             {
                     "participant": "user",
@@ -208,7 +207,7 @@ class TestAFoldResumes:
 
 
 class TestAPersonaSystemIsAGraph:
-    """The test of the principle (000617): a conversation whose speaker
+    """The test of the principle: a conversation whose speaker
     is chosen by what was just said, built from ops none of which knows
     what a moderator, a judge or a hand-off is. The routing is a
     `text/measure` capture the user wrote; the fold and the map carry

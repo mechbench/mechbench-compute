@@ -1,7 +1,7 @@
-"""The spec item's grammar beyond point-and-op: the complement of a set
-(000604), an attention edge (000612) and a patch that reads one layer
-into another (000605). The hooks are driven directly on tensors of the
-right shape, so what each field does to which axis is visible."""
+"""The spec item's grammar beyond point-and-op: the complement of a
+set, an attention edge, and a patch that reads one layer into another.
+The hooks are driven directly on tensors of the right shape, so what
+each field does to which axis is visible."""
 
 from __future__ import annotations
 

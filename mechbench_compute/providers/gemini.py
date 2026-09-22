@@ -1,4 +1,4 @@
-"""Google's generateContent API (task 000337).
+"""Google's generateContent API.
 
 The shape differs more than the others: turns are `contents` with the
 assistant called `model`, tools are `functionDeclarations`, sampling

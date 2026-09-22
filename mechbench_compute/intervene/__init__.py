@@ -1,12 +1,12 @@
-"""The declarative `intervene` block (task 000366, epic 000364).
+"""The declarative `intervene` block.
 
 Intervention is a product of two small sets. POINTS: any hook point of
 the forward pass. OPERATIONS: zero, mean, resample, patch, add, scale,
 clamp, project_out, rotate — over sets of positions, heads and
 neurons, optionally conditioned on a direction's projection or on
 token identity. One spec list, applied together in one forward, then
-a readout (the next-token distribution, or captures). The old
-ablate/steer blocks are special cases of this grammar.
+a readout (the next-token distribution, or captures). Ablation and
+steering are special cases of this grammar.
 
 A spec item::
 

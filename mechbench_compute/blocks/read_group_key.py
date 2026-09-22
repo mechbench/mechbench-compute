@@ -11,10 +11,9 @@ def read_group_key(record: Mapping[str, Any], by: Sequence[str]) -> tuple:
     A coordinate is where a condition belongs, and most ops put it
     there. Some write the varying thing at the top level instead —
     `intervene/ablate-layers` emits `{id, layer, delta_logp}`, the layer
-    being exactly the condition — and grouping by `layer` then silently
-    produced ONE row keyed `None` instead of forty-two. The VALUE was
-    already read from the top level, so the asymmetry was the bug: a
-    field is a field wherever the record carries it (task 000590).
+    being exactly the condition. A field is a field wherever the record
+    carries it, and the key must fall back the same way the VALUE does,
+    or grouping by `layer` collapses every row onto one key of `None`.
     """
     coords = record.get("coords") or {}
     return tuple(coords.get(k, record.get(k)) for k in by)

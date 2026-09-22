@@ -1,4 +1,4 @@
-"""Complete outcomes read exactly (task 000548): multi-token outcomes
+"""Complete outcomes read exactly: multi-token outcomes
 scored whole, closed by their closer, into `tracked` by name — with the
 scorer replaced, so the arithmetic is the test's own, no model."""
 

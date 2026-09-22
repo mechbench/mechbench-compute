@@ -14,12 +14,11 @@ def compile(model, items: Sequence[Mapping[str, Any]], *,
     """Parse spec items for `model`. Objects may arrive by edge: a
     `direction` / `source` port in `inputs` fills any item that names none
     of its own. An item that names a `parameter` edits a WEIGHT, not an
-    activation (task 000457): its scope is the node rather than the
-    forward pass — the tensor is changed, every record runs against the
-    changed model, and the original is reinstalled afterwards. The two
-    kinds compose, so they are separated here and applied in their own
-    scopes. Shared by `intervene/apply` and by the text ops that take an
-    intervention (000601)."""
+    activation: its scope is the node rather than the forward pass — the
+    tensor is changed, every record runs against the changed model, and
+    the original is reinstalled afterwards. The two kinds compose, so
+    they are separated here and applied in their own scopes. Shared by
+    `intervene/apply` and by the text ops that take an intervention."""
     inputs = inputs or {}
     port_dir = inputs.get("direction")
     port_src = inputs.get("source")

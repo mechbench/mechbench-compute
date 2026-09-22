@@ -1,5 +1,5 @@
 """Three guards against a live object leaking into a record, and against
-the leak being hidden (task 000488, follow-ups).
+the leak being hidden.
 
 The generate block embedded a resolved ModelRef — adapter bytes included
 — in every item, and it went unnoticed for weeks because three places

@@ -1,4 +1,4 @@
-"""Whole-trie paths and item slots (task 000548): outcomes of any token
+"""Whole-trie paths and item slots: outcomes of any token
 length trained as soft rows along their paths, first-slot and later-slot
 tokenizations kept apart, and slots drawn without replacement — on a
 word-piece fake tokenizer, no model."""

@@ -1,4 +1,4 @@
-"""A run's manifest says what each node produced (task 000525).
+"""A run's manifest says what each node produced.
 
 The composer shows, beside a selected node, what the protocol's last
 run made there: the kind and how many. It reads that from the manifest

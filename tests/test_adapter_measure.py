@@ -1,4 +1,4 @@
-"""`adapter/measure`: what training wrote, read from the adapter (000458).
+"""`adapter/measure`: what training wrote, read from the adapter.
 
 The numbers are checked against the delta formed in full — the point of
 the r×r route is that it is exact, so "close to the honest computation"

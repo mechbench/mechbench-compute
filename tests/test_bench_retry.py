@@ -1,11 +1,9 @@
-"""`bench._request` retries what carries no verdict, and nothing else
-(task 000464).
+"""`bench._request` retries what carries no verdict, and nothing else.
 
-The bug this pins down cost experiment 014 thirty-five minutes of
-generation, twice. A node result is PUT once; the socket timed out; the
-exception propagated out of the node and the job was marked `failed`,
-which cleared its spool and made the work unrecoverable. The payload was
-0.9 MB and the API was healthy a second later.
+A node result is PUT once. If the socket times out and the exception
+propagates out of the node, the job is marked `failed`, its spool is
+cleared, and hours of generation are unrecoverable — while the API is
+healthy a second later.
 
 Two halves, and the second matters as much as the first: a timeout or a
 502 is silent about whether the request was acceptable, so retrying is

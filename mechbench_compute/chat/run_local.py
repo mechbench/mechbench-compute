@@ -31,19 +31,19 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     from mechbench_compute.generate import sample_completion_cached
     from mechbench_compute.seeds import item_seed
 
-    # The model's own chat template carries the tool protocol (epic
-    # 000439): it declares the tools, renders the call, and renders the
-    # result. Same tools, same handlers, same provenance as the remote
-    # path — only the transport differs.
+    # The model's own chat template carries the tool protocol: it
+    # declares the tools, renders the call, and renders the result. Same
+    # tools, same handlers, same provenance as the remote path — only
+    # the transport differs.
     max_tool_rounds = int(params.get("max_tool_rounds", 3))
     image, tool_specs = resolve_sandbox_tools(params)
     block_runner = params.get("_block_runner")
     tok = model.tokenizer
     # The model's own chat template decides how tools are declared,
-    # called and answered (epic 000439). If it has no protocol, this
-    # raises rather than inventing one — a model that cannot receive a
-    # declaration produces output indistinguishable from a model that
-    # chose not to call anything, which is how 024 lost an arm.
+    # called and answered. If it has no protocol, this raises rather
+    # than inventing one: a model that cannot receive a declaration
+    # produces output indistinguishable from a model that chose not to
+    # call anything.
     dialect = (dialects.dialect_for(tok, model=str(getattr(ref, "base", ref)))
                if tool_specs else None)
     refuse_remote_only(params)
@@ -56,9 +56,9 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     max_tokens = int(params.get("max_tokens", 1024))
     stop_strings = tuple(params.get("stop") or ())
     model_wire = ref.to_wire() if hasattr(ref, "to_wire") else ref
-    # An intervention (000601) makes the node a sweep: one set of replies
-    # per cell, its axes coordinates, weight edits scoped per strength.
-    # Without one the loop is the one it always was.
+    # An intervention makes the node a sweep: one set of replies per
+    # cell, its axes coordinates, weight edits scoped per strength.
+    # Without one there is a single cell.
     plan = intervene_mod.plan(model, params, inputs)
     cells: list = plan.cells if plan else [None]
     if on_start:
@@ -97,7 +97,7 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                         tok, turn, tools=hf_tools, dialect=dialect))
                     # Every round is its own sequence — a tool result
                     # lengthens the prompt — so each gets a live
-                    # intervention over its own tokens (000601).
+                    # intervention over its own tokens.
                     if plan:
                         prompt_tokens = [tok.decode([int(t)]) for t in ids]
                         prefill = prefill_decision(
@@ -132,14 +132,14 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                         pm.Message(role="tool", content=tuple(results)),
                     ])
                 # A response that was reaching for a tool and produced no
-                # call is a NEAR MISS, not a plain answer. Counting them is
-                # the whole lesson of 000437: a correct call the parser did
-                # not recognize looked exactly like no call at all, across
-                # 320 generations, with nothing to notice.
+                # call is a NEAR MISS, not a plain answer, and is counted
+                # as one: a correct call the parser does not recognize
+                # otherwise reads exactly like no call at all.
                 item_errors: list[dict[str, Any]] = []
                 if box:
-                    # A tool that ran and raised is an error too, and was
-                    # previously only visible per-item in `tool_runs`.
+                    # A tool that ran and raised is an error too, and
+                    # belongs in the node's errors, not only in the
+                    # item's `tool_runs`.
                     for r in box.runs:
                         if r.error:
                             item_errors.append(dialects.ToolError(

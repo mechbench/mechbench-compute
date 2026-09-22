@@ -1,4 +1,4 @@
-"""Tokenizer diagnostics (task 000377) against a fake word-piece
+"""Tokenizer diagnostics against a fake word-piece
 tokenizer: the depth inventory in an envelope, fragmentation, scripts,
 and the naturalism gate."""
 

@@ -1,4 +1,4 @@
-"""Progress accounting for pipelines (task 000316).
+"""Progress accounting for pipelines.
 
 Two invariants: the flat scalar never overruns its denominator (the
 old unconditional per-node bump made an expanded node worth n+1 of n),

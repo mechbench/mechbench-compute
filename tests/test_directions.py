@@ -1,4 +1,4 @@
-"""Directions as first-class objects (task 000367)."""
+"""Directions as first-class objects."""
 
 from __future__ import annotations
 
@@ -213,7 +213,7 @@ class TestBlocks:
 
 
 class TestClassify:
-    """A probe per layer (task 000608): the direction that separates a
+    """A probe per layer: the direction that separates a
     label, and how much of it a held-out item shows."""
 
     D = 8

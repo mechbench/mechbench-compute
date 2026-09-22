@@ -1,4 +1,4 @@
-"""Pure-block contracts (task 000275): the stdlib pieces every
+"""Pure-block contracts: the stdlib pieces every
 protocol leans on — deterministic, growth-safe, expectation-judging."""
 
 import pytest
@@ -308,7 +308,7 @@ class TestAFigureCarriesItsVocabulary:
 
     def test_a_summary_of_a_sweep_still_knows_the_model(self):
         # The landmarks ride from the sweep through every records op the
-        # executor runs (000624) — the block itself knows nothing about
+        # executor runs — the block itself knows nothing about
         # them — so a figure two nodes downstream still draws them.
         from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
         coll = {"kind": "collection", "item_kind": "intervene/ablation",
@@ -333,7 +333,7 @@ class TestAFigureCarriesItsVocabulary:
 
     def test_every_model_block_result_carries_the_landmarks(self, monkeypatch):
         # The executor's model-block wrapper stamps `arch` from the model
-        # it ran (000624), so no block has to know the landmarks exist.
+        # it ran, so no block has to know the landmarks exist.
         from types import SimpleNamespace
         from mechbench_compute.protocol import ProtocolExecutor
         ex = ProtocolExecutor()
@@ -355,7 +355,7 @@ class TestAFigureCarriesItsVocabulary:
         # A map's records are its sweep — forty-two layer numbers know
         # nothing about any model — so the landmarks cannot come from the
         # input the way they do for an ordinary records op. They are on
-        # the body's header, and only its items were being kept (000622).
+        # the body's header, and only its items were being kept.
         from types import SimpleNamespace
 
         from mechbench_compute.lexicon import kinds as K
@@ -395,9 +395,9 @@ class TestAFigureCarriesItsVocabulary:
 
 
 def test_uniform_masses_derive_from_top_tokens():
-    """The spinner-fairness regression (000315): plain decision reads
-    emit top_tokens and no outcome_mass; the judge must derive rather
-    than fail a distribution it never looked at."""
+    """Plain decision reads emit top_tokens and no outcome_mass, so
+    the judge derives the masses rather than failing a distribution it
+    never looked at."""
     results = [{"id": "c1", "entropy_bits": 1.99, "top_tokens": [
         {"token": "3", "p": 0.2997}, {"token": "1", "p": 0.2334},
         {"token": "2", "p": 0.2334}, {"token": "4", "p": 0.2334},
@@ -434,8 +434,8 @@ JUDGED_ROWS = [
 
 
 class TestGroupStatsMissingValues:
-    """A judged corpus has rows a judge could not be read for (task
-    000356). A mean over the records that happened to have the field is
+    """A judged corpus has rows a judge could not be read for. A mean
+    over the records that happened to have the field is
     the kind of number nobody notices is wrong, so the default refuses
     by name and `skip` reports what it dropped."""
 
@@ -494,7 +494,7 @@ class TestAFigureIsReadAgainstALine:
 
 
 class TestASummaryOverAGrid:
-    """A trace is its cells (000626): `records/summarize` reads a grid
+    """A trace is its cells: `records/summarize` reads a grid
     cell by cell, the same rows `records/plot` draws, so a strip of what
     each token's best cell recovers is one summarize away — in the flat
     block and in its monoid alike."""

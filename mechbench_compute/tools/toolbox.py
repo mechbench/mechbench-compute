@@ -23,7 +23,7 @@ class Toolbox:
         if len(self._by_name) != len(self.tools):
             raise ValueError("tool names must be unique within a toolbox")
         self._runner = block_runner
-        # A sandbox session (task 000360): stateful, so it binds to the
+        # A sandbox session: stateful, so it binds to the
         # toolbox rather than riding in a handler dict, which is copied
         # into every provenance record and must stay serializable.
         self._session = session

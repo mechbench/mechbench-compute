@@ -1,5 +1,4 @@
-"""The map/reduce isomorphism law (tasks 000406 / 000407) and leaf
-identity (000402)."""
+"""The map/reduce isomorphism law, and leaf identity."""
 
 from __future__ import annotations
 
@@ -141,7 +140,7 @@ def _template_leaves(n=25, seed=8):
 #: Every pure block whose input IS a leaf stream, with the fixture the
 #: law runs on. A new block must land here (or in NOT_LEAF_STREAM) or
 #: `test_every_pure_block_is_classified` fails: the catalog stays
-#: covered by construction (task 000407, "CI over the whole catalog").
+#: covered by construction.
 CATALOG: dict[str, dict] = {
     "records/summarize": {
         "leaves": _leaves(120, seed=5), "params": {"by": ["g"], "value": "delta"}},
@@ -232,7 +231,7 @@ NOT_LEAF_STREAM: dict[str, str] = {
        "residual_vectors / direction records, not a leaf stream"
        for n in ("fit", "classify", "regress", "decompose", "add", "average",
                  "orthogonalize", "normalize", "project")},
-    # Trajectory readouts (task 000368) read ONE trajectory record —
+    # Trajectory readouts read ONE trajectory record —
     # rows are (item, step) points along an axis, not bench leaves —
     # the same footing as the direction algebra above.
     **{f"trajectory/{n}":

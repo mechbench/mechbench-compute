@@ -1,7 +1,7 @@
-"""`text/generate` continuing a record's prefill and stopping at a marker
-(task 000549): the samples continue exactly the envelope a decision read
-and a training step condition on, and end where the answer does — on a
-fake substrate, so what reaches the sampler is the test's to inspect."""
+"""`text/generate` continuing a record's prefill and stopping at a
+marker: the samples continue exactly the envelope a decision read and a
+training step condition on, and end where the answer does — on a fake
+substrate, so what reaches the sampler is the test's to inspect."""
 
 from __future__ import annotations
 

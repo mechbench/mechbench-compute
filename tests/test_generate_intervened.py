@@ -1,4 +1,4 @@
-"""Generation under an intervention (task 000601): the spec is live at
+"""Generation under an intervention: the spec is live at
 every forward pass — the prompt's prefill and each decoding step — with
 positions resolved over the whole sequence as it grows, a sweep giving
 one set of samples per factor, and factor 0 the plain path."""
@@ -73,8 +73,7 @@ class TestPositionsResolveOverTheWholeSequence:
         assert _zeroed(fn(_act(1), HookInfo("blocks.2.resid_post", 2, "resid_post", offset=3)), 1) == [0]
 
     def test_a_whole_sequence_pass_is_the_chunk_at_offset_zero(self):
-        # The pre-000601 contract: no offset on the info, the tensor is
-        # the sequence.
+        # No offset on the info: the tensor is the whole sequence.
         _, fn = _hook({"range": [1, 3]}, ["a", "b", "c"], 3)
         assert _zeroed(fn(_act(3), HookInfo("blocks.2.resid_post", 2, "resid_post")), 3) == [1, 2]
 
@@ -280,9 +279,8 @@ class TestTheHookedForwardRunsInChunks:
 
 
 class TestChatUnderAnIntervention:
-    """`text/chat` on local weights takes an intervention too (000601),
-    and sweeps its axes (000602) — the path `text/generate`'s tests did
-    not cover, which is how it went a release without one."""
+    """`text/chat` on local weights takes an intervention too, and
+    sweeps its axes: the same grammar on the other text path."""
 
     def _run(self, params, monkeypatch):
         from mechbench_compute import chat as chat_mod

@@ -1,13 +1,10 @@
-"""How an op is named and resolved (docs/LEXICON.md §1; tasks 000495,
-000512).
+"""How an op is named and resolved (docs/LEXICON.md §1).
 
 A protocol spells an op bare (`records/select`) or stored
-(`~canonical/ops/records/select`). Nothing else resolves: the names
-retired in the 2026-09 renames, and the `/1` version segment stored
-protocols carried before their migration, were accepted with a warning
-until **0.82.0** and are refused now — by name, and with the current
-spelling in the message. Every table the executor consults is keyed by
-the bare name and nothing else.
+(`~canonical/ops/records/select`). Nothing else resolves: a retired
+name, and the `/1` version segment a stored protocol may carry, are
+refused — by name, and with the current spelling in the message. Every
+table the executor consults is keyed by the bare name and nothing else.
 """
 
 from __future__ import annotations
@@ -57,14 +54,14 @@ class TestResolve:
             assert new in msg and ALIASES_REMOVED_IN in msg
 
     def test_the_version_segment_is_refused_on_a_current_name_too(self):
-        # Stored protocols carried `…/1` until the 2026-09-16 migration.
+        # A stored protocol may carry a `…/1` version segment.
         for spelling in ("records/select/1", f"{ROOT}records/select/1"):
             with pytest.raises(KeyError):
                 resolve(spelling)
             assert "records/select" in explain_unknown(spelling)
 
     def test_warn_false_is_still_accepted_and_still_resolves(self):
-        # Callers that silenced the old warning must not have to change.
+        # `warn=False` silences the warning and still resolves.
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             assert resolve("logits/read", warn=False) == "logits/read"
@@ -138,8 +135,8 @@ class TestTheLookupsAroundIt:
         assert resume_level("~canonical/ops/text/generate") == \
             resume_level("text/generate")
         assert item_resumable("logits/read") is True
-        # A name that no longer exists offers nothing, rather than
-        # claiming the promise of the op it used to mean.
+        # An unresolvable name offers nothing, rather than claiming
+        # the promise of an op it resembles.
         assert resume_level("decision-read") == "restart"
         assert item_resumable("decision-read") is False
 

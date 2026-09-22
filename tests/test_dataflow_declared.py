@@ -1,8 +1,8 @@
-"""The declared dataflow form through the executor (epic 000553, task
-000557): `{"$param"}` and `{"$ref"}` resolved as values, protocol inputs
-as edge sources, a stored object named as a lineage input wherever it sat
-— and the property the migration depends on: a protocol rewritten from the
-legacy form computes the same bytes under the same node fingerprints.
+"""The declared dataflow form through the executor: `{"$param"}` and
+`{"$ref"}` resolved as values, protocol inputs as edge sources, a stored
+object named as a lineage input wherever it sat — and the property a
+rewrite rests on: two spellings of one protocol compute the same bytes
+under the same node fingerprints.
 
 Pure blocks only, with the bench faked, so nothing here needs a model.
 """
@@ -102,8 +102,8 @@ def test_a_migrated_protocol_computes_the_same_bytes_under_the_same_fingerprints
 
 
 def test_every_stored_object_a_node_reads_is_a_lineage_input(fake_bench):
-    """A frequency table fetched into a param is an input of the node that
-    used it. Lineage used to name only what arrived by edge."""
+    """A frequency table fetched into a param is an input of the node
+    that used it, not only what arrived by edge."""
     _run({"graph": DECLARED, "params": {"mode": "items"},
           "inputs": {"draws": {"$ref": {"bench": "lab/p/draws"}}},
           "resultPath": "lab/p/results/j_new"})
@@ -196,7 +196,7 @@ def test_an_op_may_declare_that_it_wants_the_reference_itself(monkeypatch):
 
 def test_a_ref_inside_a_map_body_is_judged_by_the_body_nodes_op(fake_bench):
     """A map's body is a graph; its nodes' $refs sit on THEIR declarations,
-    not on records/map's (000598). On a body node's inputs a $ref is a
+    not on records/map's. On a body node's inputs a $ref is a
     port, and a port always takes one."""
     body = {"nodes": [
         {"id": "say", "block": "text/measure",
@@ -211,7 +211,7 @@ def test_a_ref_inside_a_map_body_is_judged_by_the_body_nodes_op(fake_bench):
     dataflow.check_refs(nodes, {})
 
 
-# --- declared outputs are the run's results (000558) -----------------------
+# --- declared outputs are the run's results -----------------------
 
 TWO_NODES = {
     "dataflow": 2,
@@ -272,7 +272,7 @@ def test_a_legacy_protocol_keeps_its_terminals_under_their_ids(fake_bench):
     assert list(payload["outputs"]) == ["picked"] and "output_nodes" not in payload
 
 
-# --- eager discard: keep: outputs (000561) --------------------------------
+# --- eager discard: keep: outputs --------------------------------
 
 class _Keeping(_Hooks):
     """Hooks that also spool held results, as the runner does."""
@@ -355,7 +355,7 @@ def test_keep_takes_two_words(fake_bench):
 
 
 def test_a_map_over_plain_values_needs_no_corpus(fake_bench):
-    """`over` is the other way to give a map its stream (000603): the
+    """`over` is the other way to give a map its stream: the
     values become one-field records, and the name `as` gives them is the
     body's own `$param`."""
     # The body's own records are literal; what varies is the `$param`

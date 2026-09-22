@@ -208,7 +208,7 @@ class TestTheOps:
         from mechbench_compute import lexicon
         from mechbench_compute.block_params import check_inputs
 
-        # Retired in 0.82.0; the refusal names what to write instead.
+        # The refusal names what to write instead.
         with pytest.raises(KeyError):
             lexicon.resolve("direction/similarity")
         assert "geometry/compare" in lexicon.explain_unknown("direction/similarity")

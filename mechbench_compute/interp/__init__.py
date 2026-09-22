@@ -1,24 +1,5 @@
-"""Interpretability primitives as protocol operations (the
-mechbench-experiments port).
-
-The original step-XX scripts each hand-rolled a loop around the same
-three moves: run the model with an intervention, read something out of
-the residual stream, compare. The intervention layer (interventions.py)
-already made those moves declarative; this module makes them PROTOCOL
-BLOCKS, so the experiments become graphs anyone can run, re-run, and
-diff on the platform:
-
-- ``ablate_layers``     — steps 02/04/34/35 and the legacy flat kind:
-                          per-layer (or per-sublayer) Δ log p sweeps.
-- ``residual_vectors``  — steps 01/08/10/11/12's shared substrate:
-                          residual-stream vectors at (layer, position)
-                          per condition, as data other blocks consume.
-- ``residual_divergence`` — the matched-pair mechanism (000050/052):
-                          run a pair of prompts, cosine-compare the
-                          residual streams per (layer, position).
-- ``vector_similarity`` — steps 10/11/28's readout (pure, no model):
-                          cosine matrix + separation metrics over
-                          labeled vectors. Lives in blocks.PURE_BLOCKS.
+"""What the interpretability operations share: the readouts, resolvers
+and shapes more than one of them needs.
 
 Every op renders its records one way (`distill.render`): a condition
 (`user`, optional `system` and `prefill`) through the model's chat

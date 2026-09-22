@@ -1,4 +1,4 @@
-"""apply_ln for DLA (task 000142): folding the captured rms scale and
+"""apply_ln for DLA: folding the captured rms scale and
 the norm's gain into each component makes the decomposition sum to the
 model's true final logits — the whole point of the mode.
 

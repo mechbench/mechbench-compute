@@ -1,5 +1,5 @@
 """The kinds are declared once and the declaration is fit to publish
-(docs/LEXICON.md §3–§6; task 000496).
+(docs/LEXICON.md §3–§6).
 
 Every op emits a declared kind; every declared kind that is not a
 platform kind is emitted by some op; names are two-level and bare; the

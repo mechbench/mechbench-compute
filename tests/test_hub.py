@@ -1,4 +1,4 @@
-"""Hub ref parsing (task 000260): repo@revision splitting."""
+"""Hub ref parsing: repo@revision splitting."""
 
 from mechbench_compute.hub import parse_model_ref
 

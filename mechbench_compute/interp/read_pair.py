@@ -5,8 +5,8 @@ from typing import Any
 
 
 def read_pair(record: Mapping[str, Any]) -> tuple[str, str]:
-    """A pair's two prompts, `a` and `b` — or the retired `clean` and
-    `corrupt`."""
+    """A pair's two prompts: `a` and `b`, or `clean` and `corrupt` as a
+    stored pair may spell them."""
     a = record.get("a", record.get("clean"))
     b = record.get("b", record.get("corrupt"))
     if not (isinstance(a, str) and isinstance(b, str) and a and b):

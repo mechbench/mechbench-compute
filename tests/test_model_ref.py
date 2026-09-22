@@ -1,10 +1,9 @@
-"""The model algebra's reference form (task 000312, Arc A).
+"""The model algebra's reference form.
 
 What is worth asserting: the grammar's explicitness (no guessing
-between HF repos and bench labels), back-compat (bare strings mean
-what they always meant), and that the not-yet arcs fail at load time
-with a sentence naming the arc — not at parse time, and never with a
-shrug.
+between HF repos and bench labels), that a bare string is a hub repo id,
+and that a form the loader does not implement fails at load time with a
+sentence naming it — not at parse time, and never with a shrug.
 """
 
 import pytest
@@ -56,7 +55,7 @@ class TestResolveLimits:
         assert (ref.base_kind, ref.base) == ("bench", "me/p/ckpt")
 
     def test_a_stack_resolves_in_order(self):
-        # Order IS the semantics (000312 Arc B): round two fused onto
+        # Order IS the semantics: round two fused onto
         # round one is not round one fused onto round two.
         fetched = []
 

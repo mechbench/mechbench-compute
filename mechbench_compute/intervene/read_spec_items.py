@@ -9,7 +9,7 @@ from mechbench_compute.intervene.spec_error import SpecError
 def read_spec_items(inline: Any, inputs: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     """The spec items a node was given: its inline list when present,
     else the `items` of an `intervene/spec` object on its `intervention`
-    port; [] when neither (000601)."""
+    port; [] when neither."""
     if inline:
         return [dict(it) for it in inline]
     port = (inputs or {}).get("intervention")

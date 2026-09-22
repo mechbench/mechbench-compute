@@ -1,4 +1,4 @@
-"""`weights/circuit` (task 000610): what a head does, read from the
+"""`weights/circuit`: what a head does, read from the
 weights alone — the OV and QK circuits, and which earlier heads reach
 this one."""
 

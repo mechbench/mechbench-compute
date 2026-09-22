@@ -8,8 +8,8 @@ from mechbench_compute.providers import Budget
 
 def summarize_spend(calls: Sequence[Mapping[str, Any]], budget: Budget, *,
                     provider: str, dry_run: bool, replayed: int) -> dict[str, Any]:
-    """The node's spend, which the manifest sums (000324's partials
-    carry the running total). A reader should never have to add up
+    """The node's spend, which the manifest sums (a partial result
+    carries the running total). A reader should never have to add up
     per-item records to learn what a node cost."""
     usage: dict[str, int] = {}
     versions: dict[str, int] = {}

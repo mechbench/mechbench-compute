@@ -1,4 +1,4 @@
-"""The merge op (000312 Arc C), IO faked at module seams.
+"""The merge op, IO faked at module seams.
 
 The shard arithmetic is test_checkpoint's business; what is worth
 asserting here is the op's CONTRACT: destinations validated, files

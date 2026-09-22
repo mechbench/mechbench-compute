@@ -7,7 +7,7 @@ from mechbench_compute.directions.constants import KIND
 
 
 def is_direction(d: Any) -> bool:
-    """A direction record, by its current name or the retired one."""
+    """A direction record, under its kind or any alias of it."""
     from mechbench_compute.lexicon import kinds as K
 
     if not isinstance(d, Mapping) or not isinstance(d.get("kind"), str):

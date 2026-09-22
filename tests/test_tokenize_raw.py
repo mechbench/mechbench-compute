@@ -1,8 +1,8 @@
 """chat_template=False must mean NO chat template — on every arch path.
 
-The VLM (gemma) branch ignored the flag for months; the first
-raw-template ablation sweep caught it because every frozen target
-decoded as 'user' — the chat-turn header token (2026-08-26).
+A branch that ignores the flag is invisible in the output: the prompt
+still tokenizes, and the only trace is a frozen target decoding as
+'user' — the chat-turn header token. So every arch path is checked.
 """
 
 import mlx.core as mx

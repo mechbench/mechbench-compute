@@ -1,4 +1,4 @@
-"""The declarative intervene block (task 000366): the hook math on fake
+"""The declarative intervene block: the hook math on fake
 activations, spec parsing, the readout plumbing on a fake model, and
 an opt-in real-E2B check."""
 
@@ -210,7 +210,7 @@ class TestRunReadout:
         out = run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "project_out", "direction": d}],
                       "readout": {"kind": "capture", "points": ["blocks.2.resid_post"]}})
-        # A capture readout IS a capture (000599): an activations/vector
+        # A capture readout IS a capture: an activations/vector
         # collection, one item per record per factor per point, in the
         # space the hook name says, `factor` on each — the shape
         # activations/capture emits, so geometry/compare reads it.
@@ -360,8 +360,8 @@ class _WeightModel(_FakeModel):
 
 
 class TestWeightItems:
-    """Task 000457: a spec item that names a `parameter` edits the model
-    for the node, not the forward pass."""
+    """A spec item that names a `parameter` edits the model for the
+    node, not the forward pass."""
 
     def _weight(self, model):
         return np.array(
@@ -418,7 +418,7 @@ class TestWeightItems:
 
 
 class TestSweepAxes:
-    """A sweep varies any spec field, not only strength (000602): the
+    """A sweep varies any spec field, not only strength: the
     axes are a cartesian product, each a coordinate on the rows."""
 
     REC = {"id": "r1", "user": "hi"}

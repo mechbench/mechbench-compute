@@ -1,4 +1,4 @@
-"""Record and replay (task 000350).
+"""Record and replay.
 
 A cassette is a bench object: `{request hash → the responses that came
 back}` for one provider, content-addressed and versioned like any

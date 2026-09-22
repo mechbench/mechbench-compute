@@ -1,12 +1,8 @@
-"""Stdlib building blocks (epic 000258, arc B): the pure blocks, plus
-the block registry the pipeline executor resolves op refs against.
+"""Stdlib building blocks: the pure blocks, plus the block registry the
+pipeline executor resolves op refs against.
 
 An operation is named once, in the lexicon, and that name is used
-everywhere — here, in a stored graph, on the docs page. This docstring
-called these `Grid`, `Template`, `FactorCross` and `PairedDelta` until
-2026-09-17, names retired by 000495 and 000510 and carried nowhere
-else; teaching a reader a vocabulary the executor would refuse is the
-same fault as shipping one.
+everywhere — here, in a stored graph, on the docs page.
 
 Design rules these implement:
 
@@ -42,8 +38,7 @@ from typing import Any
 
 # Op ref -> callable. Pure blocks take (inputs, params); model blocks
 # are registered by the executor host (the runner), which owns model
-# lifecycle. Descriptor objects at ~canonical/ops/... arrive with the
-# 000248 registry arc; until then this in-code table is the resolver.
+# lifecycle.
 
 
 def arch_header(arch: Any) -> dict[str, Any]:
@@ -69,28 +64,28 @@ PURE_BLOCKS: dict[str, Callable[..., Any]] = {
 }
 
 
-# Trajectory readouts (task 000368): pure numpy over trajectory records.
+# Trajectory readouts: pure numpy over trajectory records.
 from mechbench_compute.trajectory import PURE as _TRAJECTORY_PURE
 
 PURE_BLOCKS.update(_TRAJECTORY_PURE)
 
 
-# Directions as first-class objects (task 000367): pure producers and
-# arithmetic live in `directions.py`; the vocabulary projection is a model
-# block in the executor.
+# Directions as first-class objects: pure producers and arithmetic live
+# in `directions`; the vocabulary projection is a model block in the
+# executor.
 from mechbench_compute.directions import (
     PURE_DIRECTION_BLOCKS as _DIRECTION_BLOCKS,
 )
 
 PURE_BLOCKS.update(_DIRECTION_BLOCKS)
 
-# Exact generic monoid reduces (task 000406): sum, top-k, histogram.
+# Exact generic monoid reduces: sum, top-k, histogram.
 from mechbench_compute.reduce import PURE_REDUCE_BLOCKS as _REDUCE_BLOCKS
 
 PURE_BLOCKS.update(_REDUCE_BLOCKS)
 
-# Tool handlers are ordinary blocks (task 000340): what a model may
-# call is what the platform can already do.
+# Tool handlers are ordinary blocks: what a model may call is what the
+# platform can already do.
 from mechbench_compute.tools import PURE_TOOL_BLOCKS as _TOOL_BLOCKS
 
 PURE_BLOCKS.update(_TOOL_BLOCKS)

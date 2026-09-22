@@ -1,4 +1,4 @@
-"""The local sampler honours `stop` (task 000509).
+"""The local sampler honours `stop`.
 
 `text/chat` declares `stop` and the remote adapters all put it on the
 wire; the local path read the tokenizer's turn-end tokens and nothing

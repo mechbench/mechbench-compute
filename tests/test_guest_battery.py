@@ -1,4 +1,4 @@
-"""Guest conformance battery (task 000359): every applet against every
+"""Guest conformance battery: every applet against every
 kind of input, asserting the robustness contract rather than outputs.
 
 The contract: the guest never traps, never raises out of the runtime,

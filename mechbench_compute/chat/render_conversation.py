@@ -11,15 +11,13 @@ def render_conversation(tokenizer, req: pm.ChatRequest, *,
                         dialect=None) -> str:
     """A canonical conversation through a local chat template.
 
-    The system prompt merges into the FIRST user turn, which is how
-    `render_chat` has always driven these instruction-tuned templates
-    (several of them accept no system role at all).
+    The system prompt merges into the FIRST user turn: several of these
+    instruction-tuned templates accept no system role at all.
 
-    Tool parts are no longer stringified into prose (epic 000439). A
-    call goes through the template as a real `tool_calls` entry and a
-    result as a real tool turn, so the model reads both in the format
-    it was trained on — and `tools` is declared the same way, by the
-    template rather than by a fence we wrote.
+    Tool parts go through the template rather than into prose: a call as
+    a real `tool_calls` entry, a result as a real tool turn, so the
+    model reads both in the format it was trained on — and `tools` is
+    declared the same way, by the template.
     """
     from mechbench_compute import dialects as _dl
 

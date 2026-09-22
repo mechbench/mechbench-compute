@@ -1,8 +1,8 @@
-"""The provider registry and the rate-limit model (task 000344).
+"""The provider registry and the rate-limit model.
 
 Everything that differs between providers, in one versioned table:
-which adapter speaks to them, where they live, what they can do
-(000337's capability matrix), what they charge (`pricing.py`), and
+which adapter speaks to them, where they live, what they can do (the
+capability matrix), what they charge (`pricing.py`), and
 what they will let an account do per minute. `REGISTRY_VERSION` is
 recorded in manifests beside the price-table version, so a run's
 throttling and its bill are both explainable from what it recorded.
@@ -161,10 +161,9 @@ class Bucket:
     tokens: float
     updated: float
     #: FIFO tickets. Without them, N threads contending for one bucket
-    #: race on every wake and a thread can lose indefinitely — which is
-    #: exactly how experiment 024's first ceiling run died at 154/200
-    #: with "output_tokens never freed up". Queueing is the fix;
-    #: head-of-line waiting is the price, and it is the right price.
+    #: race on every wake and a thread can lose indefinitely, stalling
+    #: a run against a currency that never frees up for it. Queueing is
+    #: what prevents that; head-of-line waiting is its price.
     next_ticket: int = 0
     serving: int = 0
 
@@ -198,8 +197,8 @@ class TokenBucketLimiter:
     whole scope until the header's reset, and no bucket arithmetic can
     talk its way past that hold.
 
-    The runner's shared implementation (000338) replaces this across
-    jobs and processes; the interface is the same four methods.
+    The runner's shared implementation replaces this across jobs and
+    processes; the interface is the same four methods.
     """
 
     def __init__(self, *, sleep=None, clock=None, limits=None,
@@ -307,10 +306,10 @@ class TokenBucketLimiter:
                     bucket.refill(now)
                     if limit is not None and float(limit) > bucket.capacity:
                         # The account is BIGGER than the registry's
-                        # conservative seed. A seed that can only fall is
-                        # a permanent underestimate — experiment 024's
-                        # first run stalled against an 8k/min output
-                        # ceiling the account did not actually have.
+                        # conservative seed, and the seed must rise to
+                        # meet it: a seed that can only fall is a
+                        # permanent underestimate, and a run stalls
+                        # against a ceiling the account does not have.
                         bucket.capacity = float(limit)
                         bucket.per_second = float(limit) / 60.0
                         bucket.tokens = max(bucket.tokens, 0.0)
@@ -318,14 +317,11 @@ class TokenBucketLimiter:
                         # The PROVIDER is the authority on its own
                         # quota, so its number wins over our local
                         # simulation — clamped to capacity, and never
-                        # over a hold (a 429 outranks everything). The
-                        # original rule here was "downward only", which
-                        # protected against a stale header over-crediting
-                        # by at most one window and in exchange made a
-                        # low seed permanent: experiment 024's ceiling
-                        # run died against an 8k/min ceiling the account
-                        # did not have. A bounded over-credit is the
-                        # cheaper mistake.
+                        # over a hold (a 429 outranks everything).
+                        # Correcting downward only would bound a stale
+                        # header's over-credit to one window, at the
+                        # price of making a low seed permanent; a
+                        # bounded over-credit is the cheaper mistake.
                         bucket.tokens = max(0.0, min(float(remaining),
                                                      bucket.capacity))
                 if remaining is not None and remaining <= 0 and reset:

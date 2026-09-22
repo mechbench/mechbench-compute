@@ -1,14 +1,12 @@
 """A generated item records its model as the WIRE FORM, never the
-resolved object (task 000488).
+resolved object.
 
-The resolved ModelRef carries `adapter_payloads` — the fetched adapter's
-safetensors bytes. Before this test existed the generate block wrote the
-object itself into `metadata.model` and `generation_spans[0].model`, and
-`str()` of it into `trace.tokenizer`. For an adapted model that is the
-whole adapter, three times, in every item: ~32 MB per story against the
-4.5 KB a base-model story weighs. Experiment 014's adapted arm produced a
-result the API could not receive without being OOM-killed, and three
-runs and a 90-minute outage were spent finding out why.
+The resolved ModelRef carries `adapter_payloads` — the fetched
+adapter's safetensors bytes. Writing the object itself into
+`metadata.model`, `generation_spans[0].model` or `trace.tokenizer` puts
+the whole adapter in every item: tens of megabytes per story against the
+kilobytes a base-model story weighs, and a result the API cannot receive
+without being OOM-killed.
 
 Two things are pinned here, and the second is the one that will catch a
 regression in a different block: the recorded model is the wire form,

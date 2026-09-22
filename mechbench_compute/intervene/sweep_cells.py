@@ -14,12 +14,11 @@ def sweep_cells(params: Mapping[str, Any]) -> list[Cell]:
     axes in `SWEEP_AXES` order, with the untouched-model control first
     unless `control` is false or a strength of 0 is already named.
 
-    A sweep over `strength` alone is the sweep this op has always run —
-    one cell per factor, `factor` the only coordinate. Any other axis
-    (`layers`, `heads`, `positions`, `neurons`) sets that field on every
-    spec item it applies to, and becomes a coordinate of its own, so a
-    layer sweep is one node and one result where it used to be a
-    `records/map` over a corpus of integers (000602).
+    A sweep over `strength` alone is one cell per factor, with `factor`
+    the only coordinate. Any other axis (`layers`, `heads`, `positions`,
+    `neurons`) sets that field on every spec item it applies to, and
+    becomes a coordinate of its own, so a layer sweep is one node and
+    one result.
     """
     sweep = params.get("sweep") or {}
     if not isinstance(sweep, Mapping):

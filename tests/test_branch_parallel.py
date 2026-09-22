@@ -1,10 +1,9 @@
-"""Fork/join pays off only if the forks run at once (task 000396).
+"""Fork/join pays off only if the forks run at once.
 
-The graph has been DAG-general since 000248 and the executor ran it in
-topological order, one node at a time — so two prompts to two providers,
-then a judge, took the sum of the two calls. Two nodes whose inputs are
-all computed do not depend on each other; the only thing waiting buys is
-latency.
+The graph is DAG-general. Two nodes whose inputs are all computed do
+not depend on each other, so running them one at a time — two prompts to
+two providers, then a judge — costs the sum of the two calls and buys
+nothing but latency.
 
 What is parallel is deliberately narrow: blocks whose work happens on
 someone else's machine. A local model node must serialize (one model in
@@ -104,7 +103,7 @@ class TestBranchesRunTogether:
         spec = _spec([_chat("left"), _chat("right")])
         parallel = ProtocolExecutor().run(spec).payload
 
-        # Where the wave READS it (task 000632): the package imports it
+        # Where the wave READS it: the package imports it
         # back, but patching the re-export would leave the wave running
         # on the eight it already bound, and this test passing vacuously.
         monkeypatch.setattr("mechbench_compute.protocol.remote.MAX_PARALLEL_NODES", 1)

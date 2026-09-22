@@ -1,4 +1,4 @@
-"""The provider registry and the rate-limit model (task 000344).
+"""The provider registry and the rate-limit model.
 
 Bucket arithmetic runs on a fake clock; the concurrency cap runs on
 real threads, because a standing count is exactly the thing a fake
@@ -183,9 +183,9 @@ class TestThroughTheTransport:
 
 
 class TestFairnessAndSelfCorrection:
-    """The two bugs that killed experiment 024's first ceiling run at
-    154 of 200 calls: contending threads could starve each other, and a
-    conservative seed could never be corrected upward."""
+    """Two ways a run stalls short of its work: contending threads
+    starving each other, and a conservative seed that is never
+    corrected upward."""
 
     def test_no_thread_is_overtaken_forever(self):
         # Eight threads, a bucket far too small for them: with no

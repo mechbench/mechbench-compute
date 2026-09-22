@@ -1,4 +1,4 @@
-"""Attribution patching (task 000606): every (layer, position) of a causal
+"""Attribution patching: every (layer, position) of a causal
 trace estimated from one forward and one backward pass. On a model whose
 metric is linear in its activations the estimate IS the exact patch; on
 Gemma it ranks the cells the exact patch ranks."""

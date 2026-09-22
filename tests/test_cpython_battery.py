@@ -1,4 +1,4 @@
-"""CPython guest conformance (task 000453): real Python workloads over
+"""CPython guest conformance: real Python workloads over
 every kind of input and the failure modes that must stay bounded — no
 trap, no hang, an exit in range, and a read-only run that leaves the
 tree alone. Skips unless `guests/cpython/build.sh` has run.

@@ -1,7 +1,7 @@
-"""A transcript as a value (task 000617), and what a turn sees (task
-000593): `text/render` and `text/extend` are the two non-model steps of
-a conversation's fold, and a turn composed from them plus `text/chat`
-is the turn `text/converse` takes."""
+"""A transcript as a value, and what a turn sees: `text/render` and
+`text/extend` are the two non-model steps of a conversation's fold, and
+a turn composed from them plus `text/chat` is one turn of a
+conversation."""
 
 from __future__ import annotations
 
@@ -148,19 +148,19 @@ class TestExtend:
                        "replies": [{"id": "r", "text": "x", "coords": {}}]}, {"participant": "bo"})
 
 
-#: What the retired `text/converse` said on this turn, the last time it
-#: was asked (compute 0.122.1, mock provider, one round-robin turn over
-#: the opening below, ana's system prompt "Be {name}."). The op is gone;
-#: its answer is kept as data, so the three nodes that replaced it have
-#: to reproduce it word for word rather than merely run.
+#: What a single conversation op said on this turn (mock provider, one
+#: round-robin turn over the opening below, ana's system prompt "Be
+#: {name}."). Its answer is kept as data, so the three nodes that
+#: compose the same turn have to reproduce it word for word rather than
+#: merely run.
 CONVERSE_TURN = {"participant": "ana", "index": 1,
                  "text": "glass sable meridian sable wick meridian"}
 
 
 class TestATurnComposedFromChat:
     """render → chat → extend, on the mock provider (whose reply is a
-    pure function of the request), says exactly what the retired
-    `text/converse` said on the same turn — the composition is the loop,
+    pure function of the request), says exactly what a single
+    conversation op said on the same turn — the composition is the loop,
     cut into ops."""
 
     def _run(self, graph):
@@ -192,10 +192,10 @@ class TestATurnComposedFromChat:
 
 
 class TestWhoIsScripted:
-    """A line nobody in `participants` said is scripted — an opening, an
-    injection — and is never attributed. The transcript's own list is
-    the rule; no participant name is special (Benji's principle: the
-    ops carry no assumptions about who is in a conversation)."""
+    """A line nobody in `participants` said is scripted — an opening,
+    an injection — and is never attributed. The transcript's own list is
+    the rule; no participant name is special, because the ops carry no
+    assumptions about who is in a conversation."""
 
     HISTORY = [_msg(0, "narrator", "You are at a crossroads."),
                _msg(1, "ana", "Left."), _msg(2, "bo", "Right.")]

@@ -5,13 +5,12 @@ mechbench-models' `lexicon.generated.ts` (every operation's ports,
 parameters and `requires` — the composer builds each node's editor from
 it and the API routes jobs by it) and mechbench-ui's
 `kindAliases.generated.ts` (every kind and retired spelling, which the
-UI reads stored objects with). A
-declaration changed here and not regenerated there is an editor offering
-a choice the executor refuses, or a stored object the UI reads under a
-different kind than the executor does — and the kind table had drifted
-two releases before this test existed. So when the UI checkout sits
-beside this one, each copy must equal what its script writes now. Only
-the header line, which carries the build's version string, may differ.
+UI reads stored objects with). A declaration changed here and not
+regenerated there is an editor offering a choice the executor refuses,
+or a stored object the UI reads under a different kind than the executor
+does, and nothing else would say so. So when the UI checkout sits beside
+this one, each copy must equal what its script writes now. Only the
+header line, which carries the build's version string, may differ.
 """
 
 from __future__ import annotations

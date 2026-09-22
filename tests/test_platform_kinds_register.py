@@ -1,10 +1,10 @@
 """register_all follows the declarations, including when they change.
 
-Task 000508: the registry refused a changed manifest at a registered
-version (`MANIFEST_PINNED`), and `register_all` printed "pinned" and
-moved on — so after phase 2b of the typology the published contract
-described the fields eight kinds no longer had. A refusal that names
-the registered version is now an instruction: register the next one.
+A registry that refuses a changed manifest at a registered version
+(`MANIFEST_PINNED`) must not be passed over: printing "pinned" and
+moving on leaves the published contract describing fields the kinds no
+longer have. The refusal names the registered version, which makes it
+an instruction: register the next one.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""The tensor store (task 000613): rows in shards beside the object,
+"""The tensor store: rows in shards beside the object,
 read one shard at a time, fetched verified, uploaded once."""
 
 from __future__ import annotations

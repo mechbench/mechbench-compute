@@ -1,5 +1,4 @@
-"""Rate limits as a first-class currency (task 000337 amendment; the
-runner's implementation is 000338).
+"""Rate limits as a first-class currency.
 
 The transport does not sleep on its own guesses. It asks a `Limiter`
 for permission in a named CURRENCY — requests, input tokens, output
@@ -14,8 +13,8 @@ that is slow because someone else's quota is full should say so.
 
 `NullLimiter` is the default (single-job laptop runs), and the tests
 use a recording one — the whole interface is four methods so the
-runner's real limiter (shared across jobs, persistent across restarts)
-can implement it without importing anything from here.
+runner's limiter (shared across jobs, persistent across restarts) can
+implement it without importing anything from here.
 """
 
 from __future__ import annotations

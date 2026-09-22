@@ -1,4 +1,4 @@
-"""Grouping reads a field wherever the record carries it (000590)."""
+"""Grouping reads a field wherever the record carries it."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def test_the_monoid_agrees_with_the_flat_block():
 
 
 class TestChartMarks:
-    """`records/plot`'s heat and token marks (task 000616)."""
+    """`records/plot`'s heat and token marks."""
 
     ROWS = {"kind": "collection", "item_kind": "records/record", "items": [
         {"id": "a", "coords": {"layer": 0, "position": 1}, "recovery": -0.5, "mean": 1.0,
@@ -100,7 +100,7 @@ class TestChartMarks:
 
     def test_a_grid_becomes_one_row_per_cell(self):
         """A trace reads out a grid because that is the shape a heat map
-        is; a chart takes rows, so the cells become them (000616)."""
+        is; a chart takes rows, so the cells become them."""
         spec = build_chart(self.GRID, {"mark": "heat", "x": "position", "y": "layer",
                                            "value": "recovery"})
         rows = spec["data"]["rows"]
