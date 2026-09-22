@@ -38,6 +38,10 @@ class Context:
     input_paths: Mapping[str, str] = field(default_factory=dict)
     bindings: Mapping[str, Any] | None = None
     result_base: str | None = None
+    #: Which reference vocabulary the run's graph is written in. An
+    #: operation that runs a body of its own stamps the body with it, so
+    #: the child run reads the references the parent's were checked as.
+    declared: bool = False
 
     def model(self, ref: Any) -> Any:
         """The loaded model a `model` param names."""

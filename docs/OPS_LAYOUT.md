@@ -110,6 +110,7 @@ operations that need the executor need exactly one thing from it.
 | `ctx.secrets` | the owner's provider credentials |
 | `ctx.input_paths` | the stored label each input arrived from |
 | `ctx.bindings`, `ctx.result_base` | the run's bound params, and where its results land |
+| `ctx.declared` | which reference vocabulary the run's graph is written in — what an operation stamps a body of its own with |
 | `ctx.executor` | the executor itself — for the few operations that are control flow (`records/map`, `records/fold`) or that serve two tiers (`text/chat`) |
 
 Every field has a default, so a test builds one in a line:

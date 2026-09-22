@@ -60,6 +60,7 @@ class Dispatch:
                 on_checkpoint=on_checkpoint,
                 input_paths=dict(input_paths),
                 bindings=state.bound_params if state.declared else state.bindings,
+                declared=state.declared,
                 result_base=state.result_base,
                 resume_items=resume_kwargs.get("resume_items"),
                 resume_state=resume_kwargs.get("resume_state"))

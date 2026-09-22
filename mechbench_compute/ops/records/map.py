@@ -109,6 +109,7 @@ def run(ctx, inputs, params):
     sees ONE record at a time and nothing else, so map over chunks is
     map over records by construction.
     """
+    from mechbench_compute import dataflow as dataflow_mod
     from mechbench_compute.lexicon import kinds as K
 
     records = K.items_of(inputs.get("records") or [])
@@ -118,6 +119,14 @@ def run(ctx, inputs, params):
             "records/map needs a `body`: a graph, with `nodes` and "
             "`edges`, run once per record. A stored protocol by "
             "reference is task 000393's; an inline body works now.")
+    # A body is written in its run's vocabulary, and only the run knows
+    # which: under a declared run the body's `{"$param"}`s are checked
+    # against the run's params before anything starts, so the child run
+    # has to read them the same way; under the older form the body's
+    # holes are `$name` strings, which the declared form reads as plain
+    # strings.
+    if ctx.declared:
+        body = {**body, "dataflow": dataflow_mod.DATAFLOW}
     bind = dict(params.get("bind") or {})
     over = params.get("over")
     if over is not None:

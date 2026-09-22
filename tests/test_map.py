@@ -228,6 +228,34 @@ class TestDeclaredBody:
         assert [i["text"] for i in K.items_of(out)] == [
             "x:dusk-1", "x:dusk-2", "x:kettle-1", "x:kettle-2"]
 
+    def test_a_body_written_in_the_declared_form_names_the_run_s_model(self):
+        """A declared run's body is declared too, whether or not it
+        repeats `dataflow` itself: `{"$param": "model"}` on a body node
+        is the run's model, resolved before the loader sees it, the same
+        way a fold's body reads one."""
+        body = {"nodes": [
+            {"id": "ask", "block": "records/cross",
+             "params": {"factors": [{"name": "user",
+                                     "levels": [{"key": {"$param": "topic"}}]}]}},
+            {"id": "say", "block": "text/chat",
+             "params": {"model": {"$param": "model"}, "budget_usd": 1.0}},
+        ], "edges": [
+            {"from": {"node": "ask"}, "to": {"node": "say", "port": "records"}},
+        ]}
+        graph = {"dataflow": 2, "nodes": [
+            {"id": "each", "block": "records/map",
+             "params": {"body": body, "bind": {"topic": "user"}},
+             "inputs": {"records": TOPICS}},
+        ], "edges": []}
+        out = ProtocolExecutor().run(ProtocolSpec(
+            kind="pipeline", prompt="", model_id=None,
+            extra={"graph": graph, "inputs": {},
+                   "params": {"model": {"provider": "mock",
+                                        "model": "mock-large"}}})).payload["outputs"]["each"]
+        items = K.items_of(out)
+        assert [i["coords"]["mapped"] for i in items] == ["t1", "t2"]
+        assert all(i.get("text") for i in items)
+
     def test_a_name_the_map_does_not_bind_and_the_run_does_not_supply_is_refused(self):
         body = {"dataflow": 2, "nodes": [
             {"id": "design", "block": "records/cross",
