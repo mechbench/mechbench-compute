@@ -34,6 +34,8 @@ CAPABILITIES = Capabilities(
     batch=True, embed=False, streaming=False, models=True,
 )
 
+REASONING_BLOCKS = frozenset({"thinking", "redacted_thinking"})
+
 
 def _content(m: msg.Message) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -116,7 +118,7 @@ class AnthropicTransport(Transport):
                 parts.append(msg.ToolCallPart(id=str(block.get("id", "")),
                                               name=str(block.get("name", "")),
                                               arguments=dict(block.get("input") or {})))
-            elif kind in ("thinking", "redacted_thinking"):
+            elif kind in REASONING_BLOCKS:
                 # Reasoning is content, not text: keep it addressable
                 # rather than dropping it, so a turn that "came back
                 # empty" can be explained.
@@ -139,9 +141,21 @@ class AnthropicTransport(Transport):
         )
         if unmapped and not any(isinstance(p, msg.TextPart) and p.text
                                 for p in parts):
+            kinds = ", ".join(sorted(set(unmapped)))
+            if set(unmapped) <= REASONING_BLOCKS:
+                # Reasoning blocks are mapped above; what is missing is
+                # prose, and the cause is the output allowance.
+                raise ProviderError(
+                    f"anthropic: {usage.output_tokens} of {int(req.max_tokens)} "
+                    "output tokens (max_tokens) went to reasoning and no prose "
+                    f"followed (content block type(s) {kinds}). The completion "
+                    "is not empty: it holds reasoning whose text the API did "
+                    "not return. Raise max_tokens so the reply has room after "
+                    "the reasoning, or turn reasoning off with provider_options: "
+                    '{"anthropic": {"thinking": {"type": "disabled"}}}.')
             raise ProviderError(
                 f"anthropic returned {usage.output_tokens} output tokens but no "
-                f"text: content block type(s) {', '.join(sorted(set(unmapped)))}. "
+                f"text: content block type(s) {kinds}. "
                 "The adapter does not map these — the completion is not empty, "
                 "it is unreadable here.")
         return AdapterResponse(

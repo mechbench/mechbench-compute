@@ -320,6 +320,54 @@ class TestAnthropicMapping:
             "stop_reason": "tool_use", "usage": {"input_tokens": 5, "output_tokens": 5}})
         assert out.tool_calls[0].arguments == {"q": "y"}
 
+    def test_a_reasoning_only_completion_names_the_budget_and_both_remedies(
+            self, monkeypatch):
+        import pytest
+
+        from mechbench_compute.providers.errors import ProviderError
+
+        # The shape the API sends when thinking display is omitted: the
+        # block arrives with an empty string, so no prose exists at all.
+        with pytest.raises(ProviderError) as e:
+            self._run(monkeypatch, {
+                "id": "msg_3", "model": "claude-opus-5",
+                "content": [{"type": "thinking", "thinking": "",
+                             "signature": "sig"}],
+                "stop_reason": "max_tokens",
+                "usage": {"input_tokens": 5, "output_tokens": 100}})
+        said = str(e.value)
+        assert "100 of 100 output tokens (max_tokens) went to reasoning" in said
+        assert "not empty" in said
+        assert "Raise max_tokens" in said
+        assert ('provider_options: {"anthropic": {"thinking": '
+                '{"type": "disabled"}}}') in said
+        assert "does not map" not in said
+
+    def test_an_unknown_block_type_is_still_named_as_unmapped(self, monkeypatch):
+        import pytest
+
+        from mechbench_compute.providers.errors import ProviderError
+
+        with pytest.raises(ProviderError) as e:
+            self._run(monkeypatch, {
+                "id": "msg_4", "model": "claude-opus-5",
+                "content": [{"type": "thinking", "thinking": ""},
+                            {"type": "hologram", "data": "?"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 5, "output_tokens": 40}})
+        said = str(e.value)
+        assert "hologram" in said and "does not map" in said
+        assert "went to reasoning" not in said
+
+    def test_reasoning_followed_by_prose_returns_the_prose(self, monkeypatch):
+        _, out = self._run(monkeypatch, {
+            "id": "msg_5", "model": "claude-opus-5",
+            "content": [{"type": "thinking", "thinking": ""},
+                        {"type": "text", "text": "Once upon a time."}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 80}})
+        assert out.text == "Once upon a time."
+
 
 class TestOpenAIMapping:
     def test_tool_calls_split_into_their_own_messages(self, monkeypatch):
