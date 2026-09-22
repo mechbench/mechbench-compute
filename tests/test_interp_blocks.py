@@ -913,7 +913,6 @@ class TestEmptyDocuments:
         from dataclasses import dataclass, field
 
         from mechbench_compute.providers import anthropic, http
-        from mechbench_compute.providers.errors import ProviderError
         from mechbench_compute.providers.messages import request
 
         @dataclass
@@ -927,6 +926,7 @@ class TestEmptyDocuments:
 
         monkeypatch.setattr(http, "post_json", lambda *a, **k: Resp())
         t = anthropic.AnthropicTransport({"token": "sk-ant-x"})
-        with pytest.raises(ProviderError, match="250 output tokens but no text"):
-            t.chat(request({"model": "claude-sonnet-5",
-                            "messages": [{"role": "user", "content": "hi"}]}))
+        out = t.chat(request({"model": "claude-sonnet-5",
+                              "messages": [{"role": "user", "content": "hi"}]}))
+        assert out.empty is not None and out.empty.cause == "unmapped"
+        assert "250 output tokens but no text" in out.empty.message

@@ -23,6 +23,7 @@ from mechbench_compute.providers import messages as msg
 from mechbench_compute.providers.base import (
     AdapterResponse,
     Capabilities,
+    EmptyReply,
     Transport,
     Usage,
 )
@@ -46,7 +47,10 @@ class MockTransport(Transport):
 
     From inside a graph, where the transport is not yours to construct,
     `provider_options: {"mock": {...}}` does the smaller version:
-    `text` fixes the reply, `fail` refuses the call."""
+    `text` fixes the reply, `fail` refuses the call, and `empty` names a
+    cause for a reply that comes back with no text. A reply with no text
+    and no tool call is empty with cause `no_content` unless `empty`
+    names another."""
 
     name = "mock"
 
@@ -127,7 +131,9 @@ class MockTransport(Transport):
             parts.append(msg.ToolCallPart(id=f"call_{rng.randrange(1 << 30):08x}",
                                           name=spec.name, arguments=args))
             stop = "tool_use"
-        text = str(override.get("text", opts.get("text", self._text_for(req))))
+        cause = override.get("empty", opts.get("empty"))
+        text = ("" if cause else
+                str(override.get("text", opts.get("text", self._text_for(req)))))
         if text:
             parts.insert(0, msg.TextPart(text))
             if on_token is not None:
@@ -143,6 +149,11 @@ class MockTransport(Transport):
                       output_tokens=out_tokens,
                       cache_read_tokens=cache_read)
         headers = {**self._headers, **dict(override.get("headers") or {})}
+        empty = None
+        if not parts:
+            empty = EmptyReply(str(cause or "no_content"),
+                               f"mock returned no text and no tool call "
+                               f"(cause {cause or 'no_content'}).")
         return AdapterResponse(
             parts=tuple(parts), stop_reason=str(override.get("stop_reason", stop)),
             usage=usage,
@@ -150,6 +161,7 @@ class MockTransport(Transport):
             response_id=f"mock_{msg.request_hash(req, provider=self.name)[:16]}",
             headers=headers,
             logprobs=self._logprobs(req, rng) if req.logprobs else None,
+            empty=empty,
         )
 
     @staticmethod

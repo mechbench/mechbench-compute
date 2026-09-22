@@ -19,6 +19,7 @@ from mechbench_compute.providers import messages as msg
 from mechbench_compute.providers.base import (
     AdapterResponse,
     Capabilities,
+    EmptyReply,
     Transport,
     Usage,
 )
@@ -31,6 +32,13 @@ CAPABILITIES = Capabilities(
     json_mode=True, seed=False, logprobs=5, cache_control=True,
     batch=True, embed=True, streaming=False, models=True,
 )
+
+
+#: The finish reasons that mean the provider withheld the content.
+SAFETY_FINISH_REASONS = frozenset({
+    "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII",
+    "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION",
+})
 
 
 def _contents(req: msg.ChatRequest) -> list[dict[str, Any]]:
@@ -56,6 +64,41 @@ def _contents(req: msg.ChatRequest) -> list[dict[str, Any]]:
         out.append({"role": "model" if m.role == "assistant" else "user",
                     "parts": parts})
     return out
+
+
+def read_empty(data: Mapping[str, Any], cand: Mapping[str, Any], *,
+               usage: Usage, max_tokens: int) -> EmptyReply:
+    """Why a response with no reply text and no function call came back
+    that way: a blocked prompt, no candidates, or a safety-class finish
+    reason; thoughts that used the allowance; or nothing it says."""
+    block = (data.get("promptFeedback") or {}).get("blockReason")
+    finish = str(cand.get("finishReason") or "")
+    if block:
+        return EmptyReply("filtered", (
+            f"gemini blocked the prompt (promptFeedback.blockReason {block}) "
+            "and returned no candidates. The request, not the budget, is "
+            "what to change."))
+    if not data.get("candidates"):
+        return EmptyReply("filtered", (
+            "gemini returned no candidates, which it does only when "
+            "something about the prompt was refused."))
+    if finish in SAFETY_FINISH_REASONS:
+        return EmptyReply("filtered", (
+            f"gemini withheld the reply (finishReason {finish}). The "
+            "request, not the budget, is what to change."))
+    if usage.reasoning_tokens:
+        return EmptyReply("reasoning", (
+            f"gemini: {usage.reasoning_tokens} of {usage.output_tokens} output "
+            f"tokens went to thoughts (maxOutputTokens {max_tokens}) and no "
+            f"reply text followed (finishReason {finish or 'STOP'}). Raise "
+            "max_tokens so the reply has room after the thinking, or lower "
+            "the thinking budget with provider_options: "
+            '{"gemini": {"generationConfig": {"thinkingConfig": '
+            '{"thinkingBudget": 0}}}} (a model that takes a level rather '
+            'than a budget takes {"thinkingLevel": "low"}).'))
+    return EmptyReply("no_content", (
+        f"gemini returned no text and no function call (finishReason "
+        f"{finish or 'STOP'}, {usage.output_tokens} output tokens)."))
 
 
 class GeminiTransport(Transport):
@@ -106,7 +149,14 @@ class GeminiTransport(Transport):
             mode = (req.tool_choice if isinstance(req.tool_choice, str)
                     else dict(req.tool_choice).get("mode", "AUTO"))
             body["toolConfig"] = {"functionCallingConfig": {"mode": str(mode).upper()}}
-        body.update(req.options_for(self.name))
+        options = dict(req.options_for(self.name))
+        # `generationConfig` in the options is merged into the one built
+        # here, not swapped for it: replacing it would drop
+        # `maxOutputTokens`, and the budget reserved against max_tokens
+        # would no longer bound what the call can spend.
+        if isinstance(options.get("generationConfig"), Mapping):
+            cfg.update(options.pop("generationConfig"))
+        body.update(options)
         return body
 
     def _chat(self, req: msg.ChatRequest, *, on_token=None) -> AdapterResponse:
@@ -116,9 +166,12 @@ class GeminiTransport(Transport):
         data = resp.body or {}
         cand = (data.get("candidates") or [{}])[0]
         parts: list[msg.Part] = []
+        prose = False
         for i, p in enumerate((cand.get("content") or {}).get("parts") or []):
             if "text" in p:
                 parts.append(msg.TextPart(str(p["text"])))
+                # A part marked `thought` is reasoning, not the reply.
+                prose = prose or (bool(p["text"]) and not p.get("thought"))
             elif "functionCall" in p:
                 fc = p["functionCall"]
                 parts.append(msg.ToolCallPart(
@@ -128,19 +181,26 @@ class GeminiTransport(Transport):
                     id=f"{cand.get('index', 0)}-{i}", name=str(fc.get("name", "")),
                     arguments=dict(fc.get("args") or {})))
         u = data.get("usageMetadata") or {}
+        thoughts = int(u.get("thoughtsTokenCount", 0) or 0)
         usage = Usage(
             input_tokens=int(u.get("promptTokenCount", 0)),
-            output_tokens=int(u.get("candidatesTokenCount", 0)),
+            # Thoughts are billed as output and count against
+            # maxOutputTokens, but `candidatesTokenCount` leaves them out.
+            output_tokens=int(u.get("candidatesTokenCount", 0) or 0) + thoughts,
             cache_read_tokens=int(u.get("cachedContentTokenCount", 0) or 0),
-            reasoning_tokens=int(u.get("thoughtsTokenCount", 0) or 0),
+            reasoning_tokens=thoughts,
         )
+        stop_reason = str(cand.get("finishReason") or "STOP").lower()
+        empty = None
+        if not prose and not any(isinstance(p, msg.ToolCallPart) for p in parts):
+            empty = read_empty(data, cand, usage=usage, max_tokens=int(req.max_tokens))
         return AdapterResponse(
             parts=tuple(parts),
-            stop_reason=str(cand.get("finishReason") or "STOP").lower(),
+            stop_reason=stop_reason,
             usage=usage,
             model_version=str(data.get("modelVersion") or req.model),
             response_id=str(data.get("responseId") or ""), headers=resp.headers,
-            logprobs=cand.get("logprobsResult"), raw=data)
+            logprobs=cand.get("logprobsResult"), raw=data, empty=empty)
 
     def _count_tokens(self, req: msg.ChatRequest) -> int:
         url = f"{self._base}/models/{req.model}:countTokens"

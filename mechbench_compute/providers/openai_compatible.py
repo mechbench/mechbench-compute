@@ -30,6 +30,7 @@ from mechbench_compute.providers import messages as msg
 from mechbench_compute.providers.base import (
     AdapterResponse,
     Capabilities,
+    EmptyReply,
     Transport,
     Usage,
 )
@@ -81,6 +82,31 @@ def _messages(req: msg.ChatRequest) -> list[dict[str, Any]]:
         if text or not results:
             out.append({"role": "user", "content": text})
     return out
+
+
+def read_empty(provider: str, message: Mapping[str, Any], *, stop_reason: str,
+               usage: Usage, max_tokens: int) -> EmptyReply:
+    """Why a choice with no content and no tool calls came back that way:
+    a content filter or a refusal, the output allowance spent on
+    reasoning, or nothing the response says."""
+    refusal = message.get("refusal")
+    if stop_reason == "content_filter" or refusal:
+        said = f": {str(refusal)[:200]}" if refusal else ""
+        return EmptyReply("filtered", (
+            f"{provider} returned no content (finish_reason {stop_reason}"
+            f"{', with a refusal' if refusal else ''}){said}. The provider "
+            "withheld the reply; the request, not the budget, is what to change."))
+    if usage.reasoning_tokens:
+        return EmptyReply("reasoning", (
+            f"{provider}: {usage.reasoning_tokens} of {usage.output_tokens} "
+            f"completion tokens went to reasoning (max_tokens {max_tokens}) "
+            f"and no content followed (finish_reason {stop_reason}). Raise "
+            "max_tokens so the reply has room after the reasoning, or lower "
+            f'the reasoning effort with provider_options: {{"{provider}": '
+            '{"reasoning_effort": "low"}}.'))
+    return EmptyReply("no_content", (
+        f"{provider} returned no content and no tool call (finish_reason "
+        f"{stop_reason}, {usage.output_tokens} completion tokens)."))
 
 
 class OpenAICompatibleTransport(Transport):
@@ -168,12 +194,16 @@ class OpenAICompatibleTransport(Transport):
             reasoning_tokens=int((u.get("completion_tokens_details") or {})
                                  .get("reasoning_tokens", 0) or 0),
         )
+        stop_reason = str(choice.get("finish_reason") or "stop")
+        empty = None
+        if not parts:
+            empty = read_empty(self.name, m, stop_reason=stop_reason, usage=usage,
+                               max_tokens=int(req.max_tokens))
         return AdapterResponse(
-            parts=tuple(parts),
-            stop_reason=str(choice.get("finish_reason") or "stop"),
+            parts=tuple(parts), stop_reason=stop_reason,
             usage=usage, model_version=str(data.get("model") or req.model),
             response_id=str(data.get("id") or ""), headers=resp.headers,
-            logprobs=(choice.get("logprobs") or None), raw=data)
+            logprobs=(choice.get("logprobs") or None), raw=data, empty=empty)
 
     def models(self) -> list[str]:
         resp = http.get_json(f"{self._base}/models", headers=self._headers(),

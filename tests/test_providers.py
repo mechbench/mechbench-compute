@@ -322,40 +322,33 @@ class TestAnthropicMapping:
 
     def test_a_reasoning_only_completion_names_the_budget_and_both_remedies(
             self, monkeypatch):
-        import pytest
-
-        from mechbench_compute.providers.errors import ProviderError
-
         # The shape the API sends when thinking display is omitted: the
         # block arrives with an empty string, so no prose exists at all.
-        with pytest.raises(ProviderError) as e:
-            self._run(monkeypatch, {
-                "id": "msg_3", "model": "claude-opus-5",
-                "content": [{"type": "thinking", "thinking": "",
-                             "signature": "sig"}],
-                "stop_reason": "max_tokens",
-                "usage": {"input_tokens": 5, "output_tokens": 100}})
-        said = str(e.value)
+        _, out = self._run(monkeypatch, {
+            "id": "msg_3", "model": "claude-opus-5",
+            "content": [{"type": "thinking", "thinking": "",
+                         "signature": "sig"}],
+            "stop_reason": "max_tokens",
+            "usage": {"input_tokens": 5, "output_tokens": 100}})
+        assert out.empty is not None and out.empty.cause == "reasoning"
+        said = out.empty.message
         assert "100 of 100 output tokens (max_tokens) went to reasoning" in said
         assert "not empty" in said
         assert "Raise max_tokens" in said
         assert ('provider_options: {"anthropic": {"thinking": '
                 '{"type": "disabled"}}}') in said
         assert "does not map" not in said
+        assert out.call.empty == out.empty.to_wire()
 
     def test_an_unknown_block_type_is_still_named_as_unmapped(self, monkeypatch):
-        import pytest
-
-        from mechbench_compute.providers.errors import ProviderError
-
-        with pytest.raises(ProviderError) as e:
-            self._run(monkeypatch, {
-                "id": "msg_4", "model": "claude-opus-5",
-                "content": [{"type": "thinking", "thinking": ""},
-                            {"type": "hologram", "data": "?"}],
-                "stop_reason": "end_turn",
-                "usage": {"input_tokens": 5, "output_tokens": 40}})
-        said = str(e.value)
+        _, out = self._run(monkeypatch, {
+            "id": "msg_4", "model": "claude-opus-5",
+            "content": [{"type": "thinking", "thinking": ""},
+                        {"type": "hologram", "data": "?"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 40}})
+        assert out.empty is not None and out.empty.cause == "unmapped"
+        said = out.empty.message
         assert "hologram" in said and "does not map" in said
         assert "went to reasoning" not in said
 

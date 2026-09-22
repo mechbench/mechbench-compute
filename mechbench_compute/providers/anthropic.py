@@ -20,10 +20,11 @@ from mechbench_compute.providers import messages as msg
 from mechbench_compute.providers.base import (
     AdapterResponse,
     Capabilities,
+    EmptyReply,
     Transport,
     Usage,
 )
-from mechbench_compute.providers.errors import AuthError, ProviderError
+from mechbench_compute.providers.errors import AuthError
 
 API_VERSION = "2023-06-01"
 DEFAULT_BASE_URL = "https://api.anthropic.com"
@@ -53,6 +54,42 @@ def _content(m: msg.Message) -> list[dict[str, Any]]:
                 entry["is_error"] = True
             out.append(entry)
     return out
+
+
+def read_empty(unmapped: list[str], *, stop_reason: str, usage: Usage,
+               max_tokens: int, reasoning_text: bool = False) -> EmptyReply:
+    """Why a reply with no prose and no tool call came back that way.
+    Only text blocks count as prose: a thinking block's text is the
+    reasoning, not the reply."""
+    kinds = ", ".join(sorted(set(unmapped)))
+    if stop_reason == "refusal":
+        return EmptyReply("filtered", (
+            f"anthropic stopped with stop_reason refusal after "
+            f"{usage.output_tokens} output tokens and returned no prose: the "
+            "model declined the request."))
+    if unmapped and set(unmapped) <= REASONING_BLOCKS:
+        # Reasoning blocks are mapped; what is missing is prose, and
+        # the cause is the output allowance.
+        return EmptyReply("reasoning", (
+            f"anthropic: {usage.output_tokens} of {max_tokens} "
+            "output tokens (max_tokens) went to reasoning and no prose "
+            f"followed (content block type(s) {kinds}). "
+            + ("The completion holds reasoning only, and its text is not "
+               "a reply. " if reasoning_text else
+               "The completion is not empty: it holds reasoning whose text "
+               "the API did not return. ")
+            + "Raise max_tokens so the reply has room after "
+            "the reasoning, or turn reasoning off with provider_options: "
+            '{"anthropic": {"thinking": {"type": "disabled"}}}.'))
+    if unmapped:
+        return EmptyReply("unmapped", (
+            f"anthropic returned {usage.output_tokens} output tokens but no "
+            f"text: content block type(s) {kinds}. "
+            "The adapter does not map these — the completion is not empty, "
+            "it is unreadable here."))
+    return EmptyReply("no_content", (
+        f"anthropic returned no text and no tool call (stop_reason "
+        f"{stop_reason}, {usage.output_tokens} output tokens)."))
 
 
 class AnthropicTransport(Transport):
@@ -110,10 +147,12 @@ class AnthropicTransport(Transport):
         data = resp.body or {}
         parts: list[msg.Part] = []
         unmapped: list[str] = []
+        prose = False
         for block in data.get("content") or []:
             kind = block.get("type")
             if kind == "text":
                 parts.append(msg.TextPart(block.get("text", "")))
+                prose = prose or bool(block.get("text"))
             elif kind == "tool_use":
                 parts.append(msg.ToolCallPart(id=str(block.get("id", "")),
                                               name=str(block.get("name", "")),
@@ -139,29 +178,19 @@ class AnthropicTransport(Transport):
             cache_read_tokens=int(u.get("cache_read_input_tokens", 0) or 0),
             cache_write_tokens=int(u.get("cache_creation_input_tokens", 0) or 0),
         )
-        if unmapped and not any(isinstance(p, msg.TextPart) and p.text
-                                for p in parts):
-            kinds = ", ".join(sorted(set(unmapped)))
-            if set(unmapped) <= REASONING_BLOCKS:
-                # Reasoning blocks are mapped above; what is missing is
-                # prose, and the cause is the output allowance.
-                raise ProviderError(
-                    f"anthropic: {usage.output_tokens} of {int(req.max_tokens)} "
-                    "output tokens (max_tokens) went to reasoning and no prose "
-                    f"followed (content block type(s) {kinds}). The completion "
-                    "is not empty: it holds reasoning whose text the API did "
-                    "not return. Raise max_tokens so the reply has room after "
-                    "the reasoning, or turn reasoning off with provider_options: "
-                    '{"anthropic": {"thinking": {"type": "disabled"}}}.')
-            raise ProviderError(
-                f"anthropic returned {usage.output_tokens} output tokens but no "
-                f"text: content block type(s) {kinds}. "
-                "The adapter does not map these — the completion is not empty, "
-                "it is unreadable here.")
+        stop_reason = str(data.get("stop_reason") or "end_turn")
+        empty = None
+        if not prose and not any(isinstance(p, msg.ToolCallPart) for p in parts):
+            empty = read_empty(
+                unmapped, stop_reason=stop_reason, usage=usage,
+                max_tokens=int(req.max_tokens),
+                reasoning_text=any(isinstance(p, msg.TextPart) and p.text
+                                   for p in parts))
         return AdapterResponse(
-            parts=tuple(parts), stop_reason=str(data.get("stop_reason") or "end_turn"),
+            parts=tuple(parts), stop_reason=stop_reason,
             usage=usage, model_version=str(data.get("model") or req.model),
-            response_id=str(data.get("id") or ""), headers=resp.headers, raw=data)
+            response_id=str(data.get("id") or ""), headers=resp.headers, raw=data,
+            empty=empty)
 
     def _count_tokens(self, req: msg.ChatRequest) -> int:
         body = self._body(req)

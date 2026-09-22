@@ -112,6 +112,9 @@ final snapshot.
 item a pure function of its key. A remote call is exchangeable at best —
 someone else's sampler, possibly a different model version tomorrow — so
 each item records the model version that answered, the cost and the usage.
+A remote reply can come back empty — the allowance spent on reasoning, the
+content filtered — and `on_empty` decides whether such an item is kept
+marked, left out, or fails the node; it is paid for and counted either way.
 A `cache` keeps a memo of remote calls by request hash, so re-running an
 unchanged node costs nothing; a `cassette` replays recorded responses
 without contacting the provider at all.
@@ -154,7 +157,7 @@ name.
            "scales this one.",
            required=False),
     ),
-    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. The header carries `fidelity`, `spend` (calls, cost, cache hits) and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
+    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's plus `sample`), `metadata.sampling`, `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. A remote reply with no prose and no tool call carries `metadata.empty` (`{cause, message}`). The header carries `fidelity`, `spend` (calls, cost, cache hits), for a remote model `empty` (`{count, by_cause, ids, policy}`, present with a count of 0 when every reply had content), and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
     params=(
         P("budget_usd", "float",
           "The most this node may spend on provider calls, in US dollars. "
@@ -308,6 +311,23 @@ name.
           "Local path only. `\"record\"`: a failed tool call is recorded on "
           "the item and the run continues. `\"fail\"`: it fails the node.",
           "record", choices=("record", "fail")),
+        P("on_empty", "string",
+          "Remote path only: what to do with a reply that carries no prose "
+          "and no tool call. The provider says why, as a cause: "
+          "`reasoning` (the output allowance went to reasoning), `filtered` "
+          "(a safety filter, a refusal or a blocked prompt), `unmapped` "
+          "(content in a form the adapter cannot read) or `no_content`. "
+          "Every such reply is paid for, charged to the budget and "
+          "checkpointed whatever this says, so a resumed run never buys it "
+          "twice. `\"keep\"`: the item is emitted with empty `text` and "
+          "`metadata.empty` = `{cause, message}`. `\"skip\"`: it is left out "
+          "of the collection. `\"error\"`: the node fails with the "
+          "provider's message — for a protocol that treats one empty reply "
+          "as a broken run. The header's `empty` counts them under every "
+          "choice. A local model that ends its reply at once has written "
+          "an empty reply; that is model output, not a provider condition, "
+          "and this does not apply to it.",
+          "keep", choices=("keep", "skip", "error")),
         P("sandbox", "object",
           "Give each item a filesystem sandbox: `{base, tools, limits, "
           "strict, snapshot, mounts}`, or `{}` for the default image. Its "

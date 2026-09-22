@@ -3,16 +3,19 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from mechbench_compute.chat.build_request import build_request
-from mechbench_compute.chat.constants import ITEM_KIND
 from mechbench_compute.chat.build_item import build_item
+from mechbench_compute.chat.build_request import build_request
+from mechbench_compute.chat.constants import ITEM_KIND, ON_EMPTY
+from mechbench_compute.chat.count_by_cause import count_by_cause
 from mechbench_compute.chat.open_toolbox import open_toolbox
+from mechbench_compute.chat.read_empty import read_empty
 from mechbench_compute.chat.read_records import read_records
 from mechbench_compute.chat.resolve_sandbox_tools import resolve_sandbox_tools
 from mechbench_compute.chat.summarize_spend import summarize_spend
 from mechbench_compute.providers import Budget, build_budget, make_transport
 from mechbench_compute.providers import limiter as pl
 from mechbench_compute.providers import messages as pm
+from mechbench_compute.providers.errors import ProviderError
 from mechbench_compute.tools import build_toolbox
 
 
@@ -20,8 +23,16 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                cassette_mode=None, limiter=None, job_budget: Budget | None = None,
                on_item=None, on_start=None,
                resume_items=None) -> dict[str, Any]:
-    """The endpoint path. `ref` is an endpoint ModelRef."""
+    """The endpoint path. `ref` is an endpoint ModelRef.
+
+    An empty reply is checkpointed through `on_item` like any other, so
+    a resumed run never buys it twice; `on_empty` is applied when the
+    output collection is assembled, to resumed items as well."""
     from mechbench_compute.seeds import item_seed
+
+    on_empty = str(params.get("on_empty", "keep"))
+    if on_empty not in ON_EMPTY:
+        raise ValueError(f"on_empty is one of {ON_EMPTY}, not {on_empty!r}")
 
     provider = ref.provider
     creds = dict((secrets or {}).get(provider) or {})
@@ -85,6 +96,8 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                 items.append(resume_items[key])
                 if on_item:
                     on_item(key, resume_items[key], True)
+                if on_empty == "error" and read_empty(resume_items[key]):
+                    raise ProviderError(read_empty(resume_items[key])["message"])
                 continue
             item_sd = (item_seed(seed, rec.get("id"), k)
                        if seed is not None and transport.capabilities.seed
@@ -121,8 +134,11 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                           tool_runs=[r.to_wire() for r in box.runs],
                           sandbox_calls=(session.calls if session else ()),
                           sandbox_snapshot=(session.final_wire() if session else None))
+        if out.empty is not None:
+            item["metadata"]["empty"] = out.empty.to_wire()
         return key, item, out.call, extra_calls
 
+    failed: list[ProviderError] = []
     if plan:
         def land(result) -> None:
             key, item, call, extra = result
@@ -133,17 +149,35 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
             replayed += int(bool(call.replayed))
             if on_item:
                 on_item(key, item)
+            if on_empty == "error" and read_empty(item) and not failed:
+                failed.append(ProviderError(read_empty(item)["message"]))
 
         if concurrency == 1 or len(plan) == 1:
             for entry in plan:
                 land(one(entry))
+                if failed:
+                    break
         else:
             with ThreadPoolExecutor(max_workers=concurrency) as pool:
                 futures = [pool.submit(one, e) for e in plan]
                 from concurrent.futures import as_completed
 
                 for fut in as_completed(futures):
+                    if fut.cancelled():
+                        continue
                     land(fut.result())
+                    if failed:
+                        # Calls not yet started are not bought; those in
+                        # flight are paid for, so they still land.
+                        for f in futures:
+                            f.cancel()
+    if failed:
+        raise failed[0]
+
+    empties = sorted((it for it in items if read_empty(it)),
+                     key=lambda it: str(it.get("id")))
+    if on_empty == "skip":
+        items = [it for it in items if not read_empty(it)]
 
     from mechbench_compute.lexicon import kinds as K
 
@@ -154,4 +188,9 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         fidelity="text",
         spend=summarize_spend(calls, budget, provider=provider, dry_run=dry_run,
                               replayed=replayed),
+        empty={"count": len(empties),
+               "by_cause": count_by_cause([read_empty(it) for it in empties]),
+               "ids": [str(it.get("id")) for it in empties],
+               "policy": on_empty},
     )
+

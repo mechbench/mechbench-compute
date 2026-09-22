@@ -31,6 +31,7 @@ from mechbench_compute.providers import messages as msg
 from mechbench_compute.providers.base import (
     AdapterResponse,
     Capabilities,
+    EmptyReply,
     Transport,
     Usage,
 )
@@ -72,6 +73,7 @@ def response_to_wire(resp: AdapterResponse) -> dict[str, Any]:
         "response_id": resp.response_id,
         "headers": dict(resp.headers or {}),
         **({"logprobs": resp.logprobs} if resp.logprobs is not None else {}),
+        **({"empty": resp.empty.to_wire()} if resp.empty is not None else {}),
     }
 
 
@@ -84,6 +86,7 @@ def response_from_wire(value: Mapping[str, Any]) -> AdapterResponse:
         response_id=str(value.get("response_id", "")),
         headers=dict(value.get("headers") or {}),
         logprobs=value.get("logprobs"),
+        empty=EmptyReply.from_wire(value.get("empty")),
     )
 
 
@@ -182,6 +185,6 @@ class CassetteTransport(Transport):
             parts=resp.parts, stop_reason=resp.stop_reason, usage=resp.usage,
             model_version=resp.model_version, response_id=resp.response_id,
             headers=scrub_headers(resp.headers, self._secrets),
-            logprobs=resp.logprobs)
+            logprobs=resp.logprobs, empty=resp.empty)
         self.cassette.add(key, stored)
         return resp

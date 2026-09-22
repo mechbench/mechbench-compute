@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute import chat as chat_mod
+from mechbench_compute.chat.read_empty import read_empty
 from mechbench_compute.judge.constants import FIRST_NUMBER, SCALES
 from mechbench_compute.judge.parse_json_object import parse_json_object
 from mechbench_compute.judge.read_rationale import read_rationale
@@ -45,7 +46,10 @@ JSON. A record that carries the text under another name goes through
   the writing.
 * **Parsing is honest.** A vote that could not be read is recorded as
   unparsed rather than scored; a numeric answer outside the scale is
-  clamped and flagged.
+  clamped and flagged. A remote judge's reply that comes back empty —
+  its allowance spent on reasoning, its content filtered — is an
+  unparsed vote carrying `empty` (the cause), paid for and never a
+  failed node.
 * **An empty subject is not judged.** A record whose judged field is
   missing or blank is refused by name, because a winner over an empty
   string looks exactly like every other winner in the column. This is
@@ -439,6 +443,9 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         "concurrency": int(params.get("concurrency", 4)),
         "dry_run": bool(params.get("dry_run", False)),
         "name": params.get("name", "judgements"),
+        # An empty reply from the judge is a vote that could not be
+        # read, never a failed node: it is kept, marked, and counted.
+        "on_empty": "keep",
     }
     if ref.is_endpoint:
         graded = chat_mod.run_remote(ref, prompts, chat_params, secrets=secrets,
@@ -462,7 +469,10 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
     for item in K.items_of(graded):
         coords = (item.get("metadata") or {}).get("coords") or {}
         subject_id = str(coords.get("subject", ""))
-        read = dict(scale.read(str(item.get("text", ""))))
+        blank = read_empty(item)
+        # A flagged reply is unparsed whatever its text holds: the text
+        # of a reasoning-only reply is the reasoning, not an answer.
+        read = {} if blank else dict(scale.read(str(item.get("text", ""))))
         order = order_by_id.get(item["id"].rsplit("-s", 1)[0], "AB")
         # The judge answers about what it SAW, and half the time it saw
         # the sides swapped. Map the answer back to the record's own
@@ -481,6 +491,8 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
             "order": order,
             **read,
         }
+        if blank:
+            vote["empty"] = blank["cause"]
         call = (item.get("metadata") or {}).get("call")
         if call:
             vote["call"] = call

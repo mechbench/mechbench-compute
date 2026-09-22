@@ -76,6 +76,39 @@ class Usage:
         return {k: int(v) for k, v in asdict(self).items() if v}
 
 
+#: Why a reply carried neither prose nor a tool call.
+#:   reasoning   the output allowance went to reasoning; no prose followed
+#:   filtered    the provider withheld or refused the content
+#:   unmapped    content arrived in a block type the adapter cannot read
+#:   no_content  none of the above
+EMPTY_CAUSES = ("reasoning", "filtered", "unmapped", "no_content")
+
+
+@dataclass(frozen=True)
+class EmptyReply:
+    """A reply with no prose and no tool call, and why. The adapter
+    reports it rather than raising, so the call it paid for is settled
+    and the op that asked decides what an empty item means."""
+
+    cause: str
+    message: str
+
+    def __post_init__(self) -> None:
+        if self.cause not in EMPTY_CAUSES:
+            raise ValueError(f"an empty reply's cause is one of {EMPTY_CAUSES}, "
+                             f"not {self.cause!r}")
+
+    def to_wire(self) -> dict[str, str]:
+        return {"cause": self.cause, "message": self.message}
+
+    @staticmethod
+    def from_wire(value: Mapping[str, Any] | None) -> EmptyReply | None:
+        if not value:
+            return None
+        return EmptyReply(cause=str(value.get("cause", "no_content")),
+                          message=str(value.get("message", "")))
+
+
 @dataclass(frozen=True)
 class AdapterResponse:
     """What an adapter returns: the canonical parts plus everything the
@@ -92,6 +125,8 @@ class AdapterResponse:
     #: True when this came off a cassette rather than a wire — the run
     #: must be able to say which of its answers it actually bought.
     replayed: bool = False
+    #: Set when the reply holds neither prose nor a tool call.
+    empty: EmptyReply | None = None
 
 
 @dataclass
@@ -117,6 +152,8 @@ class CallRecord:
     provider_options: dict[str, Any] = field(default_factory=dict)
     rate_limits: dict[str, Any] = field(default_factory=dict)
     request: dict[str, Any] | None = None
+    #: `{cause, message}` when the reply was empty; absent otherwise.
+    empty: dict[str, str] | None = None
 
     def to_wire(self) -> dict[str, Any]:
         out = {k: v for k, v in asdict(self).items()
@@ -133,6 +170,7 @@ class Completion:
     usage: Usage
     call: CallRecord
     logprobs: Any = None
+    empty: EmptyReply | None = None
 
     @property
     def tool_calls(self) -> tuple[msg.ToolCallPart, ...]:
@@ -144,11 +182,14 @@ class Completion:
         return msg.Message(role="assistant", content=self.parts)
 
     def to_wire(self) -> dict[str, Any]:
-        return {"kind": "provider/completion", "text": self.text,
-                "parts": [p.to_wire() for p in self.parts],
-                "stop_reason": self.stop_reason,
-                "usage": self.usage.to_wire(),
-                "call": self.call.to_wire()}
+        out = {"kind": "provider/completion", "text": self.text,
+               "parts": [p.to_wire() for p in self.parts],
+               "stop_reason": self.stop_reason,
+               "usage": self.usage.to_wire(),
+               "call": self.call.to_wire()}
+        if self.empty is not None:
+            out["empty"] = self.empty.to_wire()
+        return out
 
 
 class Transport(ABC):
@@ -306,12 +347,13 @@ class Transport(ABC):
             provider_options=req.options_for(self.name),
             rate_limits=limits.to_wire(),
             request=msg.canonical(req, provider=self.name) if record_request else None,
+            empty=resp.empty.to_wire() if resp.empty is not None else None,
         )
         parts = tuple(resp.parts)
         return Completion(
             text="".join(p.text for p in parts if isinstance(p, msg.TextPart)),
             parts=parts, stop_reason=resp.stop_reason, usage=resp.usage,
-            call=record, logprobs=resp.logprobs)
+            call=record, logprobs=resp.logprobs, empty=resp.empty)
 
     # --- retries and outages ------------------------------------------------
 
