@@ -1,5 +1,5 @@
 """Minimum spanning trees over a similarity structure, as a variety
-measure (task 000430, Benji's method).
+measure.
 
 The question this answers: how VARIED is a corpus, in a domain that has
 cluster-attractors — genre, register, a stock plot. Pairwise distance
@@ -52,12 +52,10 @@ def center_rows(vectors: np.ndarray) -> np.ndarray:
     of how the two differ. Mean-pooled vectors are worse, because
     averaging over a sequence amplifies the common component.
 
-    Measured on experiment 024's frontier corpus: the raw mean MST edge
-    over mean-pooled vectors is 0.0048, and 0.5026 after centering — a
-    hundredfold. The uncentered numbers were not measuring the corpus,
-    they were measuring the cone, and the corpus RANKINGS they produced
-    disagreed with each other across layer and pooling choice while the
-    centered ones agreed.
+    Uncentered, the mean MST edge over mean-pooled vectors comes out
+    around a hundredfold smaller, and the corpus rankings it produces
+    disagree with each other across layer and pooling choice. Centered
+    rankings agree, so distance is measured on centered rows.
     """
     return vectors - vectors.mean(axis=0, keepdims=True)
 

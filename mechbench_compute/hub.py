@@ -1,5 +1,5 @@
-"""Hub-ref plumbing (task 000260): revision pinning and offline
-resolution against the HuggingFace cache layout.
+"""Hub-ref plumbing: revision pinning and offline resolution against
+the HuggingFace cache layout.
 
 Refs may pin a revision as ``repo/name@revision`` where revision is a
 commit sha (or unambiguous prefix) or a ref name (branch/tag). Pinned
@@ -99,10 +99,9 @@ def ensure_model(
     the reference asked for, because that is what a run has to record: a
     result whose model is "whatever main pointed at" cannot be reproduced.
 
-    Pinning used to imply "already downloaded": a revision missing from the
-    cache raised rather than fetching, which made a pinned reference
-    reproducible for someone who already had the weights and unusable for
-    anyone installing fresh. This fetches it.
+    A pinned revision that is not in the cache is FETCHED, not refused:
+    a pinned reference has to work on a fresh install, not only for
+    someone who already holds the weights.
 
     `on_download` is called with (repo_id, revision) just before a download
     starts, and only then — the caller can announce a multi-gigabyte wait

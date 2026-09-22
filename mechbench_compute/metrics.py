@@ -13,8 +13,8 @@ Every implementation here takes the whole item list and returns the
 `[n, n]` matrix, because the vector metrics are a matrix product and a
 pairwise loop would be the wrong shape for them. The result is always a
 float64 array of Python-JSON-safe numbers; the vector metrics compute in
-float32, as the geometry readouts always have, so a similarity written
-by the new path reproduces the old one bit for bit.
+float32, which is what the geometry readouts compute in, so both paths
+produce the same similarity bit for bit.
 """
 
 from __future__ import annotations
@@ -145,7 +145,7 @@ def dot(items, options):
 @_implements("adapter/delta", "cosine")
 def delta_cosine(items, options):
     """Two adapters' writes at one module, compared through the
-    principal direction of each (task 000458).
+    principal direction of each.
 
     Not `activations/vector`'s cosine: these live in a module's OUTPUT
     space, not a layer's residual, so there is no `space` to agree on —

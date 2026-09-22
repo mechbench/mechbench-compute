@@ -1,4 +1,4 @@
-"""Where a model's reasoning is, in the tokens it produced (task 000592).
+"""Where a model's reasoning is, in the tokens it produced.
 
 Some models reason out loud before answering, and mark it: Qwen3 and the
 R1 distills emit `<think>` and `</think>` as **special tokens** — entries

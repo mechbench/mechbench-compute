@@ -1,5 +1,5 @@
-"""Path patching (task 000607): a sender's effect on a receiver, along
-the path between them and no other.
+"""Path patching: a sender's effect on a receiver, along the path
+between them and no other.
 
 Activation patching (`intervene/patch`) changes what EVERY downstream
 component sees, so a head that "matters" may matter only because the

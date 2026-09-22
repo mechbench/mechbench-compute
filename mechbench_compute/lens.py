@@ -4,9 +4,8 @@ Project the residual stream at each layer through the tied unembed and read
 off what the model 'thinks' at that depth. Two flavors:
 
   logit_lens_final         - per-layer (rank, logprob) at the final position
-                             (the standard logit lens, used by step_01)
+                             (the standard logit lens)
   logit_lens_per_position  - same but at every position, returns [n_layers x seq_len]
-                             (used by step_08)
 
 Both consume an ActivationCache populated by Capture.residual(layers, point='post').
 """
@@ -24,8 +23,8 @@ from .attribution import _layers_from_cache
 def _resolve_layers(
     layers: Optional[Iterable[int]], cache=None
 ) -> list[int]:
-    """Use `layers` if given; else infer from the cache. No
-    module-level E4B-default fallback (000193)."""
+    """Use `layers` if given; else infer from the cache. There is no
+    module-level default layer count: one of the two must be supplied."""
     if layers is not None:
         return list(layers)
     if cache is None:
@@ -87,8 +86,8 @@ def logit_lens_per_position(
     """Project resid_post at each requested layer through the unembed at every
     sequence position. Returns matrices of shape [len(layers), seq_len].
 
-    Used by step_08 to ask 'where in the sequence and at what depth does
-    the answer become visible?'
+    Answers 'where in the sequence and at what depth does the answer
+    become visible?'
 
     Args:
         model: Model instance.
@@ -101,7 +100,6 @@ def logit_lens_per_position(
         (ranks, logprobs) — np.ndarray of shape [len(layers), seq_len].
     """
     layers_list = _resolve_layers(layers, cache)
-    # Read seq_len from the first layer's cache entry.
     first = cache[f"blocks.{layers_list[0]}.resid_post"]
     seq_len = first.shape[1]
     n = len(layers_list)

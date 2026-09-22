@@ -1,5 +1,5 @@
-"""The tensor store (task 000613): a collection whose items live in
-shards, not in its JSON.
+"""The tensor store: a collection whose items live in shards, not in
+its JSON.
 
 Every object on the bench is JSON, and an `activations/vector`
 collection caps at a few million floats — about 1,700 vectors of Gemma
@@ -8,8 +8,8 @@ layer, to train a probe, a lens or a dictionary. That is a different
 object: the collection's header stays a small JSON object with
 `storage: "tensor"` and a `shards` list, and the rows live beside it
 as safetensors files — content-addressed raw objects under
-`<label>/shards/`, uploaded and downloaded by the streaming paths a
-checkpoint's files already use (000312 Arc C).
+`<label>/shards/`, uploaded and downloaded by the same streaming paths
+a checkpoint's files use.
 
 A shard holds `vector` (`[rows, d]`), one tensor per numeric per-item
 field (`surprisal`, `position`, …), and the non-numeric per-item fields

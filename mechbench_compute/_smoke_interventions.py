@@ -1,14 +1,8 @@
 """Smoke test for declarative-intervention composition.
 
-All seven intervention-vs-reference checks have been migrated away
-(Ablate.layer at M02, Ablate.attention/.mlp at M04, Ablate.side_channel
-at M03, Ablate.head at M07, Capture.attn_weights at M06, Patch.position
-at M09). The corresponding hand-rolled forwards in the original
-experiments no longer exist — the framework code IS the reference path now.
-
-This file now exercises only the composition mechanic (interventions on
-the same hook point chain correctly), since that's framework-internal
-behavior that no migration validates on its own.
+Individual interventions are covered by the experiments that use them.
+What only this checks is the composition mechanic: two interventions on
+the same hook point chain in order.
 
   Composition: Ablate.head + Capture.per_head_out at the same layer
     -> captured tensor's ablated head slice is all zeros, other heads

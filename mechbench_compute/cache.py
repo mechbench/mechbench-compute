@@ -34,7 +34,7 @@ class ActivationCache:
         self._data: dict[str, mx.array] = dict(data or {})
         #: The sequence position of this forward's first token: 0 for a
         #: whole-prompt pass, the KV cache's length for a decoding step.
-        #: Every HookInfo the forward dispatches carries it (000601).
+        #: Every HookInfo the forward dispatches carries it.
         self.offset: int = int(offset)
 
     def __getitem__(self, key: str) -> mx.array:
@@ -87,7 +87,7 @@ class ActivationCache:
 
 def kv_offset(kv_cache) -> int:
     """How many tokens a KV cache already holds — the position the next
-    chunk begins at. 0 for no cache or an empty one (000601)."""
+    chunk begins at. 0 for no cache or an empty one."""
     if not kv_cache:
         return 0
     first = next((c for c in kv_cache if c is not None), None)

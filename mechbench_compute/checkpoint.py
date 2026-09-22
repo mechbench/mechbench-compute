@@ -1,4 +1,4 @@
-"""Checkpoints: merged models as first-class artifacts (000312 Arc C).
+"""Checkpoints: merged models as first-class artifacts.
 
 A checkpoint is a *directory* — safetensors shards, config, tokenizer —
 published as a label PREFIX: one object per file plus a `manifest`
@@ -132,10 +132,9 @@ def export_merged(
         if entry.name in shard_targets:
             # The HF cache stores snapshots as symlinks into an
             # extensionless blobs/ directory, and mx.load picks its
-            # parser BY EXTENSION — so the link's own name must be what
-            # it sees (resolve() handed it "blobs/ff4c28…", which is
-            # "Unknown file format"). Both mx.load and copyfile follow
-            # symlinks natively; nothing here needs resolve().
+            # parser BY EXTENSION — so the link's own name, not its
+            # target, must be what it sees. Both mx.load and copyfile
+            # follow symlinks natively; nothing here calls resolve().
             tensors = dict(mx.load(str(entry)))
             for name, delta in shard_targets[entry.name].items():
                 w = tensors[name]
@@ -191,10 +190,9 @@ def materialize(
 
     `on_bytes(done, total)` reports cumulative progress across the whole
     checkpoint (totals from the manifest), at most every few megabytes.
-    A 10 GB fetch used to be fifteen MINUTES of perfect silence — long
-    enough that the runner's watchdog killed a healthy download as a
-    hang and orphaned the job (2026-08-25). Progress reporting here is
-    not cosmetic; it is how the download proves it is alive.
+    Progress here is not cosmetic: a multi-gigabyte fetch is otherwise
+    many minutes of silence, and the runner's watchdog kills a job that
+    goes quiet. This is how the download proves it is alive.
     """
     key = hashlib.sha256(
         json.dumps(manifest.get("files"), sort_keys=True).encode()
@@ -204,8 +202,8 @@ def materialize(
     mark = target / _COMPLETE_MARK
     if mark.exists():
         # A cache hit is a USE. The mark's mtime is what the runner's
-        # eviction pass (000297) reads as last-used; without this touch
-        # a checkpoint in weekly service looks as cold as its fetch date
+        # eviction pass reads as last-used; without this touch a
+        # checkpoint in weekly service looks as cold as its fetch date
         # and gets evicted into a 10 GB re-download.
         mark.touch()
         return target

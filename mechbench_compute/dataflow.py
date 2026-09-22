@@ -1,5 +1,5 @@
-"""The declared dataflow form, as the executor reads it (epic 000553, task
-000557; design in mechbench/docs/DATAFLOW.md).
+"""The declared dataflow form, as the executor reads it (design in
+mechbench/docs/DATAFLOW.md).
 
 A protocol in the declared form carries `dataflow: 2` and speaks in two
 references — `{"$param": name}` and `{"$ref": source}` — where the legacy
@@ -9,12 +9,12 @@ it. An edge's source is a node's output or one of the protocol's inputs.
 
 This module does two things, both before anything runs:
 
-- `lower` rewrites a declared graph into the shapes the executor has
-  always run: an edge from a protocol input becomes that input's bound
-  value on the port, and `from: {node, output}` becomes `{node, port}`.
-  Ordering, resume, missing-node handling and fingerprints then see what
-  they always saw, which is the point: a migrated protocol resolves to the
-  same values in the same places, so its nodes keep their fingerprints.
+- `lower` rewrites a declared graph into the shapes the executor runs:
+  an edge from a protocol input becomes that input's bound value on the
+  port, and `from: {node, output}` becomes `{node, port}`. Lowering puts
+  each value in the same place the executor would otherwise have found
+  it, so ordering, resume, missing-node handling and fingerprints are
+  unaffected and a node keeps its fingerprint across the two forms.
 - `check_refs` refuses a `$ref` that sits where no declaration admits a
   stored object, by node and place.
 
@@ -66,9 +66,9 @@ def lower(graph: Mapping[str, Any], bound_inputs: Mapping[str, Any]) -> dict[str
     """A declared graph in the executor's working shapes.
 
     An edge from `{"input": name}` puts the run's bound value for that
-    input on the target port, as an inline input. That is where a legacy
-    `{"$fetch": "$corpus"}` sat, so the node's input hash, and with it its
-    fingerprint, is formed exactly as before.
+    input on the target port, as an inline input — the same place the
+    legacy `{"$fetch": "$corpus"}` sat, so the node's input hash, and
+    with it its fingerprint, is formed identically in both forms.
     """
     nodes = [dict(n, inputs=dict(n.get("inputs") or {})) for n in graph.get("nodes", [])]
     by_id = {n["id"]: n for n in nodes}
@@ -156,7 +156,7 @@ def map_bound_names(node: Mapping[str, Any]) -> frozenset[str]:
 def _inner_ref_site(params: Mapping[str, Any], path: list[str]):
     """Where a `$ref` under a map's `body` actually sits: `"port"` on a
     body node's inputs, `(inner_op, inner_path)` in a body node's
-    params, None when the path is not under a body (000598)."""
+    params, None when the path is not under a body."""
     if path[:2] != ["body", "nodes"] or len(path) < 4:
         return None
     body = params.get("body")
@@ -185,7 +185,7 @@ def bound_along(block: str, params: Mapping[str, Any], path: Sequence[str]) -> f
     through. A body may hold another node with a body — a `records/fold`
     whose step is a `records/map`, which is how a per-item binding
     reaches a turn — and a `{"$param"}` down there is bound by whichever
-    of them named it, not by the protocol (000617)."""
+    of them named it, not by the protocol."""
     names = set(map_bound_names({"block": block, "params": params}))
     cursor: Mapping[str, Any] = params
     i = 0
@@ -233,7 +233,7 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
             # Under a map's `body` the $ref sits on one of the BODY's
             # nodes, whose op — not the map's — says whether a stored
             # object belongs there; on that node's inputs it is a port,
-            # and a port always does (000598).
+            # and a port always does.
             site = _inner_ref_site(params, path)
             if site == "port":
                 return

@@ -1,12 +1,11 @@
-"""Tokenizer diagnostics as a block (task 000377, lexicon epic 000364).
+"""Tokenizer diagnostics as a block.
 
 A tokenizer is a constituent of the model as much as a weight matrix
 is, and its properties bear on results before any forward pass: an
 adapter trained on "one token per slot" is only meaningful if the
-vocabulary tokenizes that way in its envelope (the naturalism gate),
-and experiment 015's first question about trie depth — how deep were
-the sequences an adapter was actually trained on? — is a property of
-the (vocabulary, tokenizer, envelope) triple, not of any activation.
+vocabulary tokenizes that way in its envelope (the naturalism gate).
+Trie depth is a property of the (vocabulary, tokenizer, envelope)
+triple, not of any activation.
 
 `text/tokenize` measures a set of items AS
 CONTINUATIONS OF A PREFIX (the envelope: `'{ "name": "'`), because the

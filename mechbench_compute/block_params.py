@@ -1,11 +1,10 @@
 """What params and inputs a block accepts — so asking for something it
 cannot do fails loudly.
 
-Six variety jobs once declared `center: true`, all six succeeded, and
-all six were uncentered: the executing runner's block predated the
-parameter and simply never read it. A protocol asked for a
-measurement, the platform said done, and returned a different
-measurement.
+A param a block does not read is REFUSED, never ignored. Ignoring one
+means a protocol asks for a measurement, the platform reports success,
+and the number is a different measurement — which nothing downstream
+can tell apart from the one that was asked for.
 
 **Every canonical op is declared**, in `mechbench_compute.lexicon`, and
 `tests/test_block_params.py` fails when a new op arrives undeclared.
@@ -14,14 +13,14 @@ parameter's type, default and meaning live, beside its name, and this
 module is the runtime check that reads the names.
 
 The forward-compatibility argument cuts toward strictness. A NEW
-protocol running against an OLD block is precisely the case that bit
-us, and "this runner's `vectors/mst` does not accept `center`" is
-strictly better than a quiet wrong number.
+protocol running against an OLD block is exactly the dangerous case,
+and "this runner's `vectors/mst` does not accept `center`" is strictly
+better than a quiet wrong number.
 
 **Both directions are bugs.** An incomplete declaration falsely refuses
 a param the block does read. An over-declaration accepts one it never
-reads — which is the original failure wearing a different hat: a
-protocol could set it and be ignored. The test asserts the declaration
+reads, which is the same silent-wrong-number failure: a protocol sets
+it and nothing uses it. The test asserts the declaration
 EQUALS what the code reads, following `params` across modules and into
 packages to find out.
 
@@ -129,8 +128,8 @@ def _kind_of(value: Any) -> tuple[str | None, bool]:
     try:
         name, plural = K.resolve_kind(k, warn=False)
     except KeyError:
-        # A kind the registry does not know — an extension's, or a
-        # string an older author wrote — is no name to refuse by.
+        # A kind the registry does not know — an extension's, or one
+        # this runner has no declaration for — is no name to refuse by.
         return None, False
     return name, plural
 
@@ -142,9 +141,9 @@ def check_inputs(block: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
     Three refusals, each naming the op, the port and the kind: a port the
     op does not declare; a required port with nothing on it; a value
     whose kind does not satisfy the port's (by `extends`). A value
-    carrying no kind — an older stored object, an inline literal object —
-    passes: there is no name to refuse it by, and the block reads it as
-    it always did.
+    carrying no kind — a stored object without one, an inline literal
+    object — passes: there is no name to refuse it by, and the block
+    reads it as it is.
 
     An op that is not canonical is not second-guessed.
     """
@@ -168,8 +167,8 @@ def check_inputs(block: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
                 isinstance(v, Mapping) and set(v) >= {"node", "value"} for v in value):
             # A variadic port's value is the EDGES, not the items: each
             # entry is `{node, value}`, and what is checked is what each
-            # edge carries (task 000397). Nothing is wrapped — the list
-            # is the port's shape.
+            # edge carries. Nothing is wrapped — the list is the port's
+            # shape.
             for entry in value:
                 actual, _plural = _kind_of(entry["value"])
                 if actual is not None and not any(

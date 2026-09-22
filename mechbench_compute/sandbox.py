@@ -1,4 +1,4 @@
-"""The WASI sandbox runtime (task 000359, epic 000334).
+"""The WASI sandbox runtime.
 
 One function, and its signature is the design:
 
@@ -16,10 +16,9 @@ the 15 MB standard-Go guest is 1.1 s, deserializing its compiled form
 is 10 ms, and a tool call is otherwise 5 ms. One engine, one epoch
 ticker, a store per run.
 
-Architecture A, chosen on measurement (see 000359): the guest's file
-I/O goes through wasmtime's WASI in Rust straight to the host, and
-Python is never entered per syscall. The boundary — materialize
-before, capture after — is what a call pays, and 000358 measured it.
+The guest's file I/O goes through wasmtime's WASI in Rust straight to
+the host, so Python is never entered per syscall. What a call pays is
+the boundary — materialize before, capture after.
 
 The runtime takes a SNAPSHOT, not a path, on purpose. Whether it
 materializes into a directory or, someday, serves the tree from the
@@ -129,10 +128,10 @@ class SandboxError(RuntimeError):
 #: different bytes from the same snapshot, and then the snapshot chain
 #: is a record of nothing.
 #:
-#: Replaced, not denied. The first cut denied them, and every run died
-#: at startup: a language runtime reads the clock before `main` and
-#: seeds its hash from `random_get` before the first line. A runtime
-#: needs these to exist. What it does not need is for them to be real —
+#: Replaced, not denied. A language runtime reads the clock before
+#: `main` and seeds its hash from `random_get` before the first line,
+#: so denying these kills every run at startup. A runtime needs them to
+#: exist; what it does not need is for them to be real —
 #: so strict hands it a clock that starts at a fixed instant and
 #: advances one microsecond per read, and a byte stream seeded from the
 #: snapshot and argv. The run is then a pure function of its inputs,
@@ -142,9 +141,9 @@ STRICT_VIRTUAL = ("clock_res_get", "random_get")
 #: Replaced ALWAYS, strict or not. `poll_oneoff` is how a guest sleeps
 #: or waits, and a guest blocked inside it is beyond the reach of epoch
 #: interruption — the trap fires only when control returns to wasm, so
-#: `sleep 10` under a 1 s wall cap ran for 10,002 ms (measured). It
-#: cannot be denied either: Go's runtime waits inside its own GC path,
-#: so a denial killed every guest that grew its heap. Instead every
+#: `sleep 10` under a 1 s wall cap runs the full ten seconds. It cannot
+#: be denied either: Go's runtime waits inside its own GC path, so a
+#: denial kills every guest that grows its heap. Instead every
 #: wait completes at once AND the clock jumps forward by the wait —
 #: without the jump, Go's scheduler re-reads the clock, finds the
 #: deadline unmet, and polls again until real time catches up. So the
@@ -155,8 +154,9 @@ STRICT_VIRTUAL = ("clock_res_get", "random_get")
 #: timestamp reads five seconds later either way.
 ALWAYS_VIRTUAL = ("poll_oneoff", "clock_time_get")
 
-#: Where the strict clock starts: 2000-01-01T00:00:00Z, in nanoseconds.
-#: Any fixed instant would do; this one is recognizable in a log.
+#: Where the strict clock starts: the beginning of 2000 UTC, in
+#: nanoseconds. Any fixed instant would do; this one is recognizable
+#: in a log.
 STRICT_EPOCH_NS = 946_684_800 * 1_000_000_000
 STRICT_TICK_NS = 1_000
 

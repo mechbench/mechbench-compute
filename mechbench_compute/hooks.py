@@ -38,7 +38,7 @@ class HookInfo:
             0 for a whole-prompt pass; during cached decoding each step is
             a one-token chunk at offset len(prompt) + tokens generated so
             far, and a hook that selects positions resolves them against
-            the whole sequence and subtracts this (000601).
+            the whole sequence and subtracts this.
     """
 
     name: str
@@ -63,9 +63,8 @@ def parse_hook_name(name: str, arch: _arch.Arch | None = None) -> HookInfo:
 
     Args:
         name: The hook-point name to validate.
-        arch: The model's Arch (per-variant config). If None, defaults to
-            the E4B layer count for backward compatibility with callers
-            that haven't been ported to pass `model.arch`.
+        arch: The model's Arch (per-variant config). If None, the E4B
+            layer count is assumed.
     """
     a = arch if arch is not None else _arch.E4B_DEFAULT
 
@@ -102,8 +101,7 @@ def attn_internal_layers(hook_names: set[str],
     scaled_dot_product_attention kernel but produces slightly different bf16
     rounding. Switching paths per-layer (rather than globally) keeps the
     residual stream bitwise-equivalent at all layers where the user hasn't
-    asked for attention internals — matching the existing experiment scripts'
-    behavior of only using manual attention at the layers being inspected.
+    asked for attention internals.
     """
     out: set[int] = set()
     for n in hook_names:
@@ -116,7 +114,7 @@ def attn_internal_layers(hook_names: set[str],
 def mlp_internal_layers(hook_names: set[str],
                         arch: _arch.Arch | None = None) -> set[int]:
     """Layers at which the manual MLP path must run because some hook or
-    capture targets the MLP interior there (task 000365). Same policy as
+    capture targets the MLP interior there. Same policy as
     `attn_internal_layers`: per-layer, so untouched layers stay on the
     compiled `geglu` path bit for bit."""
     out: set[int] = set()

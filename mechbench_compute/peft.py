@@ -1,7 +1,7 @@
-"""PEFT interop (task 000263): our adapter objects <-> PEFT LoRA
-repos, as a field rename rather than a translation.
+"""PEFT interop: our adapter objects <-> PEFT LoRA repos, as a field
+rename rather than a translation.
 
-Parity map (verified in the parsimony survey):
+Parity map:
 
 - tensors: ours ``model.layers.{i}.{container}.{proj}.lora_{a,b}``
   (a: (r, in), b: (out, r), delta = b @ a) <-> PEFT

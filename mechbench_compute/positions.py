@@ -59,10 +59,10 @@ def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
     nothing, or one this sequence cannot answer — except that with
     `absent: "none"` a token or segment the sequence does not (yet)
     contain selects nothing, which is the normal state of a sequence
-    still being written (000601). A malformed selector raises either way.
+    still being written. A malformed selector raises either way.
     """
     if selector is None or selector == "last" or selector == "final":
-        # `final` is the spelling from before the grammar was one.
+        # `final` is an accepted synonym for `last`.
         return [n - 1] if n else []
     if selector == "all":
         return list(range(n))

@@ -197,8 +197,8 @@ def run_forward_llama(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
-    # The final RMSNorm's per-position scale (task 000142): captured
-    # only when asked, so DLA's apply_ln can make per-component
+    # The final RMSNorm's per-position scale: captured only when
+    # asked, so DLA's apply_ln can make per-component
     # contributions sum to the model's true final logits.
     if "final_norm.scale" in capture_set or "final_norm.scale" in hooks:
         f32 = h.astype(mx.float32)

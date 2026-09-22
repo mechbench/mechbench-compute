@@ -1,25 +1,21 @@
-"""Tool dialects, taken from each model's own chat template (epic
-000439).
+"""Tool dialects, taken from each model's own chat template.
 
-The harness used to invent a tool convention — a markdown fence — and
-ask every local model to speak it. Models do not: they speak the
-protocol they were trained on, which ships in `chat_template.jinja`
-alongside the weights. Prompted with our fence, `gemma-4-e2b` emitted
-degraded approximations of its real format and the harness read none
-of them. Experiment 024 executed zero tool calls across 320
-generations and nothing said so.
+A model speaks the tool protocol it was trained on, which ships in
+`chat_template.jinja` alongside the weights. Asked to speak a
+convention of ours instead, it emits degraded approximations of its
+real format and nothing parses them — a run then makes zero tool calls
+and says nothing about it.
 
 So: **the chat template is the source of truth.** It is versioned with
 the weights, it defines the declaration, the call and the result, and
 it is not a thing we get to have an opinion about.
 
 A template RENDERS but does not PARSE, so reading a call is the one
-piece of code here. It is not guessed from sample outputs — that is
-how we got the fence — but written against the template's own
-rendering and pinned by a round-trip test: render a canonical call
-through the model's template, parse it back, assert equality. When a
-model publishes a new template, that test fails instead of an
-experiment.
+piece of code here. It is never guessed from sample outputs: it is
+written against the template's own rendering and pinned by a
+round-trip test — render a canonical call through the model's
+template, parse it back, assert equality. When a model publishes a new
+template, that test fails instead of an experiment.
 
 The four dialects below are what our cached models actually emit:
 
@@ -200,16 +196,10 @@ def _without(text: str, spans: Sequence[tuple[int, int]]) -> str:
     content too puts the call in the transcript twice.
 
     And everything after it, because a model that closes a tool call
-    and keeps writing is **fabricating the tool response**. Observed on
-    024's P2, verbatim:
-
-        <|tool_call>call:calc{expression:<|"|>37 + 18<|"|>}<tool_call|>
-        <|tool_response>response:calc{value:…
-
-    It invented the answer rather than waiting for it. Keeping that
-    text put a fake response in the transcript beside the real one, and
-    the next turn came back empty. The model's reasoning BEFORE the
-    call is genuine and is kept.
+    and keeps writing is **fabricating the tool response** — it writes
+    its own `<|tool_response>` rather than waiting for one. Keeping that
+    text would put a fake response in the transcript beside the real
+    one. The model's reasoning BEFORE the call is genuine and is kept.
     """
     if not spans:
         return text.strip()

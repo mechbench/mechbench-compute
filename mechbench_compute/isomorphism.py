@@ -1,6 +1,5 @@
-"""The chunk-isomorphism test (task 000407): the map/reduce law as a
-property test, run in CI over the catalog and by the api at seal for
-chunked run sets.
+"""The chunk-isomorphism test: the map/reduce law as a property test,
+run in CI over the catalog and by the api at seal for chunked run sets.
 
 For a reduce block and a leaf set: random partitions of the leaves,
 nested to random depth, must reduce to the flat result — exactly (by

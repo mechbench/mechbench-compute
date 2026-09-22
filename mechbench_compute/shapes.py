@@ -1,9 +1,9 @@
 """The value types and item constructors every op builds its output
 from (docs/LEXICON.md §4–§5).
 
-Six ops used to carry a float vector and each spelled "what it is of",
-"which space" and "its norm" differently; five wrote "the top tokens"
-five ways. This module is the one place those shapes are made:
+Many ops carry a float vector, or "the top tokens", and each would
+otherwise spell "what it is of", "which space" and "its norm" its own
+way. This module is the one place those shapes are made:
 
   space(...)         `{model, layer, point, head?, d}` — where a vector
                      lives; two vectors are comparable only when their
@@ -140,9 +140,8 @@ def distribution(logp: np.ndarray, tokenizer, *, top_k: int,
     # A stable sort: tokens with exactly equal log-probability (common at a
     # high-entropy layer read through the unembedding, where bf16 logits
     # tie by the hundred) rank by token id, so the same logits give the
-    # same `top` every time and on every machine. An unstable sort made
-    # thirty of a funnel's 140 top tokens differ between two identical
-    # runs.
+    # same `top` every time and on every machine. An unstable sort here
+    # makes two identical runs disagree on a fifth of their top tokens.
     out: dict[str, Any] = {
         "entropy_bits": round(float(-(nz * np.log2(nz)).sum()), 4),
         "top": [_entry(tokenizer, int(t), lp) for t in np.argsort(-lp, kind="stable")[: int(top_k)]],
@@ -239,10 +238,10 @@ def label_of(item: Mapping[str, Any], axis: str | None) -> Any:
 
 
 def distribution_of(item: Mapping[str, Any]) -> dict[str, Any]:
-    """A `logits/distribution` view of an item written before the shape
-    existed: `top_tokens` (`{token, p}`), `outcome_mass` (outcome → p),
+    """A `logits/distribution` view of an item that does not carry the
+    shape: `top_tokens` (`{token, p}`), `outcome_mass` (outcome → p),
     `track_logp`, `tracks` (name → logp), or the `top` of a readout
-    (`{token, logp}`). A current item is returned as is."""
+    (`{token, logp}`). An item already in the shape is returned as is."""
     top = item.get("top")
     if isinstance(top, list) and top and isinstance(top[0].get("token"), Mapping):
         return dict(item)
@@ -281,8 +280,8 @@ def distribution_of(item: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def measures_of(item: Mapping[str, Any], legacy: Mapping[str, str]) -> dict[str, Any]:
-    """A grid item's `measures`, or the retired per-op fields named by
-    `legacy` (measure name → old field name)."""
+    """A grid item's `measures`, or the per-op fields named by
+    `legacy` (measure name → the field it is stored under)."""
     m = item.get("measures")
     if isinstance(m, Mapping):
         return dict(m)

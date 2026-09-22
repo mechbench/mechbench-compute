@@ -1,27 +1,26 @@
 """Matplotlib plot helpers with project conventions baked in.
 
-Ten helpers covering the recurring chart styles in this project's
-experiments:
+Ten helpers covering the recurring chart styles in this project:
 
   bar_by_layer            per-layer bar chart with red=global / blue=local
-                          conventions (step_02/03/04)
+                          conventions
   lens_trajectory         per-layer rank curves with optional geometric-mean
-                          aggregation (step_01)
-  logprob_trajectory      per-layer log-probability curves (step_01 variant)
+                          aggregation
+  logprob_trajectory      per-layer log-probability curves
   position_heatmap        [layer x position] heatmap with subject and global-
-                          layer markers (step_08/09)
-  pca_scatter             2D PCA projection colored by category (step_10/12/13)
-  similarity_heatmap      pairwise cosine, reordered block-diagonal (step_10/12)
+                          layer markers
+  pca_scatter             2D PCA projection colored by category
+  similarity_heatmap      pairwise cosine, reordered block-diagonal
   head_heatmap            [n_layers x n_heads] per-head metric heatmap with
-                          global-layer markers (step_26/28/29)
+                          global-layer markers
   probe_diagonal_heatmap  true x predicted aggregated scoring grid with
-                          per-cell text annotations (step_21/23)
+                          per-cell text annotations
   grouped_row_heatmap     per-row heatmap with rows grouped by category +
-                          horizontal boundary lines (step_21/23)
+                          horizontal boundary lines
   intensity_curve         multi-line plot against a scalar parameter with
-                          target/antipode emphasis (step_24/25)
+                          target/antipode emphasis
   leaderboard_bar         ranked horizontal bar chart with text labels and
-                          global/local color coding (step_26)
+                          global/local color coding
 
 API contract:
   - Inputs are numpy arrays.
@@ -45,12 +44,12 @@ from matplotlib.patches import Patch
 
 from ._arch import GLOBAL_LAYERS, layer_type
 
-# Default colors used across the existing experiments.
+# Default colors for the layer-type convention.
 COLOR_GLOBAL = "#d62728"  # red
 COLOR_LOCAL = "#1f77b4"   # blue
 COLOR_AGGREGATE = "#d62728"  # red, for the bold mean line
 
-# Distinct 12-category palette used in step_12/13.
+# Distinct 12-category palette.
 DEFAULT_CATEGORY_COLORS: dict[str, str] = {
     "capital": "#e41a1c", "element": "#377eb8", "author": "#4daf4a",
     "landmark": "#ff7f00", "opposite": "#984ea3", "past_tense": "#a65628",
@@ -496,9 +495,6 @@ def head_heatmap(
             metrics like accuracy.
         mark_global_layers: draw small red ticks at GLOBAL_LAYERS rows.
         title / colorbar_label: optional labels.
-
-    Used by step_26 (rank-0 OV singular values), step_28 (Q/K silhouette),
-    step_29 (Q/K/V silhouette and accuracy).
     """
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(values)
@@ -569,9 +565,6 @@ def probe_diagonal_heatmap(
         annotation_threshold: when |value| / |values|.max() exceeds this
             fraction, the annotation is drawn white instead of black for
             readability against dark cells.
-
-    Used by step_21 (emotion-probe self-consistency), step_23 (implicit-
-    scenario validation).
     """
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(values)
@@ -640,8 +633,7 @@ def grouped_row_heatmap(
         group_order: optional canonical ordering of groups. If None, groups
             are ordered by first appearance in row_groups.
 
-    Used by step_21 and step_23 for per-passage probe-score heatmaps
-    where passages are visually grouped by their true emotion.
+    For per-row heatmaps where rows are visually grouped by a label.
     """
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(values)
@@ -726,9 +718,6 @@ def intensity_curve(
         colors: {series_name: color}. Falls back to matplotlib's default
             cycle when absent.
         log_x: x-axis log scale (default True; most intensity axes are log).
-
-    Used by step_24 (four intensity axes) and step_25 (side-by-side
-    intensity comparison between probe-sets).
     """
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(scores)
@@ -787,8 +776,6 @@ def leaderboard_bar(
         color_groups: optional list of same length as items, one of
             'global' / 'local' / None per bar; sets bar color.
         title / xlabel: optional labels.
-
-    Used by step_26's top-20 heads by OV rank-0 sigma.
     """
     ax = _ensure_axes(ax, figsize=figsize)
     n = len(items)

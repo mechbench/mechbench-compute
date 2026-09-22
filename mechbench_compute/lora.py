@@ -40,8 +40,8 @@ __all__ = [
 KEY_RE = re.compile(
     r"^model\.layers\.(\d+)\.(self_attn|mlp)\.(\w+)\.lora_([ab])$")
 
-# Which submodule container each projection lives on (000263: PEFT's
-# target_modules generality — attention and MLP projections).
+# Which submodule container each projection lives on. The set matches
+# PEFT's target_modules: attention and MLP projections.
 PROJ_CONTAINERS = {
     "q_proj": "self_attn", "k_proj": "self_attn",
     "v_proj": "self_attn", "o_proj": "self_attn",
@@ -56,12 +56,11 @@ class LoRALinear(nn.Module):
     at step 0.
 
     ``A`` is drawn from ``key`` when one is given, and from MLX's global
-    generator otherwise. A key is how a training run becomes repeatable
-    (task 000507): with ``B`` at zero the draw changes no output at step
-    0, but it changes every gradient after it, so two runs of the same
-    protocol with the same seed used to produce different adapters — by
-    up to 0.19 bits of KL on 002's eval battery, an envelope wider than
-    the drift the experiments compare releases by."""
+    generator otherwise. A key is what makes a training run repeatable:
+    with ``B`` at zero the draw changes no output at step 0, but it
+    changes every gradient after it, so without a key two runs of the
+    same protocol with the same seed produce different adapters, by an
+    envelope wider than the drift experiments compare releases by."""
 
     def __init__(self, base: nn.Module, r: int, alpha: float,
                  key: mx.array | None = None):
@@ -93,17 +92,16 @@ def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
     point every time and nothing else in the process is disturbed (the
     global generator is left alone). Without it the draw comes from the
     global generator and a training run is not repeatable — see
-    ``LoRALinear`` and task 000507.
+    ``LoRALinear``.
 
     "Where it exists" is not defensiveness — it is the architecture.
     gemma4's projections are conditional per layer: KV-shared tail
     layers have no k_proj/v_proj at all (they reuse an earlier layer's
-    cache), and k-eq-v layers have no v_proj (K serves as V). The
-    uniform-tower assumption here trained E4B on dev and then crashed
-    on E2B's first prod run ('Attention' object has no attribute
-    'v_proj'). Skipped layers simply contribute no adapter weights;
-    ``fuse`` walks the adapter's own keys, so sparse adapters
-    round-trip untouched.
+    cache), and k-eq-v layers have no v_proj (K serves as V). Assuming
+    a uniform tower here raises `'Attention' object has no attribute
+    'v_proj'` on those variants. Skipped layers simply contribute no
+    adapter weights; ``fuse`` walks the adapter's own keys, so sparse
+    adapters round-trip untouched.
 
     A target that matches NO layer anywhere still refuses loudly —
     silently training nothing is the failure mode this function must
@@ -158,10 +156,10 @@ def fuse(lm, weights: dict[str, mx.array],
     merge exactly (re-subtracting in low precision would not round-trip).
 
     An adapter may carry deltas for modules this architecture's current
-    implementation does not expose — Gemma 4's KV-shared tail (layers
-    15..34) has no ``v_proj`` under mlx-vlm 0.6.15, while adapters trained
-    in August 2026 carry one for every layer. That is a change in the
-    environment under the experiment, and it must not be silent: by
+    implementation does not expose — Gemma 4's KV-shared tail has no
+    ``v_proj`` here, while an adapter trained under an implementation
+    that did expose one carries a delta for every layer. A difference
+    in the environment under the experiment must not be silent: by
     default it refuses, naming the modules. With ``skip_missing`` the
     applicable deltas fuse and every skipped module is appended to
     ``skipped`` (``"layer.container.proj"``), for the caller to report.
@@ -217,7 +215,7 @@ def restore(lm, handle: dict[tuple[int, str, str], mx.array]) -> None:
 def fuse_adapter_stack(lm, payloads, override_scale=None, *,
                        skip_missing: bool = False,
                        skipped: list[str] | None = None):
-    """Fuse an ORDERED adapter stack onto ``lm`` (task 000312 Arc B).
+    """Fuse an ORDERED adapter stack onto ``lm``.
 
     Successive fine-tuning rounds compose by fusing left to right: each
     fuse's restore handle captures the weights as the previous rounds

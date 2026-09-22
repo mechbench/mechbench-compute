@@ -57,7 +57,6 @@ def _sample_next(
     probs = mx.softmax(scaled)
     mx.eval(probs)
     p = np.array(probs).astype(np.float64)
-    # Descending sort by probability
     order = np.argsort(-p)
     sorted_p = p[order]
     cum = np.cumsum(sorted_p)
@@ -256,7 +255,7 @@ def offsets_by_cumulative_decode(tokenizer, ids):
 
 def cut_at_stop(text: str, stop_strings: Sequence[str]) -> str:
     """The text up to the earliest stop string, which is not included —
-    what every provider's `stop` means (task 000509)."""
+    what every provider's `stop` means."""
     cut = len(text)
     for s in stop_strings:
         if not s:
@@ -276,17 +275,17 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
     once (or reused via `prefill` — a (cache, last_row) pair from
     `distill.prefill_decision`, copied per call), then decoding feeds
     one token per forward. Replaces the O(n^2) full-re-encode loop of
-    `generate_text` for block-scale generation (task 000258 arc D).
+    `generate_text` for block-scale generation.
 
     Deterministic in `rng`: pass a seeded numpy Generator; the sampler
     draws only from it.
 
     `stop_strings` ends the sample at the first of them, as a provider's
     `stop` does: the marker is not part of the returned text, and the
-    ids returned are the ones that produced it (task 000509). The
+    ids returned are the ones that produced it. The
     tokenizer's own turn-end tokens always end it, stop strings or not.
 
-    `interventions` (000601) run every decoding step through the hooked
+    `interventions` run every decoding step through the hooked
     forward with the same KV cache, so the spec is live at every token
     the model produces; `prefill` must then have been made with the
     same interventions (`prefill_decision(..., interventions=)`), or be

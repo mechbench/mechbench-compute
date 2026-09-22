@@ -1,7 +1,6 @@
-"""A sandbox session: the snapshot chain a model drives through tools
-(task 000360, epic 000334).
+"""A sandbox session: the snapshot chain a model drives through tools.
 
-The sandbox runtime (000359) is a pure function — `(snapshot, argv) →
+The sandbox runtime is a pure function — `(snapshot, argv) →
 (snapshot', stdout, stderr, exit)`. A *session* is what turns that into
 a workspace a model can use across many calls: it holds the CURRENT
 snapshot, and every tool call runs through the runtime and advances it.
@@ -12,17 +11,17 @@ replays byte-identically.
 Every call is recorded — `{tool, argv, stdin, exit, limit, snapshot_in,
 snapshot_out, stdout, stderr, duration_ms}` — so the transcript shows
 not just what the model asked but what the filesystem did, and a
-reader (or the UI's 000362 trace) can step the tree call by call.
+reader (or the UI's trace) can step the tree call by call.
 
-The tools are OURS, thin and few (the MCP decision, 000360): `bash` is
+The tools are OURS, thin and few: `bash` is
 the workhorse (`sh -c` in mbshell); `find` and `grep` are conveniences
 that a model reads more clearly than the equivalent shell; `read_file`,
 `write_file` and `list` operate on the snapshot directly, with no guest
 at all, because they are trivially pure and a guest round-trip would be
-waste. `python` waits on the CPython guest (000453).
+waste. `python` runs on the CPython guest.
 
 A session is built from a `SandboxImage` — the standard-library image
-users augment (000361): which tools are offered, the limits, strict
+users augment: which tools are offered, the limits, strict
 mode, and read-only mounts. One image, one starting snapshot, one set
 of ceilings; the session is the mutable thing on top.
 """
@@ -36,7 +35,7 @@ from mechbench_compute import sandbox
 from mechbench_compute import snapshots as fs
 
 #: The default guest. mbshell is go-busybox's applets behind an
-#: in-process POSIX shell (000359); `bash` is `sh -c` in it.
+#: in-process POSIX shell; `bash` is `sh -c` in it.
 DEFAULT_GUEST = "mbshell"
 
 #: The guest that runs `python`. Distinct from the image's `base`
@@ -47,7 +46,7 @@ PYTHON_GUEST = "cpython"
 #: Every tool a session can offer, and the applet or snapshot op behind
 #: it. The image's `tools` list selects from these; an unknown name in
 #: an image is refused rather than silently dropped. `python` runs the
-#: CPython guest (000453) and is opt-in — it needs that guest installed.
+#: CPython guest and is opt-in — it needs that guest installed.
 TOOL_NAMES = ("bash", "find", "grep", "python", "read_file", "write_file", "list")
 
 #: Offered by default when an image does not say — the workhorse plus
@@ -66,7 +65,7 @@ class SandboxRefused(ValueError):
 @dataclass(frozen=True)
 class SandboxImage:
     """The standard-library image a session starts from (kind
-    `~canonical/kinds/sandbox-image`, 000361).
+    `~canonical/kinds/sandbox-image`).
 
     `base` names the guest. `tools` is the allowlist offered to the
     model — the enforcement point, since with one shell every applet is
@@ -175,7 +174,7 @@ class SandboxCall:
         if self.changed:
             out["changed"] = dict(self.changed)
         # stdout/stderr ride along small; a node stores large ones as
-        # objects and references them (000361's stdout_ref).
+        # objects and references them under `stdout_ref`.
         if self.stdout:
             out["stdout"] = self.stdout
         if self.stderr:
@@ -198,7 +197,7 @@ class SandboxSession:
 
     def final_wire(self, inline_cap: int = 1 << 20) -> dict[str, Any] | None:
         """The final workspace as an fs-snapshot object, for the UI's
-        file browser (task 000362). `None` when nothing ran and the
+        file browser. `None` when nothing ran and the
         tree is empty.
 
         Blobs ride INLINE when the whole tree is under `inline_cap`, so
@@ -286,7 +285,7 @@ class SandboxSession:
 
     def list(self, path: str = ".") -> str:
         """List the paths under a prefix — from the snapshot, no guest.
-        Directories are implied by paths (000358), so this is a filter
+        Directories are implied by paths, so this is a filter
         and a fold, not a walk."""
         prefix = "" if _norm(path) in ("", ".") else _norm(path).rstrip("/") + "/"
         names = sorted({e.path for e in self.snapshot.entries

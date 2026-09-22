@@ -1,4 +1,4 @@
-"""Smoke test for the bench client (task 000238).
+"""Smoke test for the bench client.
 
 Requires a running mechbench-api with MECHBENCH_API_URL and
 MECHBENCH_API_KEY set; SKIPs cleanly when they aren't (offline interp
@@ -46,7 +46,7 @@ def main() -> None:
                     inputs=[parent], fidelity="text")
     check("emit child with input", r2.get("lineageParents") == 1)
 
-    back = bench.fetch(parent)  # returns the payload now (task 000450)
+    back = bench.fetch(parent)
     check("round-trip", back["values"] == [1, 2, 3])
     env = bench.fetch_envelope(parent)
     check("envelope on request", env["payload"]["values"] == [1, 2, 3]

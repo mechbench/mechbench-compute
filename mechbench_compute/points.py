@@ -42,7 +42,7 @@ RESIDUAL: tuple[str, ...] = ("resid_pre", "resid_post")
 #: Points that take no `layers`: they occur once per forward pass.
 WHOLE_MODEL: tuple[str, ...] = ("embed", "final_norm", "logits")
 
-#: The spellings from before the vocabulary was one.
+#: Short spellings accepted for the two residual points.
 _RETIRED = {"post": "resid_post", "pre": "resid_pre"}
 
 POINTS_DOC = "`" + "`, `".join(POINTS) + "`"
@@ -50,7 +50,7 @@ POINTS_DOC = "`" + "`, `".join(POINTS) + "`"
 
 def normalize(point: str | None, *, default: str = "resid_post") -> str:
     """The one spelling of a point; `post`/`pre` are read as the residual
-    points they always meant. An unknown name is refused with the list."""
+    points they name. An unknown name is refused with the list."""
     if point is None:
         return default
     p = str(point)

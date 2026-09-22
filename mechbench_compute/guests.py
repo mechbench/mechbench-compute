@@ -1,5 +1,4 @@
-"""WASI guest binaries, fetched on first use and verified by hash
-(task 000359, epic 000334).
+"""WASI guest binaries, fetched on first use and verified by hash.
 
 The sandbox runs real programs — busybox, CPython — compiled to
 WebAssembly. They are not vendored into the wheel: CPython-on-WASI is
@@ -13,7 +12,7 @@ protocol asks, verifies the hash, and keeps it under
 
 The hash is the contract. A fetched file that does not match is
 deleted, never used, and the failure names what was expected — the
-same discipline as a hub revision (000260), because a sandbox running
+same discipline as a hub revision, because a sandbox running
 a binary we did not pin is not a sandbox.
 """
 
@@ -99,7 +98,7 @@ REGISTRY: dict[str, Guest] = {
         size=15426977,
         source="guests/mbshell (go-busybox@13f3053 + go-busybox-wasi.patch + "
                "mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch; go1.27.1 -trimpath -buildvcs=false)"),
-    # CPython 3.13.3 compiled to wasip1 with wasi-sdk — recipe in
+    # CPython compiled to wasip1 with wasi-sdk — recipe in
     # `guests/cpython/`. Its standard library is a read-only MOUNT at
     # `/usr/local/lib/python3.13` (every module builds static, so the
     # library is pure .py), which the guest finds via PYTHONHOME. Both

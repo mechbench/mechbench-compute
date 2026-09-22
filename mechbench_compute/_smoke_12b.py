@@ -21,7 +21,7 @@ The bit-exactness invariant for this model is covered separately by
 _smoke_bitexact (run it with this model id). Multimodal is intentionally out
 of scope here: the encoder-free vision/audio path adds a bidirectional-vision
 attention mask that breaks the causal assumption of DLA / causal tracing —
-text-only is the supported surface for now (task 000222).
+text-only is the supported surface.
 
 Run from project root with the venv active:
     python -m mechbench_compute._smoke_12b

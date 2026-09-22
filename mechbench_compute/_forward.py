@@ -1,13 +1,11 @@
 """Canonical hook-aware forward pass for Gemma 4 E4B.
 
 This module owns the model's layer loop. There is one and only one path
-through the network. Different experimental needs are expressed by passing
-different hooks/captures, never by calling a different function — the bug
-that motivates this design is documented in CLAUDE.md ("Known open bug"),
-where calling model(input_ids) directly produces garbage because it skips
-setup that mlx_vlm.generate performs. Every existing experiment script
-worked around it by reimplementing the layer loop inline. This module
-consolidates those reimplementations into the single source of truth.
+through the network. Different needs are expressed by passing different
+hooks/captures, never by calling a different function: calling
+model(input_ids) directly produces garbage, because it skips setup that
+mlx_vlm.generate performs, and a second layer loop anywhere would drift
+from this one.
 
 The forward pass mirrors mlx-vlm 0.6.x:
   - mlx_vlm/utils.py prepare_inputs (handled by Model.tokenize, not here)
@@ -15,13 +13,11 @@ The forward pass mirrors mlx-vlm 0.6.x:
   - mlx_vlm/models/gemma4/language.py Gemma4TextModel.__call__ (the layer loop)
   - mlx_vlm/models/gemma4/language.py LanguageModel.__call__ (norm + unembed)
 
-The 0.4.x → 0.6.x bump rewrote the cache/mask/layer-loop contract this file
-mirrors (task 000223): the deduplicated per-type KV cache is gone; KV sharing
-is now threaded layer-to-layer via Gemma4TextModel.previous_kvs + an
-`intermediates` array of ((keys, values), offset); Attention/DecoderLayer
-return that state; and masks come from Gemma4TextModel._make_masks. The manual
-attention path therefore carries a new obligation — it must emit a K/V tuple
-byte-identical to the fused path so a downstream sharing layer stays bit-exact.
+KV sharing is threaded layer-to-layer via Gemma4TextModel.previous_kvs plus
+an `intermediates` array of ((keys, values), offset); Attention/DecoderLayer
+return that state; masks come from Gemma4TextModel._make_masks. So the manual
+attention path must emit a K/V tuple byte-identical to the fused path, or a
+downstream sharing layer stops being bit-exact.
 
 Two attention paths are supported. The fused path uses MLX's
 scaled_dot_product_attention kernel (faster). The manual path computes
@@ -180,12 +176,10 @@ def _attention_with_internals(
     # Apply attention mask. create_attention_mask can return None, a string
     # ('causal'), or an mx.array. The fused scaled_dot_product_attention
     # handles the string internally; we have to materialize it explicitly
-    # here. The previous implementation only handled mx.array masks and
-    # silently produced NO-MASK (bidirectional) attention whenever the
-    # framework returned 'causal' — a latent bug in step_05/06/07 that
-    # happened not to bite those experiments because they only looked at
-    # attention FROM the final token position (which attends to everything
-    # under causal anyway).
+    # here. Handling only mx.array masks would give NO-MASK
+    # (bidirectional) attention whenever the framework returns 'causal',
+    # which is invisible at the final token position and wrong everywhere
+    # else.
     if mask is not None:
         Q_len = scores.shape[-2]
         K_len = scores.shape[-1]
@@ -415,8 +409,8 @@ def run_forward(
         )
 
     # ---- Final norm + tied unembed (+ optional softcap) ----
-    # The final RMSNorm's per-position scale (task 000142): captured
-    # only when asked, so DLA's apply_ln can make per-component
+    # The final RMSNorm's per-position scale: captured only when
+    # asked, so DLA's apply_ln can make per-component
     # contributions sum to the model's true final logits.
     if "final_norm.scale" in capture_set or "final_norm.scale" in hooks:
         f32 = h.astype(mx.float32)

@@ -1,5 +1,5 @@
 """Resume levels, the process-identity fingerprint, and training state
-capture (epic 000320, task 000322).
+capture.
 
 A resumed job must be byte-identical to an uninterrupted one. That is
 a promise each block makes at one of four levels:
@@ -57,7 +57,7 @@ _RANK = {"restart": 0, "exchangeable": 1, "state-restorable": 2, "reproducible":
 
 
 def _chat_level(params: Mapping[str, Any]) -> str:
-    """A chat node's promise depends on who answers (task 000337).
+    """A chat node's promise depends on who answers.
     Local weights with a seed are a pure function of the item key —
     `reproducible`. A remote endpoint is someone else's sampler on
     someone else's weights, and the dated model version can change
@@ -77,8 +77,8 @@ def _judge_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = N
 
 
 def _body_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = None) -> str:
-    """A map's or a fold's promise is its body's weakest node's (task
-    000617): a body of local generate nodes is reproducible, one with a
+    """A map's or a fold's promise is its body's weakest node's: a
+    body of local generate nodes is reproducible, one with a
     remote chat is exchangeable, one with a node that offers nothing is
     a restart. Its items — one per record, one per step — are spooled
     either way."""
@@ -156,7 +156,7 @@ def content_hash(value: Any) -> str:
     """sha256 of the canonical CBOR of a value — the same bytes the
     bench stores, so an upstream node's identity here equals its
     identity there. A top-level key beginning with `_` is local state
-    (a tensor collection's shard directory, 000613), never stored and
+    (a tensor collection's shard directory), never stored and
     never part of the identity."""
     from mechbench_schema import dump_canonical
 
@@ -173,7 +173,7 @@ def node_fingerprint(*, block: str, params: Mapping[str, Any],
     attempts only under an equal fingerprint."""
     from mechbench_schema import dump_canonical
 
-    # Params in their WIRE form (000488). A resolved ModelRef rides
+    # Params in their WIRE form. A resolved ModelRef rides
     # through execution as an object carrying the adapter's bytes; a
     # fingerprint is over what the run DECLARED — {base, adapters} —
     # which is also the only form two attempts can be compared on.
@@ -188,11 +188,11 @@ def node_fingerprint(*, block: str, params: Mapping[str, Any],
     try:
         raw = dump_canonical(body)
     except Exception as e:  # noqa: BLE001 — name the param, do not hide it
-        # This used to fall back to repr(). That silently fingerprinted
-        # adapted runs over an 18 MB Python repr of the adapter bytes,
-        # and swallowed the exact error that would have exposed 000488
-        # in August. A param that cannot serialize is a bug in the block
-        # that accepted it, and the only honest fingerprint is none.
+        # There is no repr() fallback: it would make an adapted run's
+        # identity depend on a multi-megabyte Python repr of the
+        # adapter bytes, and would swallow the encoding failure. A
+        # param that cannot serialize is a bug in the block that
+        # accepted it, and the only honest fingerprint is none.
         bad = [k for k, v in body["params"].items()
                if not _encodes(v)]
         raise TypeError(

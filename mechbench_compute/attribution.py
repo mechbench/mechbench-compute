@@ -74,9 +74,9 @@ def _resolve_layers(
     *,
     point: str = "resid_post",
 ) -> list[int]:
-    """If `layers` is given, use it. Otherwise infer from the cache —
-    no module-level E4B-default fallback. (Previously defaulted to
-    `range(N_LAYERS)` where N_LAYERS was hardcoded to 42.)"""
+    """If `layers` is given, use it. Otherwise infer from the cache.
+    There is no module-level default layer count: one of the two must
+    be supplied."""
     if layers is not None:
         return list(layers)
     if cache is None:
@@ -236,7 +236,7 @@ def logit_attrs(
         position: Sequence position to read at. Default `-1` (final token).
         apply_ln: Fold the final RMSNorm (captured scale + learned gain)
             into each component, making the decomposition sum to the
-            model's true final logits (task 000142).
+            model's true final logits.
         ln_scale: The captured `final_norm.scale` value ([B, S] or [S])
             from the same run. Required when apply_ln=True.
 
@@ -248,7 +248,7 @@ def logit_attrs(
     d_model = stack_at_pos.shape[-1]
     flat = stack_at_pos.reshape(-1, d_model)  # [N, d_model]
     if apply_ln:
-        # TransformerLens's apply_ln semantics (task 000142): divide by
+        # TransformerLens's apply_ln semantics: divide by
         # the CAPTURED per-position rms and fold in the norm's gain —
         # both elementwise-linear, so summing the per-component results
         # reproduces the model's true final logit.

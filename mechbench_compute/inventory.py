@@ -18,11 +18,6 @@ Both numbers are reported, because both get asked for:
 * `size_bytes` — what this revision contains, shared blobs included.
 * `reclaimable_bytes` — what actually comes back if it is deleted, which
   is only the blobs no other revision refers to.
-
-The motivating case, measured 2026-08-22: 125 GB of cache with
-`gemma-4-E4B-it-bf16` holding four revisions and `gemma-4-e2b-it-bf16`
-three. Roughly 30 GB of that is revisions nobody chose to keep, and
-nothing else reclaims it.
 """
 
 from __future__ import annotations
@@ -93,9 +88,7 @@ def scan() -> list[RepoInventory]:
 
     A machine that has never downloaded a model has no cache DIRECTORY,
     and huggingface_hub raises CacheNotFound rather than reporting the
-    empty truth. Every dev machine has the directory, so the release
-    gate's fresh-venv smoke was the first thing to ever hit this
-    (task 000300, first dry run)."""
+    empty truth. That is the empty case, not an error."""
     from huggingface_hub import scan_cache_dir
     from huggingface_hub.errors import CacheNotFound
 
@@ -160,10 +153,8 @@ def delete_revisions(commits: list[str]) -> int:
         known = {rev.commit_hash for repo in info.repos for rev in repo.revisions}
     except CacheNotFound:
         # A machine with no cache directory knows no commits, so every
-        # commit asked for gets the same refusal below — the fresh-
-        # machine truth scan() learned in 0.15.4, which this sibling
-        # call missed. CI is a fresh machine on every run; that is how
-        # this surfaced (every dev machine has the directory).
+        # commit asked for gets the refusal below rather than a
+        # traceback. Same empty case `scan()` handles.
         info = None
         known = set()
     unknown = [c for c in commits if c not in known]

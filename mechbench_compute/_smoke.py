@@ -5,11 +5,6 @@ each FACTUAL_15-style prompt. These prompts are chosen because Gemma 4 E4B
 answers them with high confidence, so any change in the framework that
 broke the forward path would manifest as wrong tokens here.
 
-This used to also do a numerical comparison against the prototype
-forward.py at the project root. forward.py has been deleted now that the
-framework is the canonical forward path; the semantic top-1 check is the
-sole signal here.
-
 Run from project root with the venv active:
     python -m mechbench_compute._smoke
 """

@@ -7,10 +7,9 @@ Loads the E2B variant via Model.load() and confirms:
      (1536 vs 2560), reduced KV-head count (1 vs 2), or different
      layer count (35 vs 42).
 
-This is the TransformerLens-3-style "validate outputs match HuggingFace"
-phase for the new model variant. We don't compare against mlx_vlm.generate
-numerically because Model.run already reuses mlx-vlm's components verbatim;
-if the top-1 tokens are right, the forward path is right.
+There is no numerical comparison against mlx_vlm.generate: Model.run
+reuses mlx-vlm's components verbatim, so if the top-1 tokens are right
+the forward path is right. Bit-exactness is _smoke_bitexact's job.
 
 Run from project root with the venv active:
     python -m mechbench_compute._smoke_e2b

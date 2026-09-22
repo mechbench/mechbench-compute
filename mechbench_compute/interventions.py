@@ -113,8 +113,8 @@ class _LayerAblation:
 
     Implementation: capture resid_pre at the start of the ablated layer,
     restore it at the end (overwriting whatever attn/MLP/gate/scalar produced).
-    This bypasses the layer_scalar multiplication too, exactly matching the
-    'skip the layer with continue' semantics of the original step_02 code.
+    This bypasses the layer_scalar multiplication too: the semantics are
+    'skip the layer', not 'zero its branches'.
 
     Each call to as_hooks() builds a fresh closure dict, so reusing the same
     Ablate.layer(i) instance across multiple Model.run calls is safe.
@@ -162,11 +162,10 @@ class _HeadAblation:
         h = self.head
 
         def hook(act, info):
-            # Match step_07's reference exactly: f32 mask (the default for
-            # mx.ones without a dtype argument), promoting the multiplication
-            # to f32 intermediate, downcast at the next op. Using act.dtype
-            # (bf16) here would change intermediate rounding and produce
-            # subtly different logits.
+            # The mask is f32 (mx.ones' default), which promotes the
+            # multiplication to an f32 intermediate and downcasts at the
+            # next op. Building it at act.dtype (bf16) instead would
+            # change intermediate rounding and the resulting logits.
             n_heads = act.shape[1]
             mask = mx.ones((1, n_heads, 1, 1))
             mask = mask.at[:, h, :, :].add(-1.0)  # slot h becomes 0
@@ -259,12 +258,7 @@ def _norm_layers(layers) -> list[int]:
 
 
 class Ablate:
-    """Ablation interventions. Each .X(...) returns an Intervention.
-
-    Replaces the six copy-pasted run_*_forward functions in the original
-    experiment scripts: Ablate.layer (step_02), Ablate.attention/.mlp
-    (step_04), Ablate.head (step_07), Ablate.side_channel (step_03).
-    """
+    """Ablation interventions. Each .X(...) returns an Intervention."""
 
     @staticmethod
     def layer(i: int) -> Intervention:
@@ -302,18 +296,16 @@ class Ablate:
     def side_channel(layers: int | Iterable[int] | None = None) -> Intervention:
         """Zero the MatFormer per-layer-input gate at the given layers.
 
-        Pass None (the default) to ablate the side-channel everywhere — this
-        is the catastrophic ablation from finding 03 that drops mean log p
-        by ~30. Pass an int or iterable of layer indices for a more targeted
-        ablation.
+        Pass None (the default) to ablate the side-channel everywhere,
+        which drops mean log p by roughly 30. Pass an int or iterable of
+        layer indices for a more targeted ablation.
         """
         if layers is None:
             # side_channel is MatFormer-specific (Gemma 4 only); using the
             # E4B default here is intentional for the "ablate everywhere"
             # convenience. When called on a non-Gemma-4 variant, the
             # gate_out hooks won't exist and this will raise at run time
-            # with a helpful CacheKeyError. Variant-aware validation lives
-            # under task 000192.
+            # with a helpful CacheKeyError.
             layers = range(E4B_DEFAULT.n_layers)
         ls = _norm_layers(layers)
         return _NamedZeroHook(names=tuple(f"blocks.{i}.gate_out" for i in ls))
@@ -331,7 +323,7 @@ class Capture:
     def attn_weights(layers: int | Iterable[int]) -> Intervention:
         """Capture post-softmax attention weights, shape [B, n_heads, L, S_kv].
 
-        Forces the manual attention path. Used by step_05/06.
+        Forces the manual attention path.
         """
         return _Captures(
             names=tuple(f"blocks.{i}.attn.weights" for i in _norm_layers(layers))
@@ -344,8 +336,7 @@ class Capture:
         """Capture residual-stream values at the given layers.
 
         `point` is 'pre' (layer input) or 'post' (layer output). Default is
-        'post', the more commonly useful endpoint and what step_01/08/10/11/12
-        all use.
+        'post', the more commonly useful endpoint.
         """
         if point not in ("pre", "post"):
             raise ValueError(
@@ -366,7 +357,7 @@ class Capture:
     @staticmethod
     def final_norm_scale() -> Intervention:
         """Capture the final RMSNorm's per-position scale, [B, S]
-        (000142) — the denominator DLA's apply_ln needs."""
+        — the denominator DLA's apply_ln needs."""
         return _Captures(names=("final_norm.scale",))
 
     @staticmethod
@@ -471,8 +462,7 @@ class Patch:
     ) -> Intervention:
         """Replace the activation at (layer, position) with `value`.
 
-        `point` is 'resid_pre' or 'resid_post'. Default 'resid_post', matching
-        step_09's forward_with_patch.
+        `point` is 'resid_pre' or 'resid_post'. Default 'resid_post'.
         """
         if point not in ("resid_pre", "resid_post"):
             raise ValueError(

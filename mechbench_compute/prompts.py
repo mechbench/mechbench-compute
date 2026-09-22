@@ -32,8 +32,7 @@ class Prompt:
         subject: Substring identifying the 'subject entity' position in the
             tokenized prompt. Used by fact_vectors() to pick which token's
             residual to extract. Optional.
-        category: Categorical label for grouped analyses (used heavily in
-            step_10/11/12/13). Optional.
+        category: Categorical label for grouped analyses. Optional.
         metadata: Free-form dict for any extra context. Optional.
     """
 
@@ -99,8 +98,8 @@ class PromptSet:
 
         Pass require_target_match=False for geometric experiments where you
         want to keep every prompt regardless of whether the model answers
-        correctly (e.g. step_13's stress tests, where the analysis is about
-        WHERE the representation lives, not whether the model is right).
+        correctly — where the analysis is about WHERE the representation
+        lives, not whether the model is right.
 
         verbose=True prints a one-line OK/SKIP summary per prompt as it goes.
         """

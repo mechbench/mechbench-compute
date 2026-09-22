@@ -1,25 +1,23 @@
-"""Fine-tuning as an operation (epic 000259): the Regime D training
-loop from experiment 002, generalized into core primitives the
-Finetune block orchestrates.
+"""Fine-tuning as an operation: the soft-cross-entropy training loop,
+as the primitives the Finetune block orchestrates.
 
-Structure mirrors the proven recipes exactly:
+Three item shapes feed one loop:
 
-- **Target items** (depth 1, the 002 die shape): per training prompt,
+- **Target items** (depth 1): per training prompt,
   a TargetMap compiled into a TargetTrie against the rendered prompt;
   the trie's root marginal is the soft target and its sequences
   supply continuation rows.
-- **Sequence items** (depth N, the 016–018 deep-trie shape): per
+- **Sequence items** (depth N, over a deep trie): per
   step, a freshly sampled depth-N sequence drawn per-slot from the
   target map(s), teacher-forced — plus (optionally) the first-slot
   marginal soft row. Which positions receive loss is configurable
-  (``positions``): the position-0 cap from experiment 018's proposal
-  is ``"skip_first"`` — the first token is conditioned on, never
-  trained.
+  (``positions``): the position-0 cap is ``"skip_first"`` — the first
+  token is conditioned on, never trained.
 - **Anchor items**: one-hot known-answer rows (capability
   preservation pressure).
 - **The loop**: batched sampling from fixed groups and per-step item
-  FACTORIES (fresh sequences every step, as the proven trainers did),
-  soft_ce loss, Adam, per-step callback.
+  FACTORIES (fresh sequences every step), soft_ce loss, Adam, per-step
+  callback.
 
 Target specs are declarative — raw weights plus a TRANSFORM CHAIN
 (sqrt/pow/temper/temper_to_entropy/mix_uniform/top_k), so a protocol
@@ -115,7 +113,7 @@ def target_map_from_spec(spec: Mapping[str, Any]) -> TargetMap:
         weights = spec.get("weights")
         # A fetched `target_map` object arrives as its payload, `{kind,
         # weights}` — the form the lexicon's own example writes
-        # (`"weights": {"$fetch": …}`), which used to fail on `kind`.
+        # (`"weights": {"$fetch": …}`), so unwrap one level.
         if isinstance(weights, Mapping) and isinstance(weights.get("weights"), Mapping):
             weights = weights["weights"]
         if not weights:
@@ -131,7 +129,7 @@ def target_map_from_spec(spec: Mapping[str, Any]) -> TargetMap:
 
 
 # ---------------------------------------------------------------------------
-# Item builders (depth 1 — the 002 shape)
+# Item builders (depth 1)
 
 
 def compile_tries(
@@ -167,14 +165,14 @@ def build_target_items(
 def build_path_factory(
     tries: Sequence[TargetTrie],
 ) -> Callable[[np.random.Generator], list[Example]]:
-    """Whole-trie items (task 000548, ``batch.path``): each draw picks a
+    """Whole-trie items (``batch.path``): each draw picks a
     prompt, samples an outcome by its target mass, and trains a soft row
     at every token of its path — the closer included — each row the
     trie's next-token distribution at that node.
 
-    The 002 items train the first token and one second token per item,
-    drawn uniformly over items, which is exact only for outcomes of at
-    most two tokens. Sampling paths by mass instead trains every node in
+    The depth-1 items train the first token and one second token per
+    item, drawn uniformly over items, which is exact only for outcomes
+    of at most two tokens. Sampling paths by mass instead trains every node in
     proportion to the mass that reaches it: in expectation, the
     chain-rule decomposition of KL(target ‖ model) over complete
     outcomes, however long they are and however many share a prefix."""
@@ -202,7 +200,7 @@ def build_anchor_items(
 
 
 # ---------------------------------------------------------------------------
-# Sequence items (depth N — the 016–018 deep-trie shape)
+# Sequence items (depth N, over a deep trie)
 
 
 def position_runs(depth: int,
@@ -210,7 +208,7 @@ def position_runs(depth: int,
     """Resolve a positions spec into contiguous [start, end) trained
     runs over slots 0..depth-1.
 
-    ``"all"`` trains every slot; ``"skip_first"`` (the 018 position-0
+    ``"all"`` trains every slot; ``"skip_first"`` (the position-0
     cap) trains slots 1..depth-1; an explicit list of slot indices
     trains exactly those. Untrained slots are still CONDITIONED ON —
     each run becomes its own teacher-forced Example whose prompt
@@ -318,8 +316,7 @@ def build_sequence_factory(
     """A per-step item factory: each draw picks a prompt, samples one
     depth-N sequence per-slot from the targets, and returns the
     teacher-forced Example(s) for the trained position runs. Fresh
-    sampling every step — the proven 016–018 recipe — rather than a
-    fixed pool. ``replace=False`` draws the slots without replacement."""
+    sampling every step, rather than a fixed pool. ``replace=False`` draws the slots without replacement."""
     depth = len(targets)
     runs = position_runs(depth, positions)
     base_ids = [encode(tokenizer, r) for r in rendered_prompts]
@@ -359,7 +356,7 @@ def build_marginal_items(
 
 
 # ---------------------------------------------------------------------------
-# Item slots (depth N of whole outcomes — task 000548)
+# Item slots (depth N of whole outcomes)
 
 
 class SlotTrie:
@@ -626,7 +623,7 @@ def train_soft_ce(
     item-lists from each factory group, take a soft-CE Adam step.
     Returns the final loss. ``on_step(step, loss)`` fires every step.
 
-    Resume (epic 000320): every ``checkpoint_every`` steps
+    Resume: every ``checkpoint_every`` steps
     ``on_checkpoint(state)`` receives the full continuation state
     (weights, optimizer, step, sampling RNG); ``resume_state``
     restores one and continues from the step after it. The

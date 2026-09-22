@@ -30,10 +30,10 @@ from .hooks import HookFn, parse_hook_name
 from .interventions import Intervention, compose
 
 # Text-only families whose hook-aware forward (_forward_qwen / _forward_llama)
-# mirrors mlx-lm's model structure. mlx-vlm 0.6.x added a `text_only` wrapper
-# that now loads these too, but with an incompatible shape (no `.args`, empty
-# text_config), so they must be routed to mlx-lm explicitly rather than letting
-# mlx-vlm's `load` claim them.
+# mirrors mlx-lm's model structure. mlx-vlm's `text_only` wrapper loads these
+# too, but in an incompatible shape (no `.args`, empty text_config), so they
+# are routed to mlx-lm explicitly rather than letting mlx-vlm's `load` claim
+# them.
 _MLX_LM_FAMILIES: frozenset[str] = frozenset({"qwen2", "llama"})
 
 
@@ -147,23 +147,22 @@ class Model:
         result be recorded without saying which weights produced it, and
         would silently follow whatever a moving upstream ref points at.
 
-        `model_id` may pin a revision as ``repo@revision`` (task
-        000260): the pin resolves against the local cache and the model
-        loads from that exact snapshot path; a pin that isn't cached
-        (or is ambiguous) raises rather than silently loading main.
+        `model_id` may pin a revision as ``repo@revision``: the pin
+        resolves against the local cache and the model loads from that
+        exact snapshot path; a pin that is ambiguous raises rather than
+        silently loading main.
 
-        Defaults to Gemma 4 E4B bf16. Any Gemma 4 family checkpoint that
-        mlx-vlm can load works (E2B, E4B, future variants); per-model
-        dimensions are read from the loaded config and bundled into
-        `self.arch` (an `Arch` dataclass). Module-level constants like
-        `N_LAYERS` continue to reflect the E4B defaults regardless of
-        which variant was loaded — use `model.arch.n_layers` for code
-        that should adapt.
+        Any Gemma 4 family checkpoint that mlx-vlm can load works (E2B,
+        E4B and later variants); per-model dimensions are read from the
+        loaded config and bundled into `self.arch` (an `Arch`
+        dataclass). Module-level constants like `N_LAYERS` hold the E4B
+        defaults whatever variant was loaded — use `model.arch.n_layers`
+        for code that should adapt.
         """
         # mlx-vlm covers Gemma 3 and Gemma 4 (multimodal-shaped models).
         # mlx-lm covers Qwen 2.x / Llama 3.x and other text-only families.
         # Route by the config's model_type: text-only families go straight to
-        # mlx-lm (mlx-vlm 0.6.x would otherwise claim them via its `text_only`
+        # mlx-lm (mlx-vlm would otherwise claim them via its `text_only`
         # wrapper, in a shape _forward_qwen/_forward_llama don't mirror). Other
         # families try mlx-vlm first, then fall back to mlx-lm on "not
         # supported" (covers checkpoints whose config we couldn't peek).
@@ -177,7 +176,7 @@ class Model:
         from pathlib import Path as _Path
 
         if _Path(model_id).is_dir():
-            # A materialized checkpoint (000312 Arc C): the directory IS
+            # A materialized checkpoint: the directory IS
             # the snapshot — nothing to download, and the "revision" a
             # run records is the directory's identity, which the caller
             # (the checkpoint materializer) keys by manifest hash.
@@ -247,7 +246,7 @@ class Model:
         family's rotating/shared-KV layout); mlx-lm models use
         `mlx_lm.models.cache.make_prompt_cache`. Feed it via
         `lm(ids, cache=cache)`; see `distill.score_items_cached` for the
-        prefix-reuse pattern built on it (task 000227)."""
+        prefix-reuse pattern built on it."""
         if self.arch.model_type in ("qwen2", "llama"):
             from mlx_lm.models.cache import make_prompt_cache
             return make_prompt_cache(self._model)
@@ -259,7 +258,7 @@ class Model:
         consumes: [B, S, D], post-final-norm in every supported family.
 
         With `head_logits` this splits the forward so callers can unembed
-        only the rows they need (task 000227): the lm-head over a 262k
+        only the rows they need: the lm-head over a 262k
         vocab dominates full forwards whose outputs are read at 3–5
         positions. Verified per family: applying `head_logits` to this
         tensor reproduces `lm(input_ids)`'s logits bit-exactly. (Distinct
@@ -274,10 +273,10 @@ class Model:
         has one) to post-norm hidden states from `trunk_hidden` — any
         leading shape ([B, S, D], [B, n, D], [n, D]).
 
-        Note the tiling caveat that runs through the 0.5.x line: bf16
-        matmuls tile by shape, so heading a sliced rows-block can differ
-        from heading the full sequence at deep-tail rounding level. Same
-        rows, same math; characterized envelope in `distill.score_items_fast`.
+        Note the tiling caveat: bf16 matmuls tile by shape, so heading
+        a sliced rows-block can differ from heading the full sequence at
+        deep-tail rounding level. Same rows, same math; characterized
+        envelope in `distill.score_items_fast`.
         """
         if self.arch.model_type in ("qwen2", "llama"):
             if self.lm.args.tie_word_embeddings:
@@ -315,11 +314,10 @@ class Model:
             return mx.array([ids], dtype=mx.int32)
 
         if not chat_template:
-            # Honor the contract on the VLM path too. This flag was
-            # silently ignored here for months and nothing noticed —
-            # until the first raw-template ablation sweep froze targets
-            # against a chat-wrapped baseline and every target token
-            # decoded as 'user' (2026-08-26).
+            # Honor the contract on the VLM path too: with
+            # chat_template=False the prompt is tokenized RAW. A path
+            # that wrapped it anyway would freeze ablation targets
+            # against a chat-wrapped baseline.
             tok = getattr(self._processor, "tokenizer", self._processor)
             ids = tok.encode(prompt)
             return mx.array([ids], dtype=mx.int32)
@@ -369,7 +367,7 @@ class Model:
             kv_cache: A KV cache from `prompt_cache()` to read and extend, so
                 a sequence runs as chunks — the prompt, then one token per
                 decoding step — with the hooks live at every chunk. Each
-                HookInfo carries the chunk's `offset` (000601). None runs
+                HookInfo carries the chunk's `offset`. None runs
                 `input_ids` as a whole sequence with a fresh cache.
 
         Returns:
@@ -398,7 +396,7 @@ class Model:
     def _validate_hook_names(self, names: Iterable[str]) -> None:
         """Validate every name; raises on the first invalid one.
 
-        Beyond the grammar (task 000365): a point the running family's
+        Beyond the grammar: a point the running family's
         forward does not implement, or one that does not exist on the
         addressed layer (pre-norm / pre-RoPE keys on a KV-shared layer),
         is refused here — a hook that would never be invoked is the

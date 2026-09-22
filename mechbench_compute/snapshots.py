@@ -1,4 +1,4 @@
-"""Filesystem snapshots as values (task 000358, epic 000334).
+"""Filesystem snapshots as values.
 
 A sandbox's state is normally the least reproducible thing in a
 system: a directory somebody mutated, whose history is gone. This
@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 KIND = "sandbox/snapshot"
-#: The wire tag snapshots carried before the kinds were named by family.
+#: The other wire tag a stored snapshot may carry, still read.
 LEGACY_KIND = "fs_snapshot"
 
 #: Blobs at or below this size ride inside the snapshot object; larger

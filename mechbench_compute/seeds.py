@@ -1,12 +1,10 @@
-"""Seed derivation and the machine's identity (task 000402, epic
-000364; DATAFLOW.md invariant 1).
+"""Seed derivation and the machine's identity (DATAFLOW.md invariant 1).
 
 Leaves have identity; chunks do not. Every mapped item's seed derives
 from its KEY — root → member → item — never from its position in a
 chunk or a batch, so a leaf's computation is the same wherever and in
-whatever grouping it runs. The item rule is the one `generate` has
-used since epic 000258 amendment 4, extracted verbatim: changing it
-would change every corpus on the bench.
+whatever grouping it runs. The item rule is fixed: changing it would
+change every corpus on the bench.
 
 Hardware is recorded, never fingerprinted: chunks may move between
 machines; lineage says where each ran, and the cross-machine contract

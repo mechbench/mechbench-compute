@@ -1,29 +1,26 @@
 """The sandbox's catalog: kind paths, JSON-Schema contracts, and the
-tool catalog (task 000361, epic 000334).
+tool catalog.
 
 Three shapes cross into the platform's catalog once a model can drive a
 workspace:
 
-- **fs-snapshot** — a content-addressed tree (000358). A browsable
-  object: the UI's file browser (000362) renders its entries as a
-  table.
+- **fs-snapshot** — a content-addressed tree. A browsable object: the
+  UI's file browser renders its entries as a table.
 - **sandbox-image** — the standard-library base a protocol declares
-  and the composer (000341) edits: which tools, what limits, strict,
-  mounts, starting tree.
-- **sandbox-tool-call** — one entry in an item's `metadata.sandbox`
-  (compute 0.54.0): what the model asked and what the filesystem did.
-  Not a standalone document — a record shape the transcript trace
-  (000362) reads — so it is a SCHEMA here, not a renderable kind.
+  and the composer edits: which tools, what limits, strict, mounts,
+  starting tree.
+- **sandbox-tool-call** — one entry in an item's `metadata.sandbox`:
+  what the model asked and what the filesystem did. Not a standalone
+  document — a record shape the transcript trace reads — so it is a
+  SCHEMA here, not a renderable kind.
 
 The schemas are the contract these consumers share; the fs-snapshot
 KindManifest (in `platform_kinds`) carries the renderer. The tool
 catalog is the descriptions the composer's tool picker offers.
 
-Registration follows the condition-set / lens-trajectory precedent:
-renderer-bearing kinds live in compute's `platform_kinds`, by their
-`~canonical/kinds/...` path. If the UI later needs these paths as
-named constants across the repo boundary, they graduate to
-mechbench-schema then; today one source is enough.
+Renderer-bearing kinds are registered from compute's `platform_kinds`,
+by their `~canonical/kinds/...` path, so these declarations are the one
+source for them.
 """
 from __future__ import annotations
 
@@ -143,8 +140,8 @@ SANDBOX_TOOL_CALL_SCHEMA: dict[str, Any] = {
 
 
 def sandbox_tool_catalog() -> list[dict[str, Any]]:
-    """The sandbox tool definitions, for the composer's tool picker
-    (000341): name, description, schema — what a user sees when
+    """The sandbox tool definitions, for the composer's tool picker:
+    name, description, schema — what a user sees when
     choosing capabilities to give a model. Handlers are omitted; the
     node wires those when it builds a session."""
     return [{"name": d["name"], "description": d["description"],

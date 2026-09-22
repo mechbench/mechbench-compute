@@ -36,12 +36,12 @@ re-exported from this module — see README.md for the full API tour.
 The full list of hook points is at mechbench_compute.all_hook_names().
 """
 
-# Everything below the substrate check assumes a substrate. Rather than
-# refusing to import at all, the package now *loads* anywhere and refuses
-# on use — because the modules that report on a machine with no backend
-# (`backends`, `inventory`) live inside this package, and a gate at
-# import time made them reachable only from a machine that did not need
-# them. `doctor` is exactly that machine's tool.
+# Everything below the substrate check assumes a substrate. The package
+# imports anywhere and refuses ON USE, because the modules that report on
+# a machine with no backend (`backends`, `inventory`) live inside this
+# package: a gate at import time would make them reachable only from a
+# machine that does not need them. `doctor` is exactly that machine's
+# tool.
 from .backends import (
     BACKENDS,
     Backend,
@@ -192,21 +192,20 @@ else:
         raise AttributeError(name)  # unreachable; require() always raises
 
 # Single-sourced from the installed distribution: a hardcoded literal
-# here sat at 0.11.1 while the package shipped 0.14.x, and every
-# provenance record's produced_by faithfully repeated the lie.
+# here drifts from what the package ships, and every provenance
+# record's produced_by would repeat it.
 
 
 def _editable_source_digest() -> str | None:
     """A digest of the source actually on disk, for an EDITABLE install
-    only (task 000433).
+    only.
 
-    Dist metadata is a promise the source need not keep. Under
-    `pip install -e`, the code can run many versions ahead of the
-    recorded version — observed on this project at 16 versions of drift
-    — and that version string is what `node_fingerprint` hashes as its
-    ONLY guard against reusing work computed by different code. Block
-    params are hashed as DECLARED, so a changed default or changed
-    block semantics moves nothing else.
+    Dist metadata is a promise the source need not keep: under
+    `pip install -e` the code can run many versions ahead of the
+    recorded version, and that version string is what
+    `node_fingerprint` hashes as its ONLY guard against reusing work
+    computed by different code. Block params are hashed as DECLARED, so
+    a changed default or changed block semantics moves nothing else.
 
     So an editable install reports what it is running, not what it was
     registered as. A released wheel is not editable and keeps its plain
@@ -249,9 +248,9 @@ def _source_version() -> str | None:
 
     Dist metadata under an editable install is whatever number the tree
     had when `pip install -e` last ran, and nobody re-runs that on a
-    version bump — the docs site was stamped "generated from 0.60.0"
-    from a tree at 0.74.0. The digest already says exactly which code;
-    the label beside it should be the one the tree itself claims.
+    version bump, so anything stamped with it can name a version the
+    tree left long ago. The digest already says exactly which code; the
+    label beside it should be the one the tree itself claims.
     """
     import pathlib
     import re
@@ -297,7 +296,7 @@ __all__ = [
     "PromptSet",
     "ValidatedPrompt",
     "ValidatedPromptSet",
-    # Distributional-target training (distill + lora, task 000114)
+    # Distributional-target training (distill + lora)
     "TargetMap",
     "TargetTrie",
     "Example",

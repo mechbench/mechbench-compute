@@ -32,7 +32,7 @@ LAYER_HOOK_POINTS: tuple[str, ...] = (
     "attn.q",             # per-head queries post-q_norm + post-RoPE [B, n_heads, L, head_dim]
     "attn.k",             # per-KV-head keys post-k_norm + post-RoPE [B, n_kv_heads, L_kv, head_dim]
     "attn.v",             # per-KV-head values post-v_norm [B, n_kv_heads, L_kv, head_dim]
-    # --- task 000365: the rest of the grammar ---------------------------
+    # --- the interior points ------------------------------------------
     "attn.in_norm",       # input_layernorm output: what attention actually sees [B, L, D]
     "attn.q_pre_norm",    # q_proj output before q_norm [B, L, n_heads, head_dim]
     "attn.k_pre_norm",    # k_proj output before k_norm [B, L, n_kv_heads, head_dim] (absent on KV-shared layers)
@@ -50,11 +50,11 @@ LAYER_HOOK_POINTS: tuple[str, ...] = (
 # Top-level (non-layer) hook points. Empty in v0; reserved for future
 # expansion (e.g. embed.out, final_norm.out).
 GLOBAL_HOOK_POINTS: tuple[str, ...] = (
-    # The final RMSNorm's per-position scale, [B, S] float32 (000142):
+    # The final RMSNorm's per-position scale, [B, S] float32:
     # what DLA's apply_ln divides by to make components sum to the
     # model's true logits.
     "final_norm.scale",
-    # --- task 000365 ---
+    # --- whole-model points ---
     "embed",              # token embeddings before layer 0 (and before the per-layer-input projection) [B, L, D]
     "final_norm",         # the final RMSNorm's output: what the unembedding reads [B, L, D]
     "logits",             # final logits after softcap [B, L, V] — logit-level surgery lives here
@@ -149,17 +149,14 @@ class Arch:
     global_layers: tuple[int, ...]
     first_kv_shared_layer: int
     # Family discriminator: "gemma4" or "gemma3". Drives forward-path
-    # dispatch in `_forward.run_forward`. Defaults to "gemma4" because
-    # every existing call site loads a Gemma 4 variant; Gemma 3 support
-    # is being staged in under task 000192.
+    # dispatch in `_forward.run_forward`.
     model_type: str = "gemma4"
 
     @property
     def last_fresh_kv_global(self) -> int:
         """Largest global-layer index whose K/V are computed fresh (not shared).
 
-        For E4B this is L23; for E2B it should be L14. The architectural
-        pivot identified in essay section 21 lives at this layer.
+        L23 on E4B, L14 on E2B.
         """
         fresh_globals = [g for g in self.global_layers
                          if g < self.first_kv_shared_layer]
@@ -249,10 +246,10 @@ class Arch:
 
     @classmethod
     def _from_mlx_lm_args(cls, args, model_id: str | None) -> "Arch":
-        """Adapter path for mlx-lm-loaded models. Currently supports
-        Qwen 2.x (000201) and Llama 3.x (000208). Both lack KV-sharing
-        and MatFormer side-channels; Llama 3.2 may have a hybrid
-        attention pattern via `args.layer_types`."""
+        """Adapter path for mlx-lm-loaded models: Qwen 2.x and
+        Llama 3.x. Both lack KV-sharing and MatFormer side-channels;
+        Llama 3.2 may have a hybrid attention pattern via
+        `args.layer_types`."""
         n_layers = int(args.num_hidden_layers)
         family_raw = (getattr(args, "model_type", "") or "").lower()
         if family_raw not in ("qwen2", "llama"):
@@ -288,10 +285,10 @@ class Arch:
 
 
 # ---------------------------------------------------------------------------
-# E4B defaults — module-level aliases for backward compatibility.
+# E4B defaults, as module-level aliases.
 #
-# Existing experiments import these directly. New code should prefer
-# `model.arch.<field>` so it adapts to whichever model variant was loaded.
+# Prefer `model.arch.<field>`, which adapts to whichever model variant
+# was loaded; these hold E4B's numbers whatever is loaded.
 # ---------------------------------------------------------------------------
 
 E4B_DEFAULT = Arch(

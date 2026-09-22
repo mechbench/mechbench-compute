@@ -1,4 +1,4 @@
-"""Distributional-target training primitives (task 000114).
+"""Distributional-target training primitives.
 
 The core idea: instead of training on example *responses*, train directly
 on a target *distribution* over responses. At a decision token, soft-target
@@ -565,7 +565,7 @@ def score_items_fast(model, prompt_ids: list[int],
                      sequences: Mapping[str, list[int]],
                      chunk: int = 16) -> dict[str, float]:
     """Teacher-forced ``log P(sequence)`` via supervised-rows-only
-    unembedding (task 000227): the trunk runs once per chunk, and the
+    unembedding: the trunk runs once per chunk, and the
     lm-head is applied only to the 1–5 supervised rows per item instead
     of every position. Same batching/bucketing/sync structure as
     ``score_items_batched``; takes a ``mechbench_compute.Model`` (not a bare
@@ -603,13 +603,12 @@ def _copy_prefix_cache(cache):
     each layer cache and re-materialize its batch-1 K/V arrays so the
     suffix pass can grow them without mutating the shared prefix state.
 
-    Batch-1 only, deliberately: batched (B>1) *cached* decoding is broken
-    upstream at mlx 0.31.2 (mlx-lm 0.31.3 / mlx-vlm 0.6.1) — with a
-    natively built B=4 cache and four identical rows, the batched prompt
-    pass is row-uniform but the cached suffix step corrupts every row
-    after the first (top-1 becomes incoherent). Reproduced on both the
-    mlx-lm and mlx-vlm stacks; revisit batching when upstream fixes land
-    (it is the ~5–10× path for battery scoring)."""
+    Batch-1 only, deliberately: batched (B>1) *cached* decoding is
+    broken upstream on both the mlx-lm and mlx-vlm stacks — with a
+    natively built B=4 cache and four identical rows, the batched
+    prompt pass is row-uniform but the cached suffix step corrupts
+    every row after the first. Re-check before batching this path,
+    which is the ~5–10x win for battery scoring."""
     import copy as _copy
     out = []
     for c in cache:
@@ -623,8 +622,8 @@ def _copy_prefix_cache(cache):
 
 def score_items_cached(model, prompt_ids: list[int],
                        sequences: Mapping[str, list[int]]) -> dict[str, float]:
-    """Teacher-forced ``log P(sequence)`` with prefix reuse (task
-    000227): the shared prompt is encoded **once** into a KV cache, and
+    """Teacher-forced ``log P(sequence)`` with prefix reuse: the
+    shared prompt is encoded **once** into a KV cache, and
     each item scores by feeding only its own 1–4 suffix tokens against a
     per-item copy of that cache — ~20× fewer trunk token-positions than
     the oracle on a 200-item battery, and the head runs only on suffix
@@ -685,8 +684,8 @@ def complete_items(items: Any) -> list[str]:
 
 def score_complete(model, tokenizer, rendered: str, prompt_ids: list[int],
                    spec: Mapping[str, Any]) -> tuple[dict[str, dict], float, float]:
-    """Exact probabilities of complete outcomes at a decision point (task
-    000548): each outcome, between ``spec["opener"]`` and
+    """Exact probabilities of complete outcomes at a decision point:
+    each outcome, between ``spec["opener"]`` and
     ``spec["closer"]``, tokenized as a continuation of the rendered prompt
     and scored by teacher forcing. The closer is what makes an outcome
     complete — "Mystery" is scored as `Mystery"`, so the mass of "Mystery
@@ -765,15 +764,15 @@ def first_token_metrics(lm, prompt_ids: list[int], tokenizer=None) -> dict:
 def prefill_decision(model, prompt_ids: list[int], *, interventions=None):
     """Encode a prompt once into a KV cache and return
     ``(cache, last_row)`` where ``last_row`` is the float32 logits row
-    at the decision position (task 000253, on the 000227 cache
-    machinery). One model call serves both the decision-token
+    at the decision position. One model call serves both the
+    decision-token
     distribution read and, via ``expand_top_outcomes_cached``, every
     subsequent expansion forward.
 
     With `interventions` the prompt runs through the hooked forward
     instead, the hooks live over every prompt position, and the cache
-    holds what they left (000601). Without, the native forward: the
-    bytes an un-intervened sample has always had.
+    holds what they left. Without them the native forward runs, which
+    is the byte-for-byte path an un-intervened sample takes.
     """
     cache = model.prompt_cache()
     if interventions:
@@ -800,11 +799,10 @@ def expand_top_outcomes_cached(model, tokenizer, prompt_ids: list[int],
 
     Semantics — branch floor, terminators, per-node top-50 children,
     optimality cut against the K-th completed outcome, and the mass
-    accounting — are identical to the uncached expansion this replaces
-    (mechbench-runner's original). ``forwards_used`` counts model calls
-    including the prefill, so cached and uncached numbers stay
-    comparable. Numerics carry the usual cached-suffix bf16 envelope
-    (task 000227): switch consumers only per the re-run practice.
+    accounting — are identical to an uncached expansion.
+    ``forwards_used`` counts model calls including the prefill, so
+    cached and uncached numbers stay comparable. Numerics carry the
+    usual cached-suffix bf16 envelope.
 
     ``prefill``: optional ``(cache, last_row)`` from a prior
     ``prefill_decision`` call, so the decision read and the expansion

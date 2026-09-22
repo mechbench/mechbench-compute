@@ -478,7 +478,7 @@ def ov_circuit(
     )
 
 
-# --- composition between heads (task 000610) -------------------------------------
+# --- composition between heads --------------------------------------------------
 
 
 def _fro(a: np.ndarray) -> float:

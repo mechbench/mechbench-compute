@@ -40,13 +40,12 @@ BACKENDS: tuple[Backend, ...] = (
         label="MLX (Apple Silicon, unified memory)",
         platform_label="macOS on Apple Silicon",
     ),
-    # Backend(name="torch", module="torch", label="PyTorch (CUDA)", ...)
-    # arrives with the Torch forward passes, not before.
 )
 
 
 def describe_platform() -> str:
-    """`darwin/arm64 python 3.11.1` — what a report or a question should say."""
+    """Platform, machine and Python version — what a report or a question
+    should say."""
     v = sys.version_info
     return (
         f"{sys.platform}/{platform.machine()} "

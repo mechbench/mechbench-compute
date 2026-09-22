@@ -18,9 +18,8 @@ This smoke asserts that invariant directly, rather than via a top-1 proxy:
      of an earlier layer drifting a *comparable* amount (KV corruption would
      make a KV-source layer diverge MORE, not less).
 
-It motivated splitting task 000223 (the mlx-vlm 0.4.x→0.6.x re-mirror) out of
-000222 (the 12B): the 0.6.x bump rewrote the loop this canary guards, and this
-is what catches that class of break.
+An upstream release that rewrites the layer loop is the break this canary
+catches: run it after every mlx-vlm or mlx-lm bump.
 
 Scope: all four supported forward paths, dispatched by family —
   - gemma4 (E2B / E4B / 12B `gemma4_unified`): mlx-vlm `Gemma4TextModel` loop.

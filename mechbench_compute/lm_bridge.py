@@ -1,10 +1,9 @@
-"""lm-eval-harness LM implementation over mechbench_compute.Model
-(task 000256).
+"""lm-eval-harness LM implementation over mechbench_compute.Model.
 
-mlx_lm.evaluate can't load VLM-shaped checkpoints (gemma-4's
-language_model.* weights killed the first attempt), and our Model
-loader, revision pinning, and LoRA fusion already exist — so the
-bridge goes the other way: lm-eval's task layer drives OUR model.
+mlx_lm.evaluate cannot load VLM-shaped checkpoints (gemma-4 keeps its
+weights under `language_model.*`), and our Model loader, revision
+pinning, and LoRA fusion already exist — so the bridge goes the other
+way: lm-eval's task layer drives OUR model.
 
 Loglikelihood tasks (arc_*, hellaswag, mmlu, winogrande, ...) are
 supported; generation and rolling-perplexity tasks raise with a clear

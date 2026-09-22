@@ -1,5 +1,5 @@
 """Bench client — emit results from local experiments to the workspace
-(task 000238; docs/THE_BENCH.md §3).
+(docs/THE_BENCH.md §3).
 
 The researcher's front door to the bench is a local call, not the job
 queue:
@@ -7,7 +7,7 @@ queue:
     from mechbench_compute import bench
 
     bench.emit(
-        "benji/my-project/results/ladder-2026-08-17",
+        "benji/my-project/results/ladder-4",
         {"kind": "run/ladder", "rows": [...]},
         inputs=["benji/my-project/adapters/joint4"],
         params={"steps": 1000, "seed": 7},
@@ -69,7 +69,7 @@ class BenchTransportError(BenchError):
     caller holding expensive compute. A 4xx says the payload is wrong and
     will still be wrong next time. A transport failure says nothing about
     the payload, so a host can keep the bytes and try again later instead
-    of discarding the work that produced them (000464).
+    of discarding the work that produced them.
     """
 
 
@@ -82,7 +82,7 @@ _RETRY_BASE_DELAY = 2.0
 _RETRY_STATUS = frozenset({502, 503, 504, 429})
 
 #: The API's request-body ceiling for one object, mirrored so an emit
-#: can refuse locally (000484). The server is authoritative — it returns
+#: can refuse locally. The server is authoritative — it returns
 #: 413 with `limitBytes` — and this constant must move with it
 #: (`mechbench-api/src/lib/body_limit.ts`). 64 MiB.
 MAX_OBJECT_BYTES = 64 * 1024 * 1024
@@ -97,10 +97,10 @@ def configure(*, api_url: str | None = None, api_key: str | None = None) -> None
 
     Research scripts set MECHBENCH_API_URL/MECHBENCH_API_KEY and that
     stays the default. A *host* embedding this layer — mechbench-runner —
-    resolves credentials its own way: since `login` they live in
-    ~/.mechbench/config.toml, not the environment, and before this hook
-    existed a pipeline could execute perfectly and then fail on its first
-    emit with "no API url".
+    resolves credentials its own way: they live in
+    ~/.mechbench/config.toml, not the environment. Without this hook
+    such a host's pipeline executes perfectly and then fails on its
+    first emit with "no API url".
 
     Explicit arguments to a call still win over anything set here.
     """
@@ -143,7 +143,7 @@ def _stored() -> tuple[str, str] | None:
 
 def _config(api_url: str | None, api_key: str | None) -> tuple[str, str]:
     """Resolve (url, key) the way the CLI does, so an experiment script
-    imports neither (task 000450). In order: explicit argument, then
+    imports neither. In order: explicit argument, then
     `configure()`, then the environment, then the credential
     `mechbench login` stored.
 
@@ -219,7 +219,7 @@ def _request(method: str, url: str, key: str, body: bytes | None = None,
              headers: dict[str, str] | None = None,
              return_headers: bool = False, timeout: float = 60,
              attempts: int = _RETRY_ATTEMPTS) -> Any:
-    """One API call, retrying only what carries no verdict (000464).
+    """One API call, retrying only what carries no verdict.
 
     Retried: a dead or timing-out socket, and 502/503/504/429. Each is
     silent about whether the request was acceptable, and every write in
@@ -247,7 +247,7 @@ def _request(method: str, url: str, key: str, body: bytes | None = None,
             break
         except urllib.error.HTTPError as e:
             # Parsed whole, quoted short: a refusal that names what is in
-            # its way (a deletion's citing articles, 000545) runs past any
+            # its way (a deletion's citing articles) runs past any
             # length worth printing, and a truncated body is not JSON.
             full = e.read().decode("utf-8", "replace")
             detail = full[:500]
@@ -263,8 +263,8 @@ def _request(method: str, url: str, key: str, body: bytes | None = None,
                 f"{method} {url} -> {e.code}: {detail}",
                 status=e.code, body=parsed)
         except urllib.error.URLError as e:
-            # Includes socket.timeout on read/write, which is how the
-            # 014 loss surfaced: "The write operation timed out".
+            # Includes socket.timeout on read/write ("The write
+            # operation timed out"), which carries no verdict either.
             last = BenchTransportError(f"{method} {url} unreachable: {e.reason}")
         except TimeoutError as e:
             last = BenchTransportError(f"{method} {url} unreachable: {e}")
@@ -332,20 +332,19 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
             "operation": operation,
             "params_ref": params_ref,
         }
-        # Validate against the schema model before sending.
         envelope = ms.Emitted(provenance=ms.Provenance(**prov),
                               payload=payload)
         # mode="python", not "json": binary payloads (adapter
-        # safetensors bytes, 000259) must survive to CBOR, which
-        # encodes bytes natively. Canonical bytes are identical for
-        # JSON-safe payloads (verified), so no drift for existing
-        # objects.
+        # safetensors bytes) must survive to CBOR, which encodes bytes
+        # natively. Canonical bytes are identical for JSON-safe
+        # payloads, so the two modes agree on every object that has
+        # one.
         body_obj = envelope.model_dump(mode="python")
 
     body = ms.dump_canonical(body_obj)
     if len(body) > MAX_OBJECT_BYTES:
         # Refused HERE, in one line, rather than after a minute per
-        # attempt against a server that will not take it (000484). The
+        # attempt against a server that will not take it. The
         # API enforces the same ceiling with a 413; this is the version
         # that names the size before any bytes leave the machine.
         raise BenchError(
@@ -426,15 +425,13 @@ def _fetch_decoded(target: str, api_url: str | None, api_key: str | None,
 
 def fetch(target: str, *, api_url: str | None = None,
           api_key: str | None = None, with_meta: bool = False) -> Any:
-    """Fetch an object and return its PAYLOAD (task 000450).
+    """Fetch an object and return its PAYLOAD.
 
     CBOR objects are decoded, JSON parsed, other mime types returned as
     bytes. An Emitted envelope is unwrapped — the payload is what a reader
-    wants, and stripping it by hand
-    (`(lambda o: o.get("payload", o))(...)`) was the idiom in every
-    experiment. Use `fetch_envelope()` for the rare read that needs the
+    wants. Use `fetch_envelope()` for the rare read that needs the
     provenance. ``with_meta=True`` returns ``(payload, meta)`` where meta
-    carries the server's ``content_hash`` (task 000260)."""
+    carries the server's ``content_hash``."""
     got = _fetch_decoded(target, api_url, api_key, with_meta)
     if with_meta:
         obj, meta = got
@@ -445,9 +442,8 @@ def fetch(target: str, *, api_url: str | None = None,
 def fetch_envelope(target: str, *, api_url: str | None = None,
                    api_key: str | None = None, with_meta: bool = False) -> Any:
     """The object exactly as stored — the Emitted envelope with its
-    provenance, not just the payload. What `fetch` returned before task
-    000450; for the caller that wants lineage, params fingerprint, or the
-    producing tool version."""
+    provenance, not just the payload: for the caller that wants lineage,
+    the params fingerprint, or the producing tool version."""
     return _fetch_decoded(target, api_url, api_key, with_meta)
 
 
@@ -484,7 +480,7 @@ def lineage(target: str, direction: str = "up", depth: int = 3, *,
 def put_file(label: str, filepath, *, kind: str = "checkpoint_file",
              api_url: str | None = None, api_key: str | None = None,
              timeout: float = 3600.0) -> dict:
-    """Upload one raw file as a binary object (000312 Arc C).
+    """Upload one raw file as a binary object.
 
     The hash is computed here and the server verifies it after
     streaming — a torn upload can never be fetched. Bytes stream from
@@ -549,8 +545,8 @@ def get_file_chunks(label: str, *, api_url: str | None = None,
 def list_prefix_hashes(prefix: str, *, api_url: str | None = None,
                        api_key: str | None = None) -> dict[str, str]:
     """{filename: sha256hex} for objects already stored under a label
-    prefix — what retry-as-resume consults before uploading (000312
-    Arc C). Best-effort: an empty dict just means upload everything."""
+    prefix — what retry-as-resume consults before uploading.
+    Best-effort: an empty dict just means upload everything."""
     import httpx
 
     try:
@@ -578,15 +574,13 @@ def list_prefix_hashes(prefix: str, *, api_url: str | None = None,
 
 # --- runs, jobs, results -----------------------------------------------------
 #
-# The library under the three CLI verbs (task 000450): launch a protocol,
-# watch its jobs, find a run by what it ran, read a node's result. Before
-# this, every experiment wrote its own `api()` over httpx — config,
-# credential and transport all borrowed from a module whose job is protocol
-# graphs. The `mechbench run/watch/result` verbs (mechbench-runner, task
-# 000448) are thin wrappers over these; there is one implementation.
+# The library under the three CLI verbs: launch a protocol, watch its
+# jobs, find a run by what it ran, read a node's result. The `mechbench
+# run/watch/result` verbs (mechbench-runner) are thin wrappers over
+# these; there is one implementation.
 
 #: A job is finished — successfully or not — in exactly these states.
-#: `done_with_missing` (000515) is finished: the run completed and part
+#: `done_with_missing` is finished: the run completed and part
 #: of the graph did not, which is a result to read rather than a job to
 #: keep waiting on.
 TERMINAL = ("done", "done_with_missing", "failed", "cancelled", "interrupted")
@@ -602,13 +596,12 @@ def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
 
     A protocol declares `params` (typed values: the model, an `n`) and
     `inputs` (stored objects, by path or as a `{"$ref"}`), and a run
-    binds each by name (epic 000553). `keep="outputs"` asks for the
+    binds each by name. `keep="outputs"` asks for the
     intermediates to be held on the runner rather than stored. The
-    positional `bindings` is the legacy form, read by the server as
-    what it was — a name the signature declares as a param or as an
-    input — until 000565 retires it.
+    positional `bindings` is the legacy form, read by the server as a
+    name the signature declares as a param or as an input.
 
-    Returns the bare run, with `id` and `jobId` on it (task 000451) —
+    Returns the bare run, with `id` and `jobId` on it —
     record the job id at once; a job id in a scrollback is a job id lost.
     """
     url, key = _config(api_url, api_key)
@@ -647,34 +640,27 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
     """Register a protocol: `POST /protocols` with its graph and
     signature. Returns the bare protocol (id, version, name, ...).
 
-    A declared protocol (epic 000553) says what it takes and keeps in
+    A declared protocol says what it takes and keeps in
     three lists — `params=[{"name", "type", "default"?, "doc"?}]`,
     `inputs=[{"name", "kind", "many"?, "default"?}]`, `outputs=[{"name",
     "from": {"node", "output"?}}]` — and its graph carries `dataflow:
     2`. Given any of the three, the signature is built from them (the
     others default to empty); `signature=` is the legacy way of saying
-    the same and is read until 000565.
+    the same, and is still read.
 
     **Running an author twice makes a second VERSION, not a second
-    protocol** (task 000519). A project holds one protocol per name;
+    protocol.** A project holds one protocol per name;
     when the name is taken, this PATCHes the one that exists, which
     bumps its version and snapshots the old one so a run that pinned it
     still replays. `exists="error"` raises instead, for a caller that
     means a name to be new.
 
-    It did not, until 2026-09-17, and the bench has the scar: forty-two
-    duplicate rows in one project, seven protocols called `018-axes`,
-    five called `dataflow-two-models-judged` — every one of them a v1,
-    because each re-run POSTed. The versioning model was there all
-    along and nothing used it.
-
-    The authoring half of an experiment used to carry its own `api()`
-    for exactly this call; it belongs beside `launch`, which runs what
-    this registers.
+    Authoring a protocol by POSTing it again would leave one duplicate
+    v1 row per re-run, which is why this PATCHes instead.
 
     `publish=True` publishes the version this call leaves at the head —
-    the exact version an article about its runs will embed (task 000542)
-    — and puts `publish_protocol_version`'s answer under `published`.
+    the exact version an article about its runs will embed — and puts
+    `publish_protocol_version`'s answer under `published`.
     """
     if exists not in ("version", "error"):
         raise ValueError(f"exists is 'version' or 'error', not {exists!r}")
@@ -711,9 +697,8 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
             "PATCH", f"{url}/protocols/{taken}", key,
             body=json.dumps(patch).encode("utf-8"),
             headers={"Content-Type": "application/json"}, timeout=90)
-    # The protocols routes still answer `{protocol: …}` — the one wrapper
-    # 000451 left behind (task 000456). Unwrapped here, once, so no
-    # caller has to; drop this line when the route goes bare.
+    # The protocols routes answer `{protocol: …}`. Unwrapped here,
+    # once, so no caller has to.
     protocol = out.get("protocol", out) if isinstance(out, dict) else out
     if publish:
         protocol = {**protocol, "published": publish_protocol_version(
@@ -732,14 +717,14 @@ def _name_taken(e: BenchError) -> str | None:
     return str(got) if got else None
 
 
-# --- publishing, copying, deleting (epic 000535) -----------------------------
+# --- publishing, copying, deleting ------------------------------------------
 #
 # A published protocol version is readable by anyone, and is what an
-# article embeds (task 000536); the version is the published unit, so a
-# later edit never reaches it. A copy brings its sub-protocols along
-# (000541). Every deletion answers a dry run, is refused while something
-# outside it depends on it, and names the articles citing it until told
-# otherwise (000543, 000545).
+# article embeds; the version is the published unit, so a later edit
+# never reaches it. A copy brings its sub-protocols along. Every
+# deletion answers a dry run, is refused while something outside it
+# depends on it, and names the articles citing it until told
+# otherwise.
 
 
 def _public_path(version: dict) -> str | None:
@@ -764,7 +749,7 @@ def get_protocol(protocol: str, *, api_url: str | None = None,
 def publish_protocol_version(protocol: str, version: int, *,
                              api_url: str | None = None,
                              api_key: str | None = None) -> dict:
-    """Make one sealed version readable by anyone (task 000536).
+    """Make one sealed version readable by anyone.
 
     `POST /protocols/:id/versions/:n/publish`, which takes someone who can
     administer the protocol. Returns `{version, unpublishedIncludes,
@@ -782,7 +767,7 @@ def unpublish_protocol_version(protocol: str, version: int, *,
                                api_key: str | None = None) -> dict:
     """Withdraw a published version. Returns `{version, published,
     citedBy, unreadable}` — the articles that embed it, or link to it from
-    a result, now show a placeholder there (task 000540)."""
+    a result, now show a placeholder there."""
     url, key = _config(api_url, api_key)
     return _request("POST", f"{url}/protocols/{protocol}/versions/{int(version)}/unpublish", key)
 
@@ -791,9 +776,9 @@ def copy_protocol_version(protocol: str, version: int, owner: str, project: str,
                           name: str | None = None, owner_kind: str = "user",
                           dry_run: bool = False, api_url: str | None = None,
                           api_key: str | None = None) -> dict:
-    """Copy a version into a project of yours (task 000541).
+    """Copy a version into a project of yours.
 
-    A protocol includes only protocols with its own owner (000544), so the
+    A protocol includes only protocols with its own owner, so the
     copy brings every sub-protocol along, or reuses an earlier copy of the
     same version in that project. Returns `{protocol, copied, reused}`;
     with `dry_run`, `{name, copied, reused}` and nothing made. A
@@ -829,7 +814,7 @@ def delete(target: str, *, prefix: bool = False, dry_run: bool = False,
            acknowledge_citations: bool = False, api_url: str | None = None,
            api_key: str | None = None) -> dict:
     """Delete an object (a path; everything under it with `prefix`), or a
-    protocol, job, article, dataset or project (an id). Task 000545.
+    protocol, job, article, dataset or project (an id).
 
     With `dry_run`, answers what it would do — `{deletes, keeps, refusal,
     citedBy, unreadable}` — and deletes nothing. Otherwise a refusal
@@ -849,8 +834,8 @@ def delete(target: str, *, prefix: bool = False, dry_run: bool = False,
 
 def history(kind: str, entity_id: str, *, api_url: str | None = None,
             api_key: str | None = None) -> dict:
-    """A lifetime's audit log, readable after the thing is gone (task
-    000545): `{lifetime, events, others}`, where `others` are the other
+    """A lifetime's audit log, readable after the thing is gone:
+    `{lifetime, events, others}`, where `others` are the other
     lifetimes that have held its address. `kind` is object, protocol,
     article, project, dataset or job."""
     url, key = _config(api_url, api_key)
@@ -859,7 +844,7 @@ def history(kind: str, entity_id: str, *, api_url: str | None = None,
 
 def cancel(job_id: str, *, reason: str = "", api_url: str | None = None,
            api_key: str | None = None) -> dict:
-    """Withdraw a job nobody is running (tasks 000463, 000511).
+    """Withdraw a job nobody is running.
 
     `POST /jobs/:id/cancel`. Works while no compute is being spent —
     `queued`; `preparing`, where the runner is fetching weights; and
@@ -868,8 +853,7 @@ def cancel(job_id: str, *, reason: str = "", api_url: str | None = None,
     cancelling twice answers the same, with `alreadyCancelled` set, so two
     people draining a queue do not race. Returns `{ok, status, from}`.
 
-    The counterpart of `launch`: before this the only way to unsend a job
-    was to let it run.
+    The counterpart of `launch`.
     """
     url, key = _config(api_url, api_key)
     body = {"reason": reason} if reason else {}
@@ -932,9 +916,8 @@ def watch(jobs: list[str], *, interval: float = 4.0, api_url: str | None = None,
 
 def results_for(protocol: str, **bindings: Any) -> list[dict]:
     """The protocol's runs, newest first, filtered by binding value
-    (`GET /protocols/:ref/runs?binding.k=v`, task 000449). Each carries
-    its `jobId`, `jobStatus` and `resultPath` — the end of the job-id
-    sidecars an experiment used to maintain by hand.
+    (`GET /protocols/:ref/runs?binding.k=v`). Each carries its `jobId`,
+    `jobStatus` and `resultPath`.
 
     A string binding matches raw; a structured one (a model ref) is sent as
     canonical JSON, which the server parses and deep-equals — so
@@ -959,7 +942,7 @@ def results_for(protocol: str, **bindings: Any) -> list[dict]:
 
 def result(job: str | dict, node: str, *, api_url: str | None = None,
            api_key: str | None = None) -> Any:
-    """One node's output, unwrapped (task 000450).
+    """One node's output, unwrapped.
 
     `job` is a job id, or any object carrying `resultPath` — a run row from
     `results_for`, or a job row from `get_job` — which is read directly,
