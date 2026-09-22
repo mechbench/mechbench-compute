@@ -55,7 +55,13 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "text/score": [(P, "_block_score")],
     "adapter/merge": [(P, "_block_merge")],
     "adapter/publish": [(P, "_block_hf_push_adapter")],
-    "records/plot": [("blocks/__init__.py", "viz_spec")],
+    "records/plot": [
+        ("ops/records/plot.py", "run"),
+        ("ops/records/plot.py", "_layer_axis_from"),
+        ("ops/records/plot.py", "_check_layer_axis"),
+        ("ops/records/plot.py", "_check_annotations"),
+        ("ops/records/plot.py", "_check_references"),
+        ("ops/records/plot.py", "viz_spec")],
     # --- model blocks that delegate to a module ---
     "text/chat": [(P, "_block_chat"), (P, "_block_chat_local"),
                               ("chat.py", "run_remote"), ("chat.py", "run_local")],
@@ -91,25 +97,52 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "activations/contrast": [(P, "_block_residual_divergence"),
                                               ("interp/__init__.py", "residual_divergence")],
     # --- pure blocks ---
-    "records/cross": [("blocks/__init__.py", "factor_cross")],
-    "records/fill": [("blocks/__init__.py", "template")],
-    "records/rename": [("blocks/__init__.py", "rename")],
-    "records/select": [("blocks/__init__.py", "select")],
-    "records/subtract": [("blocks/__init__.py", "paired_delta")],
+    "records/cross": [
+        ("ops/records/cross.py", "run"),
+        ("ops/records/cross.py", "_sample_value"),
+        ("ops/records/cross.py", "_factor_levels"),
+        ("ops/records/cross.py", "factor_cross")],
+    "records/fill": [
+        ("ops/records/fill.py", "run"),
+        ("ops/records/fill.py", "template")],
+    "records/rename": [
+        ("ops/records/rename.py", "run"),
+        ("ops/records/rename.py", "_pop_path"),
+        ("ops/records/rename.py", "_set_path"),
+        ("ops/records/rename.py", "rename")],
+    "records/select": [
+        ("ops/records/select.py", "run"),
+        ("ops/records/select.py", "select"),
+        ("ops/records/select.py", "_selected")],
+    "records/subtract": [
+        ("ops/records/subtract.py", "run"),
+        ("ops/records/subtract.py", "paired_delta")],
     "records/summarize": [
         ("ops/records/summarize.py", "run"),
         ("ops/records/summarize.py", "_bootstrap_mean"),
         ("ops/records/summarize.py", "summary_rows"),
         ("ops/records/summarize.py", "group_stats"),
         ("ops/records/summarize.py", "GroupStats")],
-    "records/contrast": [("blocks/__init__.py", "contrast")],
+    "records/contrast": [
+        ("ops/records/contrast.py", "run"),
+        ("ops/records/contrast.py", "_field_of"),
+        ("ops/records/contrast.py", "contrast")],
     "text/render": [("transcript.py", "render_records")],
     "text/extend": [("transcript.py", "extend")],
-    "records/tabulate": [("blocks/__init__.py", "table_from_records")],
-    "records/union": [("blocks/__init__.py", "union")],
-    "records/zip": [("blocks/__init__.py", "zip_branches")],
-    "records/map": [(P, "_block_map")],
-    "records/fold": [(P, "_block_fold")],
+    "records/tabulate": [
+        ("ops/records/tabulate.py", "run"),
+        ("ops/records/tabulate.py", "table_from_records")],
+    "records/union": [
+        ("ops/records/union.py", "run"),
+        ("ops/records/union.py", "union"),
+        ("ops/records/union.py", "_shared_item_kind")],
+    "records/zip": [
+        ("ops/records/zip.py", "run"),
+        ("ops/records/zip.py", "zip_branches")],
+    "records/map": [
+        ("ops/records/map.py", "run")],
+    "records/fold": [
+        ("ops/records/fold.py", "run")],
     "weights/circuit": [(P, "_block_weights_circuit"), ("weights/__init__.py", "head_circuits")],
     "activations/examples": [(P, "_block_examples"), ("interp/__init__.py", "examples")],
     "intervene/path": [(P, "_block_path_patch"), ("paths.py", "run")],
@@ -132,9 +165,15 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     # The reduce ops share one closure; the MONOID is what differs, and
     # each one's params are its own.
     # `_block_of` is the closure that reads the records port for all three.
-    "records/total": [("reduce/__init__.py", "FloatSum"), ("reduce/__init__.py", "_block_of")],
-    "records/rank": [("reduce/__init__.py", "TopK"), ("reduce/__init__.py", "_block_of")],
-    "records/bin": [("reduce/__init__.py", "Histogram"), ("reduce/__init__.py", "_block_of")],
+    "records/total": [
+        ("ops/records/total.py", "run"),
+        ("ops/records/total.py", "FloatSum")],
+    "records/rank": [
+        ("ops/records/rank.py", "run"),
+        ("ops/records/rank.py", "TopK")],
+    "records/bin": [
+        ("ops/records/bin.py", "run"),
+        ("ops/records/bin.py", "Histogram")],
     "adapter/measure": [("weights/__init__.py", "measure_adapter")],
     "weights/capture": [(P, "_block_capture_weights"),
                         ("weights/__init__.py", "capture_weights")],

@@ -39,18 +39,18 @@ def _graph(policy=None):
 
 def _run(graph, monkeypatch, break_node="bad"):
     """Run the graph with one node's block made to fail."""
-    from mechbench_compute import blocks as blocks_mod
+    from mechbench_compute.ops.records import fill
 
-    real = blocks_mod.PURE_BLOCKS["records/fill"]
+    real = fill.run
     seen = {"ran": []}
 
-    def flaky(inputs, params):
+    def flaky(ctx, inputs, params):
         if params.get("templates", {}).get("user", "").startswith("{x}"):
             raise RuntimeError("this branch died")
         seen["ran"].append(params["templates"]["user"])
-        return real(inputs, params)
+        return real(ctx, inputs, params)
 
-    monkeypatch.setitem(blocks_mod.PURE_BLOCKS, "records/fill", flaky)
+    monkeypatch.setattr(fill, "run", flaky)
     out = ProtocolExecutor().run(ProtocolSpec(
         kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
     return out, seen
@@ -65,19 +65,19 @@ class TestDefaultIsUnchanged:
         # The failure is raised at the end of the run, so the good branch
         # has already run — which is what makes the parallel scheduler
         # (000396) safe: siblings settle before the status does.
-        from mechbench_compute import blocks as blocks_mod
+        from mechbench_compute.ops.records import fill
 
-        real = blocks_mod.PURE_BLOCKS["records/fill"]
+        real = fill.run
         ran = []
 
-        def flaky(inputs, params):
+        def flaky(ctx, inputs, params):
             user = params.get("templates", {}).get("user", "")
             if user.startswith("{x}"):
                 raise RuntimeError("this branch died")
             ran.append(user)
-            return real(inputs, params)
+            return real(ctx, inputs, params)
 
-        monkeypatch.setitem(blocks_mod.PURE_BLOCKS, "records/fill", flaky)
+        monkeypatch.setattr(fill, "run", flaky)
         with pytest.raises(RuntimeError, match="this branch died"):
             ProtocolExecutor().run(ProtocolSpec(
                 kind="pipeline", prompt="", model_id=None,
@@ -133,16 +133,16 @@ class TestWithResultsStored:
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None,
                             extra={"graph": _graph("placeholder"),
                                    "resultPath": "u/p/results/j_1"})
-        from mechbench_compute import blocks as blocks_mod
+        from mechbench_compute.ops.records import fill
 
-        real = blocks_mod.PURE_BLOCKS["records/fill"]
+        real = fill.run
 
-        def flaky(inputs, params):
+        def flaky(ctx, inputs, params):
             if params.get("templates", {}).get("user", "").startswith("{x}"):
                 raise RuntimeError("this branch died")
-            return real(inputs, params)
+            return real(ctx, inputs, params)
 
-        monkeypatch.setitem(blocks_mod.PURE_BLOCKS, "records/fill", flaky)
+        monkeypatch.setattr(fill, "run", flaky)
         out = ProtocolExecutor().run(spec).payload
 
         assert "u/p/results/j_1/pairs" in emitted

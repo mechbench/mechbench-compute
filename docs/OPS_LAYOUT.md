@@ -114,6 +114,15 @@ Every field has a default, so a test builds one in a line:
   there are weights to fuse onto, and an adapter may arrive. The port
   alone does not say so — `adapter/measure` and `adapter/publish` take
   an adapter as the thing they operate on.
+- **Whether it can be computed in chunks, and how** — its file defines
+  `MONOID`. That one line is what the reduce machinery, the chunk
+  harness and the resume levels all used to read from three separate
+  tables, kept in step by hand.
+
+A test that wants to stand in for an operation patches the operation's
+own file — `monkeypatch.setattr(fill, "run", flaky)`,
+`monkeypatch.setattr(total, "MONOID", Bad)` — because that is where it
+runs from. Patching a table it used to be listed in changes nothing.
 
 ## Two rules the layout depends on
 

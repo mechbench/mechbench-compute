@@ -11,6 +11,8 @@ import pytest
 
 from mechbench_compute import blocks, trajectory
 from mechbench_compute.block_params import check_params
+from mechbench_compute.ops.records.select import select
+from mechbench_compute.ops.records.union import union
 
 N_LAYERS = 4
 D = 8
@@ -146,7 +148,7 @@ class TestCapturePositionsAxis:
     def test_a_measurement_groups_once_it_is_a_coordinate(self):
         # `text/measure` writes a hit as a field; `records/rename` moves it
         # into coords, and from there every item carries it.
-        from mechbench_compute.blocks import rename
+        from mechbench_compute.ops.records.rename import rename
 
         m = StubModel()
         recs = rename([{"id": "a", "text": "x", "hit": 1}], {"fields": {"hit": "coords.hit"}})
@@ -334,8 +336,8 @@ class TestWiring:
     def test_select_reads_an_annotated_field(self):
         recs = [{"id": "a", "coords": {"p": "flash"}, "hit": 1},
                 {"id": "b", "coords": {"p": "flash"}, "hit": 0}]
-        assert [r["id"] for r in blocks.select(recs, {"where": {"hit": 1}})] == ["a"]
-        assert len(blocks.select(recs, {"where": {"p": "flash"}})) == 2
+        assert [r["id"] for r in select(recs, {"where": {"hit": 1}})] == ["a"]
+        assert len(select(recs, {"where": {"p": "flash"}})) == 2
 
     def test_union_of_vector_records_stays_a_vector_record(self):
         # base and adapted captures come from two model nodes; their
@@ -346,7 +348,7 @@ class TestWiring:
                     "template": "chat", "rows": label_rows}
         base = vec([{"id": "flash", "layer": 12, "vector": onehot(1, 1.0)}])
         adapted = vec([{"id": "flash", "layer": 12, "vector": onehot(2, 1.0)}])
-        out = blocks.union({"base": base, "adapted": adapted}, {})
+        out = union({"base": base, "adapted": adapted}, {})
         assert out["item_kind"] == "activations/vector" and "layers" not in out
         # Every item carries its own space; the port is the batch coordinate.
         assert [r["coords"]["batch"] for r in out["items"]] == ["adapted", "base"]  # port order
@@ -357,7 +359,7 @@ class TestWiring:
         assert v[1] > 0 and v[2] < 0
 
     def test_union_of_plain_records_is_unchanged(self):
-        out = blocks.union({"a": [{"id": "1"}], "b": [{"id": "2"}]}, {})
+        out = union({"a": [{"id": "1"}], "b": [{"id": "2"}]}, {})
         assert out["item_kind"] == "records/record"
         assert [r["coords"]["batch"] for r in out["items"]] == ["a", "b"]
 

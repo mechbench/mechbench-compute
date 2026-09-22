@@ -10,6 +10,7 @@ import pytest
 
 from mechbench_compute import blocks
 from mechbench_compute.ops.records.summarize import group_stats
+from mechbench_compute.ops.records.contrast import contrast
 
 
 def _sweep(n_prompts=30, layers=(21, 22, 23, 24), seed=1):
@@ -67,7 +68,7 @@ class TestContrast:
     def test_paired_the_layer_23_cost_is_resolved_against_its_neighbour(self):
         # The prompts' own levels (sd 2) swamp a 1.0 effect unless the
         # records are paired; paired, the interval is tight around −1.
-        out = blocks.contrast(_sweep(), {"value": "delta_logp", "on": "layer", "a": 23, "b": 22,
+        out = contrast(_sweep(), {"value": "delta_logp", "on": "layer", "a": 23, "b": 22,
                                          "paired": "id", "resamples": 500})
         [row] = out["rows"]
         assert row["on"] == "layer" and row["a"] == 23 and row["b"] == 22 and row["n"] == 30
@@ -78,14 +79,14 @@ class TestContrast:
         assert out["interval"]["paired"] == "id" and out["interval"]["of"] == "difference of means"
 
     def test_unpaired_the_same_contrast_is_wide_and_uncertain(self):
-        out = blocks.contrast(_sweep(), {"value": "delta_logp", "on": "layer", "a": 23, "b": 22,
+        out = contrast(_sweep(), {"value": "delta_logp", "on": "layer", "a": 23, "b": 22,
                                          "resamples": 500})
         [row] = out["rows"]
         assert row["hi"] - row["lo"] > 1.0
         assert out["interval"]["paired"] is None
 
     def test_a_null_contrast_straddles_zero(self):
-        out = blocks.contrast(_sweep(), {"value": "delta_logp", "on": "layer", "a": 22, "b": 21,
+        out = contrast(_sweep(), {"value": "delta_logp", "on": "layer", "a": 22, "b": 21,
                                          "paired": "id", "resamples": 500})
         [row] = out["rows"]
         assert row["lo"] < 0 < row["hi"]
@@ -93,23 +94,23 @@ class TestContrast:
 
     def test_by_holds_other_coordinates_fixed(self):
         recs = [dict(r, coords={"point": p}) for r in _sweep(n_prompts=12) for p in ("attn", "mlp")]
-        out = blocks.contrast(recs, {"value": "delta_logp", "on": "layer", "a": 23, "b": 22,
+        out = contrast(recs, {"value": "delta_logp", "on": "layer", "a": 23, "b": 22,
                                      "paired": "id", "by": ["point"], "resamples": 200})
         assert [r["point"] for r in out["rows"]] == ["attn", "mlp"]
         assert [c["name"] for c in out["columns"]][:4] == ["point", "on", "a", "b"]
 
     def test_a_side_that_is_absent_is_refused_by_name(self):
         with pytest.raises(ValueError, match="layer=99"):
-            blocks.contrast(_sweep(), {"value": "delta_logp", "on": "layer", "a": 99, "b": 22})
+            contrast(_sweep(), {"value": "delta_logp", "on": "layer", "a": 99, "b": 22})
 
     def test_pairs_that_never_meet_are_refused(self):
         recs = [{"id": f"a{i}", "layer": 23, "delta_logp": 1.0} for i in range(3)] + \
                [{"id": f"b{i}", "layer": 22, "delta_logp": 1.0} for i in range(3)]
         with pytest.raises(ValueError, match="appears on both sides"):
-            blocks.contrast(recs, {"value": "delta_logp", "on": "layer", "a": 23, "b": 22, "paired": "id"})
+            contrast(recs, {"value": "delta_logp", "on": "layer", "a": 23, "b": 22, "paired": "id"})
 
     def test_reads_the_coordinate_from_coords_or_the_record(self):
         recs = [{"id": f"p{i}", "coords": {"arm": arm}, "v": (1.0 if arm == "t" else 0.0) + 0.01 * i}
                 for i in range(10) for arm in ("t", "c")]
-        out = blocks.contrast(recs, {"value": "v", "on": "arm", "a": "t", "b": "c", "paired": "id", "resamples": 100})
+        out = contrast(recs, {"value": "v", "on": "arm", "a": "t", "b": "c", "paired": "id", "resamples": 100})
         assert abs(out["rows"][0]["diff"] - 1.0) < 1e-9

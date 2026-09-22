@@ -16,10 +16,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from plan import PKG, ROOT  # noqa: E402
 
 
-def edit(rel: str, old: str, new: str, count: int = 1) -> None:
+def edit(rel: str, old: str, new: str, count: int | None = 1) -> None:
+    """Replace `old` with `new` in `rel`; `count` occurrences are expected
+    (None: at least one, all replaced)."""
     path = (ROOT / rel) if rel.startswith("tests/") else (PKG / rel)
     s = path.read_text()
-    assert s.count(old) == count, f"{rel}: expected {count} of {old[:60]!r}, found {s.count(old)}"
+    found = s.count(old)
+    if count is None:
+        assert found >= 1, f"{rel}: none of {old[:60]!r}"
+    else:
+        assert found == count, f"{rel}: expected {count} of {old[:60]!r}, found {found}"
     path.write_text(s.replace(old, new))
 
 
@@ -84,6 +90,126 @@ def _layer_axis_from(''')
             {"records": K.collection("records/record", [{"id": "l0", "layer": 0}])},""")
 
 
+def records_tests() -> None:
+    """Tests that reached a records operation through a table the
+    executor no longer consults for it: the pure-block registry, the
+    monoid table, the executor class by module attribute. Each now
+    patches the operation's own file, which is where it runs from."""
+    # The join tests made records/fill flaky through PURE_BLOCKS.
+    edit("tests/test_join_semantics.py", """    from mechbench_compute import blocks as blocks_mod
+
+    real = blocks_mod.PURE_BLOCKS["records/fill"]
+    seen = {"ran": []}
+
+    def flaky(inputs, params):
+        if params.get("templates", {}).get("user", "").startswith("{x}"):
+            raise RuntimeError("this branch died")
+        seen["ran"].append(params["templates"]["user"])
+        return real(inputs, params)
+
+    monkeypatch.setitem(blocks_mod.PURE_BLOCKS, "records/fill", flaky)""",
+         """    from mechbench_compute.ops.records import fill
+
+    real = fill.run
+    seen = {"ran": []}
+
+    def flaky(ctx, inputs, params):
+        if params.get("templates", {}).get("user", "").startswith("{x}"):
+            raise RuntimeError("this branch died")
+        seen["ran"].append(params["templates"]["user"])
+        return real(ctx, inputs, params)
+
+    monkeypatch.setattr(fill, "run", flaky)""")
+    if True:   # two tests carry their own copy of the same patch
+        edit("tests/test_join_semantics.py", """        from mechbench_compute import blocks as blocks_mod
+
+        real = blocks_mod.PURE_BLOCKS["records/fill"]
+        ran = []
+
+        def flaky(inputs, params):
+            user = params.get("templates", {}).get("user", "")
+            if user.startswith("{x}"):
+                raise RuntimeError("this branch died")
+            ran.append(user)
+            return real(inputs, params)
+
+        monkeypatch.setitem(blocks_mod.PURE_BLOCKS, "records/fill", flaky)""",
+             """        from mechbench_compute.ops.records import fill
+
+        real = fill.run
+        ran = []
+
+        def flaky(ctx, inputs, params):
+            user = params.get("templates", {}).get("user", "")
+            if user.startswith("{x}"):
+                raise RuntimeError("this branch died")
+            ran.append(user)
+            return real(ctx, inputs, params)
+
+        monkeypatch.setattr(fill, "run", flaky)""", count=None)
+    edit("tests/test_join_semantics.py", """        from mechbench_compute import blocks as blocks_mod
+
+        real = blocks_mod.PURE_BLOCKS["records/fill"]
+
+        def flaky(inputs, params):
+            if params.get("templates", {}).get("user", "").startswith("{x}"):
+                raise RuntimeError("this branch died")
+            return real(inputs, params)
+
+        monkeypatch.setitem(blocks_mod.PURE_BLOCKS, "records/fill", flaky)""",
+         """        from mechbench_compute.ops.records import fill
+
+        real = fill.run
+
+        def flaky(ctx, inputs, params):
+            if params.get("templates", {}).get("user", "").startswith("{x}"):
+                raise RuntimeError("this branch died")
+            return real(ctx, inputs, params)
+
+        monkeypatch.setattr(fill, "run", flaky)""")
+    # A broken monoid was planted in the table; the operation's file holds it now.
+    edit("tests/test_dataflow_law.py",
+         """        monkeypatch.setitem(rd.MONOIDS, "records/total", Bad)""",
+         """        from mechbench_compute.ops.records import total
+
+        monkeypatch.setattr(total, "MONOID", Bad)""")
+    # The map spawns `type(ctx.executor)`, so the stand-in has to BE the executor.
+    edit("tests/test_blocks.py", """        class Child:
+            _model = None
+            _model_id = None
+
+            def __init__(self, *a, **k):
+                pass
+
+            def run(self, spec, **kw):
+                return SimpleNamespace(payload={"outputs": {"separation": body_out}})
+
+        from mechbench_compute import ops
+        from mechbench_compute.ops.records import map as map_op
+
+        ex = P.ProtocolExecutor()
+        monkeypatch.setattr(P, "ProtocolExecutor", Child)
+        out = map_op.run(
+            ops.Context(executor=ex),""",
+         """        class Child:
+            _model = None
+            _model_id = None
+            _on_download = _on_download_bytes = _limiter = _budget = None
+
+            def __init__(self, *a, **k):
+                pass
+
+            def run(self, spec, **kw):
+                return SimpleNamespace(payload={"outputs": {"separation": body_out}})
+
+        from mechbench_compute import ops
+        from mechbench_compute.ops.records import map as map_op
+
+        out = map_op.run(
+            ops.Context(executor=Child()),""")
+
+
 if __name__ == "__main__":
-    globals()[sys.argv[1]]()
-    print(f"applied: {sys.argv[1]}")
+    for name in sys.argv[1:]:
+        globals()[name]()
+        print(f"applied: {name}")

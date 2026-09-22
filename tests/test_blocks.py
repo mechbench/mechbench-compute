@@ -3,7 +3,9 @@ protocol leans on — deterministic, growth-safe, expectation-judging."""
 
 import pytest
 
-from mechbench_compute.blocks import eval_expectation, factor_cross, template
+from mechbench_compute.blocks import eval_expectation
+from mechbench_compute.ops.records.cross import factor_cross
+from mechbench_compute.ops.records.fill import template
 
 WORDS = ["alpha", "bravo", "charlie", "delta", "echo"]
 
@@ -161,14 +163,14 @@ class TestRename:
     """records/rename: the one visible adaptation step."""
 
     def test_moves_fields_and_keeps_the_rest(self):
-        from mechbench_compute.blocks import rename
+        from mechbench_compute.ops.records.rename import rename
 
         out = rename([{"id": "a", "coords": {"g": "x"}, "question": "Q?", "gold": "42"}],
                      {"fields": {"question": "user", "gold": "reference"}})
         assert out == [{"id": "a", "coords": {"g": "x"}, "user": "Q?", "reference": "42"}]
 
     def test_a_dotted_path_moves_into_and_out_of_a_nested_object(self):
-        from mechbench_compute.blocks import rename
+        from mechbench_compute.ops.records.rename import rename
 
         doc = {"id": "s0", "text": "…", "hit": 1, "metadata": {"coords": {"prompt": "flash"}}}
         # Moves apply in order: the coords lift first, then the hit into it.
@@ -179,7 +181,7 @@ class TestRename:
         assert doc["hit"] == 1 and doc["metadata"]["coords"] == {"prompt": "flash"}
 
     def test_a_missing_field_is_left_alone_and_an_empty_map_is_refused(self):
-        from mechbench_compute.blocks import rename
+        from mechbench_compute.ops.records.rename import rename
 
         assert rename([{"id": "a"}], {"fields": {"nope": "user"}}) == [{"id": "a"}]
         with pytest.raises(ValueError, match="fields"):
@@ -219,7 +221,7 @@ def test_every_records_block_reads_a_collection_on_its_port():
 
 
 def test_table_from_records_flattens_coords_and_types_columns():
-    from mechbench_compute.blocks import table_from_records
+    from mechbench_compute.ops.records.tabulate import table_from_records
     table = table_from_records([
         {"id": "a", "coords": {"task": "arc_easy", "metric": "acc"},
          "value": 0.7, "delta": 0.01},
@@ -235,7 +237,9 @@ def test_table_from_records_flattens_coords_and_types_columns():
 
 
 def test_suite_records_flow_through_union_and_paired_delta():
-    from mechbench_compute.blocks import paired_delta, suite_metric_records, union
+    from mechbench_compute.blocks import suite_metric_records
+    from mechbench_compute.ops.records.subtract import paired_delta
+    from mechbench_compute.ops.records.union import union
     base = suite_metric_records({"arc_easy": {"acc,none": 0.70}}, {}, "base")
     adapted = suite_metric_records({"arc_easy": {"acc,none": 0.73}}, {}, "adapted")
     merged = union({"a_base": base, "b_adapted": adapted}, {})
@@ -247,7 +251,7 @@ def test_suite_records_flow_through_union_and_paired_delta():
 
 
 def test_viz_spec_references_its_source_or_inlines_rows():
-    from mechbench_compute.blocks import viz_spec
+    from mechbench_compute.ops.records.plot import viz_spec
     table = {"kind": "metric_table", "rows": [{"id": "a", "model": "e2b", "v": 1.0}]}
     ref = viz_spec(table, {"mark": "bar", "encoding": {"x": "model", "y": "v"}},
                      source_label="benji/marcus/metrics/t")
@@ -269,7 +273,7 @@ class TestAFigureCarriesItsVocabulary:
     ARCH = {"n_layers": 4, "global_layers": [1, 3], "first_kv_shared_layer": 2}
 
     def _spec(self, params, records=None):
-        from mechbench_compute.blocks import viz_spec
+        from mechbench_compute.ops.records.plot import viz_spec
         return viz_spec(records if records is not None else self.ROWS,
                         {"encoding": {"x": "layer", "y": "mean"}, **params})
 
@@ -363,6 +367,7 @@ class TestAFigureCarriesItsVocabulary:
         class Child:
             _model = None
             _model_id = None
+            _on_download = _on_download_bytes = _limiter = _budget = None
 
             def __init__(self, *a, **k):
                 pass
@@ -370,9 +375,11 @@ class TestAFigureCarriesItsVocabulary:
             def run(self, spec, **kw):
                 return SimpleNamespace(payload={"outputs": {"separation": body_out}})
 
-        ex = P.ProtocolExecutor()
-        monkeypatch.setattr(P, "ProtocolExecutor", Child)
-        out = ex._block_map(
+        from mechbench_compute import ops
+        from mechbench_compute.ops.records import map as map_op
+
+        out = map_op.run(
+            ops.Context(executor=Child()),
             {"records": K.collection("records/record", [{"id": "l0", "layer": 0}])},
             {"body": {"nodes": [{"id": "separation", "block": "records/select"}], "edges": []},
              "bind": {"layer": "layer"}},
@@ -464,7 +471,7 @@ class TestAFigureIsReadAgainstALine:
     ]}
 
     def test_a_reference_rides_on_the_spec(self):
-        from mechbench_compute.blocks import viz_spec
+        from mechbench_compute.ops.records.plot import viz_spec
 
         spec = viz_spec(self.ROWS, {
             "mark": "bar", "encoding": {"x": "face", "y": "p"},
@@ -473,14 +480,14 @@ class TestAFigureIsReadAgainstALine:
         assert spec["reference"] == [{"y": pytest.approx(0.16667, abs=1e-4), "text": "a fair die"}]
 
     def test_a_line_on_neither_axis_is_refused(self):
-        from mechbench_compute.blocks import viz_spec
+        from mechbench_compute.ops.records.plot import viz_spec
 
         with pytest.raises(ValueError, match=r"reference\[0\] needs `y`"):
             viz_spec(self.ROWS, {"mark": "bar", "encoding": {"x": "face", "y": "p"},
                                  "reference": [{"text": "a fair die"}]})
 
     def test_a_figure_without_one_says_nothing_about_it(self):
-        from mechbench_compute.blocks import viz_spec
+        from mechbench_compute.ops.records.plot import viz_spec
 
         spec = viz_spec(self.ROWS, {"mark": "bar", "encoding": {"x": "face", "y": "p"}})
         assert "reference" not in spec

@@ -12,6 +12,7 @@ from mechbench_compute import isomorphism as iso
 from mechbench_compute import reduce as rd
 from mechbench_compute import seeds
 from mechbench_compute.blocks import PURE_BLOCKS
+from mechbench_compute.ops.records.total import FloatSum
 
 
 def _leaves(n=60, seed=0):
@@ -85,11 +86,13 @@ class TestHarness:
         assert report["refused"] is True
 
     def test_a_broken_monoid_is_caught(self, monkeypatch):
-        class Bad(rd.FloatSum):
+        class Bad(FloatSum):
             def merge(self, a, b):  # drops a value: not a monoid
                 return tuple(sorted((a + b)[:-1])) if len(a + b) > 3 else tuple(sorted(a + b))
 
-        monkeypatch.setitem(rd.MONOIDS, "records/total", Bad)
+        from mechbench_compute.ops.records import total
+
+        monkeypatch.setattr(total, "MONOID", Bad)
         with pytest.raises(AssertionError):
             iso.check("records/total", _leaves(40), {"value": "delta"}, trials=10)
 

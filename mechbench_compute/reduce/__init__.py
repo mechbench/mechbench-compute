@@ -28,6 +28,8 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 from mechbench_compute.reduce.monoid import Monoid  # noqa: F401
+from mechbench_compute.reduce.block_of import _block_of  # noqa: F401
+from mechbench_compute.reduce.monoid_for import monoid_for  # noqa: F401
 
 ALGEBRAS = ("collect", "monoid", "ordered")
 
@@ -53,7 +55,13 @@ def algebra(block: str) -> str:
         block = lexicon.resolve(block, warn=False)
     except KeyError:
         pass
-    return REDUCE_ALGEBRA.get(block, "collect")
+    if block in REDUCE_ALGEBRA:
+        return REDUCE_ALGEBRA[block]
+    # An operation in its own file says it can be computed in chunks by
+    # defining MONOID there (docs/OPS_LAYOUT.md); that is the declaration.
+    from mechbench_compute import ops
+
+    return "monoid" if getattr(ops.find(block), "MONOID", None) is not None else "collect"
 
 
 # --- the monoid interface -------------------------------------------------------
@@ -78,99 +86,8 @@ def merge_tree(monoid: Monoid, partials: Sequence[Any]) -> Any:
 # --- exact building blocks -------------------------------------------------------
 
 
-class FloatSum(Monoid):
-    """Exact sum of floats: the partial keeps the values as a multiset
-    (a sorted tuple); finalize uses `math.fsum`. Order-independent."""
-
-    def identity(self):
-        return ()
-
-    def partial(self, records, params):
-        f = params["value"]
-        return tuple(sorted(float(r[f]) for r in records))
-
-    def merge(self, a, b):
-        return tuple(sorted(a + b))
-
-    def finalize(self, p, params):
-        return {"kind": "records/sum", "n": len(p), "sum": math.fsum(p)}
-
-
-class TopK(Monoid):
-    """Exact top-k by a value field: merge = top-k of the union."""
-
-    def identity(self):
-        return ()
-
-    def partial(self, records, params):
-        k = int(params.get("k", 10))
-        f = params["value"]
-        rows = sorted(records, key=lambda r: (-float(r[f]), str(r.get("id"))))
-        return tuple(dict(r) for r in rows[:k])
-
-    def merge(self, a, b):
-        return tuple(sorted(a + b, key=lambda r: (-float(r[self._f]), str(r.get("id"))))[: self._k])
-
-    def finalize(self, p, params):
-        from mechbench_compute.lexicon import kinds as K
-
-        return K.collection("records/record", list(p))
-
-    def bind(self, params):
-        self._f = params["value"]
-        self._k = int(params.get("k", 10))
-        return self
-
-
-class Histogram(Monoid):
-    """Fixed-bin histogram: counts add. Exact."""
-
-    def identity(self):
-        return {}
-
-    def partial(self, records, params):
-        f = params["value"]
-        lo, hi, n = float(params["lo"]), float(params["hi"]), int(params["bins"])
-        counts: dict[int, int] = {}
-        for r in records:
-            v = float(r[f])
-            b = n if v >= hi else (-1 if v < lo else int((v - lo) / (hi - lo) * n))
-            counts[b] = counts.get(b, 0) + 1
-        return counts
-
-    def merge(self, a, b):
-        out = dict(a)
-        for k, v in b.items():
-            out[k] = out.get(k, 0) + v
-        return out
-
-    def finalize(self, p, params):
-        n = int(params["bins"])
-        return {"kind": "records/histogram", "bins": [p.get(i, 0) for i in range(n)],
-                "below": p.get(-1, 0), "above": p.get(n, 0)}
-
-
 MONOIDS: dict[str, Callable[[], Monoid]] = {
-    "records/total": FloatSum,
-    "records/rank": TopK,
-    "records/bin": Histogram,
 }
-
-
-def monoid_for(block: str, params: Mapping[str, Any] | None = None) -> Monoid | None:
-    cls = MONOIDS.get(block)
-    if cls is None:
-        # An operation in its own file says it can be computed in chunks
-        # by defining MONOID there (docs/OPS_LAYOUT.md).
-        from mechbench_compute import ops
-
-        cls = getattr(ops.find(block), "MONOID", None)
-    if cls is None:
-        return None
-    m = cls()
-    if hasattr(m, "bind"):
-        m.bind(params or {})
-    return m
 
 
 def reduce_chunks(block: str, chunks: Sequence[Sequence[Mapping[str, Any]]],
@@ -200,21 +117,7 @@ def reduce_chunks(block: str, chunks: Sequence[Sequence[Mapping[str, Any]]],
 # --- pure-block adapters for the generic monoids ------------------------------------
 
 
-def _block_of(name: str):
-    def fn(inputs, params):
-        from mechbench_compute.lexicon import kinds as K
-
-        m = monoid_for(name, params)
-        raw = inputs.get("records") if isinstance(inputs, Mapping) else inputs
-        recs = K.items_of(raw if raw is not None else [])
-        return m.finalize(m.partial(recs, params), params)
-    return fn
-
-
 PURE_REDUCE_BLOCKS = {
-    "records/total": _block_of("records/total"),
-    "records/rank": _block_of("records/rank"),
-    "records/bin": _block_of("records/bin"),
 }
 for _b in PURE_REDUCE_BLOCKS:
     REDUCE_ALGEBRA[_b] = "monoid"
