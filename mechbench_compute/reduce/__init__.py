@@ -28,8 +28,7 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 from mechbench_compute.reduce.monoid import Monoid  # noqa: F401
-from mechbench_compute.reduce.block_of import _block_of  # noqa: F401
-from mechbench_compute.reduce.monoid_for import monoid_for  # noqa: F401
+from mechbench_compute.reduce.find_monoid import find_monoid  # noqa: F401
 
 ALGEBRAS = ("collect", "monoid", "ordered")
 
@@ -103,7 +102,7 @@ def reduce_chunks(block: str, chunks: Sequence[Sequence[Mapping[str, Any]]],
     if alg == "ordered":
         raise ValueError(f"{block} is an ordered reduce: it cannot be chunked")
     if alg == "monoid":
-        m = monoid_for(block, params)
+        m = find_monoid(block, params)
         if m is None:
             raise ValueError(f"{block} declares monoid but has no Monoid implementation")
         return m.finalize(merge_tree(m, [m.partial(c, params) for c in chunks]), params)

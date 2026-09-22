@@ -11,7 +11,7 @@ import pytest
 
 from mechbench_compute import head_weights as hw
 from mechbench_compute import weights as weights_mod
-from mechbench_compute.ops.weights.circuit import head_circuits
+from mechbench_compute.ops.weights.circuit import read_head_circuits
 
 
 def _spec(w_o, w_v, *, layer=0, head=0, d_model=8, head_dim=2):
@@ -83,7 +83,7 @@ class TestOnGemma:
         return Model.load(E2B)
 
     def test_ov_reads_a_head_as_tokens_in_and_tokens_out(self, model):
-        out = head_circuits(model, {"circuit": "ov", "head": {"layer": 12, "index": 3},
+        out = read_head_circuits(model, {"circuit": "ov", "head": {"layer": 12, "index": 3},
                                                 "components": 2, "top_k": 5})
         assert out["item_kind"] == "records/record" and out["circuit"] == "ov"
         assert [it["coords"]["rank"] for it in out["items"]] == [0, 1]
@@ -96,13 +96,13 @@ class TestOnGemma:
         assert first["strength"] >= out["items"][1]["strength"]
 
     def test_qk_is_the_other_circuit_and_a_layer_of_heads_is_one_node(self, model):
-        out = head_circuits(model, {"circuit": "qk", "layers": [12], "components": 1,
+        out = read_head_circuits(model, {"circuit": "qk", "layers": [12], "components": 1,
                                                 "top_k": 3})
         assert out["circuit"] == "qk"
         assert [it["coords"]["head"] for it in out["items"]] == list(range(model.arch.n_heads))
 
     def test_composition_scores_every_earlier_head_against_this_one(self, model):
-        out = head_circuits(model, {"circuit": "composition",
+        out = read_head_circuits(model, {"circuit": "composition",
                                                 "head": {"layer": 12, "index": 3},
                                                 "layers": [10, 11], "kinds": ["q", "k"]})
         assert out["circuit"] == "composition" and out["into"] == {"layer": 12, "index": 3}
@@ -116,4 +116,4 @@ class TestOnGemma:
 
     def test_composition_needs_the_head_it_reads_into(self, model):
         with pytest.raises(ValueError, match="reads INTO one head"):
-            head_circuits(model, {"circuit": "composition"})
+            read_head_circuits(model, {"circuit": "composition"})

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -207,6 +208,110 @@ def records_tests() -> None:
 
         out = map_op.run(
             ops.Context(executor=Child()),""")
+
+
+def inline_into_run(rel: str, wrapper: str) -> None:
+    """`run` calls `wrapper(inputs, params)` and does nothing else, and
+    `wrapper` is not called from anywhere else: give `run` the body and
+    take the wrapper out. A name that only forwards is not a name worth
+    fixing (000629)."""
+    path = PKG / rel
+    lines = path.read_text().split("\n")
+    tree = ast.parse("\n".join(lines))
+    fn = next(n for n in tree.body if getattr(n, "name", None) == wrapper)
+    run = next(n for n in tree.body if getattr(n, "name", None) == "run")
+    assert len(run.body) == 1 and ast.unparse(run.body[0]) == \
+        f"return {wrapper}(inputs, params)", f"{rel}: run is not a pass-through"
+    assert [a.arg for a in fn.args.args] == ["inputs", "params"], rel
+    # By line range, so comments and formatting travel with the body;
+    # both functions are module-level, so the indent already matches.
+    first = fn.body[0].lineno
+    while first - 2 >= 0 and lines[first - 2].lstrip().startswith("#"):
+        first -= 1
+    out = (lines[:run.body[0].lineno - 1]
+           + lines[first - 1:fn.end_lineno]
+           + lines[run.body[0].end_lineno:fn.lineno - 2]
+           + lines[fn.end_lineno:])
+    path.write_text("\n".join(out))
+
+
+def delete(rel: str) -> None:
+    subprocess.run(["git", "rm", "-q", "-f", f"mechbench_compute/{rel}"], cwd=ROOT, check=True)
+
+
+def names() -> None:
+    """000629, the rows of renames.tsv marked `(inline)` or `(delete)`.
+
+    Dead indirection is not a naming problem, so it is not renamed. The
+    nine `direction/*` wrappers each stood between `run` and the
+    mechanism and read one line; `geometry/compare` had two such layers,
+    the inner one still carrying the stray `pass` the ops-layout move
+    left; and two helpers had no caller left at all once the package
+    `__init__.py` that imports them back is discounted."""
+    for op, wrapper in (
+            ("direction/add", "block_add"),
+            ("direction/average", "block_average"),
+            ("direction/classify", "block_classify"),
+            ("direction/decompose", "block_from_pca"),
+            ("direction/fit", "block_from_vectors"),
+            ("direction/normalize", "block_normalize"),
+            ("direction/orthogonalize", "block_orthogonalize"),
+            ("direction/project", "block_project"),
+            ("direction/regress", "block_from_regression")):
+        rel = f"ops/{op}.py"
+        inline_into_run(rel, wrapper)
+        repoint(op, rel)
+
+    # geometry/compare: run -> _geometry_similarity -> compare_geometry,
+    # and the middle one's whole body was a `pass` and a forward.
+    edit("ops/geometry/compare.py",
+         "def run(ctx, inputs, params):\n"
+         "    return _geometry_similarity(inputs, params)\n"
+         "\n"
+         "\n"
+         "def _geometry_similarity(inputs, params):\n"
+         "    pass  # its imports now live in this file\n"
+         "\n"
+         "    return compare_geometry(inputs, params)\n",
+         "def run(ctx, inputs, params):\n"
+         "    return compare_geometry(inputs, params)\n")
+    repoint("geometry/compare", "ops/geometry/compare.py")
+
+    # Two helpers nothing calls: the only mention of each was the
+    # package __init__.py importing it back.
+    edit("blocks/__init__.py",
+         "from mechbench_compute.blocks.transcript_mod import _transcript_mod  # noqa: F401\n", "")
+    delete("blocks/transcript_mod.py")
+    edit("reduce/__init__.py",
+         "from mechbench_compute.reduce.block_of import _block_of  # noqa: F401\n", "")
+    delete("reduce/block_of.py")
+    edit("tests/test_block_params.py",
+         "    # `_block_of` is the closure that reads the records port for all three.\n", "")
+
+    # direction/add's wrapper carried the only annotations in the file.
+    edit("ops/direction/add.py",
+         "from collections.abc import Mapping\nfrom typing import Any\n\n", "")
+
+    # Prose naming a renamed thing: a docstring the renamer cannot read.
+    edit("blocks/expand_cells.py",
+         "a grid's cells expanded (`grid_rows`)", "a grid's cells expanded (`expand_grid`)")
+    edit("directions/__init__.py",
+         "`vocab_projection`, which needs a model's unembedding.",
+         "`unembed_direction`, which needs a model's unembedding.")
+    edit("ops/direction/regress.py",
+         '`from_vectors` answers "which way does THIS group lie from THAT',
+         '`fit_mean_difference` answers "which way does THIS group lie from THAT')
+    edit("ops/eval/benchmark.py", "paired_delta for base-vs-adapter deltas.",
+         "subtract_baseline for base-vs-adapter deltas.")
+    edit("ops/records/contrast.py", "A field read the way `_group_key` reads one",
+         "A field read the way `read_group_key` reads one")
+
+    # tokenizer_stats.py is what is left of a module the ops-layout move
+    # emptied: a docstring and an `__all__` naming two functions that
+    # live in ops/text/tokenize.py now. Say their new names.
+    edit("tokenizer_stats.py",
+         '__all__: Sequence[str] = ("block", "tokenizer_stats")',
+         '__all__: Sequence[str] = ("measure_model_tokenizer", "measure_tokenizer")')
 
 
 if __name__ == "__main__":

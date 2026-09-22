@@ -74,13 +74,19 @@ nobody should read.
 
 
 def run(ctx, inputs, params):
-    return block_classify(inputs, params)
+    return fit_probe(inputs.get("vectors"),
+                     axis=str(params.get("axis") or DEFAULT_AXIS),
+                     layers=params.get("layers"),
+                     holdout=float(params.get("holdout", 0.2)),
+                     seed=int(params.get("seed", 0)),
+                     C=float(params.get("C", 1.0)),
+                     point=params.get("point"), source=params.get("source"))
 
 
-def from_classification(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
-                        layers: Sequence[int] | None = None, holdout: float = 0.2,
-                        seed: int = 0, C: float = 1.0, point: str | None = None,
-                        source: str | None = None) -> dict[str, Any]:
+def fit_probe(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
+              layers: Sequence[int] | None = None, holdout: float = 0.2,
+              seed: int = 0, C: float = 1.0, point: str | None = None,
+              source: str | None = None) -> dict[str, Any]:
     """A linear probe per space: which way the items of one label lie
     from the rest, and how much of that a held-out item shows (000608).
 
@@ -196,12 +202,3 @@ def from_classification(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
                             "that separates a label from the rest, and how much of it "
                             "a held-out item shows."))
 
-
-def block_classify(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    return from_classification(inputs.get("vectors"),
-                               axis=str(params.get("axis") or DEFAULT_AXIS),
-                               layers=params.get("layers"),
-                               holdout=float(params.get("holdout", 0.2)),
-                               seed=int(params.get("seed", 0)),
-                               C=float(params.get("C", 1.0)),
-                               point=params.get("point"), source=params.get("source"))

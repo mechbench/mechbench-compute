@@ -12,9 +12,9 @@ from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
 from mechbench_compute.distill import render
 from mechbench_compute.interp.constants import MAX_VECTOR_FLOATS
-from mechbench_compute.interp.coords_of import _coords_of
-from mechbench_compute.interp.k import _K
-from mechbench_compute.interp.resolve_layers import _resolve_layers
+from mechbench_compute.interp.read_record_coords import read_record_coords
+from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.model import (
@@ -104,11 +104,11 @@ def run(ctx, inputs, params):
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
-    return residual_vectors(
+    return capture_residual_vectors(
         model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
 
 
-def residual_vectors(
+def capture_residual_vectors(
     model,
     records: Sequence[Mapping[str, Any]],
     params: Mapping[str, Any],
@@ -124,7 +124,7 @@ def residual_vectors(
     if source not in ("resid", "queries", "keys"):
         raise ValueError(
             f"unknown source {source!r}: 'resid', 'queries' or 'keys'")
-    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     position = params.get("position", "last")
     pool = POS.pool_spec(params)
     if not records:
@@ -178,7 +178,7 @@ def residual_vectors(
         sel = dict(tokens=toks, record=record, prompt_len=r.prompt_len)
         pos = None if pool else POS.one(position, len(r.ids), **sel)
         over = POS.resolve(pool["over"], len(r.ids), **sel) if pool else None
-        coords = _coords_of(record, params)
+        coords = read_record_coords(record, params)
         read_token = None if pool else S.token(model.tokenizer, r.ids[pos])
         for layer in layers:
             if source == "resid":
@@ -211,7 +211,7 @@ def residual_vectors(
                         n_pooled=n_pooled))
         if on_item:
             on_item()
-    return _K().collection(
+    return load_kinds().collection(
         "activations/vector", rows,
         model=mid,
         point=point,

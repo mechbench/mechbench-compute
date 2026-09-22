@@ -24,7 +24,7 @@ from mechbench_compute import tools as T
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "chat_templates.json"
 CAPTURED = json.loads(FIXTURES.read_text())
-CALC = T.toolbox_from(["calc"]).tools
+CALC = T.build_toolbox(["calc"]).tools
 
 #: repo -> the dialect its rendering should be identified as.
 EXPECTED = {

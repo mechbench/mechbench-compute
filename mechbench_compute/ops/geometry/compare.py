@@ -81,13 +81,7 @@ downstream.
 
 
 def run(ctx, inputs, params):
-    return _geometry_similarity(inputs, params)
-
-
-def _geometry_similarity(inputs, params):
-    pass  # its imports now live in this file
-
-    return geometry_similarity(inputs, params)
+    return compare_geometry(inputs, params)
 
 
 #: Beyond this many items a group's every-pair list is left out: the
@@ -113,7 +107,7 @@ def _group_key(item: Mapping[str, Any], by: str | None) -> tuple[str, dict[str, 
     return f"{by}={value}", {by: value}
 
 
-def separation(matrix: np.ndarray, labels: list[Any], *, distance: bool) -> dict[str, Any]:
+def score_separation(matrix: np.ndarray, labels: list[Any], *, distance: bool) -> dict[str, Any]:
     """How well the labels separate under this matrix: mean within-group
     and between-group value and their gap, the share of items whose
     nearest neighbour shares their label, and the silhouette when it can
@@ -150,7 +144,7 @@ def separation(matrix: np.ndarray, labels: list[Any], *, distance: bool) -> dict
     return out
 
 
-def geometry_similarity(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+def compare_geometry(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """The op. `items` is a collection of any kind with metrics; `metric`
     names one (the kind's first by default), `options` its options, `by`
     the header axis to group on (`space` — per layer and head — for
@@ -191,7 +185,7 @@ def geometry_similarity(inputs: Mapping[str, Any], params: Mapping[str, Any]) ->
                      for i in range(len(ids)) for j in range(i + 1, len(ids))]
             entry["pairs"] = sorted(pairs, key=lambda p: (p["value"] if distance else -p["value"]))
         if all(lb is not None for lb in labels) and len(set(labels)) > 1:
-            entry.update(separation(mat, labels, distance=distance))
+            entry.update(score_separation(mat, labels, distance=distance))
         out.append(entry)
     if not out:
         raise ValueError("geometry/compare: no group has two items to compare")

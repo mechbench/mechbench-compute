@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.coll import _coll
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.build_collection import build_collection
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.records import _RECORDS
 
@@ -41,7 +41,7 @@ it is. Everything not named is kept.
 
 
 def run(ctx, inputs, params):
-    return _coll(rename(inputs["records"], params))
+    return build_collection(rename(inputs["records"], params))
 
 
 def _pop_path(rec: dict[str, Any], path: str) -> tuple[bool, Any]:
@@ -81,7 +81,7 @@ def rename(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(fields, Mapping) or not fields:
         raise ValueError("records/rename needs `fields`: {\"old\": \"new\", …}")
     out = []
-    for r in _items(records):
+    for r in read_items(records):
         rec = dict(r)
         for old, new in fields.items():
             found, value = _pop_path(rec, str(old))

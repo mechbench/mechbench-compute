@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.coll import _coll
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.build_collection import build_collection
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.common import TARGET_UNIFORM, TARGET_WEIGHTS
 
@@ -140,13 +140,13 @@ and "Steampunk Fantasy" are readable beside the names the map has.
 
 
 def run(ctx, inputs, params):
-    return _coll(text_stats(inputs, params))
+    return build_collection(measure_texts(inputs, params))
 
 
 _WORD_RE = None
 
 
-def _words_of(text: str, lowercase: bool, min_length: int) -> list[str]:
+def _split_words(text: str, lowercase: bool, min_length: int) -> list[str]:
     global _WORD_RE
     import re
 
@@ -160,7 +160,7 @@ def _words_of(text: str, lowercase: bool, min_length: int) -> list[str]:
     return words
 
 
-def _vocabulary_of(name: str, items: Any) -> list[str]:
+def _read_vocabulary(name: str, items: Any) -> list[str]:
     """A list measure's vocabulary: a list of outcomes, or the outcomes of
     a target map (`weights` keys, or `uniform`). Pure, so no transform: a
     rung's narrower vocabulary is listed, and an outcome outside it but in
@@ -181,8 +181,8 @@ def _vocabulary_of(name: str, items: Any) -> list[str]:
         "map with `weights` or `uniform`")
 
 
-def text_stats(inputs: Mapping[str, Any],
-               params: Mapping[str, Any]) -> Any:
+def measure_texts(inputs: Mapping[str, Any],
+                  params: Mapping[str, Any]) -> Any:
     """text/measure — configurable per-text measurements
     over a corpus of records or a document_collection (the generate
     block's output). The measurement layer the story-corpus readouts
@@ -233,7 +233,7 @@ def text_stats(inputs: Mapping[str, Any],
     if raw is None:
         raise ValueError(
             "text/measure needs texts on its `records` or `documents` port")
-    recs = _items(raw)
+    recs = read_items(raw)
     field = "text"
     measures = params.get("measures") or []
     mode = params.get("mode", "annotate")
@@ -335,7 +335,7 @@ def text_stats(inputs: Mapping[str, Any],
                 # spells, which is what the value is compared against
                 # downstream. A match outside it is no match.
                 "vocab": ({(k.casefold() if fold else k): k
-                           for k in _vocabulary_of(name, vocab)}
+                           for k in _read_vocabulary(name, vocab)}
                           if vocab is not None else None),
                 "fold": fold,
                 "take": take, "as": as_, "on_missing": on_missing}))
@@ -348,7 +348,7 @@ def text_stats(inputs: Mapping[str, Any],
             compiled.append((name, kind, {
                 "separator": separator,
                 "extract": re.compile(m["extract"], re.DOTALL) if m.get("extract") else None,
-                "vocab": ({(k.casefold() if fold else k) for k in _vocabulary_of(name, vocab)}
+                "vocab": ({(k.casefold() if fold else k) for k in _read_vocabulary(name, vocab)}
                           if vocab is not None else None),
                 "count": int(m["count"]) if m.get("count") is not None else None,
                 "fold": fold}))
@@ -372,7 +372,7 @@ def text_stats(inputs: Mapping[str, Any],
                            else p.search(probe)) for p in cfg["patterns"])
                 row[name] = 1 if hit else 0
             elif kind == "lexical":
-                words = _words_of(text, cfg["lowercase"], cfg["min_length"])
+                words = _split_words(text, cfg["lowercase"], cfg["min_length"])
                 distinct = len(set(words))
                 row[f"{name}_words"] = len(words)
                 row[f"{name}_distinct"] = distinct
@@ -445,7 +445,7 @@ def text_stats(inputs: Mapping[str, Any],
                     if key not in keys[:pos]:
                         tally["lists"] += 1
             else:  # corpus_frequency
-                words = _words_of(text, cfg["lowercase"], cfg["min_length"])
+                words = _split_words(text, cfg["lowercase"], cfg["min_length"])
                 vals = [cfg["table"][w] for w in words if w in cfg["table"]]
                 cov = (len(vals) / len(words)) if words else 0.0
                 if cfg["stat"] == "coverage":

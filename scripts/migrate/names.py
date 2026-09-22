@@ -45,14 +45,16 @@ SOURCES = ("mechbench_compute", "tests", "scripts")
 #: meant to move names towards. First token of a function name only.
 VERBS = {
     "ablate", "add", "aggregate", "apply", "assert", "attribute", "average",
-    "bin", "bootstrap", "build", "bump", "cache", "call", "cap", "capture",
+    "bin", "bootstrap", "build", "bump", "cache", "calculate", "call", "cap",
+    "capture",
     "chat", "check", "choose", "classify", "clamp", "clear", "close",
     "coerce", "collect", "compare", "compile", "compute", "contrast",
     "convert", "copy", "count", "cross", "decode", "decompose", "delete",
     "describe", "digest", "dispatch", "drop", "dump", "edit", "emit",
     "encode", "ensure", "estimate", "expand", "expect", "extend", "extract",
     "fetch", "fill", "filter", "find", "finish", "fit", "flatten",
-    "fold", "force", "format", "fuse", "gather", "generate", "get", "group",
+    "fold", "force", "format", "freeze", "fuse", "gather", "generate", "get",
+    "group", "grow",
     "guess", "hash", "index", "infer", "iter", "join", "judge", "keep",
     "label", "list", "load", "log", "lookup", "make", "map", "mark", "match",
     "materialize", "measure", "merge", "move", "name", "normalize", "note",
@@ -63,7 +65,8 @@ VERBS = {
     "regress", "reject", "release", "remove", "rename", "render", "repair",
     "replace", "report", "require", "resolve", "restore", "reverse",
     "rewrite", "round", "run", "sample", "save", "say", "scale", "scan",
-    "score", "seed", "select", "send", "set", "shape", "shift", "show",
+    "score", "seed", "select", "send", "serialize", "set", "shape", "shift",
+    "show",
     "skip", "slice", "sort", "span", "split", "stack", "start", "steer",
     "stop", "store", "strip", "subtract", "sum", "summarize", "sweep",
     "tabulate", "take", "test", "time", "tokenize", "total", "trace",
@@ -163,8 +166,12 @@ def bindings(tree: ast.AST) -> tuple[dict[str, tuple[str, str]], dict[str, str]]
                 sub = f"{n.module}.{a.name}"
                 if rel_of_module(sub):
                     modules[bound] = sub          # `from mechbench_compute import points as P`
-                else:
-                    imports[bound] = (n.module, a.name)
+                # Both, and the name is tried first: in this layout a
+                # helper's module and the name the package imports back
+                # from it are spelled the same
+                # (`from ...tools import build_toolbox`), and Python
+                # gives the package's own binding, not the submodule.
+                imports[bound] = (n.module, a.name)
         elif isinstance(n, ast.Import):
             for a in n.names:
                 if not a.name.startswith("mechbench_compute"):
@@ -223,6 +230,24 @@ class Inventory:
             return None                        # a module, not a definition
         return None
 
+    def module_at(self, dotted: str, name: str) -> str | None:
+        """The module `dotted.name` names: a submodule, or a module that
+        module binds under that name — `judge.chat_mod` is
+        `mechbench_compute.chat`, and a rename has to see through it."""
+        sub = f"{dotted}.{name}"
+        if rel_of_module(sub):
+            return sub
+        rel = rel_of_module(dotted)
+        if rel is None or rel not in self.mods:
+            return None
+        return self.mods[rel].modules.get(name)
+
+    def walk_modules(self, start: str, parts: list[str]) -> str | None:
+        cur: str | None = start
+        for p in parts:
+            cur = self.module_at(cur, p) if cur else None
+        return cur
+
     def hit(self, target: tuple[str, str] | None, source: str) -> None:
         if target is None:
             return
@@ -258,17 +283,14 @@ class Inventory:
                 parts = attr_chain(n)
                 if not parts or len(parts) < 2:
                     continue
-                # Longest module prefix wins: `a.b.c.NAME` and `alias.NAME`.
-                for cut in range(len(parts) - 1, 0, -1):
-                    head, name = parts[:cut], parts[cut]
-                    dotted = modules.get(head[0])
-                    if dotted is None:
-                        continue
-                    full = ".".join([dotted] + head[1:])
-                    got = self.resolve(full, name)
-                    if got:
-                        self.hit(got, source)
-                        break
+                # `alias.NAME`, and `alias.mid.NAME` where each step is
+                # a module — a submodule, or one a module binds.
+                base = modules.get(parts[0])
+                if base is None:
+                    continue
+                dotted = self.walk_modules(base, parts[1:-1])
+                if dotted:
+                    self.hit(self.resolve(dotted, parts[-1]), source)
             elif isinstance(n, ast.Call) and PATCHY.search(ast.unparse(n.func)):
                 for arg in n.args:
                     if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):

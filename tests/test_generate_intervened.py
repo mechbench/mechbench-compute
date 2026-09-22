@@ -167,8 +167,8 @@ class TestTheBlock:
 
     def test_the_scaled_strength_reaches_the_hook(self):
         spec = iv.Spec(ITEM, n_layers=4, seed=0)
-        assert [s.strength for s in iv.scaled([spec], 2.0)] == [1.0]
-        assert iv.scaled([spec], 1.0)[0] is spec
+        assert [s.strength for s in iv.scale_specs([spec], 2.0)] == [1.0]
+        assert iv.scale_specs([spec], 1.0)[0] is spec
 
 
 # --- the real forward, chunked --------------------------------------------------

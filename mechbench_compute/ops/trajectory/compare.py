@@ -8,8 +8,8 @@ import numpy as np
 
 from mechbench_compute import points as P
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.trajectory.rows import _rows
-from mechbench_compute.trajectory.trajectory_of import _trajectory_of
+from mechbench_compute.trajectory.read_points import read_points
+from mechbench_compute.trajectory.read_trajectory import read_trajectory
 
 OP = Op(
     name="trajectory/compare",
@@ -57,8 +57,8 @@ def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
     two single-item trajectories under different prompts or models):
     per-step cosine, angle in degrees, norm ratio; and the DIVERGENCE
     step — the first at which cosine falls below `threshold`."""
-    a = _trajectory_of(inputs.get("a"), "a")
-    b = _trajectory_of(inputs.get("b"), "b")
+    a = read_trajectory(inputs.get("a"), "a")
+    b = read_trajectory(inputs.get("b"), "b")
     if a.get("axis") != b.get("axis"):
         raise ValueError("trajectories must share an axis to be compared")
     pair_by = str(params.get("pair_by", "id"))
@@ -69,9 +69,9 @@ def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
     def key(r):
         return (r.get("id"), r["step"]) if pair_by == "id" else (r["step"],)
 
-    bm = {key(r): r for r in _rows(b)}
+    bm = {key(r): r for r in read_points(b)}
     rows = []
-    for r in _rows(a):
+    for r in read_points(a):
         s = bm.get(key(r))
         if s is None:
             continue

@@ -14,9 +14,9 @@ import pytest
 
 from mechbench_compute import trees
 from mechbench_compute.blocks import PURE_BLOCKS
-from mechbench_compute.ops.geometry.span import minimum_spanning_tree
-from mechbench_compute.ops.geometry.span import mst
-from mechbench_compute.ops.geometry.span import tree_stats
+from mechbench_compute.ops.geometry.span import grow_minimum_spanning_tree
+from mechbench_compute.ops.geometry.span import build_span_trees
+from mechbench_compute.ops.geometry.span import measure_tree
 
 
 def similarity_of(points: np.ndarray) -> dict:
@@ -48,20 +48,20 @@ class TestTheTreeItself:
         # A path graph: 0-1-2-3 at distance 1, everything else far.
         d = np.array([[0, 1, 9, 9], [1, 0, 1, 9], [9, 1, 0, 1], [9, 9, 1, 0]],
                      dtype=float)
-        edges = minimum_spanning_tree(d)
+        edges = grow_minimum_spanning_tree(d)
         assert [(i, j) for i, j, _ in edges] == [(0, 1), (1, 2), (2, 3)]
         assert sum(w for _, _, w in edges) == 3.0
 
     def test_ties_break_toward_the_lower_index_so_the_tree_reproduces(self):
         d = np.ones((5, 5)) - np.eye(5)          # every distance identical
-        once = minimum_spanning_tree(d)
-        twice = minimum_spanning_tree(d)
+        once = grow_minimum_spanning_tree(d)
+        twice = grow_minimum_spanning_tree(d)
         assert once == twice
         assert [j for _, j, _ in once] == [1, 2, 3, 4]
 
     def test_a_single_item_has_no_tree(self):
-        assert minimum_spanning_tree(np.zeros((1, 1))) == []
-        assert tree_stats([]) == {"n_edges": 0}
+        assert grow_minimum_spanning_tree(np.zeros((1, 1))) == []
+        assert measure_tree([]) == {"n_edges": 0}
 
 
 class TestTheMeasure:
@@ -147,7 +147,7 @@ class TestCentering:
         sim = PURE_BLOCKS["geometry/compare"](
             {"items": {"kind": "residual_vectors", "rows": rows}},
             {"metric": "cosine", "options": options})
-        out = mst({"similarity": sim}, {})
+        out = build_span_trees({"similarity": sim}, {})
         return out["items"][0]["mean"], out
 
     def _rows(self, V):
@@ -180,8 +180,8 @@ class TestCentering:
         rows = self._rows(V)
         centred = trees.center_rows(np.array(V, dtype=np.float32))
         direct = trees._distance_from_similarity(geometry.cosine_matrix(centred))
-        edges = minimum_spanning_tree(direct)
-        want = tree_stats(edges)
+        edges = grow_minimum_spanning_tree(direct)
+        want = measure_tree(edges)
         _, out = self._mean_edge(rows, center=True)
         got = {k: out["items"][0][k] for k in want}
         assert got == want

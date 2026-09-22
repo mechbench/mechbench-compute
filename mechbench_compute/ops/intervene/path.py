@@ -8,7 +8,7 @@ import numpy as np
 from mechbench_compute import lexicon
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
-from mechbench_compute.interp import _last_logp, _pair, _render_text, _target_of
+from mechbench_compute.interp import read_last_logp, read_pair, render_text, resolve_target
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.model import ADAPTER, _tracked
@@ -127,7 +127,7 @@ def _name(point: str, layer: int | None) -> str:
     return point if layer is None else f"blocks.{layer}.{point}"
 
 
-def _head_writer(value: mx.array, head: int | None) -> Callable:
+def _make_head_writer(value: mx.array, head: int | None) -> Callable:
     """A hook that writes `value` — at one head, when the point has a
     head axis and a head was named."""
     def fn(act: mx.array, info) -> mx.array:
@@ -168,8 +168,8 @@ def _parse_end(spec: Any, *, what: str, points: Sequence[str],
             "head": None if head is None else int(head)}
 
 
-def _senders(params: Mapping[str, Any], receiver: Mapping[str, Any],
-             n_layers: int, n_heads: int) -> list[dict[str, Any]]:
+def _collect_senders(params: Mapping[str, Any], receiver: Mapping[str, Any],
+                     n_layers: int, n_heads: int) -> list[dict[str, Any]]:
     """The senders to score. `all-heads` and `all-layers` sweep every
     component that could reach the receiver — which is every one in a
     strictly earlier layer, since a residual stream carries only what
@@ -200,8 +200,8 @@ def _senders(params: Mapping[str, Any], receiver: Mapping[str, Any],
     return out
 
 
-def _frozen(cache: Mapping[str, Any], sender: Mapping[str, Any],
-            receiver: Mapping[str, Any], n_layers: int) -> dict[str, Callable]:
+def _freeze_off_path(cache: Mapping[str, Any], sender: Mapping[str, Any],
+                     receiver: Mapping[str, Any], n_layers: int) -> dict[str, Callable]:
     """Hooks that hold every component NOT on the path at its clean
     value: everything between the sender and the receiver, and the MLP
     of the sender's own layer when the sender is its attention. What is
@@ -211,11 +211,11 @@ def _frozen(cache: Mapping[str, Any], sender: Mapping[str, Any],
     hooks: dict[str, Callable] = {}
     if sender["point"] != "mlp_out":
         name = _name("mlp_out", ls)
-        hooks[name] = _head_writer(cache[name], None)
+        hooks[name] = _make_head_writer(cache[name], None)
     for layer in range(ls + 1, last):
         for point in ("attn_out", "mlp_out"):
             name = _name(point, layer)
-            hooks[name] = _head_writer(cache[name], None)
+            hooks[name] = _make_head_writer(cache[name], None)
     return hooks
 
 
@@ -230,7 +230,7 @@ def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[
     receiver = _parse_end(params.get("receiver"), what="receiver",
                           points=RECEIVER_POINTS, n_layers=n_layers,
                           default_point="logits")
-    senders = _senders(params, receiver, n_layers, n_heads)
+    senders = _collect_senders(params, receiver, n_layers, n_heads)
     if not senders:
         raise SpecError("no sender to score")
     metric = str(params.get("metric", "logprob"))
@@ -248,9 +248,9 @@ def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[
                    for p in ("attn_out", "mlp_out")]
     rows: list[dict[str, Any]] = []
     for record in records:
-        clean, corrupt = _pair(record)
-        ids_clean = _render_text(model, record, clean)
-        ids_corrupt = _render_text(model, record, corrupt)
+        clean, corrupt = read_pair(record)
+        ids_clean = render_text(model, record, clean)
+        ids_corrupt = render_text(model, record, corrupt)
         n_clean = int(np.array(ids_clean).shape[-1])
         n_corrupt = int(np.array(ids_corrupt).shape[-1])
         if n_clean != n_corrupt:
@@ -259,8 +259,8 @@ def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[
                 f"({n_clean} vs {n_corrupt}) — positions cannot align under patching")
         want = clean_names + ([recv_name] if recv_name else [])
         a = model.run(ids_clean, interventions=[Capture.at(want)])
-        clean_lp = _last_logp(a.logits)
-        tok, _ = _target_of(model, record, params, clean_lp)
+        clean_lp = read_last_logp(a.logits)
+        tok, _ = resolve_target(model, record, params, clean_lp)
 
         def read(logits, tok: int = tok) -> float:
             row = logits[0, -1, :].astype(mx.float32)
@@ -277,16 +277,16 @@ def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[
 
         for sender in senders:
             s_name = _name(sender["point"], sender["layer"])
-            hooks = _frozen(a.cache, sender, receiver, n_layers)
-            hooks[s_name] = _head_writer(b.cache[s_name], sender["head"])
+            hooks = _freeze_off_path(a.cache, sender, receiver, n_layers)
+            hooks[s_name] = _make_head_writer(b.cache[s_name], sender["head"])
             if recv_name is None:
                 value = read(model.run(ids_clean, hooks=hooks).logits)
             else:
                 c = model.run(ids_clean, hooks=hooks,
                               interventions=[Capture.at([recv_name])])
                 d = model.run(ids_clean,
-                              hooks={recv_name: _head_writer(c.cache[recv_name],
-                                                             receiver["head"])})
+                              hooks={recv_name: _make_head_writer(c.cache[recv_name],
+                                                                  receiver["head"])})
                 value = read(d.logits)
             rows.append({
                 "id": record.get("id"),

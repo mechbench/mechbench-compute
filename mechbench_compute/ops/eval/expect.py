@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output
 
 OP = Op(
@@ -59,11 +59,11 @@ The header's `summary` carries the pass rate: the number a write-up cites.
 
 
 def run(ctx, inputs, params):
-    return eval_expectation(inputs, params)
+    return check_expectations(inputs, params)
 
 
-def eval_expectation(inputs: Mapping[str, Any],
-                     params: Mapping[str, Any]) -> dict[str, Any]:
+def check_expectations(inputs: Mapping[str, Any],
+                       params: Mapping[str, Any]) -> dict[str, Any]:
     """The first member of the eval block family (~canonical/ops/eval/):
     judge decision-read results against per-condition EXPECTATIONS
     carried as data, publishing a metric table with verdicts.
@@ -91,8 +91,8 @@ def eval_expectation(inputs: Mapping[str, Any],
     """
     import math
 
-    results = _items(inputs["results"])
-    expectations = {r["id"]: r["expect"] for r in _items(inputs["expectations"])}
+    results = read_items(inputs["results"])
+    expectations = {r["id"]: r["expect"] for r in read_items(inputs["expectations"])}
     from mechbench_compute import shapes as S
     from mechbench_compute.lexicon import kinds as K
 

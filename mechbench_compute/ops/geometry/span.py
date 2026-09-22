@@ -58,7 +58,7 @@ reproduces its numbers reproduces its tree.
 
 
 def run(ctx, inputs, params):
-    return mst(inputs, params)
+    return build_span_trees(inputs, params)
 
 
 #: How far above the mean an edge must sit to count as a bridge between
@@ -66,7 +66,7 @@ def run(ctx, inputs, params):
 DEFAULT_BRIDGE_SIGMA = 2.0
 
 
-def minimum_spanning_tree(distance: np.ndarray) -> list[tuple[int, int, float]]:
+def grow_minimum_spanning_tree(distance: np.ndarray) -> list[tuple[int, int, float]]:
     """Prim's, deterministic. Returns (i, j, weight) with i < j by
     construction of the frontier, in the order the tree grew."""
     n = int(distance.shape[0])
@@ -92,8 +92,8 @@ def minimum_spanning_tree(distance: np.ndarray) -> list[tuple[int, int, float]]:
     return edges
 
 
-def tree_stats(edges: Sequence[tuple[int, int, float]], *,
-               bridge_sigma: float = DEFAULT_BRIDGE_SIGMA) -> dict[str, Any]:
+def measure_tree(edges: Sequence[tuple[int, int, float]], *,
+                 bridge_sigma: float = DEFAULT_BRIDGE_SIGMA) -> dict[str, Any]:
     """The numbers the measure is about. `mean` and `variance` travel
     together on purpose — see the module docstring."""
     weights = [w for _, _, w in edges]
@@ -122,7 +122,7 @@ def tree_stats(edges: Sequence[tuple[int, int, float]], *,
     }
 
 
-def _distance_of(entry: Mapping[str, Any], header: Mapping[str, Any]) -> np.ndarray:
+def _read_distance_matrix(entry: Mapping[str, Any], header: Mapping[str, Any]) -> np.ndarray:
     """The distance matrix a similarity item stands for: a distance
     metric as it is; cosine as 1 − s (what the tree has always been
     built on); any other similarity as max − s."""
@@ -138,7 +138,7 @@ def _distance_of(entry: Mapping[str, Any], header: Mapping[str, Any]) -> np.ndar
     return dist
 
 
-def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+def build_span_trees(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """`geometry/span`: a tree per group of a `geometry/similarity`
     collection, whatever metric produced it — the metric and its
     options ride along from the similarity's header."""
@@ -159,9 +159,9 @@ def mst(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
 
     out_groups = []
     for entry in K.items_of(src):
-        distance = _distance_of(entry, src)
-        edges = minimum_spanning_tree(distance)
-        stats = tree_stats(edges, bridge_sigma=bridge_sigma)
+        distance = _read_distance_matrix(entry, src)
+        edges = grow_minimum_spanning_tree(distance)
+        stats = measure_tree(edges, bridge_sigma=bridge_sigma)
         ids = list(entry.get("ids", []))
         item: dict[str, Any] = {"n": len(ids), **stats, "ids": ids,
                                 "labels": list(entry.get("labels", []))}

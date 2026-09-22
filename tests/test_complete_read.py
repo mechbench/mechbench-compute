@@ -7,7 +7,7 @@ import math
 import pytest
 
 from mechbench_compute import distill
-from mechbench_compute.ops.eval.expect import eval_expectation
+from mechbench_compute.ops.eval.expect import check_expectations
 
 
 class WordTok:
@@ -89,7 +89,7 @@ def test_a_complete_read_is_judged_against_its_target_like_a_token_read(scored):
     target = {"Mystery": 2.0, "Humor": 1.0, "Science Fiction": 1.0}
     logps.update({k: math.log(0.9 * v / 4) for k, v in target.items()})
     entries, mass, _ = distill.score_complete(None, tok, PROMPT, tok.encode(PROMPT), {"items": list(target)})
-    out = eval_expectation({
+    out = check_expectations({
         "results": [{"id": "r", "entropy_bits": 3.0, "tracked": entries}],
         "expectations": [{"id": "r", "expect": {"type": "weights", "weights": target, "max_kl_bits": 0.01}}],
     }, {})

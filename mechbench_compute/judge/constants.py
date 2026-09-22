@@ -5,4 +5,4 @@ import re
 SCALES = ("numeric", "categorical", "pairwise")
 
 
-_FIRST_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+FIRST_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")

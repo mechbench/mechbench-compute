@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from mechbench_compute.chat.build_request import build_request
-from mechbench_compute.chat.by_cause import _by_cause
+from mechbench_compute.chat.count_by_cause import count_by_cause
 from mechbench_compute.chat.constants import ITEM_KIND
-from mechbench_compute.chat.item import _item
-from mechbench_compute.chat.new_box import _new_box
-from mechbench_compute.chat.records import _records
-from mechbench_compute.chat.refuse_remote_only import _refuse_remote_only
+from mechbench_compute.chat.build_item import build_item
+from mechbench_compute.chat.open_toolbox import open_toolbox
+from mechbench_compute.chat.read_records import read_records
+from mechbench_compute.chat.refuse_remote_only import refuse_remote_only
 from mechbench_compute.chat.render_conversation import render_conversation
-from mechbench_compute.chat.sandbox_and_tools import _sandbox_and_tools
+from mechbench_compute.chat.resolve_sandbox_tools import resolve_sandbox_tools
 from mechbench_compute.providers import messages as pm
 
 
@@ -36,7 +36,7 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     # result. Same tools, same handlers, same provenance as the remote
     # path — only the transport differs.
     max_tool_rounds = int(params.get("max_tool_rounds", 3))
-    image, tool_specs = _sandbox_and_tools(params)
+    image, tool_specs = resolve_sandbox_tools(params)
     block_runner = params.get("_block_runner")
     tok = model.tokenizer
     # The model's own chat template decides how tools are declared,
@@ -46,8 +46,8 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     # chose not to call anything, which is how 024 lost an arm.
     dialect = (dialects.dialect_for(tok, model=str(getattr(ref, "base", ref)))
                if tool_specs else None)
-    _refuse_remote_only(params)
-    recs = _records(records)
+    refuse_remote_only(params)
+    recs = read_records(records)
     n = int(params.get("n", 1))
     start = int(params.get("start", 0))
     seed = params.get("seed", 0)
@@ -75,11 +75,11 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     tool_errors: list[dict[str, Any]] = []
     responses_with_calls = 0
     for cell, rec in ((c, r) for c in cells for r in recs):
-        with intervene_mod.edited(model, plan.weight_items if plan else (),
-                                  cell.factor if plan else 0.0):
+        with intervene_mod.edit_weights(model, plan.weight_items if plan else (),
+                                        cell.factor if plan else 0.0):
             req = build_request(rec, params, model=str(getattr(ref, "base", ref)),
                                 provider_options={})
-            box0 = tool_mod.toolbox_from(tool_specs, block_runner=block_runner)
+            box0 = tool_mod.build_toolbox(tool_specs, block_runner=block_runner)
             hf_tools = [dialects.tool_to_hf(t) for t in box0.tools] if box0 else []
             for k in range(start, start + n):
                 key = f"{rec.get('id')}:{k}" + (f":{cell.slug}" if plan else "")
@@ -89,7 +89,7 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                         on_item(key, resume_items[key], True)
                     continue
                 rng = _np.random.default_rng(item_seed(seed, rec.get("id"), k))
-                box, session = _new_box(image, tool_specs, block_runner=block_runner)
+                box, session = open_toolbox(image, tool_specs, block_runner=block_runner)
                 turn = req
                 called_a_tool = False
                 for round_no in range(max_tool_rounds + 1):
@@ -156,14 +156,14 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                             f"tool call failed on {rec.get('id')!r}: "
                             f"{item_errors[0]['cause']} — {item_errors[0]['detail']}")
                     tool_errors.extend({**e, "item": key} for e in item_errors)
-                item = _item(rec, k, text, model_wire=model_wire, params=params,
-                             tool_errors=item_errors,
-                             sampling={"temperature": temperature, "top_p": top_p,
-                                       "seed": seed, "index": k},
-                             tool_runs=[r.to_wire() for r in box.runs],
-                             sandbox_calls=(session.calls if session else ()),
-                             sandbox_snapshot=(session.final_wire() if session else None),
-                             cell=cell if plan else None)
+                item = build_item(rec, k, text, model_wire=model_wire, params=params,
+                                  tool_errors=item_errors,
+                                  sampling={"temperature": temperature, "top_p": top_p,
+                                            "seed": seed, "index": k},
+                                  tool_runs=[r.to_wire() for r in box.runs],
+                                  sandbox_calls=(session.calls if session else ()),
+                                  sandbox_snapshot=(session.final_wire() if session else None),
+                                  cell=cell if plan else None)
                 items.append(item)
                 if on_item:
                     on_item(key, item)
@@ -187,6 +187,6 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
             "with_calls": responses_with_calls,
             "without_calls": len(items) - responses_with_calls,
             "errors": tool_errors,
-            "errors_by_cause": _by_cause(tool_errors),
+            "errors_by_cause": count_by_cause(tool_errors),
         }} if tool_specs else {}),
     )

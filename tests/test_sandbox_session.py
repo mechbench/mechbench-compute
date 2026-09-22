@@ -196,7 +196,7 @@ class TestThroughTheToolbox:
 
     def _box(self):
         session = SandboxSession(_image())
-        box = T.toolbox_from(session.tool_defs(), session=session)
+        box = T.build_toolbox(session.tool_defs(), session=session)
         return box, session
 
     def test_a_write_then_list_through_tool_calls(self):

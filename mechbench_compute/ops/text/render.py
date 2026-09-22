@@ -5,7 +5,7 @@ from typing import Any
 
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.transcript.constants import MAIN
-from mechbench_compute.transcript.transcripts import _transcripts
+from mechbench_compute.transcript.read_transcripts import read_transcripts
 
 #: One `sees` policy: a word, or an object with one of these fields.
 _POLICY_FIELDS = (
@@ -178,14 +178,14 @@ def parse_sees(value: Any) -> dict[str, Any]:
 WINDOW_POLICIES = ("none", "truncate_oldest", "sliding")
 
 
-def _words(messages: Sequence[Mapping[str, Any]]) -> int:
+def _count_words(messages: Sequence[Mapping[str, Any]]) -> int:
     """A cheap length, in words: the window is a budget, not a
     tokenizer, and a participant's own model is what would count."""
     return max(1, sum(len(str(m.get("text", "")).split()) for m in messages))
 
 
-def windowed(messages: Sequence[Mapping[str, Any]],
-             window: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def apply_window(messages: Sequence[Mapping[str, Any]],
+                 window: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(kept, dropped) under a window policy. How much of a transcript a
     participant sees is part of what it sees, which is why this belongs
     beside the rendering and not in a loop (000617)."""
@@ -200,13 +200,13 @@ def windowed(messages: Sequence[Mapping[str, Any]],
     if kind == "none" or budget <= 0 or not messages:
         return messages, []
     kept, dropped = list(messages), []
-    while len(kept) > 1 and _words(kept) > budget:
+    while len(kept) > 1 and _count_words(kept) > budget:
         # `sliding` protects the opening turn as well as the tail.
         dropped.append(kept.pop(1 if kind == "sliding" and len(kept) > 2 else 0))
     return kept, dropped
 
 
-def _shown(policy: Any, thinking: str | None, turns_back: int) -> str | None:
+def _show_thinking(policy: Any, thinking: str | None, turns_back: int) -> str | None:
     """The thinking a policy lets through for a message `turns_back`
     turns from the end of that speaker's (or the others') turns —
     0 being the most recent."""
@@ -252,7 +252,7 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
     visible = [m for m in messages if str(m.get("channel", MAIN)) in seen]
     # What is beyond the window was not seen at all — dropped before the
     # perspective is applied, so the turns that remain still alternate.
-    visible, _dropped = windowed(visible, window)
+    visible, _dropped = apply_window(visible, window)
     # How many turns back each message is, among its own kind — the
     # speaker's own turns for `own_thinking`, everyone else's for
     # `others_thinking` — counted from the end.
@@ -267,12 +267,12 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
         who = str(m.get("participant", ""))
         text = str(m.get("text", ""))
         if who == participant:
-            thought = _shown(sees["own_thinking"], m.get("thinking"), own_back[i])
+            thought = _show_thinking(sees["own_thinking"], m.get("thinking"), own_back[i])
             turns.append(("assistant", f"{thought}\n\n{text}" if thought else text))
             continue
         spoke = who in set(participants) if participants else who != SCRIPT_SPEAKER
         attributed = perspective == "others_as_user_attributed" and spoke
-        thought = _shown(sees["others_thinking"], m.get("thinking"), others_back[i])
+        thought = _show_thinking(sees["others_thinking"], m.get("thinking"), others_back[i])
         line = f"{who}: {text}" if attributed else text
         if thought:
             line = (f"{who} (thinking): {thought}\n\n{line}" if attributed
@@ -300,7 +300,7 @@ def render_records(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict
     window = params.get("window")
     system = str(params.get("system") or "")
     rows = []
-    for t in _transcripts(inputs.get("transcripts")):
+    for t in read_transcripts(inputs.get("transcripts")):
         cid = str(t.get("id"))
         names = [str(n) for n in (t.get("participants") or [])]
         messages = render(t["messages"], participant=participant, channels=channels,

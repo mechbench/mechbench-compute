@@ -9,12 +9,12 @@ from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
-from mechbench_compute.interp.k import _K
-from mechbench_compute.interp.last_logp import _last_logp
-from mechbench_compute.interp.pair import _pair
-from mechbench_compute.interp.render_text import _render_text
-from mechbench_compute.interp.resolve_layers import _resolve_layers
-from mechbench_compute.interp.target_of import _target_of
+from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.read_last_logp import read_last_logp
+from mechbench_compute.interp.read_pair import read_pair
+from mechbench_compute.interp.render_text import render_text
+from mechbench_compute.interp.resolve_layers import resolve_layers
+from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.model import _LAYERS_ALL, ADAPTER, _tracked
@@ -149,7 +149,7 @@ def patch_trace(
     metric = str(params.get("metric", "logprob"))
     if metric not in ("logprob", "prob", "logit"):
         raise ValueError(f"unknown metric {metric!r}: 'logprob', 'prob' or 'logit'")
-    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
         raise ValueError("patch/trace needs at least one pair")
     if on_start:
@@ -161,9 +161,9 @@ def patch_trace(
            else Capture.at([f"blocks.{layer}.{point}" for layer in layers]))
     pairs: list[dict[str, Any]] = []
     for record in records:
-        clean, corrupt = _pair(record)
-        ids_clean = _render_text(model, record, clean)
-        ids_corrupt = _render_text(model, record, corrupt)
+        clean, corrupt = read_pair(record)
+        ids_clean = render_text(model, record, clean)
+        ids_corrupt = render_text(model, record, corrupt)
         n_clean = int(np.array(ids_clean).shape[-1])
         n_corrupt = int(np.array(ids_corrupt).shape[-1])
         if n_clean != n_corrupt:
@@ -177,8 +177,8 @@ def patch_trace(
                     on_item()
             continue
         clean_run = model.run(ids_clean, interventions=[cap])
-        clean_lp = _last_logp(clean_run.logits)
-        tok, _ = _target_of(model, record, params, clean_lp)
+        clean_lp = read_last_logp(clean_run.logits)
+        tok, _ = resolve_target(model, record, params, clean_lp)
         # 'prob' only registers when the clean prompt puts real mass on
         # the target (the original step 09 used the clean top-1, which
         # guarantees it); 'logprob' registers recovery at ANY mass —
@@ -192,7 +192,7 @@ def patch_trace(
                     else float(lp[tok]))
 
         def read_run(res) -> float:
-            return read(_last_logp(res.logits), _last_logits(res.logits))
+            return read(read_last_logp(res.logits), _read_last_logits(res.logits))
 
         p_clean_in_clean = read_run(clean_run)
         corrupt_run = model.run(ids_corrupt)
@@ -200,7 +200,7 @@ def patch_trace(
 
         seq = n_corrupt
         if method == "attribution":
-            recovery = _attribution_grid(
+            recovery = _compute_attribution_grid(
                 model, ids_corrupt, layers, point, clean_run.cache, tok, metric)
             if on_item:
                 on_item()
@@ -232,7 +232,7 @@ def patch_trace(
             tokens=tokens, coords=record.get("coords"),
             target=S.token(model.tokenizer, tok), metric=metric,
             value_a=round(p_clean_in_clean, 5), value_b=round(baseline, 5)))
-    return _K().collection(
+    return load_kinds().collection(
         "intervene/trace", pairs,
         point=point,
         metric=metric,
@@ -256,14 +256,14 @@ def patch_trace(
 _ATTRIBUTION_POINTS = ("resid_post", "resid_pre", "attn_out", "mlp_out")
 
 
-def _last_logits(logits: mx.array) -> np.ndarray:
+def _read_last_logits(logits: mx.array) -> np.ndarray:
     row = logits[0, -1, :].astype(mx.float32)
     mx.eval(row)
     return np.array(row)
 
 
-def _attribution_grid(model, ids_corrupt, layers: Sequence[int], point: str,
-                      clean_cache, tok: int, metric: str) -> list[list[float]]:
+def _compute_attribution_grid(model, ids_corrupt, layers: Sequence[int], point: str,
+                              clean_cache, tok: int, metric: str) -> list[list[float]]:
     """Attribution patching (Nanda 2023; Syed, Rager & Conmy 2023): the
     recovery at every (layer, position) at once, from ONE forward and
     ONE backward pass over the corrupt prompt.

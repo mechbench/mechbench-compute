@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute.intervene.cell import Cell
-from mechbench_compute.intervene.scaled import scaled
+from mechbench_compute.intervene.scale_specs import scale_specs
 from mechbench_compute.intervene.spec import Spec
 
 
@@ -27,16 +27,16 @@ class Compiled:
         set — unless the item's `sweep_over` names a smaller set of axes
         — and every strength multiplied by the cell's factor."""
         if not cell.overrides:
-            return scaled(self.specs, cell.factor)
+            return scale_specs(self.specs, cell.factor)
         out: list[Spec] = []
         for item, spec in zip(self.activation_items, self.specs, strict=True):
             axes = item.get("sweep_over")
             applies = {a: v for a, v in cell.overrides.items()
                        if axes is None or a in axes}
             if not applies:
-                out.extend(scaled([spec], cell.factor))
+                out.extend(scale_specs([spec], cell.factor))
                 continue
-            out.extend(scaled(
+            out.extend(scale_specs(
                 [Spec({**item, **applies}, n_layers=self.n_layers, seed=self.seed)],
                 cell.factor))
         return out

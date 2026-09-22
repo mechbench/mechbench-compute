@@ -9,8 +9,8 @@ import numpy as np
 from mechbench_compute import directions as dirs
 from mechbench_compute import positions as POS
 from mechbench_compute._mlx import mx
-from mechbench_compute.intervene.as_list import _as_list
-from mechbench_compute.intervene.rows_matrix import _rows_matrix
+from mechbench_compute.intervene.coerce_int_list import coerce_int_list
+from mechbench_compute.intervene.build_rows_matrix import build_rows_matrix
 from mechbench_compute.intervene.spec_error import SpecError
 from mechbench_compute.points import LAYOUT as _LAYOUT
 
@@ -44,13 +44,13 @@ class Spec:
         elif layers == "all":
             self.layers = list(range(n_layers))
         else:
-            self.layers = _as_list(layers)
+            self.layers = coerce_int_list(layers)
             for layer in self.layers:
                 if not 0 <= int(layer) < n_layers:
                     raise SpecError(f"layer {layer} out of range (n_layers={n_layers})")
         self.positions = item.get("positions", "last")
-        self.heads = None if item.get("heads") is None else _as_list(item["heads"])
-        self.neurons = None if item.get("neurons") is None else _as_list(item["neurons"])
+        self.heads = None if item.get("heads") is None else coerce_int_list(item["heads"])
+        self.neurons = None if item.get("neurons") is None else coerce_int_list(item["neurons"])
         # `except` inverts the sets this item names — everything BUT
         # these layers, heads or neurons — which is how a circuit's
         # completeness is measured against its faithfulness (000604).
@@ -95,16 +95,16 @@ class Spec:
         self.renormalize = bool(item.get("renormalize", True))
         self.strength = float(item.get("strength", 1.0))
         self.seed = int(item.get("seed", seed))
-        self.direction = (dirs.as_array(item["direction"])
+        self.direction = (dirs.coerce_array(item["direction"])
                           if item.get("direction") is not None else None)
-        self.direction2 = (dirs.as_array(item["direction2"])
+        self.direction2 = (dirs.coerce_array(item["direction2"])
                            if item.get("direction2") is not None else None)
         self.source = item.get("source")
         self.row = item.get("row")
         cond = item.get("condition")
         self.condition = None
         if cond:
-            self.condition = (dirs.as_array(cond["direction"]),
+            self.condition = (dirs.coerce_array(cond["direction"]),
                               float(cond.get("threshold", 0.0)),
                               bool(cond.get("above", True)))
         if op in ("add", "project_out", "clamp", "rotate") and self.direction is None:
@@ -150,11 +150,11 @@ class Spec:
                 src_layer = self.patch_from.get("layer", layer)
                 src_point = self.patch_from.get("point", self.point)
             try:
-                rows = _rows_matrix(self.source, src_layer, src_point)
+                rows = build_rows_matrix(self.source, src_layer, src_point)
             except SpecError:
                 # A source captured at another point still serves an op
                 # that only needs vectors of the right width.
-                rows = _rows_matrix(self.source, src_layer)
+                rows = build_rows_matrix(self.source, src_layer)
         rng = self._rng
 
         def _positions(L: int, offset: int, selector: Any = _SAME) -> list[int]:

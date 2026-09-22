@@ -75,10 +75,10 @@ def run(ctx, inputs, params):
     inventory, fragmentation, scripts, the naturalism gate."""
 
     model = ctx.model(params.get("model"))
-    return block(model, inputs, params)
+    return measure_model_tokenizer(model, inputs, params)
 
 
-def _items_of(inputs: Mapping[str, Any]) -> list[str]:
+def _read_strings(inputs: Mapping[str, Any]) -> list[str]:
     """The strings to measure, from the `vocabulary` port — a word list
     (`words`), a frequency table or training target (`weights` keys),
     or a bare list of strings — else each record's text on `records`."""
@@ -106,7 +106,7 @@ def _items_of(inputs: Mapping[str, Any]) -> list[str]:
     return [str(x) for x in items]
 
 
-def _script_of(ch: str) -> str:
+def _classify_char(ch: str) -> str:
     if ch.isspace():
         return "space"
     if ch.isdigit():
@@ -129,11 +129,11 @@ def _script_of(ch: str) -> str:
     return "other"
 
 
-def tokenizer_stats(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
-                    params: Mapping[str, Any]) -> dict[str, Any]:
+def measure_tokenizer(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
+                      params: Mapping[str, Any]) -> dict[str, Any]:
     """The measurement, over a tokenizer object; the block wrapper in
     protocol.py supplies the bound model's tokenizer."""
-    items = _items_of(inputs)
+    items = _read_strings(inputs)
     prefix = str(params.get("prefix", "") or "")
     prefix_ids = encode(tokenizer, prefix) if prefix else []
     # A hole must always bind, and run bindings are strings: "" (or
@@ -179,7 +179,7 @@ def tokenizer_stats(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
     chars = "".join(items)
     scripts: dict[str, int] = {}
     for ch in chars:
-        s = _script_of(ch)
+        s = _classify_char(ch)
         scripts[s] = scripts.get(s, 0) + 1
     total_chars = max(1, len(chars))
 
@@ -222,9 +222,9 @@ def tokenizer_stats(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
     return out
 
 
-def block(model, inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+def measure_model_tokenizer(model, inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """The executor's entry: the bound model's tokenizer, named by the
     binding so the record says which vocabulary it measured."""
     tid = (getattr(model, "model_id", None) or getattr(model, "id", None)
            or str(params.get("model") or ""))
-    return tokenizer_stats(model.tokenizer, str(tid), inputs, params)
+    return measure_tokenizer(model.tokenizer, str(tid), inputs, params)

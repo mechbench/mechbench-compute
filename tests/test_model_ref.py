@@ -121,10 +121,10 @@ class TestWireForm:
         # params; this asserts the wire form actually encodes.
         from mechbench_schema.provenance import fingerprint_params
 
-        from mechbench_compute.protocol import _wire_params
+        from mechbench_compute.protocol import serialize_params
 
         ref = model_ref.parse({"base": "org/m", "adapters": [{"bench": "x/a"}]})
-        digest = fingerprint_params(_wire_params({"model": ref, "steps": 40}))
+        digest = fingerprint_params(serialize_params({"model": ref, "steps": 40}))
         assert digest == fingerprint_params(
             {"model": {"base": {"hf": "org/m"}, "adapters": [{"bench": "x/a"}]},
              "steps": 40}

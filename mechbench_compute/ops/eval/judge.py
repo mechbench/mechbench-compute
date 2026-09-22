@@ -6,9 +6,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute import chat as chat_mod
-from mechbench_compute.judge.constants import _FIRST_NUMBER, SCALES
-from mechbench_compute.judge.json_object import _json_object
-from mechbench_compute.judge.rationale import _rationale
+from mechbench_compute.judge.constants import FIRST_NUMBER, SCALES
+from mechbench_compute.judge.parse_json_object import parse_json_object
+from mechbench_compute.judge.read_rationale import read_rationale
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.external import _BUDGET
 
@@ -174,11 +174,11 @@ class Scale:
     def read(self, text: str) -> dict[str, Any]:
         """Parse one vote. Returns `{}` when nothing could be read —
         the caller records that as unparsed rather than as a score."""
-        payload = _json_object(text)
+        payload = parse_json_object(text)
         if self.kind == "numeric":
             value = payload.get("score") if payload else None
             if value is None:
-                m = _FIRST_NUMBER.search(text)
+                m = FIRST_NUMBER.search(text)
                 value = m.group(0) if m else None
             try:
                 score = float(value)  # type: ignore[arg-type]
@@ -189,7 +189,7 @@ class Scale:
             # would hide a broken rubric.
             clamped = min(max(score, self.low), self.high)
             out: dict[str, Any] = {"score": clamped,
-                                   "rationale": _rationale(payload, text)}
+                                   "rationale": read_rationale(payload, text)}
             if clamped != score:
                 out["out_of_range"] = score
             return out
@@ -200,17 +200,17 @@ class Scale:
                               if re.search(rf"\b{re.escape(x)}\b", text, re.IGNORECASE)), "")
             if not label:
                 return {}
-            return {"label": label, "rationale": _rationale(payload, text)}
+            return {"label": label, "rationale": read_rationale(payload, text)}
         winner = str(payload.get("winner", "")).strip().upper()[:1] if payload else ""
         if winner not in ("A", "B"):
             m = re.search(r"\b([AB])\b", text.upper())
             winner = m.group(1) if m else ""
         if not winner:
             return {}
-        return {"winner": winner, "rationale": _rationale(payload, text)}
+        return {"winner": winner, "rationale": read_rationale(payload, text)}
 
 
-def coords_of(rec: Mapping[str, Any]) -> dict[str, Any]:
+def read_subject_coords(rec: Mapping[str, Any]) -> dict[str, Any]:
     """A subject's coordinates, wherever they live. A generate node's
     items carry them under `metadata`, a record set at the top level;
     judging must not lose them either way, because slicing a judged
@@ -252,7 +252,7 @@ def build_prompts(records: Sequence[Mapping[str, Any]], *, scale: Scale,
         for k in range(n_votes):
             body: dict[str, Any] = {
                 "id": f"{rid}:v{k}",
-                "coords": {**coords_of(rec), "subject": rid, "vote": k},
+                "coords": {**read_subject_coords(rec), "subject": rid, "vote": k},
                 "system": rubric,
             }
             if scale.kind == "pairwise":
@@ -280,7 +280,7 @@ def aggregate(subject: Mapping[str, Any], votes: Sequence[Mapping[str, Any]], *,
     parsed = [v for v in votes if v.get("parsed")]
     row: dict[str, Any] = {
         "id": subject.get("id"),
-        "coords": coords_of(subject),
+        "coords": read_subject_coords(subject),
         "n_votes": len(votes),
         "n_parsed": len(parsed),
         "votes": [dict(v) for v in votes],
@@ -491,7 +491,7 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
     # quietly lost the row is a smaller corpus with no note of why.
     rows = [(aggregate(s, by_subject.get(str(s.get("id", "")), []), scale=scale)
              if id(s) not in empty else
-             {"id": s.get("id"), "coords": coords_of(s), "unjudged": True,
+             {"id": s.get("id"), "coords": read_subject_coords(s), "unjudged": True,
               "missing": empty[id(s)]})
             for s in subjects]
     return K.collection(

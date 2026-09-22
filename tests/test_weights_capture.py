@@ -63,31 +63,31 @@ def lm():
 
 class TestNamingAndSelection:
     def test_parameters_are_named_as_the_module_tree_names_them(self, lm):
-        names = W.parameter_names(lm)
+        names = W.read_parameters(lm)
         assert "layers.0.self_attn.q_proj.weight" in names
         assert "embed_tokens.weight" in names
         assert not any(n.startswith("model.") for n in names)
 
     def test_a_star_stands_for_one_segment(self, lm):
-        names = W.parameter_names(lm)
+        names = W.read_parameters(lm)
         got = W.select_points(names, ["layers.*.mlp.down_proj"])
         assert got == [f"layers.{i}.mlp.down_proj.weight" for i in range(3)]
 
     def test_a_module_takes_its_parameters(self, lm):
-        got = W.select_points(W.parameter_names(lm), ["layers.1.self_attn.q_proj"])
+        got = W.select_points(W.read_parameters(lm), ["layers.1.self_attn.q_proj"])
         assert got == ["layers.1.self_attn.q_proj.weight"]
 
     def test_the_scope_is_optional(self, lm):
-        names = W.parameter_names(lm)
+        names = W.read_parameters(lm)
         assert W.select_points(names, ["model.layers.0.mlp.up_proj"]) == \
             W.select_points(names, ["layers.0.mlp.up_proj"])
 
     def test_a_point_that_matches_nothing_says_what_there_is(self, lm):
         with pytest.raises(ValueError, match="no parameter matches"):
-            W.select_points(W.parameter_names(lm), ["layers.0.self_attn.v_proj"])
+            W.select_points(W.read_parameters(lm), ["layers.0.self_attn.v_proj"])
 
     def test_all_is_everything(self, lm):
-        names = W.parameter_names(lm)
+        names = W.read_parameters(lm)
         assert W.select_points(names, "all") == list(names)
 
 
@@ -113,7 +113,7 @@ class TestCapture:
         assert out["model"] == "acme/tiny"
         assert out["captured"]["parameters"] == 1
         assert out["captured"]["values"] == 128
-        assert out["captured"]["of"] == len(W.parameter_names(lm))
+        assert out["captured"]["of"] == len(W.read_parameters(lm))
 
     def test_the_spectrum_is_asked_for(self, lm):
         out = capture_weights(lm, {"points": ["layers.0.mlp.down_proj"],
@@ -123,7 +123,7 @@ class TestCapture:
         assert it["spectral"] == pytest.approx(it["singular_values"][0])
         assert 1.0 <= it["effective_rank"] <= 8.0
         # …and it is the matrix's own spectrum.
-        arr = np.array(W.parameter_names(lm)["layers.0.mlp.down_proj.weight"]
+        arr = np.array(W.read_parameters(lm)["layers.0.mlp.down_proj.weight"]
                        .astype(mx.float32))
         assert np.allclose(it["singular_values"],
                            np.linalg.svd(arr, compute_uv=False)[:3], atol=1e-5)
@@ -170,7 +170,7 @@ class TestDecompose:
         assert it["space"]["d"] == 8           # the residual width, not the head's
 
     def test_the_directions_are_the_matrix_own_singular_vectors(self, lm):
-        arr = np.array(W.parameter_names(lm)["layers.1.self_attn.o_proj.weight"]
+        arr = np.array(W.read_parameters(lm)["layers.1.self_attn.o_proj.weight"]
                        .astype(mx.float32))
         u, sv, _ = np.linalg.svd(arr, full_matrices=False)
         out = decompose_weights(lm, {"points": ["layers.1.self_attn.o_proj"],
@@ -203,7 +203,7 @@ class TestParameterIntervention:
     round-trip."""
 
     def _w(self, lm, name="layers.0.self_attn.o_proj.weight"):
-        return np.array(W.parameter_names(lm)[name].astype(mx.float32))
+        return np.array(W.read_parameters(lm)[name].astype(mx.float32))
 
     def _dir(self, vec):
         """A direction as a spec item carries one: the kind, not a bare

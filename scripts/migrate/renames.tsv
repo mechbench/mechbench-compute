@@ -5,7 +5,7 @@ blocks/grid_rows.py	grid_rows	expand_grid	blocks/expand_grid.py	function	1	the t
 blocks/group_key.py	_group_key	read_group_key	blocks/read_group_key.py	function	2	the verb heuristic passed it (group is a verb) but here group is a noun — it reads a key
 blocks/interval_of.py	_interval_of	read_interval	blocks/read_interval.py	function	2	returns (level, resamples, seed), or None when the node asks for no interval
 blocks/items.py	_items	read_items	blocks/read_items.py	function	12	the most-used helper in the package (12 files)
-blocks/transcript_mod.py	_transcript_mod	load_transcript_module	blocks/load_transcript_module.py	function	0	reached only through blocks/__init__.py — check first whether anything still calls it
+blocks/transcript_mod.py	_transcript_mod	(delete)	blocks/transcript_mod.py	function	0	(delete) nothing calls it: the only mention was the blocks/__init__.py re-export. File and re-export removed
 chat/by_cause.py	_by_cause	count_by_cause	chat/count_by_cause.py	function	1	
 chat/item.py	_item	build_item	chat/build_item.py	function	2	
 chat/new_box.py	_new_box	open_toolbox	chat/open_toolbox.py	function	2	open, not build: it also opens a sandbox session; build_toolbox is tools/toolbox_from below
@@ -39,7 +39,7 @@ intervene/rows_matrix.py	_rows_matrix	build_rows_matrix	intervene/build_rows_mat
 intervene/scaled.py	scaled	scale_specs	intervene/scale_specs.py	function	1	
 intervene/source_items.py	_source_items	read_source_items	intervene/read_source_items.py	function	1	
 intervene/spec_items.py	spec_items	read_spec_items	intervene/read_spec_items.py	function	2	
-intervene/wire_spec.py	_wire_spec	encode_spec	intervene/encode_spec.py	function	2	encode/_wire: the wire form stays the docstring's word; note encode also means tokenize in distill.py — alternative dump_spec
+intervene/wire_spec.py	_wire_spec	serialize_spec	intervene/serialize_spec.py	function	2	with serialize_model and serialize_params: one verb for the three wire forms. Not encode — encode means tokenize in this codebase
 judge/constants.py	_FIRST_NUMBER	FIRST_NUMBER	judge/constants.py	constant	1	constant: only the underscore goes
 judge/json_object.py	_json_object	parse_json_object	judge/parse_json_object.py	function	1	
 judge/rationale.py	_rationale	read_rationale	judge/read_rationale.py	function	1	
@@ -54,25 +54,25 @@ ops/activations/examples.py	examples	find_top_examples	ops/activations/examples.
 ops/adapter/measure.py	_wanted	_is_wanted	ops/adapter/measure.py	function	0	a predicate; it filters
 ops/adapter/measure.py	adapter_pairs	read_adapter_pairs	ops/adapter/measure.py	function	0	
 ops/adapter/measure.py	delta_spectrum	compute_delta_spectrum	ops/adapter/measure.py	function	0	
-ops/direction/add.py	block_add	add_directions	ops/direction/add.py	function	0	one-line pass-through from run; consider inlining it into run instead
-ops/direction/average.py	block_average	average_directions	ops/direction/average.py	function	0	one-line pass-through from run; consider inlining it into run instead
-ops/direction/classify.py	block_classify	classify_vectors	ops/direction/classify.py	function	0	pass-through from run; consider inlining it into run instead
+ops/direction/add.py	block_add	(inline)	ops/direction/add.py	function	0	(inline) one-line pass-through from run: run now calls the mechanism directly. The name it would have taken is add_directions
+ops/direction/average.py	block_average	(inline)	ops/direction/average.py	function	0	(inline) one-line pass-through from run: run now calls the mechanism directly. The name it would have taken is average_directions
+ops/direction/classify.py	block_classify	(inline)	ops/direction/classify.py	function	0	(inline) one-line pass-through from run: run now calls the mechanism directly. The name it would have taken is classify_vectors
 ops/direction/classify.py	from_classification	fit_probe	ops/direction/classify.py	function	0	the mechanism: a linear probe per space — one of four fit_* mechanisms
-ops/direction/decompose.py	block_from_pca	decompose_vectors	ops/direction/decompose.py	function	0	pass-through from run; consider inlining it into run instead
+ops/direction/decompose.py	block_from_pca	(inline)	ops/direction/decompose.py	function	0	(inline) one-line pass-through from run: run now calls the mechanism directly. The name it would have taken is decompose_vectors
 ops/direction/decompose.py	from_pca	fit_component	ops/direction/decompose.py	function	0	the mechanism: one principal component
-ops/direction/fit.py	block_from_vectors	fit_direction	ops/direction/fit.py	function	0	pass-through from run; consider inlining it into run instead
+ops/direction/fit.py	block_from_vectors	(inline)	ops/direction/fit.py	function	0	(inline) one-line pass-through from run: run now calls the mechanism directly. The name it would have taken is fit_direction
 ops/direction/fit.py	from_vectors	fit_mean_difference	ops/direction/fit.py	function	0	the mechanism: centroid(positive) - centroid(negative)
-ops/direction/normalize.py	block_normalize	normalize_direction	ops/direction/normalize.py	function	0	one-line pass-through from run; consider inlining it into run instead
-ops/direction/orthogonalize.py	block_orthogonalize	orthogonalize_direction	ops/direction/orthogonalize.py	function	0	pass-through from run; consider inlining it into run instead
-ops/direction/project.py	block_project	project_vectors	ops/direction/project.py	function	0	one-line pass-through from run; consider inlining it into run instead
+ops/direction/normalize.py	block_normalize	(inline)	ops/direction/normalize.py	function	0	(inline) one-line pass-through from run: run now calls the mechanism directly. The name it would have taken is normalize_direction
+ops/direction/orthogonalize.py	block_orthogonalize	(inline)	ops/direction/orthogonalize.py	function	0	(inline) one-line pass-through from run: run now calls the mechanism directly. The name it would have taken is orthogonalize_direction
+ops/direction/project.py	block_project	(inline)	ops/direction/project.py	function	0	(inline) one-line pass-through from run: run now calls the mechanism directly. The name it would have taken is project_vectors
 ops/direction/regress.py	_number_at	_read_number	ops/direction/regress.py	function	0	
-ops/direction/regress.py	block_from_regression	regress_vectors	ops/direction/regress.py	function	0	pass-through from run; consider inlining it into run instead
+ops/direction/regress.py	block_from_regression	(inline)	ops/direction/regress.py	function	0	(inline) one-line pass-through from run: run now calls the mechanism directly. The name it would have taken is regress_vectors
 ops/direction/regress.py	from_regression	fit_regression	ops/direction/regress.py	function	0	the mechanism: ridge regression
 ops/direction/unembed.py	vocab_projection	unembed_direction	ops/direction/unembed.py	function	0	unembed is the operation's own verb
 ops/eval/benchmark.py	suite_metric_records	build_metric_records	ops/eval/benchmark.py	function	0	
 ops/eval/expect.py	eval_expectation	check_expectations	ops/eval/expect.py	function	0	
 ops/eval/judge.py	coords_of	read_subject_coords	ops/eval/judge.py	function	0	one of four coords_of; this one reads the judged subject's
-ops/geometry/compare.py	_geometry_similarity	(delete)	ops/geometry/compare.py	function	0	DEAD: run -> _geometry_similarity -> geometry_similarity, and its body still holds the move's 'pass  # its imports now live in this file'. Delete it rather than rename it
+ops/geometry/compare.py	_geometry_similarity	(delete)	ops/geometry/compare.py	function	0	(delete) dead: run -> _geometry_similarity -> geometry_similarity, and its body still held the move's stray pass statement. run now calls compare_geometry directly
 ops/geometry/compare.py	geometry_similarity	compare_geometry	ops/geometry/compare.py	function	0	the operation is geometry/compare
 ops/geometry/compare.py	separation	score_separation	ops/geometry/compare.py	function	0	
 ops/geometry/span.py	_distance_of	_read_distance_matrix	ops/geometry/span.py	function	0	
@@ -120,10 +120,10 @@ ops/trajectory/capture.py	_vocab	_unembed_vector	ops/trajectory/capture.py	funct
 ops/weights/capture.py	parameter_stats	measure_parameter	ops/weights/capture.py	function	0	
 ops/weights/circuit.py	head_circuits	read_head_circuits	ops/weights/circuit.py	function	0	read: no forward pass, only weights
 protocol/tokenizer_id.py	_tokenizer_id	read_tokenizer_id	protocol/read_tokenizer_id.py	function	2	
-protocol/wire_model.py	_wire_model	encode_model	protocol/encode_model.py	function	1	with encode_spec and encode_params: one verb for the three wire forms
-protocol/wire_params.py	_wire_params	encode_params	protocol/encode_params.py	function	1	with encode_spec and encode_model: one verb for the three wire forms
+protocol/wire_model.py	_wire_model	serialize_model	protocol/serialize_model.py	function	1	with serialize_spec and serialize_params: one verb for the three wire forms
+protocol/wire_params.py	_wire_params	serialize_params	protocol/serialize_params.py	function	1	with serialize_spec and serialize_model: one verb for the three wire forms
 providers/budget.py	budget_from	build_budget	providers/budget.py	function	2	the class and the function that builds it
-reduce/block_of.py	_block_of	make_reduce_block	reduce/make_reduce_block.py	function	0	it returns a callable, so make; reached only through reduce/__init__.py — check it is still used
+reduce/block_of.py	_block_of	(delete)	reduce/block_of.py	function	0	(delete) nothing calls it: the only mention was the reduce/__init__.py re-export, and a stale comment in tests/test_block_params.py. File and re-export removed
 reduce/monoid_for.py	monoid_for	find_monoid	reduce/find_monoid.py	function	2	
 sandbox_session.py	_TOOL_DEFS	TOOL_DEFS	sandbox_session.py	constant	1	constant: only the underscore goes
 tools/as_text.py	_as_text	coerce_text	tools/coerce_text.py	function	1	coerce, as in coerce_array
@@ -132,7 +132,7 @@ trajectory/header.py	_header	read_header	trajectory/read_header.py	function	2
 trajectory/rows.py	_rows	read_points	trajectory/read_points.py	function	3	not read_items: blocks/read_items already has that name and three files import both; a trajectory's items are trajectory/point
 trajectory/trajectory_of.py	_trajectory_of	read_trajectory	trajectory/read_trajectory.py	function	3	
 transcript/transcripts.py	_transcripts	read_transcripts	transcript/read_transcripts.py	function	2	
-weights/constants.py	_SCOPE	SCOPE	weights/constants.py	constant	2	constant: only the underscore goes — but SCOPE alone is vague once public; MODEL_SCOPE would say what it scopes
+weights/constants.py	_SCOPE	MODEL_SCOPE	weights/constants.py	constant	2	constant: SCOPE alone would be vague once public, so it says what it scopes
 weights/coords_of.py	_coords_of	parse_parameter_coords	weights/parse_parameter_coords.py	function	3	one of four coords_of; this one parses a parameter NAME
 weights/direction_of.py	_direction_of	read_direction	weights/read_direction.py	function	1	
 weights/effective_rank.py	effective_rank	compute_effective_rank	weights/compute_effective_rank.py	function	2	

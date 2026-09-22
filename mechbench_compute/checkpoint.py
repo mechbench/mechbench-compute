@@ -46,7 +46,7 @@ def _adapter_deltas(payload: Mapping[str, Any]) -> dict[str, mx.array]:
     import os
     import tempfile
 
-    from mechbench_compute.lora import _KEY_RE, load_adapter
+    from mechbench_compute.lora import KEY_RE, load_adapter
 
     cfg = payload.get("lora") or {}
     scale = float(cfg.get("alpha", 16)) / float(cfg.get("rank", 8))
@@ -62,7 +62,7 @@ def _adapter_deltas(payload: Mapping[str, Any]) -> dict[str, mx.array]:
 
     pairs: dict[tuple[int, str, str], dict[str, mx.array]] = {}
     for key, w in weights.items():
-        m = _KEY_RE.match(key)
+        m = KEY_RE.match(key)
         if m is None:
             raise ValueError(f"unrecognized adapter key {key!r}")
         i, container, proj, ab = (int(m.group(1)), m.group(2), m.group(3), m.group(4))

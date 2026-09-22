@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute.providers import messages as pm
-from mechbench_compute.tools.as_text import _as_text
+from mechbench_compute.tools.coerce_text import coerce_text
 from mechbench_compute.tools.tool_def import ToolDef
 from mechbench_compute.tools.tool_run import ToolRun
 
@@ -53,7 +53,7 @@ class Toolbox:
                       handler=dict(tool.handler), output=output,
                       duration_ms=int((time.monotonic() - started) * 1000))
         self.runs.append(run)
-        return pm.ToolResultPart(tool_call_id=call.id, content=_as_text(output))
+        return pm.ToolResultPart(tool_call_id=call.id, content=coerce_text(output))
 
     def _error(self, call: pm.ToolCallPart, message: str,
                handler: Mapping[str, Any], started: float) -> pm.ToolResultPart:

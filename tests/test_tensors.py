@@ -11,7 +11,7 @@ import pytest
 from mechbench_compute.ops.activations import capture_tokens as capture_tokens_op
 from mechbench_compute import tensors
 from mechbench_compute.lexicon import kinds as K
-from mechbench_compute.ops.direction.regress import from_regression
+from mechbench_compute.ops.direction.regress import fit_regression
 
 
 def _items(n, d=6, seed=0):
@@ -136,7 +136,7 @@ class TestARegressionStreamsTheShards:
                    "coords": {"position": i % 20, "surprisal": round(signal, 5)}})
         coll = tensors.collection("activations/vector", w.close(), model="m", layers=[4])
         assert len(coll["shards"]) == 5
-        out = from_regression(coll, layer=4, target="surprisal", seed=1)
+        out = fit_regression(coll, layer=4, target="surprisal", seed=1)
         got = np.asarray(out["vector"], dtype=np.float64)
         cos = float(got @ axis / np.linalg.norm(got))
         assert cos > 0.99, cos

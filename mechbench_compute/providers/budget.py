@@ -84,7 +84,7 @@ class Budget:
                 "calls": self.calls}
 
 
-def budget_from(params, *, required: bool = True) -> Budget:
+def build_budget(params, *, required: bool = True) -> Budget:
     """A node's Budget from its params. Remote nodes MUST declare one —
     the api refuses the protocol without it (000335), and this is the
     second gate, in the executor, for a spec that got in another way."""

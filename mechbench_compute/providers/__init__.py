@@ -25,7 +25,7 @@ from mechbench_compute.providers.base import (
     Transport,
     Usage,
 )
-from mechbench_compute.providers.budget import Budget, budget_from
+from mechbench_compute.providers.budget import Budget, build_budget
 from mechbench_compute.providers.cassette import Cassette, CassetteTransport
 from mechbench_compute.providers.errors import (
     AuthError,
@@ -76,7 +76,7 @@ __all__ = [
     "TransientError",
     "Transport",
     "Usage",
-    "budget_from",
+    "build_budget",
     "capabilities",
     "make_transport",
     "messages",

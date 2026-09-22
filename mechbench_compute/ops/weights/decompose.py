@@ -8,8 +8,8 @@ import numpy as np
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.model import ADAPTER
 from mechbench_compute.weights.constants import RESIDUAL_SIDE
-from mechbench_compute.weights.coords_of import _coords_of
-from mechbench_compute.weights.parameter_names import parameter_names
+from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
+from mechbench_compute.weights.read_parameters import read_parameters
 from mechbench_compute.weights.select_points import select_points
 
 OP = Op(
@@ -100,7 +100,7 @@ def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
     params = dict(params or {})
     top_k = max(1, int(params.get("top_k", 4)))
     side_want = str(params.get("side", "auto"))
-    tensors = parameter_names(lm)
+    tensors = read_parameters(lm)
     chosen = select_points(tensors, params.get("points", []))
     if not params.get("points"):
         raise ValueError(
@@ -117,7 +117,7 @@ def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
         if arr.ndim != 2:
             refused.append(f"{name} (not a matrix)")
             continue
-        coords = _coords_of(name)
+        coords = parse_parameter_coords(name)
         proj = coords.get("projection")
         known = RESIDUAL_SIDE.get(str(proj))
         if known is None:

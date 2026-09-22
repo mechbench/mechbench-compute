@@ -20,7 +20,7 @@ from typing import Any
 
 from mechbench_compute import thinking as THINK
 from mechbench_compute.transcript.constants import MAIN  # noqa: F401
-from mechbench_compute.transcript.transcripts import _transcripts  # noqa: F401
+from mechbench_compute.transcript.read_transcripts import read_transcripts  # noqa: F401
 
 
 # --- the ops ------------------------------------------------------------------------

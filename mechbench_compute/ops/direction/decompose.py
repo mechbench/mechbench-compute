@@ -8,10 +8,10 @@ import numpy as np
 from mechbench_compute import points as P
 from mechbench_compute import shapes as S
 from mechbench_compute.directions.constants import DEFAULT_AXIS
-from mechbench_compute.directions.items_at import _items_at
+from mechbench_compute.directions.select_layer_items import select_layer_items
 from mechbench_compute.directions.make import make
-from mechbench_compute.directions.model_provenance import _model_provenance
-from mechbench_compute.directions.space_at import _space_at
+from mechbench_compute.directions.build_model_provenance import build_model_provenance
+from mechbench_compute.directions.resolve_space import resolve_space
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.direction import _point, _source
 
@@ -65,17 +65,23 @@ At least two items are needed.
 
 
 def run(ctx, inputs, params):
-    return block_from_pca(inputs, params)
+    vectors = inputs.get("vectors")
+    # `label` is the retired spelling of `value` on the `label` axis.
+    value = params.get("value", params.get("label"))
+    return fit_component(vectors, layer=int(params["layer"]),
+                         component=int(params.get("component", 0)),
+                         axis=str(params.get("axis") or DEFAULT_AXIS), value=value,
+                         point=params.get("point"), source=params.get("source"))
 
 
-def from_pca(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
-             axis: str = DEFAULT_AXIS, value: Any = None, point: str | None = None,
-             source: str | None = None) -> dict[str, Any]:
+def fit_component(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
+                  axis: str = DEFAULT_AXIS, value: Any = None, point: str | None = None,
+                  source: str | None = None) -> dict[str, Any]:
     """A principal component of the (centered) items at `layer`,
     optionally only those whose `axis` coordinate is `value`. Sign is
     fixed so the largest-magnitude coordinate is positive (a component
     has no intrinsic sign)."""
-    rows = _items_at(vectors, layer)
+    rows = select_layer_items(vectors, layer)
     if value is not None:
         rows = [r for r in rows if str(S.label_of(r, axis)) == str(value)]
     x = np.array([r["vector"] for r in rows], dtype=np.float32)
@@ -89,18 +95,9 @@ def from_pca(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
     if v[np.argmax(np.abs(v))] < 0:
         v = -v
     explained = float(s[component] ** 2 / max(float((s ** 2).sum()), 1e-12))
-    return make(v, _space_at(vectors, rows, point), method="pca",
+    return make(v, resolve_space(vectors, rows, point), method="pca",
                 sources=[source] if source else [],
                 labels=({"axis": axis, "value": value} if value is not None else None),
                 extra={"component": int(component), "explained": round(explained, 4),
-                       "n_items": len(x), **_model_provenance(vectors, rows)})
+                       "n_items": len(x), **build_model_provenance(vectors, rows)})
 
-
-def block_from_pca(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    vectors = inputs.get("vectors")
-    # `label` is the retired spelling of `value` on the `label` axis.
-    value = params.get("value", params.get("label"))
-    return from_pca(vectors, layer=int(params["layer"]),
-                    component=int(params.get("component", 0)),
-                    axis=str(params.get("axis") or DEFAULT_AXIS), value=value,
-                    point=params.get("point"), source=params.get("source"))

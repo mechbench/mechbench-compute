@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.coll import _coll
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.build_collection import build_collection
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.records import _RECORDS
 
@@ -41,7 +41,7 @@ matches.
 
 
 def run(ctx, inputs, params):
-    return _selected(inputs["records"], params)
+    return _select_items(inputs["records"], params)
 
 
 def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -51,7 +51,7 @@ def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
     `text/measure` `annotate` wrote (a pattern hit is a field, not a
     coord) filters too (task 000368). fields: [names] keeps id+coords
     plus the named fields."""
-    recs = _items(records)
+    recs = read_items(records)
     where: Mapping[str, Any] = params.get("where") or {}
     out = []
     for r in recs:
@@ -72,7 +72,7 @@ def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _selected(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
+def _select_items(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     """A filter keeps the kind; a projection does not. Selecting some of
     a collection's items leaves each item exactly as it was, so a subset
     of adapter deltas is still adapter deltas and still compares by what
@@ -82,6 +82,6 @@ def _selected(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
 
     items = select(records, params)
     if params.get("fields"):
-        return _coll(items)
+        return build_collection(items)
     kind = K.item_kind_of(records) if isinstance(records, Mapping) else None
     return K.collection(kind if kind in K.BY_KIND else "records/record", items)

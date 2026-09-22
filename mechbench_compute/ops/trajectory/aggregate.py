@@ -8,9 +8,9 @@ import numpy as np
 from mechbench_compute import points as P
 from mechbench_compute import shapes as S
 from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P
-from mechbench_compute.trajectory.header import _header
-from mechbench_compute.trajectory.rows import _rows
-from mechbench_compute.trajectory.trajectory_of import _trajectory_of
+from mechbench_compute.trajectory.read_header import read_header
+from mechbench_compute.trajectory.read_points import read_points
+from mechbench_compute.trajectory.read_trajectory import read_trajectory
 
 OP = Op(
     name="trajectory/aggregate",
@@ -89,8 +89,8 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                  what `direction/fit` reads, so an outcome axis
                  is this block followed by that one.
     """
-    traj = _trajectory_of(inputs.get("trajectory"),
-                          coords_ok=True)
+    traj = read_trajectory(inputs.get("trajectory"),
+                           coords_ok=True)
     by = str(params.get("by", "label"))
     mode = str(params.get("as", "per_step"))
     if mode not in ("per_step", "window", "vectors"):
@@ -99,7 +99,7 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
     lo, hi = (None, None)
     if isinstance(steps, Mapping) and "range" in steps:
         lo, hi = int(steps["range"][0]), int(steps["range"][1])
-    rows = _rows(traj)
+    rows = read_points(traj)
     scalar = bool(rows) and "coord" in rows[0]
     if mode == "vectors" and scalar:
         raise ValueError("as: 'vectors' needs vector rows, not a projection")
@@ -148,7 +148,7 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                     })
         from mechbench_compute.lexicon import kinds as K
 
-        return K.collection("trajectory/summary", out_rows, **_header(traj),
+        return K.collection("trajectory/summary", out_rows, **read_header(traj),
                             aggregated={"by": by, "as": mode, "steps": steps})
 
     # window / vectors: one value per group over everything in the window
@@ -181,5 +181,5 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
             d_model=traj.get("d_model"),
             template=traj.get("template"),
         )
-    return K.collection("trajectory/summary", out_rows, **_header(traj),
+    return K.collection("trajectory/summary", out_rows, **read_header(traj),
                         aggregated={"by": by, "as": mode, "steps": steps})

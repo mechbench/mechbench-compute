@@ -12,7 +12,7 @@ class _PureBlocks(dict):
     def _elsewhere() -> frozenset[str]:
         from mechbench_compute import ops
 
-        return ops.standalone()
+        return ops.find_standalone()
 
     def __contains__(self, name: object) -> bool:
         return dict.__contains__(self, name) or name in self._elsewhere()

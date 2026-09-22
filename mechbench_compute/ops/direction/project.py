@@ -6,8 +6,8 @@ from typing import Any
 import numpy as np
 
 from mechbench_compute import shapes as S
-from mechbench_compute.directions.as_array import as_array
-from mechbench_compute.directions.items_at import _items_at
+from mechbench_compute.directions.coerce_array import coerce_array
+from mechbench_compute.directions.select_layer_items import select_layer_items
 from mechbench_compute.lexicon._base import In, Op, Output
 
 OP = Op(
@@ -39,15 +39,16 @@ groups it was built from — or ones it was not.
 
 
 def run(ctx, inputs, params):
-    return block_project(inputs, params)
+    return project_rows(inputs.get("vectors"),
+                        inputs.get("direction"))
 
 
 def project_rows(vectors: Mapping[str, Any], d: Mapping[str, Any]) -> dict[str, Any]:
     """Each item of a vector collection at the direction's layer,
     projected onto the direction: the scalar coordinate along it."""
     layer = S.layer_of(d)
-    rows = _items_at(vectors, layer)
-    u = as_array(d)
+    rows = select_layer_items(vectors, layer)
+    u = coerce_array(d)
     out = []
     for r in rows:
         v = np.asarray(r["vector"], dtype=np.float32)
@@ -60,7 +61,3 @@ def project_rows(vectors: Mapping[str, Any], d: Mapping[str, Any]) -> dict[str, 
 
     return K.collection("activations/coordinate", out, projected=True)
 
-
-def block_project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    return project_rows(inputs.get("vectors"),
-                        inputs.get("direction"))

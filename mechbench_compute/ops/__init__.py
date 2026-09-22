@@ -50,14 +50,14 @@ class Context:
         return self.executor._model_loaded(ref)
 
 
-def module_name(op: str) -> str:
+def resolve_module_name(op: str) -> str:
     """`logits/read-layers` -> `mechbench_compute.ops.logits.read_layers`."""
     family, name = op.split("/", 1)
     return f"{__name__}.{family}.{name.replace('-', '_')}"
 
 
 @cache
-def modules() -> dict[str, ModuleType]:
+def load_modules() -> dict[str, ModuleType]:
     """Every operation's module, by the operation's name."""
     found: dict[str, ModuleType] = {}
     for info in pkgutil.walk_packages(__path__, prefix=f"{__name__}."):
@@ -67,31 +67,31 @@ def modules() -> dict[str, ModuleType]:
         op = getattr(mod, "OP", None)
         if op is None:
             raise ImportError(f"{info.name} is under ops/ and declares no OP")
-        if module_name(op.name) != info.name:
+        if resolve_module_name(op.name) != info.name:
             raise ImportError(
                 f"{info.name} declares {op.name!r}, which belongs at "
-                f"{module_name(op.name)}: an operation's path is a function of its name")
+                f"{resolve_module_name(op.name)}: an operation's path is a function of its name")
         found[op.name] = mod
     return found
 
 
 def find(op: str) -> ModuleType | None:
-    return modules().get(op)
+    return load_modules().get(op)
 
 
 def fuses_adapter(op: str) -> bool:
     """Whether the executor loads the model and fuses an adapter around
     this operation: it needs local weights, and an adapter may arrive."""
-    declared = modules()[op].OP
+    declared = load_modules()[op].OP
     return declared.requires == "mlx-local" and declared.port("adapter") is not None
 
 
 @cache
-def standalone() -> frozenset[str]:
+def find_standalone() -> frozenset[str]:
     """The operations that run with no executor: pure, and their `run`
     never reads `ctx`. What a tool handler or a chunked reduce may call."""
     names = set()
-    for name, mod in modules().items():
+    for name, mod in load_modules().items():
         if mod.OP.requires != "pure":
             continue
         tree = ast.parse(inspect.getsource(mod.run))
@@ -102,7 +102,7 @@ def standalone() -> frozenset[str]:
 
 
 def run_standalone(op: str, inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
-    return modules()[op].run(Context(), inputs, params)
+    return load_modules()[op].run(Context(), inputs, params)
 
 
 # Last, and deliberately: an operation's file imports its declaration's

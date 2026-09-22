@@ -11,9 +11,9 @@ from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
 from mechbench_compute.distill import render
-from mechbench_compute.interp.k import _K
-from mechbench_compute.interp.last_logp import _last_logp
-from mechbench_compute.interp.tracked_ids import _tracked_ids
+from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.read_last_logp import read_last_logp
+from mechbench_compute.interp.collect_tracked_ids import collect_tracked_ids
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.model import _POSITIONS_DOC, ADAPTER
 
@@ -144,12 +144,12 @@ def steer_inject(
             "vectors collection")
 
     vectors = (inputs or {}).get("vectors")
-    if not isinstance(vectors, Mapping) or _K().item_kind_of(vectors) != "activations/vector":
+    if not isinstance(vectors, Mapping) or load_kinds().item_kind_of(vectors) != "activations/vector":
         raise ValueError(
             "intervene/steer needs a collection of activations/vector on "
             "its `vectors` port — the same block that measures geometry "
             "arms the intervention")
-    rows_at = [r for r in _K().items_of(vectors) if S.layer_of(r) == layer]
+    rows_at = [r for r in load_kinds().items_of(vectors) if S.layer_of(r) == layer]
     pos = np.array([r["vector"] for r in rows_at if str(S.label_of(r, axis)) == str(pos_label)],
                    dtype=np.float32)
     neg = np.array([r["vector"] for r in rows_at if str(S.label_of(r, axis)) == str(neg_label)],
@@ -176,13 +176,13 @@ def steer_inject(
         position = record.get("position", params.get("position", "last"))
         pos_idx = POS.one(position, seq, tokens=r.tokens(model.tokenizer),
                           record=record, prompt_len=r.prompt_len)
-        tracked = _tracked_ids(model, record, tracked=params.get("tracked"))
+        tracked = collect_tracked_ids(model, record, tracked=params.get("tracked"))
         for alpha in alphas:
             interventions = (
                 [] if alpha == 0.0
                 else [Patch.add(layer, pos_idx, value, alpha=alpha)]
             )
-            lp = _last_logp(model.run(ids, interventions=interventions).logits)
+            lp = read_last_logp(model.run(ids, interventions=interventions).logits)
             out_rows.append({
                 "id": record.get("id"),
                 "coords": dict(record.get("coords") or {}),
@@ -191,7 +191,7 @@ def steer_inject(
             })
             if on_item:
                 on_item()
-    return _K().collection(
+    return load_kinds().collection(
         "intervene/readout", out_rows,
         layer=layer,
         sweep={"strength": alphas},

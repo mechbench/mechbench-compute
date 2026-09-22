@@ -5,15 +5,15 @@ from typing import Any
 
 from mechbench_compute.chat.build_request import build_request
 from mechbench_compute.chat.constants import ITEM_KIND
-from mechbench_compute.chat.item import _item
-from mechbench_compute.chat.new_box import _new_box
-from mechbench_compute.chat.records import _records
-from mechbench_compute.chat.sandbox_and_tools import _sandbox_and_tools
-from mechbench_compute.chat.summary import _summary
-from mechbench_compute.providers import Budget, budget_from, make_transport
+from mechbench_compute.chat.build_item import build_item
+from mechbench_compute.chat.open_toolbox import open_toolbox
+from mechbench_compute.chat.read_records import read_records
+from mechbench_compute.chat.resolve_sandbox_tools import resolve_sandbox_tools
+from mechbench_compute.chat.summarize_spend import summarize_spend
+from mechbench_compute.providers import Budget, build_budget, make_transport
 from mechbench_compute.providers import limiter as pl
 from mechbench_compute.providers import messages as pm
-from mechbench_compute.tools import toolbox_from
+from mechbench_compute.tools import build_toolbox
 
 
 def run_remote(ref, records, params, *, secrets=None, cassette=None,
@@ -37,7 +37,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         dry_run=dry_run and tape is None, cassette=tape,
         cassette_mode=str(cassette_mode
                           or params.get("cassette_mode", "replay")))
-    budget = budget_from(params)
+    budget = build_budget(params)
     if job_budget is not None:
         # The node's cap under the job's: a graph whose node caps sum
         # past the job's cap still cannot spend past the job's.
@@ -57,13 +57,13 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     # Tools are ordinary blocks (task 000340); each item gets its own
     # toolbox so the runs it records are its own even under the pool. A
     # `sandbox` image (000360) adds its tools and a per-item session.
-    image, tool_specs = _sandbox_and_tools(params)
+    image, tool_specs = resolve_sandbox_tools(params)
     max_tool_rounds = int(params.get("max_tool_rounds", 3))
     block_runner = params.get("_block_runner")
 
-    specs = toolbox_from(tool_specs).specs()
+    specs = build_toolbox(tool_specs).specs()
 
-    recs = _records(records)
+    recs = read_records(records)
     if on_start:
         on_start(len(recs) * n)
 
@@ -96,7 +96,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
 
     def one(entry):
         key, rec, k, req = entry
-        box, session = _new_box(image, tool_specs, block_runner=block_runner)
+        box, session = open_toolbox(image, tool_specs, block_runner=block_runner)
         extra_calls: list[Any] = []
         # The tool loop: answer, run what it asked for, hand back the
         # results, ask again — bounded, because a model and its tools
@@ -113,14 +113,14 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                 *req.messages, out.as_message(),
                 pm.Message(role="user", content=tuple(results)),
             ])
-        item = _item(rec, k, out.text, model_wire=model_wire, params=params,
-                     parts=out.parts, call=out.call.to_wire(),
-                     sampling={"temperature": params.get("temperature"),
-                               "max_tokens": int(params.get("max_tokens", 1024)),
-                               "seed": req.seed, "index": k},
-                     tool_runs=[r.to_wire() for r in box.runs],
-                     sandbox_calls=(session.calls if session else ()),
-                     sandbox_snapshot=(session.final_wire() if session else None))
+        item = build_item(rec, k, out.text, model_wire=model_wire, params=params,
+                          parts=out.parts, call=out.call.to_wire(),
+                          sampling={"temperature": params.get("temperature"),
+                                    "max_tokens": int(params.get("max_tokens", 1024)),
+                                    "seed": req.seed, "index": k},
+                          tool_runs=[r.to_wire() for r in box.runs],
+                          sandbox_calls=(session.calls if session else ()),
+                          sandbox_snapshot=(session.final_wire() if session else None))
         return key, item, out.call, extra_calls
 
     if plan:
@@ -152,6 +152,6 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         name=params.get("name", "chat"),
         description=params.get("description", ""),
         fidelity="text",
-        spend=_summary(calls, budget, provider=provider, dry_run=dry_run,
-                       replayed=replayed),
+        spend=summarize_spend(calls, budget, provider=provider, dry_run=dry_run,
+                              replayed=replayed),
     )

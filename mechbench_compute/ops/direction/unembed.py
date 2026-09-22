@@ -7,8 +7,8 @@ import numpy as np
 
 from mechbench_compute import points as P
 from mechbench_compute import shapes as S
-from mechbench_compute.directions.as_array import as_array
-from mechbench_compute.directions.space_of import space_of
+from mechbench_compute.directions.coerce_array import coerce_array
+from mechbench_compute.directions.read_space import read_space
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.model import ADAPTER
 
@@ -48,15 +48,15 @@ def run(ctx, inputs, params):
 
     model = ctx.model(params.get("model"))
     d = inputs.get("direction")
-    return vocab_projection(model, d, top_k=int(params.get("top_k", 10)))
+    return unembed_direction(model, d, top_k=int(params.get("top_k", 10)))
 
 
-def vocab_projection(model, d: Mapping[str, Any], *, top_k: int = 10) -> dict[str, Any]:
+def unembed_direction(model, d: Mapping[str, Any], *, top_k: int = 10) -> dict[str, Any]:
     """What a direction 'says' in token space: the distribution the
     unembedding gives +d and −d (the final norm is scale-invariant, so a
     unit direction is as good as any multiple)."""
-    u = as_array(d)
-    out: dict[str, Any] = {"kind": "direction/vocab", "space": space_of(d), "top_k": int(top_k)}
+    u = coerce_array(d)
+    out: dict[str, Any] = {"kind": "direction/vocab", "space": read_space(d), "top_k": int(top_k)}
     for name, sign in (("positive", 1.0), ("negative", -1.0)):
         probs = np.asarray(model.decoded_distribution(sign * u), dtype=np.float64)
         logp = np.log(np.clip(probs, 1e-300, None))

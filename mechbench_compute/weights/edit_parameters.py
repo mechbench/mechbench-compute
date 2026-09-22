@@ -3,11 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from mechbench_compute.weights.module_of import _module_of
-from mechbench_compute.weights.parameter_names import parameter_names
-from mechbench_compute.weights.project_out import _project_out
+from mechbench_compute.weights.resolve_module import resolve_module
+from mechbench_compute.weights.read_parameters import read_parameters
+from mechbench_compute.weights.project_out import project_out
 from mechbench_compute.weights.select_points import select_points
-from mechbench_compute.weights.truncate import _truncate
+from mechbench_compute.weights.truncate import truncate
 
 #: What an intervention may do to a parameter. Deliberately fewer than
 #: the activation ops: an edit to a weight lasts for the whole node, so
@@ -32,7 +32,7 @@ def edit_parameters(lm: Any, items: Sequence[Mapping[str, Any]],
     """
     import mlx.core as mx
 
-    tensors = parameter_names(lm)
+    tensors = read_parameters(lm)
     handle: list[tuple[str, Any]] = []
     for item in items:
         point = str(item.get("parameter") or item.get("point") or "")
@@ -45,7 +45,7 @@ def edit_parameters(lm: Any, items: Sequence[Mapping[str, Any]],
                 f"edit lasts for the node.)")
         strength = float(item.get("strength", 1.0)) * float(factor)
         for name in names:
-            module, attr = _module_of(lm, name)
+            module, attr = resolve_module(lm, name)
             before = getattr(module, attr)
             handle.append((name, before))
             w = before.astype(mx.float32)
@@ -54,9 +54,9 @@ def edit_parameters(lm: Any, items: Sequence[Mapping[str, Any]],
             elif op == "scale":
                 after = w * strength
             elif op == "project_out":
-                after = _project_out(w, item, name, strength)
+                after = project_out(w, item, name, strength)
             else:
-                after = _truncate(w, item, name)
+                after = truncate(w, item, name)
             setattr(module, attr, after.astype(before.dtype))
-    mx.eval([getattr(*_module_of(lm, n)) for n, _ in handle])
+    mx.eval([getattr(*resolve_module(lm, n)) for n, _ in handle])
     return handle

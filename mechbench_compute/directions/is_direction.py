@@ -6,7 +6,7 @@ from typing import Any
 from mechbench_compute.directions.constants import KIND
 
 
-def _is_direction(d: Any) -> bool:
+def is_direction(d: Any) -> bool:
     """A direction record, by its current name or the retired one."""
     from mechbench_compute.lexicon import kinds as K
 

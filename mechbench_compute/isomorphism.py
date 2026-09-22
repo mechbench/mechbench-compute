@@ -107,7 +107,7 @@ def check(block: str, leaves: Sequence[Mapping[str, Any]], params: Mapping[str, 
     if alg == "collect":
         flat = PURE_BLOCKS[block]({**(inputs or {}), port: list(leaves)}, params)
     else:
-        m0 = rd.monoid_for(block, params)
+        m0 = rd.find_monoid(block, params)
         flat = m0.finalize(m0.partial(list(leaves), params), params)
     ref = digest(flat)
     for t in range(trials):
@@ -116,7 +116,7 @@ def check(block: str, leaves: Sequence[Mapping[str, Any]], params: Mapping[str, 
             out = rd.reduce_chunks(block, [_flatten_partition(p) for p in part],
                                    params, port=port, inputs=inputs)
         else:
-            m = rd.monoid_for(block, params)
+            m = rd.find_monoid(block, params)
             out = m.finalize(_reduce_nested(m, part, params), params)
         if digest(out) == ref:
             continue

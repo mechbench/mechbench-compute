@@ -13,8 +13,8 @@ from mechbench_compute import blocks, trajectory
 from mechbench_compute.block_params import check_params
 from mechbench_compute.ops.records.select import select
 from mechbench_compute.ops.records.union import union
-from mechbench_compute.ops.direction.fit import from_vectors
-from mechbench_compute.ops.text.measure import text_stats
+from mechbench_compute.ops.direction.fit import fit_mean_difference
+from mechbench_compute.ops.text.measure import measure_texts
 from mechbench_compute.ops.trajectory.aggregate import aggregate
 from mechbench_compute.ops.trajectory.capture import capture
 from mechbench_compute.ops.trajectory.compare import compare
@@ -304,7 +304,7 @@ class TestAggregate:
         assert by["lh"]["n_pooled"] == 4
         assert by["lh"]["space"]["layer"] == 0
         # the direction algebra reads it unchanged
-        d = from_vectors(out, layer=0, positive="lh", negative="other")
+        d = fit_mean_difference(out, layer=0, positive="lh", negative="other")
         assert d["derivation"]["method"] == "diff_of_means"
         v = np.asarray(d["vector"])
         assert v[1] > 0 and v[2] < 0
@@ -359,7 +359,7 @@ class TestWiring:
         assert [r["coords"]["batch"] for r in out["items"]] == ["adapted", "base"]  # port order
         assert all(r["space"]["layer"] == 12 and "label" not in r for r in out["items"])
         from mechbench_compute import directions as dirs
-        d = from_vectors(out, layer=12, axis="batch", positive="base", negative="adapted")
+        d = fit_mean_difference(out, layer=12, axis="batch", positive="base", negative="adapted")
         v = np.asarray(d["vector"])
         assert v[1] > 0 and v[2] < 0
 
@@ -375,7 +375,7 @@ class TestWiring:
                   "measures": [{"kind": "pattern", "name": "opening",
                                 "where": "prefix", "ignore_case": True,
                                 "patterns": [r"the old lighthouse"]}]}
-        rows = text_stats({"documents": items}, params)
+        rows = measure_texts({"documents": items}, params)
         assert rows[0]["opening"] == 1
         assert rows[0]["trace"] == {"token_ids": [1, 2, 3]}  # kept for capture
         assert rows[0]["text"].startswith("The old")

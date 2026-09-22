@@ -10,7 +10,7 @@ from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
 from mechbench_compute.distill import render
-from mechbench_compute.interp.k import _K
+from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.model import ADAPTER
@@ -87,12 +87,12 @@ def run(ctx, inputs, params):
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
-    return examples(model, records, params,
+    return find_top_examples(model, records, params,
                            direction=inputs.get("direction"),
                            on_item=ctx.on_item, on_start=ctx.on_start)
 
 
-def examples(
+def find_top_examples(
     model,
     records: Sequence[Mapping[str, Any]],
     params: Mapping[str, Any],
@@ -126,13 +126,13 @@ def examples(
         point = hookpoints.normalize(str(params.get("point", "mlp.act")))
         vec = None
     else:
-        sp = dirs.space_of(direction)
+        sp = dirs.read_space(direction)
         layer = params.get("layer", sp.get("layer"))
         if layer is None:
             raise ValueError("the direction names no layer; give `layer`")
         layer = int(layer)
         point = hookpoints.normalize(str(params.get("point") or sp.get("point") or "resid_post"))
-        vec = dirs.as_array(direction)
+        vec = dirs.coerce_array(direction)
         index = None
     k = int(params.get("k", 10))
     half = int(params.get("window", 8))
@@ -200,7 +200,7 @@ def examples(
             items.append({**w, "rank": rank})
     mean = total / max(n_tokens, 1)
     var = max(total_sq / max(n_tokens, 1) - mean * mean, 0.0)
-    return _K().collection(
+    return load_kinds().collection(
         "records/record", items,
         model=S.model_id_of(model), point=point, layer=layer,
         **({"neuron": index} if index is not None else {}),

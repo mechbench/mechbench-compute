@@ -19,7 +19,7 @@ _REMOTE_ONLY = {
 }
 
 
-def _refuse_remote_only(params: Mapping[str, Any]) -> None:
+def refuse_remote_only(params: Mapping[str, Any]) -> None:
     asked = [p for p in sorted(_REMOTE_ONLY)
              if params.get(p) not in (None, False)]
     if not asked:

@@ -11,8 +11,8 @@ from mechbench_compute.lexicon.model import (
     ADAPTER,
     INTERVENTION,
 )
-from mechbench_compute.protocol.tokenizer_id import _tokenizer_id
-from mechbench_compute.protocol.wire_model import _wire_model
+from mechbench_compute.protocol.read_tokenizer_id import read_tokenizer_id
+from mechbench_compute.protocol.serialize_model import serialize_model
 
 OP = Op(
     name="text/generate",
@@ -171,8 +171,8 @@ def run(ctx, inputs, params):
         ctx.on_start(len(records) * n * len(cells))
     items = []
     for cell in cells:
-        with intervene_mod.edited(model, plan.weight_items if plan else (),
-                                  cell.factor if plan else 0.0):
+        with intervene_mod.edit_weights(model, plan.weight_items if plan else (),
+                                        cell.factor if plan else 0.0):
             for rec in records:
                 lead = str(rec.get("prefill") or "") if continue_prefill else ""
                 r = render(model, dict(rec, prefill=lead))
@@ -230,7 +230,7 @@ def run(ctx, inputs, params):
                                          **({"stop": list(stop_strings)} if stop_strings else {})},
                             # The wire form, never the resolved object: the
                             # object carries the adapter bytes (000488).
-                            "model": _wire_model(params.get("model")),
+                            "model": serialize_model(params.get("model")),
                         },
                     }
                     if fidelity == "trace":
@@ -239,13 +239,13 @@ def run(ctx, inputs, params):
                             tok, full_ids)
                         item["trace"] = {
                             "token_ids": [int(t) for t in full_ids],
-                            "tokenizer": _tokenizer_id(params.get("model")),
+                            "tokenizer": read_tokenizer_id(params.get("model")),
                             "text": full_text,
                             "offsets": [[int(a), int(b)] for a, b in offs],
                             "generation_spans": [{
                                 "token_start": len(ids),
                                 "token_end": len(full_ids),
-                                "model": _wire_model(params.get("model")),
+                                "model": serialize_model(params.get("model")),
                                 "temperature": temperature,
                                 "top_p": top_p,
                                 "seed": k,

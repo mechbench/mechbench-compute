@@ -35,10 +35,10 @@ arguments come from the call.
 
 
 def run(ctx, inputs, params):
-    return bench_lookup(inputs, params)
+    return fetch_bench_object(inputs, params)
 
 
-def bench_lookup(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
+def fetch_bench_object(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
     """`tools/lookup` — fetch a bench object by
     path, so a model can consult what the platform already knows.
 

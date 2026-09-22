@@ -12,7 +12,7 @@ intent.
 ```python
 body = {
     "block":   block,          # "~canonical/ops/residuals/vectors/1"
-    "params":  dict(params),   # _wire_params(): DECLARED params only
+    "params":  dict(params),   # serialize_params(): DECLARED params only
     "inputs":  input_hashes,   # content hashes of upstream node outputs
     "compute": core_version,   # mechbench_compute.__version__
     "model":   model,          # the wire form of the model ref

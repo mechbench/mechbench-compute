@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute.directions.add import add
-from mechbench_compute.directions.directions_from import _directions_from
+from mechbench_compute.directions.collect_directions import collect_directions
 from mechbench_compute.lexicon._base import Op, Output
 from mechbench_compute.lexicon.direction import _NAMED_DIRECTIONS
 
@@ -30,7 +30,7 @@ with equal weights, except that the derivation says `average`.
 
 
 def run(ctx, inputs, params):
-    return block_average(inputs, params)
+    return average(collect_directions(inputs, params))
 
 
 def average(directions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -45,6 +45,3 @@ def average(directions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     out["derivation"]["method"] = "average"
     return out
 
-
-def block_average(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    return average(_directions_from(inputs, params))

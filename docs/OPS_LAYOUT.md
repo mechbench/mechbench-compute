@@ -47,14 +47,14 @@ A definition two or more operations use is a file of its own, under the
 topic it belongs to, named for itself:
 
 ```
-mechbench_compute/interp/last_logp.py        def _last_logp(logits)      12 lines
+mechbench_compute/interp/read_last_logp.py   def read_last_logp(logits)  12 lines
 mechbench_compute/intervene/spec.py          class Spec                 257 lines
-mechbench_compute/directions/as_array.py     def as_array(value)         22 lines
+mechbench_compute/directions/coerce_array.py def coerce_array(value)     22 lines
 ```
 
 So the import line at the top of an operation's file is the path to
-open — `from mechbench_compute.interp.last_logp import _last_logp` — and
-opening it costs that definition and nothing else: a median twelve
+open — `from mechbench_compute.interp.read_last_logp import read_last_logp` —
+and opening it costs that definition and nothing else: a median twelve
 lines. Most of the time the name is enough and the file is never opened.
 
 A constant only one helper uses lives in that helper's file; a constant

@@ -7,9 +7,9 @@ import numpy as np
 
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.model import ADAPTER
-from mechbench_compute.weights.coords_of import _coords_of
-from mechbench_compute.weights.effective_rank import effective_rank
-from mechbench_compute.weights.parameter_names import parameter_names
+from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
+from mechbench_compute.weights.compute_effective_rank import compute_effective_rank
+from mechbench_compute.weights.read_parameters import read_parameters
 from mechbench_compute.weights.select_points import select_points
 
 OP = Op(
@@ -96,7 +96,7 @@ MAX_VALUES = 2_000_000
 _STAT_BLOCK_VALUES = 16_000_000
 
 
-def parameter_stats(arr: Any, *, spectrum: int = 0) -> dict[str, Any]:
+def measure_parameter(arr: Any, *, spectrum: int = 0) -> dict[str, Any]:
     """What a parameter is, as numbers.
 
     The cheap ones are computed WHERE THE TENSOR IS — four reductions on
@@ -143,7 +143,7 @@ def parameter_stats(arr: Any, *, spectrum: int = 0) -> dict[str, Any]:
         sv = np.linalg.svd(np.array(a.astype(mx.float32)), compute_uv=False)
         stats["singular_values"] = [float(x) for x in sv[:spectrum]]
         stats["spectral"] = float(sv[0])
-        stats["effective_rank"] = effective_rank(sv)
+        stats["effective_rank"] = compute_effective_rank(sv)
     return stats
 
 
@@ -156,7 +156,7 @@ def capture_weights(lm: Any, params: Mapping[str, Any] | None = None,
     params = dict(params or {})
     spectrum = int(params.get("spectrum", 0) or 0)
     want_values = bool(params.get("values", False))
-    tensors = parameter_names(lm)
+    tensors = read_parameters(lm)
     chosen = select_points(tensors, params.get("points", "all"))
 
     if want_values:
@@ -175,12 +175,12 @@ def capture_weights(lm: Any, params: Mapping[str, Any] | None = None,
         tensor = tensors[name]
         item: dict[str, Any] = {
             "id": name,
-            "coords": _coords_of(name),
+            "coords": parse_parameter_coords(name),
             "kind": "weights/parameter",
             "shape": [int(d) for d in tensor.shape],
             "n": int(tensor.size),
             "dtype": str(tensor.dtype).replace("mlx.core.", ""),
-            **parameter_stats(tensor, spectrum=spectrum),
+            **measure_parameter(tensor, spectrum=spectrum),
         }
         if want_values:
             item["values"] = np.array(

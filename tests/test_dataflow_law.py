@@ -33,7 +33,7 @@ class TestMonoidLaws:
         ("records/bin", {"value": "delta", "lo": -5, "hi": 5, "bins": 10}),
     ])
     def test_identity_and_associativity(self, block, params):
-        m = rd.monoid_for(block, params)
+        m = rd.find_monoid(block, params)
         leaves = _leaves()
         a, b, c = m.partial(leaves[:20], params), m.partial(leaves[20:45], params), m.partial(leaves[45:], params)
         assert m.merge(m.identity(), a) == a and m.merge(a, m.identity()) == a

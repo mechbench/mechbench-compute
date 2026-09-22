@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def _resolve_layers(spec: Any, n_layers: int) -> list[int]:
+def resolve_layers(spec: Any, n_layers: int) -> list[int]:
     """"all", an int, or a list of ints — validated against the arch."""
     if spec in (None, "all"):
         return list(range(n_layers))

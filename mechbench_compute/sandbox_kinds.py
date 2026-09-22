@@ -30,7 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from mechbench_compute import sandbox
-from mechbench_compute.sandbox_session import _TOOL_DEFS, TOOL_NAMES
+from mechbench_compute.sandbox_session import TOOL_DEFS, TOOL_NAMES
 
 #: Catalog paths: the registered identity of each kind. An object on
 #: the wire carries the bare name (`sandbox/snapshot`, in
@@ -149,7 +149,7 @@ def sandbox_tool_catalog() -> list[dict[str, Any]]:
     node wires those when it builds a session."""
     return [{"name": d["name"], "description": d["description"],
              "schema": dict(d["schema"])}
-            for d in (_TOOL_DEFS[n] for n in TOOL_NAMES)]
+            for d in (TOOL_DEFS[n] for n in TOOL_NAMES)]
 
 
 def default_image_wire() -> dict[str, Any]:

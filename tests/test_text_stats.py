@@ -6,7 +6,7 @@ modes, over records and document_collections."""
 import pytest
 
 from mechbench_compute.blocks import PURE_BLOCKS
-from mechbench_compute.ops.text.measure import text_stats
+from mechbench_compute.ops.text.measure import measure_texts
 
 STORIES = [
     {"id": "s1", "coords": {"prompt": "flash"},
@@ -35,7 +35,7 @@ def test_registered():
 
 
 def test_pattern_prefix_and_annotate_mode():
-    out = text_stats({"records": STORIES},
+    out = measure_texts({"records": STORIES},
                      {"measures": [LEAK, OPENING]})
     by_id = {r["id"]: r for r in out}
     assert [by_id[i]["meta_leak"] for i in ("s1", "s2", "s3", "s4")] == \
@@ -46,7 +46,7 @@ def test_pattern_prefix_and_annotate_mode():
 
 
 def test_pattern_anywhere():
-    out = text_stats(
+    out = measure_texts(
         {"records": STORIES},
         {"measures": [{"kind": "pattern", "name": "lh",
                        "patterns": [r"lighthouse"]}]})
@@ -54,7 +54,7 @@ def test_pattern_anywhere():
 
 
 def test_lexical_counts_and_dup():
-    out = text_stats(
+    out = measure_texts(
         {"records": [{"id": "x", "text": "the cat and the dog"}]},
         {"measures": [{"kind": "lexical", "name": "lex"}]})
     r = out[0]
@@ -65,7 +65,7 @@ def test_lexical_counts_and_dup():
 
 def test_corpus_frequency_mean_log10_and_coverage():
     freqs = {"the": 1000.0, "cat": 10.0}
-    out = text_stats(
+    out = measure_texts(
         {"records": [{"id": "x", "text": "The cat zorbles"}]},
         {"measures": [{"kind": "corpus_frequency", "name": "wf",
                        "frequencies": freqs}]})
@@ -76,7 +76,7 @@ def test_corpus_frequency_mean_log10_and_coverage():
 
 
 def test_corpus_frequency_via_input_port():
-    out = text_stats(
+    out = measure_texts(
         {"records": [{"id": "x", "text": "cat"}],
          "frequencies": {"weights": {"cat": 100.0}}},
         {"measures": [{"kind": "corpus_frequency", "name": "wf"}]})
@@ -85,7 +85,7 @@ def test_corpus_frequency_via_input_port():
 
 def test_corpus_frequency_requires_table():
     with pytest.raises(ValueError, match="no frequency table"):
-        text_stats({"records": STORIES},
+        measure_texts({"records": STORIES},
                    {"measures": [{"kind": "corpus_frequency",
                                   "name": "wf"}]})
 
@@ -94,13 +94,13 @@ def test_document_collection_input():
     coll = {"kind": "document_collection",
             "items": [{"id": "d1", "text": "Here is a tale.",
                        "metadata": {"coords": {"sample": 0}}}]}
-    out = text_stats({"documents": coll}, {"measures": [LEAK]})
+    out = measure_texts({"documents": coll}, {"measures": [LEAK]})
     assert out[0]["meta_leak"] == 1
     assert out[0]["coords"] == {"sample": 0}
 
 
 def test_corpus_mode_summary():
-    out = text_stats(
+    out = measure_texts(
         {"records": STORIES},
         {"mode": "corpus",
          "measures": [LEAK,
@@ -118,12 +118,12 @@ def test_corpus_mode_summary():
 
 def test_unknown_measure_kind():
     with pytest.raises(ValueError, match="unknown measure type"):
-        text_stats({"records": STORIES},
+        measure_texts({"records": STORIES},
                    {"measures": [{"kind": "vibes"}]})
 
 
 def test_weights_expectation_kind():
-    from mechbench_compute.ops.eval.expect import eval_expectation
+    from mechbench_compute.ops.eval.expect import check_expectations
 
     results = [{"id": "p1", "entropy_bits": 2.0,
                 "top_tokens": [{"token": " cat", "p": 0.72},
@@ -131,8 +131,8 @@ def test_weights_expectation_kind():
     expectations = [{"id": "p1", "expect": {
         "kind": "weights", "weights": {"cat": 3.0, "dog": 1.0},
         "max_kl_bits": 0.05}}]
-    out = eval_expectation({"results": results,
-                            "expectations": expectations}, {})
+    out = check_expectations({"results": results,
+                              "expectations": expectations}, {})
     row = next(r for r in out["items"] if r["id"] == "p1")
     # masses normalize to .75/.25 vs target .75/.25 -> tiny KL, pass
     assert row["kl_bits"] < 0.01
@@ -153,7 +153,7 @@ LIST = {"type": "list", "name": "genres", "separator": ", ",
 
 
 def test_list_annotates_each_draw():
-    rows = {r["id"]: r for r in text_stats({"records": LISTS}, {"measures": [LIST]})}
+    rows = {r["id"]: r for r in measure_texts({"records": LISTS}, {"measures": [LIST]})}
     assert rows["l1"]["genres_items"] == 4 and rows["l1"]["genres_valid"] == 1
     assert rows["l1"]["genres_first"] == "Mystery"
     # A repeat, and the prefix outcome kept apart from its longer twin.
@@ -167,7 +167,7 @@ def test_list_annotates_each_draw():
 
 
 def test_list_summarises_the_corpus():
-    (summary,) = text_stats({"records": LISTS}, {"measures": [LIST], "mode": "corpus"})
+    (summary,) = measure_texts({"records": LISTS}, {"measures": [LIST], "mode": "corpus"})
     assert summary["genres_parsed_rate"] == 0.75
     assert summary["genres_duplicate_rate"] == 0.25
     assert summary["genres_valid_rate"] == 0.25
@@ -178,22 +178,22 @@ def test_list_summarises_the_corpus():
 
 def test_list_takes_a_target_map_as_its_vocabulary_but_not_a_transform():
     freqs = {"weights": {g: 1.0 for g in GENRES}}
-    (row,) = text_stats({"records": LISTS[:1]}, {"measures": [dict(LIST, items=freqs)]})
+    (row,) = measure_texts({"records": LISTS[:1]}, {"measures": [dict(LIST, items=freqs)]})
     assert row["genres_unknown"] == 0
     with pytest.raises(ValueError, match="untransformed"):
-        text_stats({"records": LISTS[:1]},
+        measure_texts({"records": LISTS[:1]},
                    {"measures": [dict(LIST, items=dict(freqs, transform=[{"op": "sqrt"}]))]})
 
 
 def test_list_without_extract_reads_the_whole_text_and_can_fold_case():
-    rows = text_stats({"records": [{"id": "x", "text": "humor, HUMOR, Fiction"}]},
+    rows = measure_texts({"records": [{"id": "x", "text": "humor, HUMOR, Fiction"}]},
                       {"measures": [{"type": "list", "name": "g", "items": GENRES,
                                      "ignore_case": True}]})
     assert rows[0]["g_items"] == 3 and rows[0]["g_duplicates"] == 1 and rows[0]["g_unknown"] == 0
 
 
 def test_items_mode_tallies_what_the_corpus_said_map_or_not():
-    rows = text_stats({"records": LISTS}, {"measures": [LIST], "mode": "items"})
+    rows = measure_texts({"records": LISTS}, {"measures": [LIST], "mode": "items"})
     by_item = {r["item"]: r for r in rows}
     # Every answer is a row, in the map or not.
     assert by_item["Mystery"]["count"] == 3 and by_item["Mystery"]["lists"] == 2
@@ -210,7 +210,7 @@ def test_items_mode_tallies_what_the_corpus_said_map_or_not():
 
 
 def test_items_mode_without_a_vocabulary_labels_nothing():
-    rows = text_stats({"records": LISTS[:1]},
+    rows = measure_texts({"records": LISTS[:1]},
                       {"measures": [{k: v for k, v in LIST.items() if k != "items"}],
                        "mode": "items"})
     assert {r["item"] for r in rows} == {"Mystery", "Humor", "Witches", "Fiction"}
@@ -219,4 +219,4 @@ def test_items_mode_without_a_vocabulary_labels_nothing():
 
 def test_items_mode_needs_a_list_measure():
     with pytest.raises(ValueError, match="needs a `list` measure"):
-        text_stats({"records": LISTS}, {"measures": [LEAK], "mode": "items"})
+        measure_texts({"records": LISTS}, {"measures": [LEAK], "mode": "items"})

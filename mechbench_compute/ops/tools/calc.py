@@ -33,7 +33,7 @@ call.
 
 
 def run(ctx, inputs, params):
-    return calc(inputs, params)
+    return calculate(inputs, params)
 
 
 class CalcRefused(ValueError):
@@ -48,7 +48,7 @@ _ALLOWED_NODES = (
 )
 
 
-def calc(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+def calculate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """`tools/calc` — arithmetic, and ONLY arithmetic.
 
     Parsed, walked, and refused if it contains anything but numbers and

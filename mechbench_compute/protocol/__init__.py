@@ -37,10 +37,10 @@ from mechbench_schema import (
 
 from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, Model, lexicon, ops
 from mechbench_compute import thinking as THINK
-from mechbench_compute.protocol.tokenizer_id import _tokenizer_id  # noqa: F401
-from mechbench_compute.protocol.wire_model import _wire_model  # noqa: F401
+from mechbench_compute.protocol.read_tokenizer_id import read_tokenizer_id  # noqa: F401
+from mechbench_compute.protocol.serialize_model import serialize_model  # noqa: F401
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec  # noqa: F401
-from mechbench_compute.protocol.wire_params import _wire_params  # noqa: F401
+from mechbench_compute.protocol.serialize_params import serialize_params  # noqa: F401
 
 
 class ProtocolExecutor:
@@ -839,16 +839,16 @@ class ProtocolExecutor:
             # (000438 — a silently ignored param is a wrong answer with
             # no error; an unwired required port is the same, earlier.)
             from mechbench_compute.block_params import check_inputs, check_params
-            check_params(block, _wire_params(params))
+            check_params(block, serialize_params(params))
             inputs = check_inputs(block, inputs)
             # The stored identity, not the spelling: one fingerprint per
             # op however the protocol wrote it (docs/LEXICON.md §1).
             fingerprint = resume_mod.node_fingerprint(
-                block=lexicon.canonical_path(block), params=_wire_params(params),
+                block=lexicon.canonical_path(block), params=serialize_params(params),
                 input_hashes=[node_hashes.get(e["from"]["node"], "")
                               for e in in_edges] + inline_hashes,
                 core_version=core_version,
-                model=str(_wire_params(params).get("model", "")),
+                model=str(serialize_params(params).get("model", "")),
             )
             if self._on_node_start is not None:
                 self._on_node_start(nid, fingerprint)
@@ -1013,7 +1013,7 @@ class ProtocolExecutor:
                         *stored_inputs_of(node)])),
                     # Provenance records the stored identity.
                     operation=lexicon.canonical_path(block),
-                    params=_wire_params(params),
+                    params=serialize_params(params),
                 )
                 node_paths[nid] = out["path"]
                 # A node declared as several outputs is stored under each
@@ -1022,7 +1022,7 @@ class ProtocolExecutor:
                     bench.emit(f"{result_base}/{also}", to_emit,
                                inputs=[out["path"]],
                                operation=lexicon.canonical_path(block),
-                               params=_wire_params(params))
+                               params=serialize_params(params))
             if isinstance(results[nid], dict) and results[nid].get("spend"):
                 spend_by_node[nid] = results[nid]["spend"]
             # A held node was handed over by `on_node_kept`: it has no
@@ -1057,7 +1057,7 @@ class ProtocolExecutor:
                         results[nid],
                         inputs=list(stored_inputs_of(nodes[nid])),
                         operation=lexicon.canonical_path(held_block),
-                        params=_wire_params(held_params))
+                        params=serialize_params(held_params))
                     node_paths[nid] = out["path"]
                 except Exception as exc:  # noqa: BLE001 — evidence, not the verdict
                     print(f"[graph] could not store the held result of {nid}: {exc}")

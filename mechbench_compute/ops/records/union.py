@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import WILDCARD, In, Op, Output, P
 
 OP = Op(
@@ -114,7 +114,7 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
     segments = []
     records = []
     for port in ports:
-        recs = _items(inputs[port])
+        recs = read_items(inputs[port])
         segments.append({"source": port, "count": len(recs)})
         for r in recs:
             records.append({**r, "coords": {**r.get("coords", {}),
@@ -124,11 +124,11 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
     # another is still a collection of adapter deltas — and the metrics
     # its kind declares still apply to it. Mixed inputs fall back to the
     # root, which is the only thing they have in common.
-    return K.collection(_shared_item_kind(inputs, ports), records,
+    return K.collection(_resolve_shared_kind(inputs, ports), records,
                         segments=segments)
 
 
-def _shared_item_kind(inputs: Mapping[str, Any], ports: Sequence[str]) -> str:
+def _resolve_shared_kind(inputs: Mapping[str, Any], ports: Sequence[str]) -> str:
     from mechbench_compute.lexicon import kinds as K
 
     kinds = {K.item_kind_of(inputs[p]) if isinstance(inputs[p], Mapping) else None

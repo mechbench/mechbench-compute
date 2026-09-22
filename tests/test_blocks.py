@@ -3,15 +3,15 @@ protocol leans on — deterministic, growth-safe, expectation-judging."""
 
 import pytest
 
-from mechbench_compute.ops.records.cross import factor_cross
-from mechbench_compute.ops.records.fill import template
-from mechbench_compute.ops.eval.expect import eval_expectation
+from mechbench_compute.ops.records.cross import cross_factors
+from mechbench_compute.ops.records.fill import fill_templates
+from mechbench_compute.ops.eval.expect import check_expectations
 
 WORDS = ["alpha", "bravo", "charlie", "delta", "echo"]
 
 
 def test_factor_cross_is_the_full_cartesian_product():
-    recs = factor_cross({"factors": [
+    recs = cross_factors({"factors": [
         {"name": "gender", "levels": [{"key": "m"}, {"key": "f"}]},
         {"name": "prompt", "levels": [{"key": "plain", "value": "Say hi."},
                                        {"key": "fancy", "value": "Declaim!"}]},
@@ -25,19 +25,19 @@ def test_factor_cross_is_the_full_cartesian_product():
 
 
 def test_factor_cross_accepts_legacy_axes_spelling():
-    legacy = factor_cross({"axes": [{"name": "x", "levels": [{"key": "1"}]}]})
-    modern = factor_cross({"factors": [{"name": "x", "levels": [{"key": "1"}]}]})
+    legacy = cross_factors({"axes": [{"name": "x", "levels": [{"key": "1"}]}]})
+    modern = cross_factors({"factors": [{"name": "x", "levels": [{"key": "1"}]}]})
     assert legacy == modern
 
 
 def test_sampled_values_are_deterministic_in_seed_and_index_alone():
     gen = {"kind": "words", "size": 3, "count": 4, "seed": 42,
            "word_list": WORDS, "key_prefix": "w"}
-    a = factor_cross({"factors": [{"name": "seed", "sampled": gen}]})
-    b = factor_cross({"factors": [{"name": "seed", "sampled": gen}]})
+    a = cross_factors({"factors": [{"name": "seed", "sampled": gen}]})
+    b = cross_factors({"factors": [{"name": "seed", "sampled": gen}]})
     assert a == b
     other_seed = dict(gen, seed=43)
-    c = factor_cross({"factors": [{"name": "seed", "sampled": other_seed}]})
+    c = cross_factors({"factors": [{"name": "seed", "sampled": other_seed}]})
     assert [r["values"]["seed"] for r in c] != [r["values"]["seed"] for r in a]
 
 
@@ -47,14 +47,14 @@ def test_growing_a_sampled_factor_preserves_the_original_membership():
     small = {"kind": "words", "size": 3, "count": 5, "seed": 7,
              "word_list": WORDS, "key_prefix": "w"}
     big = dict(small, count=12)
-    first = factor_cross({"factors": [{"name": "s", "sampled": small}]})
-    grown = factor_cross({"factors": [{"name": "s", "sampled": big}]})
+    first = cross_factors({"factors": [{"name": "s", "sampled": small}]})
+    grown = cross_factors({"factors": [{"name": "s", "sampled": big}]})
     assert grown[: len(first)] == first
     assert len(grown) == 12
 
 
 def test_generators_stamp_a_kind_coordinate():
-    recs = factor_cross({"factors": [{
+    recs = cross_factors({"factors": [{
         "name": "seed",
         "sampled": {"kind": "noise", "size": 8, "count": 2, "seed": 1},
     }]})
@@ -62,13 +62,13 @@ def test_generators_stamp_a_kind_coordinate():
 
 
 def test_template_substitutes_to_fixpoint():
-    recs = factor_cross({"factors": [
+    recs = cross_factors({"factors": [
         {"name": "gender", "levels": [{"key": "m", "value": "his"}]},
         {"name": "opening", "levels": [
             {"key": "elaborate", "value": "Marcus adjusted {gender} coat."},
         ]},
     ]})
-    out = template(recs, {"templates": {
+    out = fill_templates(recs, {"templates": {
         "user": "Continue: {opening}",
         "system": "No placeholders here.",
     }})
@@ -100,7 +100,7 @@ def test_eval_expectation_judges_and_aggregates():
     ]
     # The reads are in the older spelling (`outcome_mass`, `top_tokens`);
     # the judge reads them as distributions.
-    out = eval_expectation(
+    out = check_expectations(
         {"results": results, "expectations": expectations}, {})
     assert out["item_kind"] == "eval/verdict"
     by_id = {r["id"]: r for r in out["items"]}
@@ -124,7 +124,7 @@ def test_eval_expectation_reads_a_current_decision_collection():
          "tracked": {str(i): tok(str(i), 1 / 6) for i in range(1, 7)}},
         {"id": "capital", "entropy_bits": 0.01, "top": [tok("Paris", 0.999)]},
     ])
-    out = eval_expectation({"results": reads, "expectations": [
+    out = check_expectations({"results": reads, "expectations": [
         {"id": "die", "expect": {"type": "uniform", "over": ["1", "2", "3", "4", "5", "6"]}},
         {"id": "capital", "expect": {"type": "answer", "value": "Paris"}},
     ]}, {})
@@ -137,19 +137,19 @@ def test_eval_expectation_reads_its_ports_only():
     # Inputs arrive on ports, never under params: a result list given
     # there is not read (the executor refuses it by name before this).
     with pytest.raises(KeyError):
-        eval_expectation({}, {
+        check_expectations({}, {
             "results": [{"id": "a", "entropy_bits": 3.0}],
             "expectations": [{"id": "a", "expect": {"kind": "min_entropy", "bits": 2.0}}],
         })
 
 
 def test_suite_metric_records_shapes_lm_eval_results():
-    from mechbench_compute.ops.eval.benchmark import suite_metric_records
+    from mechbench_compute.ops.eval.benchmark import build_metric_records
     results = {"arc_easy": {"alias": "arc_easy",
                              "acc,none": 0.74, "acc_stderr,none": 0.02,
                              "acc_norm,none": 0.70,
                              "acc_norm_stderr,none": 0.021}}
-    recs = suite_metric_records(results, {"arc_easy": {"effective": 50}},
+    recs = build_metric_records(results, {"arc_easy": {"effective": 50}},
                                 variant="adapted")
     assert [r["id"] for r in recs] == ["arc_easy:acc:adapted",
                                         "arc_easy:acc_norm:adapted"]
@@ -221,8 +221,8 @@ def test_every_records_block_reads_a_collection_on_its_port():
 
 
 def test_table_from_records_flattens_coords_and_types_columns():
-    from mechbench_compute.ops.records.tabulate import table_from_records
-    table = table_from_records([
+    from mechbench_compute.ops.records.tabulate import tabulate_records
+    table = tabulate_records([
         {"id": "a", "coords": {"task": "arc_easy", "metric": "acc"},
          "value": 0.7, "delta": 0.01},
         {"id": "b", "coords": {"task": "arc_easy", "metric": "acc_norm"},
@@ -237,13 +237,13 @@ def test_table_from_records_flattens_coords_and_types_columns():
 
 
 def test_suite_records_flow_through_union_and_paired_delta():
-    from mechbench_compute.ops.eval.benchmark import suite_metric_records
-    from mechbench_compute.ops.records.subtract import paired_delta
+    from mechbench_compute.ops.eval.benchmark import build_metric_records
+    from mechbench_compute.ops.records.subtract import subtract_baseline
     from mechbench_compute.ops.records.union import union
-    base = suite_metric_records({"arc_easy": {"acc,none": 0.70}}, {}, "base")
-    adapted = suite_metric_records({"arc_easy": {"acc,none": 0.73}}, {}, "adapted")
+    base = build_metric_records({"arc_easy": {"acc,none": 0.70}}, {}, "base")
+    adapted = build_metric_records({"arc_easy": {"acc,none": 0.73}}, {}, "adapted")
     merged = union({"a_base": base, "b_adapted": adapted}, {})
-    deltas = paired_delta(merged, {"match_on": ["task", "metric"],
+    deltas = subtract_baseline(merged, {"match_on": ["task", "metric"],
                                     "baseline_where": {"variant": "base"},
                                     "value": "value"})
     assert len(deltas) == 1
@@ -251,16 +251,16 @@ def test_suite_records_flow_through_union_and_paired_delta():
 
 
 def test_viz_spec_references_its_source_or_inlines_rows():
-    from mechbench_compute.ops.records.plot import viz_spec
+    from mechbench_compute.ops.records.plot import build_chart
     table = {"kind": "metric_table", "rows": [{"id": "a", "model": "e2b", "v": 1.0}]}
-    ref = viz_spec(table, {"mark": "bar", "encoding": {"x": "model", "y": "v"}},
+    ref = build_chart(table, {"mark": "bar", "encoding": {"x": "model", "y": "v"}},
                      source_label="benji/marcus/metrics/t")
     assert ref["kind"] == "records/chart" and ref["source"] == "benji/marcus/metrics/t"
     assert "data" not in ref
-    inline = viz_spec(table, {"encoding": {"x": "model", "y": "v"}})
+    inline = build_chart(table, {"encoding": {"x": "model", "y": "v"}})
     assert inline["data"]["rows"] == [{"id": "a", "model": "e2b", "v": 1.0}]
     recs = [{"id": "r", "coords": {"task": "arc"}, "value": 0.8}]
-    flat = viz_spec(recs, {"encoding": {"x": "task", "y": "value"}})
+    flat = build_chart(recs, {"encoding": {"x": "task", "y": "value"}})
     assert flat["data"]["rows"] == [{"id": "r", "value": 0.8, "task": "arc"}]
 
 
@@ -273,8 +273,8 @@ class TestAFigureCarriesItsVocabulary:
     ARCH = {"n_layers": 4, "global_layers": [1, 3], "first_kv_shared_layer": 2}
 
     def _spec(self, params, records=None):
-        from mechbench_compute.ops.records.plot import viz_spec
-        return viz_spec(records if records is not None else self.ROWS,
+        from mechbench_compute.ops.records.plot import build_chart
+        return build_chart(records if records is not None else self.ROWS,
                         {"encoding": {"x": "layer", "y": "mean"}, **params})
 
     def test_labels_and_colour_and_focus_ride_on_the_spec(self):
@@ -404,7 +404,7 @@ def test_uniform_masses_derive_from_top_tokens():
         {"token": "0", "p": 0.0001}]}]
     expectations = [{"id": "c1", "expect": {
         "kind": "uniform", "over": ["1", "2", "3", "4"], "max_kl_bits": 0.1}}]
-    table = eval_expectation(
+    table = check_expectations(
         {"results": results, "expectations": expectations}, {})
     row = table["items"][0]
     assert row["pass"] is True
@@ -416,7 +416,7 @@ def test_uniform_without_any_distribution_is_unjudgeable_not_false():
     results = [{"id": "c1", "entropy_bits": 0.5}]
     expectations = [{"id": "c1", "expect": {
         "kind": "uniform", "over": ["1", "2"], "max_kl_bits": 0.1}}]
-    table = eval_expectation(
+    table = check_expectations(
         {"results": results, "expectations": expectations}, {})
     row = table["items"][0]
     assert row["pass"] is None and "unjudgeable" in row["note"]
@@ -471,25 +471,25 @@ class TestAFigureIsReadAgainstALine:
     ]}
 
     def test_a_reference_rides_on_the_spec(self):
-        from mechbench_compute.ops.records.plot import viz_spec
+        from mechbench_compute.ops.records.plot import build_chart
 
-        spec = viz_spec(self.ROWS, {
+        spec = build_chart(self.ROWS, {
             "mark": "bar", "encoding": {"x": "face", "y": "p"},
             "reference": [{"y": 1 / 6, "text": "a fair die"}],
         })
         assert spec["reference"] == [{"y": pytest.approx(0.16667, abs=1e-4), "text": "a fair die"}]
 
     def test_a_line_on_neither_axis_is_refused(self):
-        from mechbench_compute.ops.records.plot import viz_spec
+        from mechbench_compute.ops.records.plot import build_chart
 
         with pytest.raises(ValueError, match=r"reference\[0\] needs `y`"):
-            viz_spec(self.ROWS, {"mark": "bar", "encoding": {"x": "face", "y": "p"},
-                                 "reference": [{"text": "a fair die"}]})
+            build_chart(self.ROWS, {"mark": "bar", "encoding": {"x": "face", "y": "p"},
+                                    "reference": [{"text": "a fair die"}]})
 
     def test_a_figure_without_one_says_nothing_about_it(self):
-        from mechbench_compute.ops.records.plot import viz_spec
+        from mechbench_compute.ops.records.plot import build_chart
 
-        spec = viz_spec(self.ROWS, {"mark": "bar", "encoding": {"x": "face", "y": "p"}})
+        spec = build_chart(self.ROWS, {"mark": "bar", "encoding": {"x": "face", "y": "p"}})
         assert "reference" not in spec
 
 
@@ -536,15 +536,15 @@ class TestRecordCoercion:
     were each writing their own coercion before this."""
 
     def test_items_are_records(self):
-        from mechbench_compute.blocks import _items
+        from mechbench_compute.blocks import read_items
 
-        assert _items(A_CORPUS) == A_CORPUS["items"]
+        assert read_items(A_CORPUS) == A_CORPUS["items"]
 
     def test_the_older_conventions_still_win_first(self):
-        from mechbench_compute.blocks import _items
+        from mechbench_compute.blocks import read_items
 
         both = {"records": [{"id": "r"}], "items": [{"id": "i"}]}
-        assert _items(both) == [{"id": "r"}]
+        assert read_items(both) == [{"id": "r"}]
 
     def test_a_document_can_be_embedded_by_its_text(self):
         from mechbench_compute.distill import render
@@ -583,7 +583,7 @@ def test_eval_expectation_absent_judges_the_mass_on_outcomes_already_said():
         {"id": "unread", "entropy_bits": 5.0, "tracked": {"Mystery": entry(0.001)}},
     ]
     already = {"type": "absent", "over": ["Mystery", "Humor"], "max_p": 0.01}
-    out = eval_expectation({"results": reads, "expectations": [
+    out = check_expectations({"results": reads, "expectations": [
         {"id": "clean", "expect": already},
         {"id": "repeats", "expect": already},
         {"id": "unread", "expect": already}]}, {})

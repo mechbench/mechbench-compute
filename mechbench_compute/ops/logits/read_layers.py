@@ -76,7 +76,7 @@ def run(ctx, inputs, params):
     n_layers = len(model.lm.model.layers)
     top_k = int(params.get("top_k", 5))
     from mechbench_compute import shapes as S
-    from mechbench_compute.interp import _tracked_ids
+    from mechbench_compute.interp import collect_tracked_ids
 
     if ctx.on_start:
         ctx.on_start(len(records))
@@ -87,7 +87,7 @@ def run(ctx, inputs, params):
         r = model.run(
             mx.array([ids]),
             interventions=[Capture.residual(layers=range(n_layers))])
-        tracked = _tracked_ids(model, rec, tracked=params.get("tracked"))
+        tracked = collect_tracked_ids(model, rec, tracked=params.get("tracked"))
         for i in range(n_layers):
             row = model.project_to_logits(
                 r.cache[f"blocks.{i}.resid_post"])[0, -1, :]

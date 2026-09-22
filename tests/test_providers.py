@@ -13,7 +13,7 @@ from mechbench_compute.providers import (
     Budget,
     Cassette,
     CassetteTransport,
-    budget_from,
+    build_budget,
     capabilities,
     make_transport,
     pricing,
@@ -129,8 +129,8 @@ class TestBudget:
 
     def test_a_remote_node_without_a_budget_is_refused(self):
         with pytest.raises(ValueError, match="budget_usd"):
-            budget_from({"model": {"provider": "anthropic"}})
-        assert budget_from({"budget_usd": 2}).cap_usd == 2.0
+            build_budget({"model": {"provider": "anthropic"}})
+        assert build_budget({"budget_usd": 2}).cap_usd == 2.0
 
     def test_unknown_models_are_flagged_not_guessed(self):
         cost, priced = pricing.cost_usd("anthropic", "claude-from-2031",

@@ -4,10 +4,10 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from mechbench_compute.blocks.cell_rows import cell_rows
-from mechbench_compute.blocks.group_key import _group_key
-from mechbench_compute.blocks.interval_of import _interval_of
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.expand_cells import expand_cells
+from mechbench_compute.blocks.read_group_key import read_group_key
+from mechbench_compute.blocks.read_interval import read_interval
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.records import _RECORDS
 from mechbench_compute.reduce.monoid import Monoid
@@ -95,7 +95,7 @@ def _bootstrap_mean(values: Sequence[float], level: float, resamples: int,
     return float(lo), float(hi)
 
 
-def summary_rows(groups: Mapping[tuple, Sequence[float]], params: Mapping[str, Any]) -> dict[str, Any]:
+def summarize_groups(groups: Mapping[tuple, Sequence[float]], params: Mapping[str, Any]) -> dict[str, Any]:
     """The `records/summarize` table from values grouped by the `by`
     key — shared by the flat block and its monoid, so the two are the
     same rows by construction. With `interval`, every row carries the
@@ -104,7 +104,7 @@ def summary_rows(groups: Mapping[tuple, Sequence[float]], params: Mapping[str, A
 
     by = params.get("by") or []
     value_field = params["value"]
-    interval = _interval_of(params)
+    interval = read_interval(params)
     rows = []
     for key, vals in groups.items():
         vals = list(vals)
@@ -150,7 +150,7 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     notices is wrong; `skip` omits them and REPORTS the count, which is
     what a judged corpus needs — an unreadable verdict is not a zero
     (task 000356), and the rows that were dropped must be visible."""
-    recs = cell_rows(_items(records))
+    recs = expand_cells(read_items(records))
     by = params.get("by") or []
     value_field = params["value"]
     on_missing = str(params.get("on_missing", "error"))
@@ -169,9 +169,9 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
                 f"field. Set on_missing: 'skip' if absent values are expected "
                 f"(a judge that could not be read, an unscored item) — the "
                 f"count is then reported on the table.")
-        key = _group_key(r, by)
+        key = read_group_key(r, by)
         groups.setdefault(key, []).append(float(r[value_field]))
-    out = summary_rows(groups, params)
+    out = summarize_groups(groups, params)
     if n_missing:
         out["n_missing"] = n_missing
     return out
@@ -186,13 +186,13 @@ class GroupStats(Monoid):
         return {}
 
     def partial(self, records, params):
-        from mechbench_compute.blocks import _group_key, cell_rows
+        from mechbench_compute.blocks import read_group_key, expand_cells
 
         by = params.get("by") or []
         f = params["value"]
         groups: dict[tuple, list[float]] = {}
-        for r in cell_rows(records):
-            key = _group_key(r, by)
+        for r in expand_cells(records):
+            key = read_group_key(r, by)
             groups.setdefault(key, []).append(float(r[f]))
         return {k: tuple(sorted(v)) for k, v in groups.items()}
 
@@ -206,7 +206,7 @@ class GroupStats(Monoid):
         pass  # its imports now live in this file
 
         ordered = {key: list(p[key]) for key in sorted(p, key=lambda k: tuple(str(x) for x in k))}
-        return summary_rows(ordered, params)
+        return summarize_groups(ordered, params)
 
 
 MONOID = GroupStats

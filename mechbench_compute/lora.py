@@ -37,7 +37,7 @@ __all__ = [
     "save_adapter",
 ]
 
-_KEY_RE = re.compile(
+KEY_RE = re.compile(
     r"^model\.layers\.(\d+)\.(self_attn|mlp)\.(\w+)\.lora_([ab])$")
 
 # Which submodule container each projection lives on (000263: PEFT's
@@ -168,7 +168,7 @@ def fuse(lm, weights: dict[str, mx.array],
     """
     pairs: dict[tuple[int, str, str], dict[str, mx.array]] = {}
     for key, w in weights.items():
-        m = _KEY_RE.match(key)
+        m = KEY_RE.match(key)
         if m is None:
             raise ValueError(f"unrecognized adapter key {key!r}")
         i, container, proj, ab = (int(m.group(1)), m.group(2),

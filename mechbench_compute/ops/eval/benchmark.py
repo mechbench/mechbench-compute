@@ -99,7 +99,7 @@ def run(ctx, inputs, params):
         if ctx.on_item:
             ctx.on_item()
 
-    recs = suite_metric_records(results_all, nsamples_all,
+    recs = build_metric_records(results_all, nsamples_all,
                                 variant=variant)
     columns = [{"name": "id", "dtype": "string"},
                {"name": "task", "dtype": "string"},
@@ -126,14 +126,14 @@ def run(ctx, inputs, params):
             "rows": rows}
 
 
-def suite_metric_records(results: Mapping[str, Any],
+def build_metric_records(results: Mapping[str, Any],
                          n_samples: Mapping[str, Any] | None = None,
                          variant: str = "base") -> list[dict[str, Any]]:
     """Shape lm-eval-harness `results` (task -> {"acc,none": v,
     "acc_stderr,none": s, ...}) into coord-carrying records:
     one record per (task, metric) with value/stderr/n and coords
     {task, metric, variant} — composable straight into union /
-    paired_delta for base-vs-adapter deltas."""
+    subtract_baseline for base-vs-adapter deltas."""
     out: list[dict[str, Any]] = []
     for task in sorted(results):
         metrics = results[task]

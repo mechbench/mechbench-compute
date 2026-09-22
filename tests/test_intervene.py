@@ -225,12 +225,12 @@ class TestRunReadout:
         assert "captures" not in cap_ctrl
         # …and so a capture readout goes straight into geometry/compare,
         # grouped by factor, separated on a record coordinate.
-        from mechbench_compute.ops.geometry.compare import geometry_similarity
+        from mechbench_compute.ops.geometry.compare import compare_geometry
         two = run(model, [{"id": "a", "user": "hi", "coords": {"sense": "x"}},
                              {"id": "b", "user": "yo", "coords": {"sense": "y"}}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "scale", "strength": 2.0}],
                       "readout": {"kind": "capture", "points": ["blocks.2.resid_post"]}})
-        sim = geometry_similarity({"items": two}, {"by": "factor", "axis": "sense"})
+        sim = compare_geometry({"items": two}, {"by": "factor", "axis": "sense"})
         assert [g["group"] for g in sim["items"]] == ["factor=0.0", "factor=1.0"]
         assert sim["items"][1]["labels"] == ["x", "y"]
 

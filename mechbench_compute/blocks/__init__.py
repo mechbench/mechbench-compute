@@ -95,14 +95,13 @@ from mechbench_compute.tools import PURE_TOOL_BLOCKS as _TOOL_BLOCKS
 
 PURE_BLOCKS.update(_TOOL_BLOCKS)
 
-from mechbench_compute.blocks.cell_rows import cell_rows  # noqa: F401
-from mechbench_compute.blocks.grid_rows import grid_rows  # noqa: F401
-from mechbench_compute.blocks.group_key import _group_key  # noqa: F401
-from mechbench_compute.blocks.interval_of import _interval_of  # noqa: F401
-from mechbench_compute.blocks.items import _items  # noqa: F401
-from mechbench_compute.blocks.coll import _coll  # noqa: F401
+from mechbench_compute.blocks.expand_cells import expand_cells  # noqa: F401
+from mechbench_compute.blocks.expand_grid import expand_grid  # noqa: F401
+from mechbench_compute.blocks.read_group_key import read_group_key  # noqa: F401
+from mechbench_compute.blocks.read_interval import read_interval  # noqa: F401
+from mechbench_compute.blocks.read_items import read_items  # noqa: F401
+from mechbench_compute.blocks.build_collection import build_collection  # noqa: F401
 from mechbench_compute.blocks.pure_blocks import _PureBlocks  # noqa: F401
-from mechbench_compute.blocks.transcript_mod import _transcript_mod  # noqa: F401
 
 # An operation that has its own file (docs/OPS_LAYOUT.md) and runs with
 # no executor is callable here by name, as the ones above are; the

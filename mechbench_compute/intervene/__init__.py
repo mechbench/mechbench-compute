@@ -38,24 +38,24 @@ from mechbench_compute import directions as dirs
 from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
 from mechbench_compute.points import LAYOUT as _LAYOUT
-from mechbench_compute.intervene.as_list import _as_list  # noqa: F401
-from mechbench_compute.intervene.axis_coord import _axis_coord  # noqa: F401
+from mechbench_compute.intervene.coerce_int_list import coerce_int_list  # noqa: F401
+from mechbench_compute.intervene.coerce_axis_coord import coerce_axis_coord  # noqa: F401
 from mechbench_compute.intervene.cell import Cell  # noqa: F401
 from mechbench_compute.intervene.compile import compile  # noqa: F401
 from mechbench_compute.intervene.compiled import Compiled  # noqa: F401
 from mechbench_compute.intervene.constants import SWEEP_AXES  # noqa: F401
-from mechbench_compute.intervene.edited import edited  # noqa: F401
+from mechbench_compute.intervene.edit_weights import edit_weights  # noqa: F401
 from mechbench_compute.intervene.plan import Plan, plan  # noqa: F401
-from mechbench_compute.intervene.rows_matrix import _rows_matrix  # noqa: F401
-from mechbench_compute.intervene.scaled import scaled  # noqa: F401
-from mechbench_compute.intervene.source_items import _source_items  # noqa: F401
+from mechbench_compute.intervene.build_rows_matrix import build_rows_matrix  # noqa: F401
+from mechbench_compute.intervene.scale_specs import scale_specs  # noqa: F401
+from mechbench_compute.intervene.read_source_items import read_source_items  # noqa: F401
 from mechbench_compute.intervene.spec import OPS, Spec, _GLOBAL_POINTS, _SAME  # noqa: F401
 from mechbench_compute.intervene.spec_error import SpecError  # noqa: F401
 from mechbench_compute.intervene.spec_intervention import SpecIntervention  # noqa: F401
-from mechbench_compute.intervene.spec_items import spec_items  # noqa: F401
+from mechbench_compute.intervene.read_spec_items import read_spec_items  # noqa: F401
 from mechbench_compute.intervene.sweep_as_run import sweep_as_run  # noqa: F401
 from mechbench_compute.intervene.sweep_cells import sweep_cells  # noqa: F401
-from mechbench_compute.intervene.wire_spec import _wire_spec  # noqa: F401
+from mechbench_compute.intervene.serialize_spec import serialize_spec  # noqa: F401
 
 
 # --- parsing -----------------------------------------------------------------------

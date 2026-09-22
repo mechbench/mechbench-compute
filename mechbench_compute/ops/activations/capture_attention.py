@@ -10,8 +10,8 @@ from mechbench_compute import points as P
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
 from mechbench_compute.distill import render
-from mechbench_compute.interp.k import _K
-from mechbench_compute.interp.resolve_layers import _resolve_layers
+from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.model import ADAPTER
@@ -59,7 +59,7 @@ def run(ctx, inputs, params):
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
-    return attention_patterns(
+    return capture_attention_patterns(
         model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
 
 
@@ -68,7 +68,7 @@ def run(ctx, inputs, params):
 MAX_ATTN_FLOATS = 2_000_000
 
 
-def attention_patterns(
+def capture_attention_patterns(
     model,
     records: Sequence[Mapping[str, Any]],
     params: Mapping[str, Any],
@@ -85,7 +85,7 @@ def attention_patterns(
             "attention weights are per-head and quadratic in prompt "
             "length, so name the layers you want to look at"
         )
-    layers = _resolve_layers(spec, model.arch.n_layers)
+    layers = resolve_layers(spec, model.arch.n_layers)
     if not records:
         raise ValueError("attention/patterns needs at least one condition")
     if on_start:
@@ -116,7 +116,7 @@ def attention_patterns(
             tokens=tokens, coords=record.get("coords")))
         if on_item:
             on_item()
-    return _K().collection(
+    return load_kinds().collection(
         "activations/attention", rows,
         n_heads=model.arch.n_heads,
         layers=layers,

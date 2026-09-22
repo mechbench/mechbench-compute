@@ -37,11 +37,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from mechbench_compute.providers import messages as pm
-from mechbench_compute.tools.as_text import _as_text  # noqa: F401
+from mechbench_compute.tools.coerce_text import coerce_text  # noqa: F401
 from mechbench_compute.tools.tool_def import ToolDef  # noqa: F401
 from mechbench_compute.tools.tool_run import ToolRun  # noqa: F401
 from mechbench_compute.tools.toolbox import Toolbox  # noqa: F401
-from mechbench_compute.tools.toolbox_from import BUILTIN_TOOLS, toolbox_from  # noqa: F401
+from mechbench_compute.tools.build_toolbox import BUILTIN_TOOLS, build_toolbox  # noqa: F401
 
 #: How a local family writes a tool call in plain text.
 

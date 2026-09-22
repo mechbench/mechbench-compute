@@ -4,7 +4,7 @@ import re
 
 from mechbench_compute import lexicon
 from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.protocol.wire_params import _wire_params
+from mechbench_compute.protocol.serialize_params import serialize_params
 
 OP = Op(
     name="adapter/merge",
@@ -140,7 +140,7 @@ def run(ctx, inputs, params):
                 manifest,
                 inputs=list(mref.adapter_labels),
                 operation=lexicon.canonical_path("adapter/merge"),
-                params=_wire_params(params),
+                params=serialize_params(params),
             )
             return {
                 "kind": "model/pointer",

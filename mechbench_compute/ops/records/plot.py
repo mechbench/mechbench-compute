@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.cell_rows import cell_rows
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.expand_cells import expand_cells
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
@@ -197,12 +197,12 @@ LABEL_FIELDS = ("x", "y", "value", "series", "color")
 def run(ctx, inputs, params):
     # A viz references its upstream by LABEL when the executor knows it
     # (lineage-true, renders live).
-    return viz_spec(
+    return build_chart(
         inputs.get("records"), params,
         source_label=ctx.input_paths.get("records") or None)
 
 
-def _layer_axis_from(header: Mapping[str, Any] | None) -> dict[str, Any] | None:
+def _read_layer_axis(header: Mapping[str, Any] | None) -> dict[str, Any] | None:
     """`axes.layer` as a figure carries it, from a header's `arch`."""
     arch = (header or {}).get("arch") if isinstance(header, Mapping) else None
     if not isinstance(arch, Mapping) or "n_layers" not in arch:
@@ -279,7 +279,7 @@ def _check_references(reference: Any) -> list[dict[str, Any]]:
     return out
 
 
-def viz_spec(records: Any, params: Mapping[str, Any],
+def build_chart(records: Any, params: Mapping[str, Any],
                source_label: str | None = None) -> dict[str, Any]:
     """A chart as a bench object: how to present an upstream table, stored
     beside it rather than drawn once and thrown away.
@@ -338,7 +338,7 @@ def viz_spec(records: Any, params: Mapping[str, Any],
     labels = {k: str(v) for k, v in labels_in.items() if v}
     header = records if isinstance(records, Mapping) else None
     axes = (_check_layer_axis(params["axes"]) if params.get("axes") is not None
-            else ({"layer": la} if (la := _layer_axis_from(header)) else None))
+            else ({"layer": la} if (la := _read_layer_axis(header)) else None))
     annotate = (_check_annotations(params["annotate"])
                 if params.get("annotate") is not None else None)
     reference = (_check_references(params["reference"])
@@ -362,9 +362,9 @@ def viz_spec(records: Any, params: Mapping[str, Any],
         spec["source"] = source_label
     else:
         recs = (records["rows"] if isinstance(records, Mapping)
-                and isinstance(records.get("rows"), list) else _items(records))
+                and isinstance(records.get("rows"), list) else read_items(records))
         rows = []
-        for r in cell_rows(recs):
+        for r in expand_cells(recs):
             row = {k: v for k, v in r.items() if k != "coords"}
             row.update(r.get("coords", {}) if isinstance(r, Mapping) else {})
             rows.append(row)

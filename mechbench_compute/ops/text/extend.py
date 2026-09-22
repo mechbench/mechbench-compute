@@ -6,7 +6,7 @@ from typing import Any
 from mechbench_compute import thinking as THINK
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.transcript.constants import MAIN
-from mechbench_compute.transcript.transcripts import _transcripts
+from mechbench_compute.transcript.read_transcripts import read_transcripts
 
 OP = Op(
     name="text/extend",
@@ -110,7 +110,7 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
                 "transcript carries `coords.conversation`, which text/render sets")
         replies.setdefault(str(cid), []).append(d)
     items = []
-    for t in _transcripts(inputs.get("transcripts")):
+    for t in read_transcripts(inputs.get("transcripts")):
         cid = str(t.get("id"))
         got = replies.get(cid, [])
         if len(got) != 1:
@@ -163,19 +163,19 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
         # a verdict, a rating, whose turn is next. The op does not know
         # what any of them mean — it carries what it was told to.
         carried = {**standing, **{f: d[f] for f in keep_fields if f in d}}
-        items.append(transcript_item(cid, messages, participants=names,
-                                     stopped=stopped, carried=carried,
-                                     coords=dict(t.get("coords") or {}),
-                                     metadata=dict(t.get("metadata") or {})))
+        items.append(build_transcript_item(cid, messages, participants=names,
+                                           stopped=stopped, carried=carried,
+                                           coords=dict(t.get("coords") or {}),
+                                           metadata=dict(t.get("metadata") or {})))
     return K.collection(TRANSCRIPT_KIND, items, fidelity="segments",
                         description=f"Each transcript extended by one turn of {participant}.")
 
 
-def transcript_item(cid: str, messages: Sequence[Mapping[str, Any]], *,
-                    participants: Sequence[str], stopped: str = "",
-                    coords: Mapping[str, Any] | None = None,
-                    metadata: Mapping[str, Any] | None = None,
-                    carried: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def build_transcript_item(cid: str, messages: Sequence[Mapping[str, Any]], *,
+                          participants: Sequence[str], stopped: str = "",
+                          coords: Mapping[str, Any] | None = None,
+                          metadata: Mapping[str, Any] | None = None,
+                          carried: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """One conversation as its kind declares it: `messages`,
     `participants` and `stopped` at the top level, `turns` and `text`
     (the visible turns) for the browser, and coords on the item as

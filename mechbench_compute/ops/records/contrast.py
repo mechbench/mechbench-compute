@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.group_key import _group_key
-from mechbench_compute.blocks.interval_of import _interval_of
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.read_group_key import read_group_key
+from mechbench_compute.blocks.read_interval import read_interval
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.records import _RECORDS
 
@@ -67,8 +67,8 @@ def run(ctx, inputs, params):
     return contrast(inputs["records"], params)
 
 
-def _field_of(record: Mapping[str, Any], name: str) -> Any:
-    """A field read the way `_group_key` reads one: coords first, then
+def _read_field(record: Mapping[str, Any], name: str) -> Any:
+    """A field read the way `read_group_key` reads one: coords first, then
     the record itself."""
     coords = record.get("coords") or {}
     return coords[name] if name in coords else record.get(name)
@@ -88,18 +88,18 @@ def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     difference is above zero — how often the sign held."""
     import numpy as np
 
-    recs = _items(records)
+    recs = read_items(records)
     value_field = params["value"]
     on = params["on"]
     a_val, b_val = params["a"], params["b"]
     by = [k for k in (params.get("by") or []) if k != on]
     paired = params.get("paired")
-    level, resamples, seed = _interval_of({"interval": params.get("interval", 0.95),
-                                           "resamples": params.get("resamples", 2000),
-                                           "seed": params.get("seed", 0)})
+    level, resamples, seed = read_interval({"interval": params.get("interval", 0.95),
+                                            "resamples": params.get("resamples", 2000),
+                                            "seed": params.get("seed", 0)})
     sides: dict[tuple, dict[str, list[tuple[Any, float]]]] = {}
     for r in recs:
-        side = _field_of(r, on)
+        side = _read_field(r, on)
         if side == a_val:
             which = "a"
         elif side == b_val:
@@ -108,8 +108,8 @@ def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
             continue
         if value_field not in r or r[value_field] is None:
             raise ValueError(f"contrast: record {r.get('id')!r} has no {value_field!r} field")
-        key = _group_key(r, by)
-        pair_key = _field_of(r, paired) if paired else None
+        key = read_group_key(r, by)
+        pair_key = _read_field(r, paired) if paired else None
         sides.setdefault(key, {"a": [], "b": []})[which].append((pair_key, float(r[value_field])))
     rows = []
     rng = np.random.default_rng(seed)

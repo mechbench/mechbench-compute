@@ -129,7 +129,7 @@ def run(ctx, inputs, params):
 AXES = ("layers", "positions")
 
 
-def _coords_of(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+def _read_record_coords(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     """The record's coordinates, as every item carries them. A document
     item keeps its coords under `metadata`; the retired `label` field is
     read as the `label` coordinate so older records group as they did.
@@ -173,7 +173,7 @@ def capture(
     from mechbench_compute import Capture
     from mechbench_compute import positions as POS
     from mechbench_compute.distill import render
-    from mechbench_compute.interp import MAX_VECTOR_FLOATS, _resolve_layers
+    from mechbench_compute.interp import MAX_VECTOR_FLOATS, resolve_layers
 
     axis = str(params.get("axis", "layers"))
     if axis not in AXES:
@@ -202,14 +202,14 @@ def capture(
 
         if not isinstance(direction, Mapping) or "vector" not in direction:
             raise ValueError("`project` must be a direction record")
-        dvec = dirs.as_array(direction)
+        dvec = dirs.coerce_array(direction)
         if dvec.shape[0] != model.arch.d_model:
             raise ValueError(
                 f"project: direction has {dvec.shape[0]} dims; the model has "
                 f"{model.arch.d_model}")
 
     if axis == "layers":
-        layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+        layers = resolve_layers(params.get("layers"), model.arch.n_layers)
         position = params.get("position", "last")
         steps_per = len(layers)
     else:
@@ -221,7 +221,7 @@ def capture(
             layer_spec = layer_spec[0]
         if layer_spec is None:
             raise ValueError("a positions-axis trajectory needs `layer`")
-        layers = _resolve_layers(int(layer_spec), model.arch.n_layers)
+        layers = resolve_layers(int(layer_spec), model.arch.n_layers)
         position = params.get("positions", "generated")
         steps_per = int(max_steps) if max_steps else None
 
@@ -275,7 +275,7 @@ def capture(
         toks = [tok.decode([int(t)]) for t in arr]
         sel = dict(tokens=toks, record=record, prompt_len=prompt_len, gen_start=gen_start)
         result = model.run(ids, interventions=[cap])
-        coords = _coords_of(record, params)
+        coords = _read_record_coords(record, params)
 
         def sp(layer: int) -> dict[str, Any]:
             return S.space(model=mid, layer=layer, point=point, d=width)
@@ -286,9 +286,9 @@ def capture(
                 t = result.cache[f"blocks.{layer}.{point}"]
                 v = t[0, pos, :].astype(mx.float32)
                 mx.eval(v)
-                rows.append(_projected(
-                    _row(record, coords, sp(layer), step, pos, np.array(v), tok, arr,
-                         model, vocab_top), np.array(v), dvec, direction))
+                rows.append(_project_row(
+                    _build_point(record, coords, sp(layer), step, pos, np.array(v), tok, arr,
+                                 model, vocab_top), np.array(v), dvec, direction))
         else:
             layer = layers[0]
             t = result.cache[f"blocks.{layer}.{point}"]
@@ -305,10 +305,10 @@ def capture(
                 # `pool.over` selects among the trajectory's STEPS.
                 over = [idx[s] for s in POS.resolve(pool["over"], len(idx))]
                 v, n_pooled = POS.pooled(mat, over, pool["reduce"])
-                row = _row(record, coords, sp(layer), 0, over[0] if over else idx[0], v, tok, arr, model, 0)
+                row = _build_point(record, coords, sp(layer), 0, over[0] if over else idx[0], v, tok, arr, model, 0)
                 row.pop("token", None)
                 row.update({"n_pooled": n_pooled, "pool": pool})
-                rows.append(_projected(row, v, dvec, direction))
+                rows.append(_project_row(row, v, dvec, direction))
             else:
                 if dvec is None:
                     running = len(rows) + len(idx)
@@ -318,9 +318,9 @@ def capture(
                             f"cap at record {record.get('id')!r}; set `max_steps`, "
                             "`pool`, or `project`, or capture fewer records")
                 for step, p in enumerate(idx):
-                    row = _row(record, coords, sp(layer), step, p, mat[p], tok, arr,
-                               model, vocab_top)
-                    rows.append(_projected(row, mat[p], dvec, direction))
+                    row = _build_point(record, coords, sp(layer), step, p, mat[p], tok, arr,
+                                       model, vocab_top)
+                    rows.append(_project_row(row, mat[p], dvec, direction))
         if on_item:
             on_item()
 
@@ -345,21 +345,21 @@ def capture(
     )
 
 
-def _row(record, coords, sp, step, pos, vec: np.ndarray, tok, arr, model,
-         vocab_top: int) -> dict[str, Any]:
+def _build_point(record, coords, sp, step, pos, vec: np.ndarray, tok, arr, model,
+                 vocab_top: int) -> dict[str, Any]:
     """One `trajectory/point`: a vector item with its step and position."""
     row = S.vector(
         vec, sp, id=record.get("id"), coords=coords,
         token=S.token(tok, int(arr[pos])) if pos < len(arr) else None,
         step=int(step), position=int(pos))
     if vocab_top:
-        row["vocab"] = _vocab(model, vec, vocab_top)
+        row["vocab"] = _unembed_vector(model, vec, vocab_top)
     return row
 
 
-def _projected(row: dict[str, Any], vec: np.ndarray,
-               dvec: np.ndarray | None,
-               direction: Mapping[str, Any] | None) -> dict[str, Any]:
+def _project_row(row: dict[str, Any], vec: np.ndarray,
+                 dvec: np.ndarray | None,
+                 direction: Mapping[str, Any] | None) -> dict[str, Any]:
     """With a direction, a step is its scalar coordinate and carries no
     vector — the trace itself, small enough to be an object."""
     if dvec is None:
@@ -371,7 +371,7 @@ def _projected(row: dict[str, Any], vec: np.ndarray,
         n_pooled=row.get("n_pooled"), steps=row.get("steps"))
 
 
-def _vocab(model, vec: np.ndarray, k: int) -> dict[str, Any]:
+def _unembed_vector(model, vec: np.ndarray, k: int) -> dict[str, Any]:
     """The vector through the unembedding: the lens reading of this
     point, as a distribution."""
     import mlx.core as mx

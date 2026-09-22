@@ -40,16 +40,16 @@ from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
 from mechbench_compute.distill import encode, render
 from mechbench_compute.interventions import Ablate, Capture
-from mechbench_compute.interp.k import _K  # noqa: F401
-from mechbench_compute.interp.last_logp import _last_logp  # noqa: F401
-from mechbench_compute.interp.pair import _pair  # noqa: F401
-from mechbench_compute.interp.render_text import _render_text  # noqa: F401
-from mechbench_compute.interp.resolve_layers import _resolve_layers  # noqa: F401
-from mechbench_compute.interp.target_of import _target_of  # noqa: F401
-from mechbench_compute.interp.target_token_id import _target_token_id  # noqa: F401
-from mechbench_compute.interp.tracked_ids import _tracked_ids  # noqa: F401
+from mechbench_compute.interp.load_kinds import load_kinds  # noqa: F401
+from mechbench_compute.interp.read_last_logp import read_last_logp  # noqa: F401
+from mechbench_compute.interp.read_pair import read_pair  # noqa: F401
+from mechbench_compute.interp.render_text import render_text  # noqa: F401
+from mechbench_compute.interp.resolve_layers import resolve_layers  # noqa: F401
+from mechbench_compute.interp.resolve_target import resolve_target  # noqa: F401
+from mechbench_compute.interp.encode_target_token import encode_target_token  # noqa: F401
+from mechbench_compute.interp.collect_tracked_ids import collect_tracked_ids  # noqa: F401
 from mechbench_compute.interp.constants import MAX_VECTOR_FLOATS  # noqa: F401
-from mechbench_compute.interp.coords_of import _coords_of  # noqa: F401
-from mechbench_compute.interp.own_top1_if_different import _own_top1_if_different  # noqa: F401
+from mechbench_compute.interp.read_record_coords import read_record_coords  # noqa: F401
+from mechbench_compute.interp.report_own_top1 import report_own_top1  # noqa: F401
 
 

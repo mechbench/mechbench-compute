@@ -6,9 +6,9 @@ from typing import Any
 import numpy as np
 
 from mechbench_compute import shapes as S
-from mechbench_compute.trajectory.header import _header
-from mechbench_compute.trajectory.rows import _rows
-from mechbench_compute.trajectory.trajectory_of import _trajectory_of
+from mechbench_compute.trajectory.read_header import read_header
+from mechbench_compute.trajectory.read_points import read_points
+from mechbench_compute.trajectory.read_trajectory import read_trajectory
 
 
 def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
@@ -18,18 +18,18 @@ def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
     the funnel read against one axis, which is a legitimate question."""
     from mechbench_compute import directions as dirs
 
-    traj = _trajectory_of(inputs.get("trajectory"))
+    traj = read_trajectory(inputs.get("trajectory"))
     d = inputs.get("direction")
     if not isinstance(d, Mapping) or "vector" not in d:
         raise ValueError("trajectory/project needs a `direction` record")
-    dv = dirs.as_array(d)
+    dv = dirs.coerce_array(d)
     if dv.shape[0] != int(traj.get("d_model", dv.shape[0])):
         raise ValueError(
             f"direction has {dv.shape[0]} dims; the trajectory has "
             f"{traj.get('d_model')}")
     keep = bool(params.get("keep_vectors", False))
     rows = []
-    for r in _rows(traj):
+    for r in read_points(traj):
         v = np.asarray(r["vector"], dtype=np.float32)
         item = S.coordinate(
             float(v @ dv), S.space_of(r, header=traj), d,
@@ -41,6 +41,6 @@ def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
         rows.append(item)
     from mechbench_compute.lexicon import kinds as K
 
-    header = _header(traj)
+    header = read_header(traj)
     header["projected"] = True
     return K.collection("activations/coordinate", rows, **header)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.records import _RECORDS
 
@@ -32,15 +32,15 @@ type is inferred from its values. Nested fields are left out.
 
 
 def run(ctx, inputs, params):
-    return table_from_records(inputs["records"], params)
+    return tabulate_records(inputs["records"], params)
 
 
-def table_from_records(records: Any,
-                       params: Mapping[str, Any]) -> dict[str, Any]:
+def tabulate_records(records: Any,
+                     params: Mapping[str, Any]) -> dict[str, Any]:
     """Present a record stream as a metric table: coords flatten into
     leading columns, remaining scalar fields follow. The generic
     records -> table presenter (delta tables, group stats, ...)."""
-    recs = _items(records)
+    recs = read_items(records)
     coord_keys: list[str] = []
     value_keys: list[str] = []
     for r in recs:

@@ -12,9 +12,9 @@ from mechbench_compute import paths
 from mechbench_compute.ops.intervene.path import RECEIVER_POINTS
 from mechbench_compute.ops.intervene.path import SENDER_POINTS
 from mechbench_compute.ops.intervene.path import SpecError
-from mechbench_compute.ops.intervene.path import _frozen
+from mechbench_compute.ops.intervene.path import _freeze_off_path
 from mechbench_compute.ops.intervene.path import _parse_end
-from mechbench_compute.ops.intervene.path import _senders
+from mechbench_compute.ops.intervene.path import _collect_senders
 from mechbench_compute.ops.intervene.path import run_path_patch as run
 
 E2B = "mlx-community/gemma-4-e2b-it-bf16"
@@ -41,7 +41,7 @@ class _Model:
 class TestWhatItRefuses:
     def test_a_sender_must_be_earlier_than_its_receiver(self):
         with pytest.raises(SpecError, match="must be earlier"):
-            _senders({"senders": {"layer": 4, "head": 1}},
+            _collect_senders({"senders": {"layer": 4, "head": 1}},
                            {"point": "attn.q", "layer": 3, "head": 0}, 6, 4)
 
     def test_the_points_are_named(self):
@@ -59,25 +59,25 @@ class TestWhatItRefuses:
                              points=RECEIVER_POINTS, n_layers=6, default_point="logits")
 
     def test_the_sweeps_reach_every_earlier_component(self):
-        heads = _senders({"senders": "all-heads"},
+        heads = _collect_senders({"senders": "all-heads"},
                                {"point": "attn.q", "layer": 3, "head": 0}, 6, 4)
         assert len(heads) == 3 * 4
         assert {s["point"] for s in heads} == {"attn.per_head_out"}
         assert max(s["layer"] for s in heads) == 2
-        layers = _senders({"senders": "all-layers"},
+        layers = _collect_senders({"senders": "all-layers"},
                                 {"point": "logits", "layer": None}, 6, 4)
         assert len(layers) == 6 * 2 and {s["point"] for s in layers} == {"attn_out", "mlp_out"}
 
     def test_what_is_frozen_is_what_lies_between(self):
         cache = {f"blocks.{i}.{p}": i for i in range(6) for p in ("attn_out", "mlp_out")}
-        hooks = _frozen(cache, {"point": "attn.per_head_out", "layer": 1, "head": 0},
+        hooks = _freeze_off_path(cache, {"point": "attn.per_head_out", "layer": 1, "head": 0},
                               {"point": "attn.q", "layer": 4, "head": 0}, 6)
         # The sender's own MLP (it is not on the path), then both
         # branches of every layer strictly between.
         assert sorted(hooks) == ["blocks.1.mlp_out", "blocks.2.attn_out", "blocks.2.mlp_out",
                                  "blocks.3.attn_out", "blocks.3.mlp_out"]
         # An MLP sender does not freeze itself.
-        hooks = _frozen(cache, {"point": "mlp_out", "layer": 1, "head": None},
+        hooks = _freeze_off_path(cache, {"point": "mlp_out", "layer": 1, "head": None},
                               {"point": "logits", "layer": None}, 3)
         assert sorted(hooks) == ["blocks.2.attn_out", "blocks.2.mlp_out"]
 
@@ -146,12 +146,12 @@ class TestOnGemma:
 
         # The same thing by hand: capture the corrupt mlp_out, patch it
         # into the clean run, read the target's logit.
-        from mechbench_compute.interp import _render_text
+        from mechbench_compute.interp import render_text
         from mechbench_compute.interventions import Capture
         import mlx.core as mx
         name = f"blocks.{last}.mlp_out"
-        ids_a = _render_text(model, PAIR, PAIR["a"])
-        ids_b = _render_text(model, PAIR, PAIR["b"])
+        ids_a = render_text(model, PAIR, PAIR["a"])
+        ids_b = render_text(model, PAIR, PAIR["b"])
         corrupt = model.run(ids_b, interventions=[Capture.at([name])]).cache[name]
         tok = int(mx.argmax(model.run(ids_a).logits[0, -1]))  # unused; the pair tracks its own
         target = out["target"]["id"]

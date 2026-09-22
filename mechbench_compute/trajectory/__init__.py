@@ -46,10 +46,10 @@ import numpy as np
 
 from mechbench_compute import points as P
 from mechbench_compute import shapes as S
-from mechbench_compute.trajectory.header import _header  # noqa: F401
+from mechbench_compute.trajectory.read_header import read_header  # noqa: F401
 from mechbench_compute.trajectory.project import project  # noqa: F401
-from mechbench_compute.trajectory.rows import _rows  # noqa: F401
-from mechbench_compute.trajectory.trajectory_of import _trajectory_of  # noqa: F401
+from mechbench_compute.trajectory.read_points import read_points  # noqa: F401
+from mechbench_compute.trajectory.read_trajectory import read_trajectory  # noqa: F401
 
 # --- shapes ------------------------------------------------------------------
 

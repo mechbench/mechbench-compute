@@ -24,7 +24,7 @@ def call(name, **arguments):
 
 class TestTheToolbox:
     def test_a_handler_is_an_ordinary_block(self):
-        box = T.toolbox_from(["calc"])
+        box = T.build_toolbox(["calc"])
         out = box.call(call("calc", expression="2*(3+4)"))
         assert out.content == '{"expression": "2*(3+4)", "result": 14}'
         assert out.is_error is False
@@ -33,7 +33,7 @@ class TestTheToolbox:
         assert run.handler["block"] == "tools/calc"
 
     def test_calc_evaluates_arithmetic_and_refuses_code(self):
-        box = T.toolbox_from(["calc"])
+        box = T.build_toolbox(["calc"])
         bad = box.call(call("calc", expression="__import__('os').system('ls')"))
         assert bad.is_error is True
         assert "refuses Call" in bad.content
@@ -42,13 +42,13 @@ class TestTheToolbox:
         assert box.runs[0].error.startswith("CalcRefused")
 
     def test_an_unknown_tool_is_an_answer_the_model_can_read(self):
-        box = T.toolbox_from(["calc"])
+        box = T.build_toolbox(["calc"])
         out = box.call(call("rm_rf", path="/"))
         assert out.is_error is True
         assert "no such tool" in out.content and "calc" in out.content
 
     def test_a_handler_that_raises_becomes_an_error_result(self):
-        box = T.toolbox_from(["calc"])
+        box = T.build_toolbox(["calc"])
         out = box.call(call("calc"))          # no expression
         assert out.is_error and "expression" in out.content
 
@@ -98,7 +98,7 @@ class TestTheToolbox:
         with pytest.raises(ValueError, match="unique"):
             T.Toolbox([{"name": "x"}, {"name": "x"}])
         with pytest.raises(ValueError, match="unknown built-in tool"):
-            T.toolbox_from(["telepathy"])
+            T.build_toolbox(["telepathy"])
 
 
 # `TestLocalParsing` stood here. It tested the markdown fence we

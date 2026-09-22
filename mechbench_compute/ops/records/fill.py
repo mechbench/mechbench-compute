@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.coll import _coll
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.build_collection import build_collection
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
@@ -46,11 +46,11 @@ chat-shaped ops — and no adaptation step is needed between them.
 
 
 def run(ctx, inputs, params):
-    return _coll(template(_items(inputs["records"]), params))
+    return build_collection(fill_templates(read_items(inputs["records"]), params))
 
 
-def template(records: list[dict[str, Any]],
-             params: Mapping[str, Any]) -> list[dict[str, Any]]:
+def fill_templates(records: list[dict[str, Any]],
+                   params: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Instantiate named string templates against each record's values.
     `{axis-name}` placeholders substitute; everything else is verbatim."""
     templates: Mapping[str, str] = params.get("templates") or {}

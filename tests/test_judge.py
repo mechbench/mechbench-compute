@@ -361,7 +361,7 @@ class TestSubjectsFromACorpus:
 
     def test_the_judge_sees_the_story_and_not_its_condition(self):
         prompts = build_prompts(
-            J.chat_mod._records(CORPUS_FIXTURE), scale=Scale({"kind": "numeric"}),
+            J.chat_mod.read_records(CORPUS_FIXTURE), scale=Scale({"kind": "numeric"}),
             rubric="grade it", fields=["text"], n_votes=1, seed=0)
         assert "lighthouse" in prompts[0]["user"]
         # A judge that can see the condition label is grading the label.

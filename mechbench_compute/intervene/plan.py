@@ -8,10 +8,10 @@ from mechbench_compute.intervene.compile import compile
 from mechbench_compute.intervene.compiled import Compiled
 from mechbench_compute.intervene.spec import Spec
 from mechbench_compute.intervene.spec_intervention import SpecIntervention
-from mechbench_compute.intervene.spec_items import spec_items
+from mechbench_compute.intervene.read_spec_items import read_spec_items
 from mechbench_compute.intervene.sweep_as_run import sweep_as_run
 from mechbench_compute.intervene.sweep_cells import sweep_cells
-from mechbench_compute.intervene.wire_spec import _wire_spec
+from mechbench_compute.intervene.serialize_spec import serialize_spec
 
 
 class Plan:
@@ -48,14 +48,14 @@ class Plan:
     def header(self) -> dict[str, Any]:
         """What the result records: the items as run, the weight edits,
         the sweep as run."""
-        return {"spec": _wire_spec(self.compiled.filled),
+        return {"spec": serialize_spec(self.compiled.filled),
                 "weights": [dict(it) for it in self.weight_items] or None,
                 "sweep": sweep_as_run(self._sweep, self.cells)}
 
 
 def plan(model, params: Mapping[str, Any], inputs: Mapping[str, Any] | None) -> Plan | None:
     """A text op's intervention, planned: None when the node names none."""
-    items = spec_items(params.get("spec"), inputs)
+    items = read_spec_items(params.get("spec"), inputs)
     if not items:
         return None
     compiled = compile(model, items, inputs=inputs, seed=int(params.get("seed", 0)))

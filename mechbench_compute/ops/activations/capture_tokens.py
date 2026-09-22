@@ -10,9 +10,9 @@ from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
 from mechbench_compute.distill import render
-from mechbench_compute.interp.coords_of import _coords_of
-from mechbench_compute.interp.k import _K
-from mechbench_compute.interp.resolve_layers import _resolve_layers
+from mechbench_compute.interp.read_record_coords import read_record_coords
+from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.model import _LAYERS_ALL, _POSITIONS_DOC, _RESIDUAL_POINT
@@ -130,7 +130,7 @@ def capture_tokens(
     a chance to misalign them by one — the off-by-one that makes a
     surprisal probe fit the NEXT token's difficulty.
     """
-    layers = _resolve_layers(params.get("layers", "all"), model.arch.n_layers)
+    layers = resolve_layers(params.get("layers", "all"), model.arch.n_layers)
     point = hookpoints.normalize(str(params.get("point", "resid_post")))
     positions = params.get("positions", "all")
     every = max(1, int(params.get("every", 1)))
@@ -193,7 +193,7 @@ def capture_tokens(
               - mx.logsumexp(lg, axis=-1))
         mx.eval(lp)
         surp = -np.array(lp) / np.log(2.0)
-        coords = _coords_of(record, params)
+        coords = read_record_coords(record, params)
         for pos in idx:
             token = S.token(model.tokenizer, r.ids[pos])
             bits = None if pos == 0 else round(float(surp[pos - 1]), 4)
@@ -220,4 +220,4 @@ def capture_tokens(
         from mechbench_compute import tensors
 
         return tensors.collection("activations/vector", writer.close(), **header)
-    return _K().collection("activations/vector", rows, **header)
+    return load_kinds().collection("activations/vector", rows, **header)

@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.directions.as_array import as_array
+from mechbench_compute.directions.coerce_array import coerce_array
 from mechbench_compute.directions.make import make
-from mechbench_compute.directions.space_of import space_of
+from mechbench_compute.directions.read_space import read_space
 from mechbench_compute.lexicon._base import In, Op, Output
 
 OP = Op(
@@ -28,7 +28,7 @@ visible step in the graph rather than an assumption.
 
 
 def run(ctx, inputs, params):
-    return block_normalize(inputs, params)
+    return normalize(inputs.get("direction"))
 
 
 def normalize(d: Mapping[str, Any]) -> dict[str, Any]:
@@ -39,8 +39,5 @@ def normalize(d: Mapping[str, Any]) -> dict[str, Any]:
     and for making the normalization an explicit, recorded step rather
     than an implicit one.
     """
-    return make(as_array(d), space_of(d), method="normalize")
+    return make(coerce_array(d), read_space(d), method="normalize")
 
-
-def block_normalize(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    return normalize(inputs.get("direction"))

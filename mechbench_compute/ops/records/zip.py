@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
@@ -123,7 +123,7 @@ def zip_branches(inputs: Mapping[str, Any],
     indexed: list[dict[Any, Mapping[str, Any]]] = []
     for e in edges:
         rows: dict[Any, Mapping[str, Any]] = {}
-        for rec in _items(e.get("value")):
+        for rec in read_items(e.get("value")):
             k = key_of(rec)
             if k in rows:
                 raise ValueError(

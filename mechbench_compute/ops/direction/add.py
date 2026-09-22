@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
-
 from mechbench_compute import points as P
 from mechbench_compute.directions.add import add
-from mechbench_compute.directions.directions_from import _directions_from
+from mechbench_compute.directions.collect_directions import collect_directions
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.direction import _NAMED_DIRECTIONS
 
@@ -37,8 +34,5 @@ normalised to unit length.
 
 
 def run(ctx, inputs, params):
-    return block_add(inputs, params)
+    return add(collect_directions(inputs, params), params.get("weights"))
 
-
-def block_add(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    return add(_directions_from(inputs, params), params.get("weights"))

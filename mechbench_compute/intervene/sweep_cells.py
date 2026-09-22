@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.intervene.axis_coord import _axis_coord
+from mechbench_compute.intervene.coerce_axis_coord import coerce_axis_coord
 from mechbench_compute.intervene.cell import Cell
 from mechbench_compute.intervene.constants import SWEEP_AXES
 from mechbench_compute.intervene.spec_error import SpecError
@@ -44,7 +44,7 @@ def sweep_cells(params: Mapping[str, Any]) -> list[Cell]:
             combos = [[*c, (axis, v)] for c in combos for v in values]
         for combo in combos:
             overrides = {axis: value for axis, value in combo}
-            coords = {SWEEP_AXES[axis]: _axis_coord(value) for axis, value in combo}
+            coords = {SWEEP_AXES[axis]: coerce_axis_coord(value) for axis, value in combo}
             label = None
             if others:
                 parts = ([f"factor={factor:g}"] if "strength" in sweep else [])

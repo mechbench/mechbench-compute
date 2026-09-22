@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from mechbench_compute.weights.constants import _SCOPE
-from mechbench_compute.weights.pattern import _pattern
+from mechbench_compute.weights.constants import MODEL_SCOPE
+from mechbench_compute.weights.compile_point_pattern import compile_point_pattern
 
 
 def select_points(names: Iterable[str], points: Any) -> list[str]:
@@ -21,8 +21,8 @@ def select_points(names: Iterable[str], points: Any) -> list[str]:
     wanted: list[str] = []
     for p in points:
         raw = str(p)
-        bare = raw.removeprefix(_SCOPE)
-        matcher = _pattern(bare)
+        bare = raw.removeprefix(MODEL_SCOPE)
+        matcher = compile_point_pattern(bare)
         hit = [n for n in have if matcher.match(n)]
         if not hit:
             raise ValueError(

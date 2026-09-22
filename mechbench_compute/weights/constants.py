@@ -3,7 +3,7 @@ from __future__ import annotations
 #: The scope every parameter name in an MLX model carries. A point may
 #: be written with or without it; `layers.12.…` is what a person types
 #: and what an adapter's keys use.
-_SCOPE = "model."
+MODEL_SCOPE = "model."
 
 
 #: Which side of a projection is the residual stream, and the point the

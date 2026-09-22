@@ -8,12 +8,12 @@ import pytest
 from mechbench_compute import directions as d
 from mechbench_compute import shapes as S
 from mechbench_compute.ops.direction.average import average
-from mechbench_compute.ops.direction.classify import from_classification
-from mechbench_compute.ops.direction.decompose import from_pca
-from mechbench_compute.ops.direction.fit import from_vectors
+from mechbench_compute.ops.direction.classify import fit_probe
+from mechbench_compute.ops.direction.decompose import fit_component
+from mechbench_compute.ops.direction.fit import fit_mean_difference
 from mechbench_compute.ops.direction.orthogonalize import orthogonalize
 from mechbench_compute.ops.direction.project import project_rows
-from mechbench_compute.ops.direction.regress import from_regression
+from mechbench_compute.ops.direction.regress import fit_regression
 
 
 def _space(layer, d_=3, point="resid_post"):
@@ -72,7 +72,7 @@ def _measured(layer=3, n=120, dim=8, seed=7, noise=0.05):
 class TestRegression:
     def test_recovers_the_axis_a_number_is_written_along(self):
         v, axis = _measured()
-        x = from_regression(v, layer=3, target="surprisal")
+        x = fit_regression(v, layer=3, target="surprisal")
         assert x["kind"] == "direction/vector"
         assert x["derivation"]["method"] == "ridge"
         # The fitted weight vector points along the planted axis (either
@@ -90,22 +90,22 @@ class TestRegression:
         rows = [{"id": f"r{i}", "layer": 3, "coords": {"surprisal": float(rng.normal())},
                  "vector": [float(x) for x in rng.normal(size=8)]} for i in range(60)]
         v = {"kind": "residual_vectors", "point": "post", "model": "fake/m@r", "rows": rows}
-        x = from_regression(v, layer=3, target="surprisal")
+        x = fit_regression(v, layer=3, target="surprisal")
         assert x["derivation"]["r2_test"] < 0.5
 
     def test_repeats_exactly_and_refuses_too_few(self):
         v, _ = _measured()
-        a = from_regression(v, layer=3, target="surprisal", seed=11)
-        b = from_regression(v, layer=3, target="surprisal", seed=11)
+        a = fit_regression(v, layer=3, target="surprisal", seed=11)
+        b = fit_regression(v, layer=3, target="surprisal", seed=11)
         assert a["vector"] == b["vector"] and a["derivation"] == b["derivation"]
         with pytest.raises(ValueError, match="at least 8"):
-            from_regression(v, layer=3, target="not_a_coordinate")
+            fit_regression(v, layer=3, target="not_a_coordinate")
 
 
 class TestProducers:
     def test_diff_of_means_points_from_neg_to_pos(self):
         v = _vectors()
-        x = from_vectors(v, layer=3, positive="pos", negative="neg")
+        x = fit_mean_difference(v, layer=3, positive="pos", negative="neg")
         # The fixture is the older flattened spelling: `layer` on the row,
         # `point` and `model` on the header, `label` as a field. The space
         # is assembled from it and the label read as the `label` axis.
@@ -118,14 +118,14 @@ class TestProducers:
 
     def test_pca_first_component_is_the_label_axis(self):
         v = _vectors()
-        x = from_pca(v, layer=3)
-        m = from_vectors(v, layer=3, positive="pos", negative="neg")
+        x = fit_component(v, layer=3)
+        m = fit_mean_difference(v, layer=3, positive="pos", negative="neg")
         assert abs(_cos(x, m)) > 0.95
         assert 0.5 < x["derivation"]["explained"] <= 1.0
 
     def test_missing_layer_refused(self):
         with pytest.raises(ValueError):
-            from_vectors(_vectors(), layer=9, positive="pos", negative="neg")
+            fit_mean_difference(_vectors(), layer=9, positive="pos", negative="neg")
 
     def test_an_axis_fit_across_two_models_lives_in_neither(self):
         # A base capture and an adapted capture in one union: the
@@ -145,7 +145,7 @@ class TestProducers:
         axes = {}
         for i, name in enumerate(["die", "letters"]):
             pair = PURE_BLOCKS["records/union"]({"base": base, "adapted": capture(f"fake/{name}", i + 1)}, {})
-            axes[name] = from_vectors(pair, layer=12, axis="batch", positive="base", negative="adapted")
+            axes[name] = fit_mean_difference(pair, layer=12, axis="batch", positive="base", negative="adapted")
             assert axes[name]["space"]["model"] is None
             assert axes[name]["derivation"]["models"] == [f"fake/{name}", "fake/base"]
         union = PURE_BLOCKS["records/union"](axes, {})
@@ -180,7 +180,7 @@ class TestArithmetic:
 
     def test_project_rows(self):
         v = _vectors()
-        m = from_vectors(v, layer=3, positive="pos", negative="neg")
+        m = fit_mean_difference(v, layer=3, positive="pos", negative="neg")
         pr = project_rows(v, m)
         assert pr["item_kind"] == "activations/coordinate"
         pos = [r["coord"] for r in pr["items"] if r["coords"]["label"] == "pos"]
@@ -235,7 +235,7 @@ class TestClassify:
 
     def test_the_curve_says_where_the_label_becomes_decodable(self):
         corpus, axis = self._corpus()
-        out = from_classification(corpus, axis="sense", seed=1)
+        out = fit_probe(corpus, axis="sense", seed=1)
         assert out["item_kind"] == "direction/vector" and out["axis"] == "sense"
         by_layer = {it["coords"]["layer"]: it for it in out["items"]}
         assert sorted(by_layer) == [2, 6]
@@ -249,7 +249,7 @@ class TestClassify:
 
     def test_one_direction_for_two_labels_pointing_at_the_positive(self):
         corpus, _ = self._corpus()
-        [it] = [i for i in from_classification(corpus, axis="sense")["items"]
+        [it] = [i for i in fit_probe(corpus, axis="sense")["items"]
                 if i["coords"]["layer"] == 6]
         made = it["derivation"]
         assert {made["positive"], made["negative"]} == {"dawn", "dusk"} and made["axis"] == "sense"
@@ -266,7 +266,7 @@ class TestClassify:
             items.append({**S.vector(v.astype(np.float32),
                                      S.space(model="m", layer=3, point="resid_post", d=self.D),
                                      id=f"p{i}", coords={"topic": cls}), "kind": "activations/vector"})
-        out = from_classification({"kind": "collection", "item_kind": "activations/vector",
+        out = fit_probe({"kind": "collection", "item_kind": "activations/vector",
                                         "items": items}, axis="topic", seed=2)
         assert [it["coords"]["label"] for it in out["items"]] == ["a", "b", "c"]
         assert all(it["derivation"]["negative"] == "rest" for it in out["items"])
@@ -275,25 +275,25 @@ class TestClassify:
     def test_it_refuses_what_it_cannot_answer(self):
         corpus, _ = self._corpus(n=40)
         with pytest.raises(ValueError, match="no items carry"):
-            from_classification(corpus, axis="nothing")
+            fit_probe(corpus, axis="nothing")
         one_label = {"kind": "collection", "item_kind": "activations/vector",
                      "items": [{**S.vector(np.ones(self.D, np.float32),
                                            S.space(model="m", layer=1, point="resid_post", d=self.D),
                                            id=f"p{i}", coords={"sense": "same"}),
                                 "kind": "activations/vector"} for i in range(10)]}
         with pytest.raises(ValueError, match="needs two labels"):
-            from_classification(one_label, axis="sense")
+            fit_probe(one_label, axis="sense")
         few = {"kind": "collection", "item_kind": "activations/vector",
                "items": corpus["items"][:4]}
         with pytest.raises(ValueError, match="at least 8 labelled"):
-            from_classification(few, axis="sense")
+            fit_probe(few, axis="sense")
 
     def test_a_selected_probe_is_a_direction_an_intervention_takes(self):
         corpus, _ = self._corpus()
-        out = from_classification(corpus, axis="sense")
+        out = fit_probe(corpus, axis="sense")
         one = {"kind": "collection", "item_kind": "direction/vector",
                "items": [it for it in out["items"] if it["coords"]["layer"] == 6]}
         # A collection of exactly one direction IS that direction.
-        assert d.as_array(one).shape == (self.D,)
+        assert d.coerce_array(one).shape == (self.D,)
         with pytest.raises(ValueError, match="collection of 2"):
-            d.as_array(out)
+            d.coerce_array(out)

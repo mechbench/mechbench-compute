@@ -9,11 +9,11 @@ from mechbench_compute import Ablate, lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
 from mechbench_compute.distill import render
-from mechbench_compute.interp.k import _K
-from mechbench_compute.interp.last_logp import _last_logp
-from mechbench_compute.interp.own_top1_if_different import _own_top1_if_different
-from mechbench_compute.interp.resolve_layers import _resolve_layers
-from mechbench_compute.interp.target_of import _target_of
+from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.read_last_logp import read_last_logp
+from mechbench_compute.interp.report_own_top1 import report_own_top1
+from mechbench_compute.interp.resolve_layers import resolve_layers
+from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Ablate
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.model import _LAYERS_ALL, _PROMPTS, ADAPTER, _tracked
@@ -87,7 +87,7 @@ _ABLATE_AT: dict[str, Callable[[int], Any]] = {
 }
 
 
-def _ablation_points(spec: Any) -> list[str]:
+def _resolve_ablation_points(spec: Any) -> list[str]:
     """The `point` param of `intervene/ablate-layers`: one name or a list of
     them, each a sub-layer output; the default is both, the whole
     layer's contribution."""
@@ -114,8 +114,8 @@ def ablate_layers(
     `point`(s) of each layer in turn and measure Δ log p of the target —
     the first `tracked` token, or the baseline's top-1 when none is
     named."""
-    points = _ablation_points(params.get("point"))
-    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    points = _resolve_ablation_points(params.get("point"))
+    layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
         raise ValueError("ablate/layers needs at least one condition")
     if on_start:
@@ -134,13 +134,13 @@ def ablate_layers(
     for record in records:
         r = render(model, record)
         ids = r.array
-        base_lp = _last_logp(model.run(ids).logits)
+        base_lp = read_last_logp(model.run(ids).logits)
         if on_item:
             on_item()
-        tok, _ = _target_of(model, record, params, base_lp)
+        tok, _ = resolve_target(model, record, params, base_lp)
         baseline = float(base_lp[tok])
         for layer in layers:
-            lp = _last_logp(model.run(ids, interventions=intervene(layer)).logits)
+            lp = read_last_logp(model.run(ids, interventions=intervene(layer)).logits)
             delta = float(lp[tok]) - baseline
             damage_by_layer[layer].append(delta)
             rows.append({
@@ -160,10 +160,10 @@ def ablate_layers(
             # target above was the only place that showed, as a symptom;
             # this says it (task 000596).
             "template": "chat" if r.chat else "raw",
-            **_own_top1_if_different(model, tok, base_lp),
+            **report_own_top1(model, tok, base_lp),
         })
 
-    return _K().collection(
+    return load_kinds().collection(
         "intervene/ablation", rows,
         points=points,
         layers=layers,

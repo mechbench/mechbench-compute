@@ -350,7 +350,7 @@ class SandboxSession:
         `{"sandbox": <method>}` — small and serializable; the session
         itself binds to the toolbox, not to the handler dict."""
         chosen = tuple(names) if names is not None else self.image.tools
-        return [dict(_TOOL_DEFS[n]) for n in chosen]
+        return [dict(TOOL_DEFS[n]) for n in chosen]
 
 
 # ------------------------------------------------------------------- helpers
@@ -400,7 +400,7 @@ def _for_model(stdout: str, stderr: str, exit_code: int, limit: str | None) -> s
 
 #: name -> ToolDef dict. Descriptions are written FOR THE MODEL — what
 #: the tool does and what it returns, in one line.
-_TOOL_DEFS: dict[str, dict[str, Any]] = {
+TOOL_DEFS: dict[str, dict[str, Any]] = {
     "bash": {
         "name": "bash",
         "description": "Run a shell command over the workspace and return "

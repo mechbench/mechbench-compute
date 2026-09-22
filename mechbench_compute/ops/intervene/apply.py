@@ -13,10 +13,10 @@ from mechbench_compute.intervene.cell import Cell
 from mechbench_compute.intervene.compile import compile
 from mechbench_compute.intervene.spec_error import SpecError
 from mechbench_compute.intervene.spec_intervention import SpecIntervention
-from mechbench_compute.intervene.spec_items import spec_items
+from mechbench_compute.intervene.read_spec_items import read_spec_items
 from mechbench_compute.intervene.sweep_as_run import sweep_as_run
 from mechbench_compute.intervene.sweep_cells import sweep_cells
-from mechbench_compute.intervene.wire_spec import _wire_spec
+from mechbench_compute.intervene.serialize_spec import serialize_spec
 from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P
 from mechbench_compute.lexicon.model import (
     _DIRECTION_PORT,
@@ -251,7 +251,7 @@ def run(ctx, inputs, params):
     return out
 
 
-def _hook_space(name: str) -> tuple[int | None, str]:
+def _parse_hook_name(name: str) -> tuple[int | None, str]:
     """`blocks.14.resid_post` → (14, "resid_post"); a whole-model point
     → (None, name)."""
     parts = name.split(".")
@@ -260,8 +260,8 @@ def _hook_space(name: str) -> tuple[int | None, str]:
     return None, name
 
 
-def _order(records: Sequence[Mapping[str, Any]], cells: Sequence[Cell],
-           weight_items: Sequence[Mapping[str, Any]], model):
+def _walk_cells(records: Sequence[Mapping[str, Any]], cells: Sequence[Cell],
+                weight_items: Sequence[Mapping[str, Any]], model):
     """(record, cell) pairs, with any weight edits in scope.
 
     Without weight items this is the loop it always was: record outer,
@@ -298,10 +298,10 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
         on_item: Callable | None = None,
         on_start: Callable[[int], None] | None = None) -> dict[str, Any]:
     from mechbench_compute.distill import render
-    from mechbench_compute.interp import _last_logp
+    from mechbench_compute.interp import read_last_logp
 
     inputs = inputs or {}
-    items = spec_items(params.get("spec"), inputs)
+    items = read_spec_items(params.get("spec"), inputs)
     if not items:
         raise SpecError("intervene needs a non-empty `spec` list, or an "
                         "intervene/spec on the `intervention` port")
@@ -318,7 +318,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
     if on_start:
         on_start(len(records) * len(cells))
 
-    from mechbench_compute.interp import _tracked_ids
+    from mechbench_compute.interp import collect_tracked_ids
     from mechbench_compute.lexicon import kinds as K
 
     mid = S.model_id_of(model)
@@ -328,11 +328,11 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
     # and an SVD per record would be absurd. So the factor is the outer
     # loop when there are weight items, and the record loop is the same
     # body either way.
-    for record, cell in _order(records, cells, weight_items, model):
+    for record, cell in _walk_cells(records, cells, weight_items, model):
             ids = render(model, record).array
             flat = [int(t) for t in np.array(ids).reshape(-1)]
             tokens = [model.tokenizer.decode([t]) for t in flat]
-            tracked = _tracked_ids(model, record, tracked=params.get("tracked"))
+            tracked = collect_tracked_ids(model, record, tracked=params.get("tracked"))
             factor = cell.factor
             key = f"{record.get('id')}:{cell.key}"
             # The cell's axes ride on every row it produces: `factor` as
@@ -346,7 +346,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
                 ivs = [SpecIntervention(compiled.at(cell), tokens, record)]
             if rk == "decision":
                 res = model.run(ids, interventions=ivs)
-                lp = _last_logp(res.logits)
+                lp = read_last_logp(res.logits)
                 row: dict[str, Any] = {
                     "id": record.get("id"), "coords": dict(coords),
                     "factor": factor, **named,
@@ -372,7 +372,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
                     v = t[0, pidx] if t.ndim == 3 else t[0]
                     # bf16 has no numpy buffer protocol: cast first.
                     arr = np.array(v.astype(mx.float32)).reshape(-1)[:4096]
-                    cl, cp = _hook_space(p)
+                    cl, cp = _parse_hook_name(p)
                     row = S.vector(
                         arr, S.space(model=mid, layer=cl, point=cp, d=int(arr.size)),
                         id=record.get("id"), coords=dict(coords),
@@ -397,7 +397,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
                     f"restored after")
     return K.collection(
         "activations/vector" if rk == "capture" else "intervene/readout", rows,
-        spec=_wire_spec(filled),
+        spec=serialize_spec(filled),
         weights=weights_wire,
         sweep=sweep_as_run(params.get("sweep") or {}, cells),
         readout=rk,

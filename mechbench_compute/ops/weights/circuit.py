@@ -90,12 +90,12 @@ def run(ctx, inputs, params):
     composition of earlier heads with this one. No forward pass."""
 
     model = ctx.model(params.get("model"))
-    return head_circuits(model, params, on_item=ctx.on_item,
+    return read_head_circuits(model, params, on_item=ctx.on_item,
                                      on_start=ctx.on_start)
 
 
-def head_circuits(model, params: Mapping[str, Any] | None = None,
-                  on_item=None, on_start=None) -> dict[str, Any]:
+def read_head_circuits(model, params: Mapping[str, Any] | None = None,
+                       on_item=None, on_start=None) -> dict[str, Any]:
     """What a head does, read from its weights and the vocabulary — no
     forward pass, no corpus (task 000610).
 

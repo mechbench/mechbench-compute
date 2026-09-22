@@ -39,8 +39,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute import chat as chat_mod
-from mechbench_compute.judge.constants import SCALES, _FIRST_NUMBER  # noqa: F401
-from mechbench_compute.judge.json_object import _json_object  # noqa: F401
-from mechbench_compute.judge.rationale import _rationale  # noqa: F401
+from mechbench_compute.judge.constants import SCALES, FIRST_NUMBER  # noqa: F401
+from mechbench_compute.judge.parse_json_object import parse_json_object  # noqa: F401
+from mechbench_compute.judge.read_rationale import read_rationale  # noqa: F401
 
 

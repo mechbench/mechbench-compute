@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.weights.effective_rank import effective_rank
+from mechbench_compute.weights.compute_effective_rank import compute_effective_rank
 
 OP = Op(
     name="adapter/measure",
@@ -87,12 +87,12 @@ def _measure_adapter(adapter: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     return measure_adapter(payload, params)
 
 
-def adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str], dict[str, np.ndarray]]:
+def read_adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str], dict[str, np.ndarray]]:
     """`{(layer, container, projection): {"a": A, "b": B}}` from an
     adapter object's safetensors bytes."""
     import mlx.core as mx
 
-    from mechbench_compute.lora import _KEY_RE, load_adapter
+    from mechbench_compute.lora import KEY_RE, load_adapter
 
     data = payload.get("data")
     if data is None:
@@ -114,7 +114,7 @@ def adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str], dict
         # backed by the file, so touching one after the unlink aborts the
         # process rather than raising.
         for key, w in load_adapter(path).items():
-            m = _KEY_RE.match(key)
+            m = KEY_RE.match(key)
             if m is None:
                 raise ValueError(f"unrecognized adapter key {key!r}")
             i, container, proj, ab = (int(m.group(1)), m.group(2),
@@ -132,8 +132,8 @@ def adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str], dict
     return pairs
 
 
-def delta_spectrum(a: np.ndarray, b: np.ndarray,
-                   scale: float) -> tuple[np.ndarray, np.ndarray]:
+def compute_delta_spectrum(a: np.ndarray, b: np.ndarray,
+                           scale: float) -> tuple[np.ndarray, np.ndarray]:
     """`(singular values, left singular vectors)` of `scale · B · A`,
     exactly, without forming it. See the module docstring."""
     qb, rb = np.linalg.qr(b)            # (out, r), (r, r)
@@ -142,8 +142,8 @@ def delta_spectrum(a: np.ndarray, b: np.ndarray,
     return np.abs(float(scale)) * s, qb @ u
 
 
-def _wanted(layer: int, container: str, proj: str, *,
-            layers: Any, modules: Any) -> bool:
+def _is_wanted(layer: int, container: str, proj: str, *,
+               layers: Any, modules: Any) -> bool:
     if layers not in (None, "all") and int(layer) not in {int(x) for x in layers}:
         return False
     if modules not in (None, "all"):
@@ -172,8 +172,8 @@ def measure_adapter(payload: Mapping[str, Any],
     want_vectors = bool(params.get("vectors", False))
     source = params.get("source")
 
-    pairs = adapter_pairs(payload)
-    chosen = {k: v for k, v in pairs.items() if _wanted(*k, layers=layers, modules=modules)}
+    pairs = read_adapter_pairs(payload)
+    chosen = {k: v for k, v in pairs.items() if _is_wanted(*k, layers=layers, modules=modules)}
     if not chosen:
         raise ValueError(
             f"no module of this adapter matches layers={layers!r} "
@@ -184,7 +184,7 @@ def measure_adapter(payload: Mapping[str, Any],
     measured: list[tuple[tuple[int, str, str], np.ndarray, np.ndarray]] = []
     for key in sorted(chosen):
         ab = chosen[key]
-        sv, u = delta_spectrum(ab["a"], ab["b"], scale)
+        sv, u = compute_delta_spectrum(ab["a"], ab["b"], scale)
         measured.append((key, sv, u))
     # The share is of what was MEASURED, and the header says so — a node
     # that read three layers must not imply those are the whole adapter.
@@ -208,7 +208,7 @@ def measure_adapter(payload: Mapping[str, Any],
             "frobenius": float(np.sqrt(e)),
             "spectral": float(sv[0]) if len(sv) else 0.0,
             "singular_values": [float(x) for x in sv[:max(0, top_k)]],
-            "effective_rank": effective_rank(sv),
+            "effective_rank": compute_effective_rank(sv),
             "mass_share": float(e / total) if total > 0 else 0.0,
             "rank": len(sv),
             "shape": [int(u.shape[0]), int(pairs[(layer, container, proj)]["a"].shape[1])],

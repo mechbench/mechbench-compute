@@ -64,17 +64,22 @@ are held out, so a fit repeats exactly.
 
 
 def run(ctx, inputs, params):
-    return block_from_regression(inputs, params)
+    return fit_regression(inputs.get("vectors"), layer=int(params["layer"]),
+                          target=str(params["target"]),
+                          alphas=params.get("alphas"),
+                          holdout=float(params.get("holdout", 0.2)),
+                          seed=int(params.get("seed", 0)),
+                          point=params.get("point"), source=params.get("source"))
 
 
-def from_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
-                    alphas: Sequence[float] | None = None, holdout: float = 0.2,
-                    seed: int = 0, point: str | None = None,
-                    source: str | None = None) -> dict[str, Any]:
+def fit_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
+                   alphas: Sequence[float] | None = None, holdout: float = 0.2,
+                   seed: int = 0, point: str | None = None,
+                   source: str | None = None) -> dict[str, Any]:
     """Ridge regression of the items' vectors against a continuous
     coordinate; the fitted weight vector IS the direction (task 000586).
 
-    `from_vectors` answers "which way does THIS group lie from THAT
+    `fit_mean_difference` answers "which way does THIS group lie from THAT
     one" — two labels and a difference of centroids. Some signals are
     not two groups: a token's surprisal, a passage's length, a score.
     For those the question is which way the residual moves as the
@@ -103,7 +108,7 @@ def from_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
         the target — the same rows in the same order on both passes."""
         i = 0
         for r in K.items_of(vectors):
-            if S.layer_of(r) != layer or _number_at(r, target) is None:
+            if S.layer_of(r) != layer or _read_number(r, target) is None:
                 continue
             yield i, r
             i += 1
@@ -130,7 +135,7 @@ def from_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
             n_test += 1
             continue
         x = np.append(np.asarray(r["vector"], dtype=np.float64), 1.0)
-        y = float(_number_at(r, target) or 0.0)
+        y = float(_read_number(r, target) or 0.0)
         if xtx is None:
             xtx = np.zeros((x.size, x.size)); xty = np.zeros(x.size)
         xtx += np.outer(x, x)
@@ -154,7 +159,7 @@ def from_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
     sum_p_test = np.zeros(len(grid)); sum_py_test = np.zeros(len(grid)); sum_p2_test = np.zeros(len(grid))
     for i, r in rows_at_layer():
         x = np.append(np.asarray(r["vector"], dtype=np.float64), 1.0)
-        y = float(_number_at(r, target) or 0.0)
+        y = float(_read_number(r, target) or 0.0)
         pred = x @ weights                                   # [k]
         if is_test(i):
             sse_test += (y - pred) ** 2
@@ -195,7 +200,7 @@ def from_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
                        **({"models": list(models)} if len(models) > 1 else {})})
 
 
-def _number_at(row: Mapping[str, Any], name: str) -> float | None:
+def _read_number(row: Mapping[str, Any], name: str) -> float | None:
     """The row's value for `name`, from its coordinates or its top level,
     when that value is a number. None when it is absent or is not one."""
     coords = row.get("coords")
@@ -206,11 +211,3 @@ def _number_at(row: Mapping[str, Any], name: str) -> float | None:
         return None
     return float(v)
 
-
-def block_from_regression(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    return from_regression(inputs.get("vectors"), layer=int(params["layer"]),
-                           target=str(params["target"]),
-                           alphas=params.get("alphas"),
-                           holdout=float(params.get("holdout", 0.2)),
-                           seed=int(params.get("seed", 0)),
-                           point=params.get("point"), source=params.get("source"))

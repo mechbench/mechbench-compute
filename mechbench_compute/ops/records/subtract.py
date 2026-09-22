@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.coll import _coll
-from mechbench_compute.blocks.items import _items
+from mechbench_compute.blocks.build_collection import build_collection
+from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import Op, Output, P
 from mechbench_compute.lexicon.records import _RECORDS
 
@@ -42,16 +42,16 @@ The output keeps `coords`, so it feeds `records/summarize` directly.
 
 
 def run(ctx, inputs, params):
-    return _coll(paired_delta(inputs["records"], params))
+    return build_collection(subtract_baseline(inputs["records"], params))
 
 
-def paired_delta(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
+def subtract_baseline(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
     """For each non-baseline record, subtract its matched baseline's
     value. match_on: coords that must agree; baseline_where: coords
     identifying the baseline records; value: the numeric field.
     Output records keep coords (minus nothing) plus value/baseline/
     delta fields — composable straight into group_stats."""
-    recs = _items(records)
+    recs = read_items(records)
     match_on = params.get("match_on") or []
     baseline_where: Mapping[str, Any] = params["baseline_where"]
     value_field = params["value"]

@@ -10,12 +10,12 @@ from mechbench_compute import points as P
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
 from mechbench_compute.distill import render
-from mechbench_compute.interp.k import _K
-from mechbench_compute.interp.last_logp import _last_logp
-from mechbench_compute.interp.own_top1_if_different import _own_top1_if_different
-from mechbench_compute.interp.resolve_layers import _resolve_layers
-from mechbench_compute.interp.target_of import _target_of
-from mechbench_compute.interp.target_token_id import _target_token_id
+from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.read_last_logp import read_last_logp
+from mechbench_compute.interp.report_own_top1 import report_own_top1
+from mechbench_compute.interp.resolve_layers import resolve_layers
+from mechbench_compute.interp.resolve_target import resolve_target
+from mechbench_compute.interp.encode_target_token import encode_target_token
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.lexicon.model import ADAPTER, _tracked
 
@@ -92,11 +92,11 @@ def run(ctx, inputs, params):
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
-    return logit_attribution(
+    return attribute_logits(
         model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
 
 
-def logit_attribution(
+def attribute_logits(
     model,
     records: Sequence[Mapping[str, Any]],
     params: Mapping[str, Any],
@@ -118,7 +118,7 @@ def logit_attribution(
     from mechbench_compute import attribution
 
     apply_ln = bool(params.get("apply_ln", True))
-    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     if layers != list(range(model.arch.n_layers)):
         raise ValueError(
             "attribution/logits decomposes the WHOLE stream — additivity "
@@ -131,7 +131,7 @@ def logit_attribution(
 
     from mechbench_compute.interventions import Capture as Cap
 
-    per_head_layers = _resolve_layers(
+    per_head_layers = resolve_layers(
         params.get("per_head_layers"), model.arch.n_layers
     ) if params.get("per_head_layers") else []
     interventions = [
@@ -148,14 +148,14 @@ def logit_attribution(
         r = render(model, record)
         ids = r.array
         result = model.run(ids, interventions=interventions)
-        lp = _last_logp(result.logits)
-        tok, tracked = _target_of(model, record, params, lp)
+        lp = read_last_logp(result.logits)
+        tok, tracked = resolve_target(model, record, params, lp)
         # Two tracked tokens: the contributions are to the DIFFERENCE of
         # their logits (target minus the second). A record from before
         # the spellings were one may still name the second as `contrast`.
         others = [t for t in tracked.values() if t != tok]
         contrast = record.get("contrast")
-        ctok = (_target_token_id(model, str(contrast)) if contrast
+        ctok = (encode_target_token(model, str(contrast)) if contrast
                 else (others[0] if others else None))
 
         acc = attribution.accumulated_resid(result.cache, include_pre=True)
@@ -206,7 +206,7 @@ def logit_attribution(
             target=S.token(model.tokenizer, tok),
             contrast=S.token(model.tokenizer, ctok) if ctok is not None else None,
             template="chat" if r.chat else "raw",
-            **_own_top1_if_different(model, tok, lp),
+            **report_own_top1(model, tok, lp),
             per_head=per_head or None,
             additivity={
                 "summed": round(summed, 3),
@@ -215,7 +215,7 @@ def logit_attribution(
             }))
         if on_item:
             on_item()
-    return _K().collection(
+    return load_kinds().collection(
         "logits/attribution", rows,
         apply_ln=apply_ln,
         layers=layers,

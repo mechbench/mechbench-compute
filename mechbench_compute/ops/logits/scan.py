@@ -8,10 +8,10 @@ import numpy as np
 from mechbench_compute import lexicon
 from mechbench_compute import shapes as S
 from mechbench_compute.distill import render
-from mechbench_compute.interp.k import _K
-from mechbench_compute.interp.last_logp import _last_logp
-from mechbench_compute.interp.resolve_layers import _resolve_layers
-from mechbench_compute.interp.target_of import _target_of
+from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.read_last_logp import read_last_logp
+from mechbench_compute.interp.resolve_layers import resolve_layers
+from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import Op, Output
 from mechbench_compute.lexicon.model import _LAYERS_ALL, _PROMPTS, ADAPTER, _tracked
@@ -60,11 +60,11 @@ def run(ctx, inputs, params):
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
-    return lens_positions(
+    return scan_positions(
         model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
 
 
-def lens_positions(
+def scan_positions(
     model,
     records: Sequence[Mapping[str, Any]],
     params: Mapping[str, Any],
@@ -77,7 +77,7 @@ def lens_positions(
     visible? Rank 0 means the target is that position's top readout."""
     from mechbench_compute import lens
 
-    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
         raise ValueError("lens/positions needs at least one condition")
     if on_start:
@@ -88,7 +88,7 @@ def lens_positions(
     for record in records:
         ids = render(model, record).array
         result = model.run(ids, interventions=[cap])
-        tok, _ = _target_of(model, record, params, _last_logp(result.logits))
+        tok, _ = resolve_target(model, record, params, read_last_logp(result.logits))
         ranks, logprobs = lens.logit_lens_per_position(
             model, result.cache, tok, layers=layers)
         tokens = [model.tokenizer.decode([int(t)])
@@ -101,7 +101,7 @@ def lens_positions(
             target=S.token(model.tokenizer, tok)))
         if on_item:
             on_item()
-    return _K().collection(
+    return load_kinds().collection(
         "logits/lens", rows,
         layers=layers,
         description=(

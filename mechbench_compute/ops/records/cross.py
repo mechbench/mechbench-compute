@@ -4,7 +4,7 @@ import random
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.blocks.coll import _coll
+from mechbench_compute.blocks.build_collection import build_collection
 from mechbench_compute.lexicon._base import Op, Output, P
 
 _COORDS_TYPE = "map[string, string | float]"
@@ -96,7 +96,7 @@ OP = Op(
 
 
 def run(ctx, inputs, params):
-    return _coll(factor_cross(params))
+    return build_collection(cross_factors(params))
 
 
 # The original ai-randomness noise charset, reproduced exactly.
@@ -129,7 +129,7 @@ def _sample_value(gen: Mapping[str, Any], index: int) -> str:
     return wrap.replace("{x}", body)
 
 
-def _factor_levels(factor: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _materialize_levels(factor: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Materialize a factor to its [{key, value, coords}] levels. A
     factor may carry enumerated `levels`, `sampled` generators (one or
     a list — the Marcus seed factor uses five), or both (enumerated
@@ -163,7 +163,7 @@ def _factor_levels(factor: Mapping[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def factor_cross(params: Mapping[str, Any]) -> list[dict[str, Any]]:
+def cross_factors(params: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Fully crossed factors: the Cartesian product of every factor's
     levels, as coordinate-carrying records. (`axes` accepted as a
     legacy spelling of `factors` for pre-rename protocol versions.)"""
@@ -173,7 +173,7 @@ def factor_cross(params: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
     for axis in factors:
         name = axis["name"]
-        vals = _factor_levels(axis)
+        vals = _materialize_levels(axis)
         nxt = []
         for rec in records:
             for v in vals:

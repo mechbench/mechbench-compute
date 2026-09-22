@@ -20,15 +20,15 @@ from mechbench_compute.ops.activations import capture_attention as capture_atten
 from mechbench_compute.ops.activations import capture_tokens as capture_tokens_op
 from mechbench_compute import interp
 from mechbench_compute.ops.intervene.patch import patch_trace
-from mechbench_compute.ops.activations.capture import residual_vectors
-from mechbench_compute.ops.activations.capture_attention import attention_patterns
+from mechbench_compute.ops.activations.capture import capture_residual_vectors
+from mechbench_compute.ops.activations.capture_attention import capture_attention_patterns
 from mechbench_compute.ops.activations.capture_tokens import capture_tokens
-from mechbench_compute.ops.activations.contrast import residual_divergence
+from mechbench_compute.ops.activations.contrast import measure_residual_divergence
 from mechbench_compute.ops.intervene.ablate_heads import ablate_heads
 from mechbench_compute.ops.intervene.ablate_layers import ablate_layers
 from mechbench_compute.ops.intervene.steer import steer_inject
-from mechbench_compute.ops.logits.attribute import logit_attribution
-from mechbench_compute.ops.logits.scan import lens_positions
+from mechbench_compute.ops.logits.attribute import attribute_logits
+from mechbench_compute.ops.logits.scan import scan_positions
 
 N_LAYERS = 4
 D_MODEL = 8
@@ -203,7 +203,7 @@ class TestAblateLayers:
         for a prefilled condition is the last-position log-prob of the same
         rendering — what `logits/read` reports for that condition."""
         from mechbench_compute.distill import render
-        from mechbench_compute.interp import _last_logp
+        from mechbench_compute.interp import read_last_logp
 
         model = StubModel()
         cond = {"id": "c", "system": "s", "user": "roll the die", "prefill": '{ "roll": ',
@@ -211,7 +211,7 @@ class TestAblateLayers:
         out = ablate_layers(model, [cond], {"layers": [0]})
         r = render(model, cond)
         assert r.chat and r.text.endswith('{ "roll": ')
-        lp = _last_logp(model.run(r.array).logits)
+        lp = read_last_logp(model.run(r.array).logits)
         tok = 1 + (len("ccc") % 7)
         assert out["conditions"][0]["target"]["id"] == tok
         assert out["conditions"][0]["baseline_logp"] == pytest.approx(float(lp[tok]), abs=1e-4)
@@ -272,7 +272,7 @@ class TestOwnTop1BesideATarget:
 class TestResidualVectors:
     def test_vectors_are_the_positions_residual(self):
         model = StubModel()
-        out = residual_vectors(
+        out = capture_residual_vectors(
             model, [{"id": "c", "user": "aa bbb", "label": "en"}],
             {"layers": [1], "position": "final"})
         row = out["items"][0]
@@ -289,7 +289,7 @@ class TestResidualVectors:
     def test_every_item_carries_the_records_coords(self):
         # A grouping is a coordinate; the grouping ops name it by `axis`.
         model = StubModel()
-        out = residual_vectors(
+        out = capture_residual_vectors(
             model, [{"id": "c", "user": "a", "coords": {"language": "fr"}}],
             {"layers": [0]})
         assert out["items"][0]["coords"] == {"language": "fr"}
@@ -297,7 +297,7 @@ class TestResidualVectors:
     def test_the_float_cap_refuses_a_runaway_capture(self, monkeypatch):
         monkeypatch.setattr(capture_op, "MAX_VECTOR_FLOATS", 10)
         with pytest.raises(ValueError, match="cap"):
-            residual_vectors(
+            capture_residual_vectors(
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": "all"})
 
 
@@ -382,7 +382,7 @@ class TestPooledPositions:
     RECORD = {"id": "c", "user": "aa bbb", "label": "en"}
 
     def _vec(self, **params):
-        out = residual_vectors(
+        out = capture_residual_vectors(
             StubModel(), [dict(self.RECORD)], {"layers": [1], **params})
         return out, np.array(out["items"][0]["vector"])
 
@@ -439,7 +439,7 @@ class TestPooledPositions:
     def test_pooling_needs_no_resolvable_position(self):
         # `subject` would raise without a `subject` field; pooling
         # never resolves a single position, so it must not.
-        out = residual_vectors(
+        out = capture_residual_vectors(
             StubModel(), [{"id": "c", "user": "aa bbb"}],
             {"layers": [1], "position": "subject", "pool": {"reduce": "mean", "over": "all"}})
         assert out["items"][0]["n_pooled"] == 3
@@ -460,7 +460,7 @@ class TestPooledPositions:
 class TestResidualDivergence:
     def test_identical_pair_diverges_nowhere(self):
         model = StubModel()
-        out = residual_divergence(
+        out = measure_residual_divergence(
             model, [{"id": "p", "a": "over the hill", "b": "over the hill"}],
             {"layers": [0, 1]})
         pair = out["items"][0]
@@ -471,7 +471,7 @@ class TestResidualDivergence:
     def test_a_one_word_swap_diverges_exactly_there(self):
         model = StubModel()
         # 'over'(4) vs 'under'(5) -> ids differ at position 1 only
-        out = residual_divergence(
+        out = measure_residual_divergence(
             model, [{"id": "p", "a": "go over it", "b": "go under it"}],
             {"layers": [0]})
         div = out["items"][0]["measures"]["divergence"][0]
@@ -482,7 +482,7 @@ class TestResidualDivergence:
 
     def test_unequal_lengths_report_instead_of_lying(self):
         model = StubModel()
-        out = residual_divergence(
+        out = measure_residual_divergence(
             model, [{"id": "p", "a": "one two", "b": "one two three"}],
             {"layers": [0]})
         assert "different lengths" in out["items"][0]["error"]
@@ -503,9 +503,9 @@ class TestVectorSimilarity:
                             position="final", point="post")
 
     def test_matrix_and_separation(self):
-        from mechbench_compute.ops.geometry.compare import geometry_similarity
+        from mechbench_compute.ops.geometry.compare import compare_geometry
 
-        out = geometry_similarity({"items": self._vectors_record()}, {})
+        out = compare_geometry({"items": self._vectors_record()}, {})
         assert out["item_kind"] == "geometry/similarity"
         assert out["metric"] == "cosine" and out["metric_kind"] == "similarity"
         layer = out["items"][0]
@@ -517,19 +517,19 @@ class TestVectorSimilarity:
         assert layer["nn_purity"] == pytest.approx(1.0)
 
     def test_unlabeled_vectors_still_get_a_matrix(self):
-        from mechbench_compute.ops.geometry.compare import geometry_similarity
+        from mechbench_compute.ops.geometry.compare import compare_geometry
 
         rec = self._vectors_record()
         for r in rec["items"]:
             r["label"] = None
-        out = geometry_similarity({"items": rec}, {})
+        out = compare_geometry({"items": rec}, {})
         assert "separation" not in out["items"][0]
 
     def test_wrong_input_kind_refuses(self):
-        from mechbench_compute.ops.geometry.compare import geometry_similarity
+        from mechbench_compute.ops.geometry.compare import compare_geometry
 
         with pytest.raises(ValueError, match="declares metrics"):
-            geometry_similarity({"items": {"kind": "word_list"}}, {})
+            compare_geometry({"items": {"kind": "word_list"}}, {})
 
 
 class TestGateComponent:
@@ -555,7 +555,7 @@ class TestLensPositions:
             return mx.array(out)
 
         model.project_to_logits = project
-        out = lens_positions(
+        out = scan_positions(
             model, [{"id": "c", "user": "aa bbb aa", "target": "bbb"}],
             {"layers": [0, 1]})
         row = out["items"][0]
@@ -627,7 +627,7 @@ class TestPatchTrace:
 class TestAttentionPatterns:
     def test_shapes_and_row_normalization(self):
         model = StubModel()
-        out = attention_patterns(
+        out = capture_attention_patterns(
             model, [{"id": "c", "user": "a b c"}], {"layers": [1]})
         row = out["items"][0]
         assert row["axes"] == ["layer", "head", "query", "key"]
@@ -639,13 +639,13 @@ class TestAttentionPatterns:
 
     def test_all_layers_refuses_loudly(self):
         with pytest.raises(ValueError, match="explicit layers"):
-            attention_patterns(
+            capture_attention_patterns(
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": "all"})
 
     def test_the_float_cap_refuses(self, monkeypatch):
         monkeypatch.setattr(capture_attention_op, "MAX_ATTN_FLOATS", 3)
         with pytest.raises(ValueError, match="floats"):
-            attention_patterns(
+            capture_attention_patterns(
                 StubModel(), [{"id": "c", "user": "a b"}], {"layers": [0]})
 
 
@@ -677,7 +677,7 @@ class TestSubjectPosition:
 
         model.tokenizer = Tok()
         # prompt 'casa xx a': ids [0, 1+(4%7)=5, 1+(2%7)=3, 1+(1%7)=2]
-        out = residual_vectors(
+        out = capture_residual_vectors(
             model, [{"id": "c", "user": "casa xx a", "subject": "casa"}],
             {"layers": [0], "position": "subject"})
         v = np.array(out["items"][0]["vector"])
@@ -698,7 +698,7 @@ class TestLogitAttribution:
 
         monkeypatch.setattr(attribution, "logit_attrs", fake_attrs)
         model = StubModel()
-        out = logit_attribution(
+        out = attribute_logits(
             model, [{"id": "c", "user": "a b", "target": "word"}], {})
         assert out["item_kind"] == "logits/attribution"
         row = out["items"][0]
@@ -714,7 +714,7 @@ class TestLogitAttribution:
 
     def test_partial_layers_refuse_because_additivity_would_lie(self):
         with pytest.raises(ValueError, match="all"):
-            logit_attribution(
+            attribute_logits(
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": [1, 2]})
 
 
@@ -789,7 +789,7 @@ class TestPerHeadDla:
 
         monkeypatch.setattr(attribution, "logit_attrs", fake_attrs)
         monkeypatch.setattr(attribution, "head_results", fake_heads)
-        out = logit_attribution(
+        out = attribute_logits(
             StubModel(), [{"id": "c", "user": "a b", "target": "word"}],
             {"per_head_layers": [1]})
         row = out["items"][0]
@@ -807,7 +807,7 @@ class TestSubjectCase:
                 return " ".join(names.get(int(i), f"t{int(i)}") for i in ids)
 
         model.tokenizer = Tok()
-        out = residual_vectors(
+        out = capture_residual_vectors(
             model, [{"id": "c", "user": "Capi xx", "subject": "capital"}],
             {"layers": [0], "position": "subject"})
         v = np.array(out["items"][0]["vector"])
@@ -835,7 +835,7 @@ class TestQKSources:
 
         model.run = with_qk
         model.arch.n_kv_heads = 2
-        out = residual_vectors(
+        out = capture_residual_vectors(
             model, [{"id": "c", "user": "a b", "label": "x"}],
             {"layers": [1], "source": "queries"})
         assert out["source"] == "queries"
@@ -853,9 +853,9 @@ class TestQKSources:
                 v[(0 if label == "a" else 2) + head % 2] = 1.0
                 rows.append({"id": f"h{head}r{i}", "label": label,
                              "layer": 7, "head": head, "vector": v})
-        from mechbench_compute.ops.geometry.compare import geometry_similarity
+        from mechbench_compute.ops.geometry.compare import compare_geometry
 
-        out = geometry_similarity(
+        out = compare_geometry(
             {"items": {"kind": "residual_vectors", "rows": rows}}, {})
         entries = out["items"]
         assert len(entries) == 2
@@ -866,7 +866,7 @@ class TestQKSources:
 
     def test_unknown_source_refuses(self):
         with pytest.raises(ValueError, match="source"):
-            residual_vectors(
+            capture_residual_vectors(
                 StubModel(), [{"id": "c", "user": "a"}],
                 {"layers": [0], "source": "values"})
 

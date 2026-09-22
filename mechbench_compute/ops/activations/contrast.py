@@ -9,10 +9,10 @@ from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
-from mechbench_compute.interp.k import _K
-from mechbench_compute.interp.pair import _pair
-from mechbench_compute.interp.render_text import _render_text
-from mechbench_compute.interp.resolve_layers import _resolve_layers
+from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.read_pair import read_pair
+from mechbench_compute.interp.render_text import render_text
+from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output
 from mechbench_compute.lexicon.model import _LAYERS_ALL, _RESIDUAL_POINT, ADAPTER
@@ -64,11 +64,11 @@ def run(ctx, inputs, params):
 
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
-    return residual_divergence(
+    return measure_residual_divergence(
         model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
 
 
-def residual_divergence(
+def measure_residual_divergence(
     model,
     records: Sequence[Mapping[str, Any]],
     params: Mapping[str, Any],
@@ -83,7 +83,7 @@ def residual_divergence(
     means; unequal pairs are reported as errors, not silently aligned.
     """
     point = hookpoints.residual(params.get("point"))
-    layers = _resolve_layers(params.get("layers"), model.arch.n_layers)
+    layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
         raise ValueError("residuals/divergence needs at least one pair")
     if on_start:
@@ -92,9 +92,9 @@ def residual_divergence(
     cap = Capture.residual(layers, point=hookpoints.side(point))
     pairs: list[dict[str, Any]] = []
     for record in records:
-        a, b = _pair(record)
-        ids_a = _render_text(model, record, a)
-        ids_b = _render_text(model, record, b)
+        a, b = read_pair(record)
+        ids_a = render_text(model, record, a)
+        ids_b = render_text(model, record, b)
         len_a = int(np.array(ids_a).shape[-1])
         len_b = int(np.array(ids_b).shape[-1])
         if len_a != len_b:
@@ -128,7 +128,7 @@ def residual_divergence(
         pairs.append(S.grid(
             record.get("id"), ["layer", "position"], {"divergence": matrix},
             tokens=tokens, coords=record.get("coords")))
-    return _K().collection(
+    return load_kinds().collection(
         "activations/divergence", pairs,
         point=point,
         layers=layers,
