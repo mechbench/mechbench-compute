@@ -252,13 +252,14 @@ def remove_ranges(text: list[str], ranges: list[tuple[int, int]]) -> list[str]:
     return out
 
 
-def registry_entry_range(mod: Module, op: str) -> tuple[int, int] | None:
+def registry_entry_ranges(mod: Module, op: str) -> list[tuple[int, int]]:
+    out = []
     for n in ast.walk(mod.tree):
         if isinstance(n, ast.Dict):
             for k, v in zip(n.keys, n.values):
                 if isinstance(k, ast.Constant) and k.value == op and isinstance(v, (ast.Lambda, ast.Name, ast.Call)):
-                    return mod._lead(k.lineno), v.end_lineno or v.lineno
-    return None
+                    out.append((mod._lead(k.lineno), v.end_lineno or v.lineno))
+    return out
 
 
 def dispatch_branch_range(mod: Module, op: str) -> tuple[int, int] | None:
@@ -325,7 +326,8 @@ def move(op_names: list[str], dry: bool) -> None:
                 entry_made = True
                 continue
             if d.kind == "registry":
-                table, value = m.registry[op]
+                table = d.name[1:d.name.index("[")]
+                value = next(v for t, v in m.registry[op] if t == table)
                 if table == "MONOIDS":
                     # Last in the file: it names a class defined below the entry point.
                     tails[dest].append(f"MONOID = {ast.get_source_segment(m.src, value)}\n")
@@ -333,8 +335,7 @@ def move(op_names: list[str], dry: bool) -> None:
                     new_text[dest].append(run_from_registry(m, d, value, notes))
                     entry_made = True
                 sources[dest].add(d.file)
-                rng = registry_entry_range(m, op)
-                if rng:
+                for rng in registry_entry_ranges(m, op):
                     removed[d.file].append(rng)
                 continue
             if (d.file, d.name) in done:
