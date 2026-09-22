@@ -22,10 +22,12 @@ from mechbench_compute.protocol.check_graph import check_graph
 from mechbench_compute.protocol.copy_arch import copy_arch
 from mechbench_compute.protocol.is_remote import is_remote
 from mechbench_compute.protocol.missing_upstream import MissingUpstream
+from mechbench_compute.protocol.progress import Progress
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 from mechbench_compute.protocol.read_missing_policy import read_missing_policy
 from mechbench_compute.protocol.serialize_params import serialize_params
 from mechbench_compute.protocol.sort_edges import sort_edges
+from mechbench_compute.protocol.sort_nodes import sort_nodes
 from mechbench_compute.protocol.summarize_node import summarize_node
 from mechbench_compute.protocol.total_spend import total_spend
 
@@ -306,88 +308,11 @@ class Pipeline:
                         for k, v in (params or {}).items()}
             return {k: resolve_value(v) for k, v in (params or {}).items()}
 
-        # Topological order (Kahn). The API validated acyclicity, but a
-        # runner never trusts its inputs to be well-formed.
-        indeg = {nid: 0 for nid in nodes}
-        for e in edges:
-            indeg[e["to"]["node"]] += 1
-        order = [nid for nid, d in indeg.items() if d == 0]
-        i = 0
-        while i < len(order):
-            for e in edges:
-                if e["from"]["node"] == order[i]:
-                    t = e["to"]["node"]
-                    indeg[t] -= 1
-                    if indeg[t] == 0:
-                        order.append(t)
-            i += 1
-        if len(order) != len(nodes):
-            raise ValueError("pipeline graph has a cycle")
-
-        # Progress: one unit per node, but model blocks expand the
-        # denominator to their item count on entry and tick per item —
-        # the board's bar moves per condition/story, not per node.
-        #
-        # Alongside the flat scalar, STRUCTURE: which node the run is in
-        # and how far through it. A denominator that grows mid-run reads
-        # as a bug to anyone watching; "node 3/5, 12/40" only ever counts
-        # up. Passed as a third argument only when the callback accepts
-        # one, so a two-argument callback keeps working.
-        import inspect
-
+        order = sort_nodes(nodes, edges)
         results: dict[str, Any] = {}
-        total_units = len(order)
-        done_units = 0
-        node_view = {"index": 0, "count": len(order), "id": "",
-                     "done": 0, "total": 0}
-        expanded = False
-        try:
-            wants_node = (on_progress is not None and
-                          len(inspect.signature(on_progress).parameters) >= 3)
-        except (TypeError, ValueError):  # builtins, odd callables
-            wants_node = False
-
-        def report():
-            if on_progress is None:
-                return
-            if wants_node:
-                on_progress(done_units, total_units, dict(node_view))
-            else:
-                on_progress(done_units, total_units)
-
-        def bump(n=1):
-            nonlocal done_units
-            done_units += n
-            report()
-
-        def expand(n_items):
-            nonlocal total_units, expanded
-            expanded = True
-            if n_items > 1:
-                total_units += n_items - 1
-            node_view["total"] = max(int(n_items), 0)
-            report()
-
+        progress = Progress(on_progress, len(order),
+                            on_spool_item=self._on_spool_item)
         current = {"nid": ""}
-
-        def item_reporter(nid: str):
-            """One node's item callback. Bound to the node rather than
-            reading a shared `current`, because two nodes can be in
-            flight at once and an item spooled under the wrong node's id
-            is a resumed job reusing another node's work."""
-
-            def on_item(key=None, item=None, reused=False):
-                # Blocks that know nothing of resume call this bare; an
-                # item-resumable block names the item so the runner can
-                # spool it. A reused item counts as progress and is not
-                # spooled again.
-                node_view["done"] += 1
-                bump(1)
-                if (self._on_spool_item is not None and key is not None
-                        and not reused):
-                    self._on_spool_item(nid, key, item)
-
-            return on_item
 
         from mechbench_compute import resume as resume_mod
 
@@ -455,9 +380,7 @@ class Pipeline:
                 block = lexicon.resolve(node["block"])
             except KeyError:
                 raise ValueError(f"unknown block: {node['block']!r}") from None
-            node_view.update(index=pos + 1, id=nid, done=0, total=0)
-            expanded = False
-            report()
+            progress.start_node(pos, nid)
             raw_params = node.get("params") or {}
             if block in ("records/map", "records/fold") and isinstance(raw_params.get("body"), Mapping):
                 # A map's or a fold's body is the CHILD run's graph,
@@ -541,7 +464,7 @@ class Pipeline:
                     missing[nid] = {"reason": "an upstream is missing",
                                     "source": src}
                     print(f"[graph] {nid}: skipped ({', '.join(src)} missing)")
-                    bump()
+                    progress.bump()
                     continue
                 # Only placeholders left: drop those edges and fill below.
                 by_port = {
@@ -604,7 +527,7 @@ class Pipeline:
             # compute version. A partial from a previous attempt is
             # reused only under an equal fingerprint.
             current["nid"] = nid
-            on_item = item_reporter(nid)
+            on_item = progress.open_items(nid)
             self._current = current
             # Before anything runs: does this block actually read what
             # the protocol asked for, and take what was wired to it? A
@@ -645,7 +568,7 @@ class Pipeline:
                 node_hashes[nid] = resume_mod.content_hash(results[nid])
                 if self._on_node_done is not None:
                     self._on_node_done(nid, node_paths[nid], fingerprint)
-                bump()
+                progress.bump()
                 continue
             if entry and "held" in entry and discard and not outputs_of.get(nid):
                 # Node skip, discard mode: the earlier attempt held the
@@ -654,7 +577,7 @@ class Pipeline:
                 results[nid] = entry["held"]
                 node_hashes[nid] = resume_mod.content_hash(results[nid])
                 held[nid] = (block, params)
-                bump()
+                progress.bump()
                 continue
             if entry and entry.get("items") and resume_mod.item_resumable(block):
                 resume_kwargs["resume_items"] = dict(entry["items"])
@@ -689,8 +612,10 @@ class Pipeline:
                         results=results, missing=missing,
                         resolve_params=resolve_params,
                         resolve_value=resolve_value,
-                        item_reporter=item_reporter, expand=expand,
-                        node_view=node_view, report=report,
+                        item_reporter=progress.open_items,
+                        expand=progress.expand,
+                        node_view=progress.node_view,
+                        report=progress.report,
                         resume=resume, resume_kwargs=resume_kwargs))
                     done_ahead = ahead.pop(nid)
                     if isinstance(done_ahead, BaseException):
@@ -699,7 +624,7 @@ class Pipeline:
                 elif ops.find(block) is not None:
                     results[nid] = self._run_op(
                         block, inputs, params,
-                        on_item=on_item, on_start=expand, secrets=secrets,
+                        on_item=on_item, on_start=progress.expand, secrets=secrets,
                         on_checkpoint=on_checkpoint,
                         input_paths=dict(input_paths),
                         bindings=bound_params if declared else bindings,
@@ -717,7 +642,7 @@ class Pipeline:
                 print(f"[graph] {nid} failed: {exc}")
                 if self._on_node_done is not None:
                     self._on_node_done(nid, None, fingerprint)
-                bump()
+                progress.bump()
                 continue
             # Hash BEFORE emitting. The hash canonical-encodes the
             # result, so a result carrying a live object fails here,
@@ -796,8 +721,8 @@ class Pipeline:
                 self._on_node_done(nid, node_paths.get(nid), fingerprint)
             # An expanded node's items already covered its worth; bumping
             # again would push `done` past `total` by one per such node.
-            if not expanded:
-                bump()
+            if not progress.expanded:
+                progress.bump()
 
         # A failure nobody answered for fails the run — which is every
         # failure in a graph that declares no `on_missing` policy. It is
