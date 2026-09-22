@@ -5,12 +5,6 @@ from typing import Any
 from mechbench_compute import lexicon
 from mechbench_compute._mlx import mx
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.common import (
-    TARGET_TRANSFORM,
-    TARGET_UNIFORM,
-    TARGET_WEIGHTS,
-)
-from mechbench_compute.lexicon.model import ADAPTER
 
 OP = Op(
     name="logits/read",
@@ -57,7 +51,13 @@ readings.
            "Chat-shaped records: `user` (required), `system` and `prefill` "
            "(optional), an `id`, and optionally `coords`; a record may carry "
            "its own `tracked`.", many=True),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` and `complete_entropy_bits` with `complete`, and `rollout` when one was requested. The header carries `top_k`.'),
     params=(
@@ -92,7 +92,47 @@ readings.
                 "The outcomes: a list, or a target spec (`weights` or `uniform`, with any "
                 "`transform`) whose support is read, so a `top_k` reads a rung's own vocabulary. "
                 "A stored word list may be given by reference.",
-                None, fields=(TARGET_UNIFORM, TARGET_WEIGHTS, TARGET_TRANSFORM),
+                None, fields=(
+                    P("uniform", "list[string]",
+                      "The outcomes, weighted equally. Wins over `weights` when "
+                      "both are given.",
+                      None),
+                    P("weights", "map[string, float]",
+                      "Outcome → weight, each finite and at least 0: raw corpus "
+                      "frequencies, say. A stored word list may be given by "
+                      "reference.",
+                      None, stored="text/word-list"),
+                    P("transform", "list[object]",
+                      "Steps that reshape the distribution, applied in order; "
+                      "the result is always normalised.",
+                      [], fields=(
+                          P("op", "string",
+                            "The step.",
+                            choices=("sqrt", "pow", "temper", "temper_to_entropy", "mix_uniform", "top_k", "normalize")),
+                          P("exponent", "float",
+                            "For `pow`: the power each weight is raised to.",
+                            None),
+                          P("temperature", "float",
+                            "For `temper`: divides the log-weights; above 0.",
+                            None),
+                          P("bits", "float",
+                            "For `temper_to_entropy`: the entropy to reach, in "
+                            "bits.",
+                            None),
+                          P("tolerance", "float",
+                            "For `temper_to_entropy`: how close is close enough, "
+                            "in bits.",
+                            0.0001),
+                          P("epsilon", "float",
+                            "For `mix_uniform`: the share of uniform mixed in, "
+                            "from 0 to 1.",
+                            None),
+                          P("k", "int",
+                            "For `top_k`: how many of the heaviest outcomes to "
+                            "keep.",
+                            None),
+                      )),
+                ),
                 stored="text/word-list"),
               P("opener", "string",
                 "Text before each outcome that is not part of its name, such as the space "

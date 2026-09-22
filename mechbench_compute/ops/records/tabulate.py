@@ -4,8 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.records import _RECORDS
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="records/tabulate",
@@ -18,7 +17,11 @@ The generic records-to-table step. Every coordinate seen across the records
 becomes a column, then every scalar (number or string) field; each column's
 type is inferred from its values. Nested fields are left out.
 """,
-    inputs=(_RECORDS,),
+    inputs=(In("records", "collection | records/table",
+               "The records to work on: any collection of items — records, "
+               "decision reads, vectors, verdicts, tree summaries — since every "
+               "item has an id and its fields; a table's rows are read as records.",
+               many=True),),
     output=Output('records/table', collection=False, doc='`columns` (`{name, dtype}`) and `rows`.'),
     params=(
         P("row_axis", "string",

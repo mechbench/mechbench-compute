@@ -29,7 +29,15 @@ def patch_trace(model, records, params):  # the mechanism, callable on its own
 
 - **`OP`** is the declaration the documentation site renders and
   `check_params` enforces. It is the only place the operation's
-  parameters are written down.
+  parameters are written down, and it is complete here: a param several
+  operations declare the same way, a port they share, a paragraph of
+  prose — each is written out in the file rather than imported, so the
+  contract reads whole without opening anything else. The only thing
+  the file takes from `mechbench_compute.lexicon` is the vocabulary a
+  declaration is written in — `Op`, `P`, `In`, `Output`, the kinds.
+  Two operations that say the same thing say it twice, on purpose:
+  a declaration is prose for a reader, and the reader has one file
+  open.
 - **`run(ctx, inputs, params)`** is the one entry point, the same
   signature for every operation. It unpacks `inputs`, asks `ctx` for
   what it needs, and calls the mechanism.
@@ -42,6 +50,10 @@ def patch_trace(model, records, params):  # the mechanism, callable on its own
 An operation's file holds what only that operation uses.
 
 ## What operations share
+
+This is about the code operations run. A declaration is not shared: two
+operations that declare a param the same way each write it out, because
+a contract is prose and its reader has one file open.
 
 A definition two or more operations use is a file of its own, under the
 topic it belongs to, named for itself:

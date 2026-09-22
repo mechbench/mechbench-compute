@@ -10,7 +10,6 @@ from mechbench_compute.judge.constants import FIRST_NUMBER, SCALES
 from mechbench_compute.judge.parse_json_object import parse_json_object
 from mechbench_compute.judge.read_rationale import read_rationale
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.external import _BUDGET
 
 _PROVIDER_OPTIONS_DOC = (
     "Provider-native request fields this block does not model, **keyed by "
@@ -101,7 +100,12 @@ resumability and per-call provenance; a local model is the cheap first test.
               P("labels", "list[string]", "For `categorical`: the labels, at least two.", None),
           )),
         P("n_votes", "int", "How many times each subject is judged.", 1),
-        _BUDGET,
+        P("budget_usd", "float",
+          "The most this node may spend on provider calls, in US dollars. "
+          "Required when the model is a hosted endpoint; the node stops "
+          "with what it has when the cap is reached. A job-level cap, if "
+          "one is set, bounds it further.",
+          None),
         P("concurrency", "int",
           "How many judge requests are in flight at once (remote judges).",
           4),

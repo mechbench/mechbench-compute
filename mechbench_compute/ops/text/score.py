@@ -3,7 +3,6 @@ from __future__ import annotations
 from mechbench_compute import lexicon
 from mechbench_compute._mlx import mx
 from mechbench_compute.lexicon._base import In, Op, Output
-from mechbench_compute.lexicon.model import ADAPTER
 
 OP = Op(
     name="text/score",
@@ -25,7 +24,13 @@ item has no token ids to replay and the block refuses it.
         In("collection", "text/document",
            "A trace-fidelity document collection, usually from `text/generate`; "
            "a stored one arrives as `{\"$ref\": …}`.", many=True),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('text/annotation', collection=True, doc='One item per token: `{anchor: {item_id, token_start, token_end}, value}` with the surprisal in bits. The header names the `collection` scored and carries `value_type: "numeric"` and `required_fidelity: "trace"`.'),
     params=(),

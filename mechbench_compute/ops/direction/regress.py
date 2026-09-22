@@ -10,7 +10,6 @@ from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
 from mechbench_compute.directions.make import make
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.direction import _point, _source
 
 OP = Op(
     name="direction/regress",
@@ -55,8 +54,15 @@ are held out, so a fit repeats exactly.
           [0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0]),
         P("holdout", "float",
           "The fraction of items held out of the fit, to score it.", 0.2),
-        _point(),
-        _source(),
+        P("point", "string",
+          "Override the point recorded on the direction — `\"resid_post\"`, "
+          "`\"resid_pre\"`, or any point name. By default it is taken from "
+          "the vectors' own `space`.",
+          None, value="point"),
+        P("source", "string",
+          "A label for where the vectors came from, recorded in the "
+          "direction's derivation for provenance.",
+          None),
     ),
     example={"layer": 21, "target": "surprisal"},
     example_inputs={"vectors": {"$ref": {"bench": "you/lab/residuals"}}},

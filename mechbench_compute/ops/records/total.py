@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import math
 
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.records import _RECORDS
+from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
 
 OP = Op(
@@ -14,7 +13,11 @@ An exact reduce: values are kept as a multiset and summed with a correctly
 rounded algorithm, so the result is the same whatever order or chunking the
 records arrived in. Safe to run over partial results and merge.
 """,
-    inputs=(_RECORDS,),
+    inputs=(In("records", "collection | records/table",
+               "The records to work on: any collection of items — records, "
+               "decision reads, vectors, verdicts, tree summaries — since every "
+               "item has an id and its fields; a table's rows are read as records.",
+               many=True),),
     output=Output('records/sum', collection=False, doc='`{n, sum}`.'),
     params=(P("value", "string", "The numeric field to sum."),),
     example={"value": "cost_usd"},

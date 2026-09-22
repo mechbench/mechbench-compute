@@ -13,8 +13,7 @@ from mechbench_compute.interp.report_own_top1 import report_own_top1
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Ablate
-from mechbench_compute.lexicon._base import Op, Output
-from mechbench_compute.lexicon.model import _LAYERS_ALL, _PROMPTS, ADAPTER, _tracked
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="intervene/ablate-heads",
@@ -34,11 +33,30 @@ Cost is one forward pass per record per (layer, head): on a 30-layer,
 16-head model that is 480 passes per record, so name the layers you care
 about rather than all of them when the prompt set is large.
 """,
-    inputs=(_PROMPTS, ADAPTER),
+    inputs=(In("records", "records/record",
+               "The prompts, one per record; a record's prompt is its `user`, "
+               "`prompt` or `text` field. A record may carry its own `tracked`.",
+               many=True), In("adapter", "adapter/lora",
+                         "A LoRA adapter to fuse on top of the model for this node only — "
+                         "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+                         "reference, or a stored adapter. Fuses last, on top of any "
+                         "adapters the model reference itself carries; `adapter_scale` "
+                         "scales this one.",
+                         required=False)),
     output=Output('intervene/heads', collection=False, doc="One grid over axes `[layer, head]`: `measures.mean_delta` is the mean Δ log‑p across records; `conditions` lists each record's `{id, target, baseline_logp}`; `layers` and `n_heads` give the axes."),
     params=(
-        _LAYERS_ALL,
-        _tracked("the answer whose dependence on each head is measured"),
+        P("layers", "list[int] | \"all\"",
+          "Which layers to run over.",
+          "all"),
+        P("tracked", "map[string, string]",
+          "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
+          "the target — the answer whose dependence on each head is measured. "
+          "Each is tokenized as a continuation of the rendered prompt: with a "
+          "leading space after a raw prompt, without one after a chat template's "
+          "assistant prefix. A record's own `tracked` takes precedence; with "
+          "none named, the model's own top-1 prediction for that prompt is the "
+          "target, and a target that differs from it is reported beside it.",
+          None),
     ),
     example={
         "model": {"$param": "model"},

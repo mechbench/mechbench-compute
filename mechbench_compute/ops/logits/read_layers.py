@@ -3,7 +3,6 @@ from __future__ import annotations
 from mechbench_compute import lexicon
 from mechbench_compute._mlx import mx
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER
 
 _CHAT_RECORDS = In("records", "records/record",
                    "Chat-shaped records: `user` (required), `system` and "
@@ -30,7 +29,16 @@ Read a record's items in layer order and you see the commitment funnel:
 entropy falling, one token taking over, at whichever depth this model
 decides. A set of records renders as overlaid curves.
 """,
-    inputs=(_CHAT_RECORDS, ADAPTER),
+    inputs=(
+        _CHAT_RECORDS,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
+    ),
     output=Output('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked`. The header carries `layers` and `top_k`."),
     params=(
         P("top_k", "int", "How many of the most likely tokens to record per layer.", 5),

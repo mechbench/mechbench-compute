@@ -11,7 +11,6 @@ from mechbench_compute._mlx import mx
 from mechbench_compute.interp import read_last_logp, read_pair, render_text, resolve_target
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER, _tracked
 
 OP = Op(
     name="intervene/path",
@@ -65,7 +64,13 @@ are far apart, and treat a delta of that size as no path at all.
         In("records", "records/pair",
            "Pairs, each with prompt strings `a` (clean) and `b` (corrupt), "
            "and optionally its own `tracked`.", many=True),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('intervene/readout', collection=True,
                   doc='One item per record per sender: `delta` (the change in the target\'s metric from the clean baseline), `value`, `cell` (the sender named), and `coords` carrying the sender\'s `layer`, `point` and `head` beside the receiver\'s `into_layer`, `into_point`, `into_head`. The header carries `metric`, `receiver`, `n_senders` and `target`.'),
@@ -88,8 +93,16 @@ are far apart, and treat a delta of that size as no path at all.
           "What the delta is measured in: the target's log-probability, its "
           "probability, or its raw logit.",
           "logprob", choices=("logprob", "prob", "logit")),
-        _tracked("the answer whose path is traced; the clean prompt's top‑1 "
-                 "by default"),
+        P("tracked", "map[string, string]",
+          "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
+          "the target — the answer whose path is traced; the clean prompt's "
+          "top‑1 by default. Each is tokenized as a continuation of the rendered "
+          "prompt: with a leading space after a raw prompt, without one after a "
+          "chat template's assistant prefix. A record's own `tracked` takes "
+          "precedence; with none named, the model's own top-1 prediction for "
+          "that prompt is the target, and a target that differs from it is "
+          "reported beside it.",
+          None),
     ),
     example={"model": {"$param": "model"},
              "receiver": {"point": "attn.q", "layer": 23, "head": 5},

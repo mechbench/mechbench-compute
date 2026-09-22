@@ -6,8 +6,7 @@ from typing import Any
 from mechbench_compute.blocks.read_group_key import read_group_key
 from mechbench_compute.blocks.read_interval import read_interval
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.records import _RECORDS
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="records/contrast",
@@ -38,7 +37,11 @@ wider than it needs to be when they did not.
 `by` names further coordinates to hold fixed: one row per combination
 of them, each its own contrast.
 """,
-    inputs=(_RECORDS,),
+    inputs=(In("records", "collection | records/table",
+               "The records to work on: any collection of items — records, "
+               "decision reads, vectors, verdicts, tree summaries — since every "
+               "item has an id and its fields; a table's rows are read as records.",
+               many=True),),
     output=(
         Output('records/table', collection=False, doc='One row per combination of the `by` coordinates: `on`, `a`, `b`, `n`, `mean_a`, `mean_b`, `diff`, `lo`, `hi`, `share_positive`. The header\'s `interval` says the level, method, whether it was paired, resamples and seed.')
     ),

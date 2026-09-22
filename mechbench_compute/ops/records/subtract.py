@@ -5,8 +5,7 @@ from typing import Any
 
 from mechbench_compute.blocks.build_collection import build_collection
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.records import _RECORDS
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="records/subtract",
@@ -22,7 +21,11 @@ with no matching baseline is an error, not a silent omission.
 
 The output keeps `coords`, so it feeds `records/summarize` directly.
 """,
-    inputs=(_RECORDS,),
+    inputs=(In("records", "collection | records/table",
+               "The records to work on: any collection of items — records, "
+               "decision reads, vectors, verdicts, tree summaries — since every "
+               "item has an id and its fields; a table's rows are read as records.",
+               many=True),),
     output=Output('records/record', collection=True, doc='One record per non-baseline record: `{id, coords, value, baseline, delta}`.'),
     params=(
         P("value", "string",

@@ -8,8 +8,7 @@ from mechbench_compute.blocks.expand_cells import expand_cells
 from mechbench_compute.blocks.read_group_key import read_group_key
 from mechbench_compute.blocks.read_interval import read_interval
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.records import _RECORDS
+from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
 
 OP = Op(
@@ -44,7 +43,11 @@ around it — `lo` and `hi`, the percentile bootstrap of the mean over
 sweep is a claim with a width, not a number. Whether two groups DIFFER is
 `records/contrast`'s question, which pairs the records first.
 """,
-    inputs=(_RECORDS,),
+    inputs=(In("records", "collection | records/table",
+               "The records to work on: any collection of items — records, "
+               "decision reads, vectors, verdicts, tree summaries — since every "
+               "item has an id and its fields; a table's rows are read as records.",
+               many=True),),
     output=(
         Output('records/table', collection=False, doc='One row per group with the `by` coordinates and `n`, `median`, `mean`, `min`, `max`, `share_negative`, plus `lo` and `hi` when an `interval` was asked; `n_missing` when any were skipped; the header\'s `interval` says the level, method, resamples and seed.')
     ),

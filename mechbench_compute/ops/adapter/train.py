@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from mechbench_compute import lexicon
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.common import TARGET_TRANSFORM as _TRANSFORM
-from mechbench_compute.lexicon.common import TARGET_UNIFORM as _UNIFORM
-from mechbench_compute.lexicon.common import TARGET_WEIGHTS as _WEIGHTS
 
 OP = Op(
     name="adapter/train",
@@ -80,13 +77,88 @@ draw gives.
           "The target distribution — `{\"uniform\": [...]}` or "
           "`{\"weights\": {...}}`, with optional `transform` steps, "
           "`depth`, `join`, `per_slot`. See above.", fields=(
-              _UNIFORM, _WEIGHTS, _TRANSFORM,
+              P("uniform", "list[string]",
+                "The outcomes, weighted equally. Wins over `weights` when both "
+                "are given.",
+                None),
+              P("weights", "map[string, float]",
+                "Outcome → weight, each finite and at least 0: raw corpus "
+                "frequencies, say. A stored word list may be given by reference.",
+                None, stored="text/word-list"),
+              P("transform", "list[object]",
+                "Steps that reshape the distribution, applied in order; the "
+                "result is always normalised.",
+                [], fields=(
+                    P("op", "string",
+                      "The step.",
+                      choices=("sqrt", "pow", "temper", "temper_to_entropy", "mix_uniform", "top_k", "normalize")),
+                    P("exponent", "float",
+                      "For `pow`: the power each weight is raised to.",
+                      None),
+                    P("temperature", "float",
+                      "For `temper`: divides the log-weights; above 0.",
+                      None),
+                    P("bits", "float",
+                      "For `temper_to_entropy`: the entropy to reach, in bits.",
+                      None),
+                    P("tolerance", "float",
+                      "For `temper_to_entropy`: how close is close enough, in "
+                      "bits.",
+                      0.0001),
+                    P("epsilon", "float",
+                      "For `mix_uniform`: the share of uniform mixed in, from 0 "
+                      "to 1.",
+                      None),
+                    P("k", "int",
+                      "For `top_k`: how many of the heaviest outcomes to keep.",
+                      None),
+                )),
               P("depth", "int",
                 "How many slots an outcome has. Above 1, each outcome is a sequence sampled fresh every step.", 1),
               P("join", "string", "For depth > 1: the text between slots.", ""),
               P("per_slot", "list[object]",
                 "For depth > 1: one target per slot, as many as `depth`. Without it every slot shares this one.",
-                None, fields=(_UNIFORM, _WEIGHTS, _TRANSFORM)),
+                None, fields=(
+                    P("uniform", "list[string]",
+                      "The outcomes, weighted equally. Wins over `weights` when "
+                      "both are given.",
+                      None),
+                    P("weights", "map[string, float]",
+                      "Outcome → weight, each finite and at least 0: raw corpus "
+                      "frequencies, say. A stored word list may be given by "
+                      "reference.",
+                      None, stored="text/word-list"),
+                    P("transform", "list[object]",
+                      "Steps that reshape the distribution, applied in order; "
+                      "the result is always normalised.",
+                      [], fields=(
+                          P("op", "string",
+                            "The step.",
+                            choices=("sqrt", "pow", "temper", "temper_to_entropy", "mix_uniform", "top_k", "normalize")),
+                          P("exponent", "float",
+                            "For `pow`: the power each weight is raised to.",
+                            None),
+                          P("temperature", "float",
+                            "For `temper`: divides the log-weights; above 0.",
+                            None),
+                          P("bits", "float",
+                            "For `temper_to_entropy`: the entropy to reach, in "
+                            "bits.",
+                            None),
+                          P("tolerance", "float",
+                            "For `temper_to_entropy`: how close is close enough, "
+                            "in bits.",
+                            0.0001),
+                          P("epsilon", "float",
+                            "For `mix_uniform`: the share of uniform mixed in, "
+                            "from 0 to 1.",
+                            None),
+                          P("k", "int",
+                            "For `top_k`: how many of the heaviest outcomes to "
+                            "keep.",
+                            None),
+                      )),
+                )),
               P("unit", "string",
                 "For depth > 1: what a slot is — one token, or a whole outcome of any length, "
                 "trained with `path` items.",

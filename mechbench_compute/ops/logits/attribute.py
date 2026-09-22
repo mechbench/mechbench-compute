@@ -17,7 +17,6 @@ from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interp.encode_target_token import encode_target_token
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER, _tracked
 
 OP = Op(
     name="logits/attribute",
@@ -49,7 +48,13 @@ Because additivity only holds over the whole stream, `layers` must be
         In("records", "records/record",
            "The prompts, one per record (`user`, `prompt` or `text`). A "
            "record may carry its own `tracked`.", many=True),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …): `measures.contribution`, the `target` and `contrast` tokens, the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
     params=(
@@ -67,7 +72,15 @@ Because additivity only holds over the whole stream, `layers` must be
           "head. Opt-in per layer because per-head outputs cost a slower "
           "attention path.",
           None),
-        _tracked("the logit being decomposed"),
+        P("tracked", "map[string, string]",
+          "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
+          "the target — the logit being decomposed. Each is tokenized as a "
+          "continuation of the rendered prompt: with a leading space after a raw "
+          "prompt, without one after a chat template's assistant prefix. A "
+          "record's own `tracked` takes precedence; with none named, the model's "
+          "own top-1 prediction for that prompt is the target, and a target that "
+          "differs from it is reported beside it.",
+          None),
     ),
     example={
         "model": {"$param": "model"},

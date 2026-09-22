@@ -14,8 +14,7 @@ from mechbench_compute.interp.read_pair import read_pair
 from mechbench_compute.interp.render_text import render_text
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
-from mechbench_compute.lexicon._base import In, Op, Output
-from mechbench_compute.lexicon.model import _LAYERS_ALL, _RESIDUAL_POINT, ADAPTER
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 _PAIRS = In("records", "records/pair",
             "Pairs, each with prompt strings `a` and `b`.", many=True)
@@ -38,11 +37,22 @@ the change has propagated.
 
 Unequal-length pairs are reported as errors, not aligned by guesswork.
 """,
-    inputs=(_PAIRS, ADAPTER),
+    inputs=(_PAIRS, In("adapter", "adapter/lora",
+                       "A LoRA adapter to fuse on top of the model for this node only — "
+                       "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+                       "reference, or a stored adapter. Fuses last, on top of any "
+                       "adapters the model reference itself carries; `adapter_scale` "
+                       "scales this one.",
+                       required=False)),
     output=Output('activations/divergence', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.divergence` is 1 − cosine; `tokens` are prompt `a`'s. An unaligned pair has `error` and empty measures."),
     params=(
-        _LAYERS_ALL,
-        _RESIDUAL_POINT,
+        P("layers", "list[int] | \"all\"",
+          "Which layers to run over.",
+          "all"),
+        P("point", "string",
+          "Which residual stream to read: `\"resid_post\"` (after each "
+          "layer) or `\"resid_pre\"` (before it).",
+          "resid_post", choices=("resid_post", "resid_pre"), value="point"),
     ),
     example={
         "model": {"$param": "model"},

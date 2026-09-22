@@ -15,8 +15,7 @@ from mechbench_compute.interp.report_own_top1 import report_own_top1
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Ablate
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.model import _LAYERS_ALL, _PROMPTS, ADAPTER, _tracked
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="intervene/ablate-layers",
@@ -38,7 +37,16 @@ layer's contribution. Because records render the chat-shaped way, the
 sweep can be taken at a decision point inside an assistant turn (a record
 with a `prefill`), where `logits/read` reads.
 """,
-    inputs=(_PROMPTS, ADAPTER),
+    inputs=(In("records", "records/record",
+               "The prompts, one per record; a record's prompt is its `user`, "
+               "`prompt` or `text` field. A record may carry its own `tracked`.",
+               many=True), In("adapter", "adapter/lora",
+                         "A LoRA adapter to fuse on top of the model for this node only — "
+                         "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+                         "reference, or a stored adapter. Fuses last, on top of any "
+                         "adapters the model reference itself carries; `adapter_scale` "
+                         "scales this one.",
+                         required=False)),
     output=Output('intervene/ablation', collection=True, doc="Per record, one item per layer: `id`, `layer`, `delta_logp`. The header's `conditions` carry each record's untouched read (`{id, target, baseline_logp}`), and `aggregates.mean_delta` / `aggregates.median_delta` are per-layer across all records, in `layers` order."),
     params=(
         P("point", "string | list[string]",
@@ -48,8 +56,18 @@ with a `prefill`), where `logits/read` reads.
           "several. The default zeroes attention and MLP together — the "
           "whole layer.",
           ["attn_out", "mlp_out"], choices=("attn_out", "mlp_out", "gate_out"), value="point"),
-        _LAYERS_ALL,
-        _tracked("the answer whose dependence on each layer is measured"),
+        P("layers", "list[int] | \"all\"",
+          "Which layers to run over.",
+          "all"),
+        P("tracked", "map[string, string]",
+          "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
+          "the target — the answer whose dependence on each layer is measured. "
+          "Each is tokenized as a continuation of the rendered prompt: with a "
+          "leading space after a raw prompt, without one after a chat template's "
+          "assistant prefix. A record's own `tracked` takes precedence; with "
+          "none named, the model's own top-1 prediction for that prompt is the "
+          "target, and a target that differs from it is reported beside it.",
+          None),
     ),
     example={
         "model": {"$param": "model"},

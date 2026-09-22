@@ -5,8 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER
+from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
 from mechbench_compute.weights.compute_effective_rank import compute_effective_rank
 from mechbench_compute.weights.read_parameters import read_parameters
@@ -49,7 +48,13 @@ parameters captured are the adapted ones — the base plus what training
 wrote. To read what training wrote BY ITSELF, `adapter/measure` reads
 the adapter's own deltas and needs no model at all.
 """,
-    inputs=(ADAPTER,),
+    inputs=(In("adapter", "adapter/lora",
+               "A LoRA adapter to fuse on top of the model for this node only — "
+               "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+               "reference, or a stored adapter. Fuses last, on top of any "
+               "adapters the model reference itself carries; `adapter_scale` "
+               "scales this one.",
+               required=False),),
     output=Output('weights/parameter', collection=True, doc="One item per parameter tensor, id and `coords.module` naming it in the model's own tree: `shape`, `n`, `dtype`, `frobenius`, `mean`, `std`, `max_abs`, `sparsity`, plus `singular_values`/`spectral`/`effective_rank` under `spectrum` and `values` under `values`. The header carries the `model` and `captured` — the tensors read, the numbers that is, and how many the model has."),
     params=(
         P("points", "list[string] | \"all\"",

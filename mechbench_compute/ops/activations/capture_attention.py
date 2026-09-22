@@ -14,7 +14,6 @@ from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER
 
 OP = Op(
     name="activations/capture-attention",
@@ -38,7 +37,13 @@ million values.
         In("records", "records/record",
            "The prompts, one per record; a record's prompt is its `user`, "
            "`prompt` or `text` field.", many=True),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('activations/attention', collection=True, doc="One grid per record over axes `[layer, head, query, key]`: `measures.weight` is indexed in that order (row = the attending position, column = the attended-to position); `tokens` are the prompt's tokens."),
     params=(

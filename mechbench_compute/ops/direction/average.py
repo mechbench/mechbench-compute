@@ -5,8 +5,7 @@ from typing import Any
 
 from mechbench_compute.directions.add import add
 from mechbench_compute.directions.collect_directions import collect_directions
-from mechbench_compute.lexicon._base import Op, Output
-from mechbench_compute.lexicon.direction import _NAMED_DIRECTIONS
+from mechbench_compute.lexicon._base import WILDCARD, In, Op, Output
 
 OP = Op(
     name="direction/average",
@@ -21,7 +20,15 @@ equally however large its original norm was. That is the right question for
 dominated by whichever axis happened to be longest. Same as `direction/add`
 with equal weights, except that the derivation says `average`.
 """,
-    inputs=_NAMED_DIRECTIONS,
+    inputs=(
+        In("directions", "direction/vector",
+           "The directions as one list, when they do not each arrive on a port "
+           "of their own; they are named `d0`, `d1`, … in the result.",
+           many=True, required=False),
+        In(WILDCARD, "direction/vector",
+           "One direction per edge, on a port of your naming; the port name is "
+           "the direction's name in the result.", required=False),
+    ),
     output=Output('direction/vector', collection=False, doc='`derivation.method` is `"average"`.'),
     params=(),
     example={},

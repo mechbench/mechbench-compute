@@ -17,20 +17,15 @@ carry — bare, stored, with the retired `/1`, or one of the names from
 before the 2026-09 renames — and returns the bare name, warning once
 per retired spelling.
 
-Entries are grouped by family in the sibling modules and assembled here.
+Every operation's entry is declared whole in the operation's own file
+(docs/OPS_LAYOUT.md) and assembled here; the kinds, the value types and
+the families are declared in the sibling modules.
 """
 
 from __future__ import annotations
 
 import re
 
-from mechbench_compute.lexicon import (
-    direction,
-    external,
-    model,
-    records,
-    trajectory,
-)
 from mechbench_compute.lexicon._base import (
     COLLECTION,
     KIND_ROOT,
@@ -77,11 +72,7 @@ from mechbench_compute.lexicon.kinds import (
 from mechbench_compute import ops as _ops  # noqa: E402
 
 OPS: tuple[Op, ...] = tuple(
-    sorted(
-        (*model.OPS, *direction.OPS, *trajectory.OPS, *records.OPS, *external.OPS,
-         *(m.OP for m in _ops.load_modules().values())),
-        key=lambda op: op.name,
-    )
+    sorted((m.OP for m in _ops.load_modules().values()), key=lambda op: op.name)
 )
 
 BY_NAME: dict[str, Op] = {op.name: op for op in OPS}

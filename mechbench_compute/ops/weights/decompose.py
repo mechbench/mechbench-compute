@@ -5,8 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER
+from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.weights.constants import RESIDUAL_SIDE
 from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
 from mechbench_compute.weights.read_parameters import read_parameters
@@ -52,7 +51,13 @@ direction — and for comparing modules across layers or models.
 `points` is required: an SVD per tensor is not something to do to a
 whole model by accident.
 """,
-    inputs=(ADAPTER,),
+    inputs=(In("adapter", "adapter/lora",
+               "A LoRA adapter to fuse on top of the model for this node only — "
+               "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+               "reference, or a stored adapter. Fuses last, on top of any "
+               "adapters the model reference itself carries; `adapter_scale` "
+               "scales this one.",
+               required=False),),
     output=Output('direction/vector', collection=True, doc="`top_k` items per module, ids `<parameter>#<k>`: the unit direction, `norm` its singular value, `space` naming the model, the layer and the point the module reads or writes (`attn.in_norm`, `attn_out`, `mlp.in_norm`, `mlp_out`), and `derivation` recording the module, the side and the index. The header's `decomposed` lists what was skipped and why."),
     params=(
         P("points", "list[string]",

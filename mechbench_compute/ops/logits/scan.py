@@ -13,8 +13,7 @@ from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Capture
-from mechbench_compute.lexicon._base import Op, Output
-from mechbench_compute.lexicon.model import _LAYERS_ALL, _PROMPTS, ADAPTER, _tracked
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="logits/scan",
@@ -34,11 +33,30 @@ position's top readout.
 The map answers: where in the sequence, and at what depth, does the answer
 become visible?
 """,
-    inputs=(_PROMPTS, ADAPTER),
+    inputs=(In("records", "records/record",
+               "The prompts, one per record; a record's prompt is its `user`, "
+               "`prompt` or `text` field. A record may carry its own `tracked`.",
+               many=True), In("adapter", "adapter/lora",
+                         "A LoRA adapter to fuse on top of the model for this node only — "
+                         "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+                         "reference, or a stored adapter. Fuses last, on top of any "
+                         "adapters the model reference itself carries; `adapter_scale` "
+                         "scales this one.",
+                         required=False)),
     output=Output('logits/lens', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.logprob` and `measures.rank` (0 is the top readout), `tokens`, and the `target` token."),
     params=(
-        _LAYERS_ALL,
-        _tracked("the answer being watched for"),
+        P("layers", "list[int] | \"all\"",
+          "Which layers to run over.",
+          "all"),
+        P("tracked", "map[string, string]",
+          "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
+          "the target — the answer being watched for. Each is tokenized as a "
+          "continuation of the rendered prompt: with a leading space after a raw "
+          "prompt, without one after a chat template's assistant prefix. A "
+          "record's own `tracked` takes precedence; with none named, the model's "
+          "own top-1 prediction for that prompt is the target, and a target that "
+          "differs from it is reported beside it.",
+          None),
     ),
     example={
         "model": {"$param": "model"},

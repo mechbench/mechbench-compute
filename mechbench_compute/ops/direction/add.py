@@ -3,8 +3,7 @@ from __future__ import annotations
 from mechbench_compute import points as P
 from mechbench_compute.directions.add import add
 from mechbench_compute.directions.collect_directions import collect_directions
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.direction import _NAMED_DIRECTIONS
+from mechbench_compute.lexicon._base import WILDCARD, In, Op, Output, P
 
 OP = Op(
     name="direction/add",
@@ -19,7 +18,15 @@ meaningless and is refused rather than producing a plausible-looking vector.
 `weights: [1, -0.5]` is "the first, minus half the second". The result is
 normalised to unit length.
 """,
-    inputs=_NAMED_DIRECTIONS,
+    inputs=(
+        In("directions", "direction/vector",
+           "The directions as one list, when they do not each arrive on a port "
+           "of their own; they are named `d0`, `d1`, … in the result.",
+           many=True, required=False),
+        In(WILDCARD, "direction/vector",
+           "One direction per edge, on a port of your naming; the port name is "
+           "the direction's name in the result.", required=False),
+    ),
     output=(
         Output('direction/vector', collection=False, doc='`derivation.method` is `"add"`, with `derivation.weights`.')
     ),

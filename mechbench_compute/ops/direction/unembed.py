@@ -10,7 +10,6 @@ from mechbench_compute import shapes as S
 from mechbench_compute.directions.coerce_array import coerce_array
 from mechbench_compute.directions.read_space import read_space
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER
 
 OP = Op(
     name="direction/unembed",
@@ -30,7 +29,16 @@ The reading is only literal for directions at the residual stream; a
 direction inside an attention block is not in the space the unembedding
 reads.
 """,
-    inputs=(In("direction", "direction/vector", "The direction to read."), ADAPTER),
+    inputs=(
+        In("direction", "direction/vector", "The direction to read."),
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
+    ),
     output=(
         Output('direction/vocab', collection=False, doc="`space`, `top_k`, and `positive` and `negative` — each a distribution (`entropy_bits`, `top` as `{token, p, logp}`) of the unembedding applied to that sign.")
     ),

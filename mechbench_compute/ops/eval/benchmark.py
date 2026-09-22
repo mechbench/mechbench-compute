@@ -3,8 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="eval/benchmark",
@@ -24,7 +23,13 @@ Every (task, metric) the harness reports becomes one row, stamped with
 The harness version is recorded on the table: prompt templates change
 between its releases, so the version is part of the measurement.
 """,
-    inputs=(ADAPTER,),
+    inputs=(In("adapter", "adapter/lora",
+               "A LoRA adapter to fuse on top of the model for this node only — "
+               "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+               "reference, or a stored adapter. Fuses last, on top of any "
+               "adapters the model reference itself carries; `adapter_scale` "
+               "scales this one.",
+               required=False),),
     output=(
         Output('records/table', collection=False, doc='One row per (task, metric): `task`, `metric`, `variant`, `value`, `stderr`, `n`.')
     ),

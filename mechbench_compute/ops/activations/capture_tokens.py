@@ -15,7 +15,6 @@ from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import _LAYERS_ALL, _POSITIONS_DOC, _RESIDUAL_POINT
 
 OP = Op(
     name="activations/capture-tokens",
@@ -60,11 +59,18 @@ the surprise-direction probe.
     ),
     output=Output('activations/vector', collection=True, doc='One item per record per kept position per layer, with `position` and `surprisal` among its coords and the token as `token`. The header carries `model`, `point`, `source`, `position` (the selector), `every`, `layers` and `d_model`; under tensor storage also `storage: "tensor"`, `shards` (name, rows, size, sha256 each), `n_items` and `d`, with `items` empty — the rows are the shards.'),
     params=(
-        _LAYERS_ALL,
-        _RESIDUAL_POINT,
+        P("layers", "list[int] | \"all\"",
+          "Which layers to run over.",
+          "all"),
+        P("point", "string",
+          "Which residual stream to read: `\"resid_post\"` (after each "
+          "layer) or `\"resid_pre\"` (before it).",
+          "resid_post", choices=("resid_post", "resid_pre"), value="point"),
         P("positions", "selector",
-          f"Which positions to read: {_POSITIONS_DOC}. Unlike `capture`'s "
-          "single position, every position named is read.",
+          "Which positions to read: `\"last\"`, `\"all\"`, a list of indices "
+          "(negative from the end), `{\"tokens\": [...]}`, `{\"range\": [a, "
+          "b]}`, `{\"after\": n}`, `\"subject\"` or `\"generated\"`. Unlike "
+          "`capture`'s single position, every position named is read.",
           "all"),
         P("every", "int",
           "Take one position in n of those named — a way under the ceiling "

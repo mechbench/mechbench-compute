@@ -9,7 +9,6 @@ from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
 from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P
-from mechbench_compute.lexicon.model import _POSITIONS_DOC, _RESIDUAL_POINT, ADAPTER
 
 OP = Op(
     name="trajectory/capture",
@@ -58,7 +57,13 @@ the model saw.
            "A direction: read each step's scalar coordinate along it at "
            "capture time and emit coordinates instead of vectors.",
            required=False),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('trajectory/point', collection=True, doc='One item per record per step: `{id, coords, space, step, position, token, norm, vector}`, with `vocab` (a distribution) when asked for, and `n_pooled` plus `steps` when reduced. With `project`, a collection of `activations/coordinate` instead: `coord` and the direction\'s identity in place of the vector, `projected: true` in the header. The header carries `axis`, `point`, `layers`, `position`/`positions`, `d_model` and `replay` (`"trace"`, `"text"` or `"mixed"`).',
                  otherwise=(Otherwise("activations/coordinate", collection=True, port="project"),)),
@@ -75,12 +80,16 @@ the model saw.
           "sequence. (A one-element `layers` list is accepted too.)",
           None),
         P("position", "selector",
-          f"For `axis: \"layers\"`, which token to follow through the layers: "
-          f"{_POSITIONS_DOC}, resolving to one position.",
+          "For `axis: \"layers\"`, which token to follow through the layers: "
+          "`\"last\"`, `\"all\"`, a list of indices (negative from the end), "
+          "`{\"tokens\": [...]}`, `{\"range\": [a, b]}`, `{\"after\": n}`, "
+          "`\"subject\"` or `\"generated\"`, resolving to one position.",
           "last"),
         P("positions", "selector",
-          f"For `axis: \"positions\"`, which positions to step along: "
-          f"{_POSITIONS_DOC} — `\"generated\"` is the story, not the prompt.",
+          "For `axis: \"positions\"`, which positions to step along: `\"last\"`, "
+          "`\"all\"`, a list of indices (negative from the end), `{\"tokens\": "
+          "[...]}`, `{\"range\": [a, b]}`, `{\"after\": n}`, `\"subject\"` or "
+          "`\"generated\"` — `\"generated\"` is the story, not the prompt.",
           "generated"),
         P("max_steps", "int",
           "Stop after this many steps per record.",
@@ -91,7 +100,10 @@ the model saw.
           "\"over\": <selector>}`, `over` counting steps from the trajectory's "
           "own start, so `{\"range\": [5, 30]}` is steps 5 … 29.",
           None, value="pool"),
-        _RESIDUAL_POINT,
+        P("point", "string",
+          "Which residual stream to read: `\"resid_post\"` (after each "
+          "layer) or `\"resid_pre\"` (before it).",
+          "resid_post", choices=("resid_post", "resid_pre"), value="point"),
         P("replay", "string",
           "`\"auto\"`: use the record's stored token ids when it has a "
           "trace, else tokenize its text. `\"trace\"`: require the trace. "

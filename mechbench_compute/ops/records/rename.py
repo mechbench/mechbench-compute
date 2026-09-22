@@ -5,8 +5,7 @@ from typing import Any
 
 from mechbench_compute.blocks.build_collection import build_collection
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.records import _RECORDS
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="records/rename",
@@ -28,7 +27,11 @@ makes a measurement a coordinate the grouping ops can read) or lifted from
 a document's `metadata.coords`. A record without the old field is left as
 it is. Everything not named is kept.
 """,
-    inputs=(_RECORDS,),
+    inputs=(In("records", "collection | records/table",
+               "The records to work on: any collection of items — records, "
+               "decision reads, vectors, verdicts, tree summaries — since every "
+               "item has an id and its fields; a table's rows are read as records.",
+               many=True),),
     output=Output('records/record', collection=True, doc='The same records, with the named fields moved.'),
     params=(
         P("fields", "map[string, string]",

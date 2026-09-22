@@ -17,7 +17,6 @@ from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import _LAYERS_ALL, ADAPTER, _tracked
 
 OP = Op(
     name="intervene/patch",
@@ -71,11 +70,19 @@ only the residual stream.
         In("records", "records/pair",
            "Pairs, each with prompt strings `a` and `b`, and optionally its "
            "own `tracked`.", many=True),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` activation is patched in — measured under `method: \"exact\"`, estimated at first order under `\"attribution\"` — and `measures.share` is the same cell as a fraction of the `value_a`−`value_b` gap, 0 the corrupt run and 1 the clean one, so pairs with different gaps read on one scale (absent when a pair has no gap); `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures. The header carries `method`, `point`, `metric`, `layers`."),
     params=(
-        _LAYERS_ALL,
+        P("layers", "list[int] | \"all\"",
+          "Which layers to run over.",
+          "all"),
         P("method", "string",
           "`\"exact\"`: one forward pass per (layer, position), the patch "
           "itself. `\"attribution\"`: every cell estimated from one forward "
@@ -93,8 +100,16 @@ only the residual stream.
           "`\"resid_pre\"` (before it); under `attribution` also "
           "`\"attn_out\"` and `\"mlp_out\"`.",
           "resid_post", choices=("resid_post", "resid_pre", "attn_out", "mlp_out"), value="point"),
-        _tracked("the clean answer whose recovery is traced; defaults to the "
-                "clean prompt's top‑1"),
+        P("tracked", "map[string, string]",
+          "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
+          "the target — the clean answer whose recovery is traced; defaults to "
+          "the clean prompt's top‑1. Each is tokenized as a continuation of the "
+          "rendered prompt: with a leading space after a raw prompt, without one "
+          "after a chat template's assistant prefix. A record's own `tracked` "
+          "takes precedence; with none named, the model's own top-1 prediction "
+          "for that prompt is the target, and a target that differs from it is "
+          "reported beside it.",
+          None),
     ),
     example={
         "model": {"$param": "model"},

@@ -10,7 +10,6 @@ from mechbench_compute import shapes as S
 from mechbench_compute.directions.constants import DEFAULT_AXIS
 from mechbench_compute.directions.make import make
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.direction import _point, _source
 
 OP = Op(
     name="direction/classify",
@@ -65,8 +64,15 @@ nobody should read.
           "The inverse regularisation strength of the logistic fit: smaller "
           "is a stronger prior that the boundary is simple.",
           1.0),
-        _point(),
-        _source(),
+        P("point", "string",
+          "Override the point recorded on the direction — `\"resid_post\"`, "
+          "`\"resid_pre\"`, or any point name. By default it is taken from "
+          "the vectors' own `space`.",
+          None, value="point"),
+        P("source", "string",
+          "A label for where the vectors came from, recorded in the "
+          "direction's derivation for provenance.",
+          None),
     ),
     example={"axis": "sense", "holdout": 0.25},
     example_inputs={"vectors": {"$ref": {"bench": "you/lab/residuals"}}},

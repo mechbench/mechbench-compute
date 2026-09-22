@@ -15,7 +15,6 @@ from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.collect_tracked_ids import collect_tracked_ids
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import _POSITIONS_DOC, ADAPTER
 
 OP = Op(
     name="intervene/steer",
@@ -45,7 +44,13 @@ For anything beyond one direction at one layer and position, use
         In("vectors", "activations/vector",
            "The labelled vectors the direction is built from, with items at "
            "the injection `layer`.", many=True),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked`. The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas."),
     params=(
@@ -67,9 +72,11 @@ For anything beyond one direction at one layer and position, use
           "alpha `0` is the untouched control.",
           [-8.0, -4.0, 0.0, 4.0, 8.0]),
         P("position", "selector",
-          f"The one token position the direction is added at: {_POSITIONS_DOC}, "
-          "resolving to a single position. A record's own `position` takes "
-          "precedence.",
+          "The one token position the direction is added at: `\"last\"`, "
+          "`\"all\"`, a list of indices (negative from the end), `{\"tokens\": "
+          "[...]}`, `{\"range\": [a, b]}`, `{\"after\": n}`, `\"subject\"` or "
+          "`\"generated\"`, resolving to a single position. A record's own "
+          "`position` takes precedence.",
           "last"),
         P("top_k", "int",
           "How many of the most likely next tokens to record per row.",

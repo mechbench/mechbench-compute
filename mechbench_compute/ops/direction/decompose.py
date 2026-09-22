@@ -13,7 +13,6 @@ from mechbench_compute.directions.make import make
 from mechbench_compute.directions.build_model_provenance import build_model_provenance
 from mechbench_compute.directions.resolve_space import resolve_space
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.direction import _point, _source
 
 _VECTORS = In("vectors", "activations/vector",
               "A collection of vectors with items at the chosen `layer`.",
@@ -56,8 +55,15 @@ At least two items are needed.
         P("label", "string",
           "The older spelling of `value` on the `label` axis.",
           None),
-        _point(),
-        _source(),
+        P("point", "string",
+          "Override the point recorded on the direction — `\"resid_post\"`, "
+          "`\"resid_pre\"`, or any point name. By default it is taken from "
+          "the vectors' own `space`.",
+          None, value="point"),
+        P("source", "string",
+          "A label for where the vectors came from, recorded in the "
+          "direction's derivation for provenance.",
+          None),
     ),
     example={"layer": 14, "component": 0},
     example_inputs={"vectors": {"$ref": {"bench": "you/lab/vectors"}}},

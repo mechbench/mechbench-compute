@@ -3,14 +3,6 @@ from __future__ import annotations
 from mechbench_compute import lexicon
 from mechbench_compute import thinking as THINK
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import (
-    _DIRECTION_PORT,
-    _SOURCE_PORT,
-    _SPEC_FIELDS,
-    _SWEEP_PARAMS,
-    ADAPTER,
-    INTERVENTION,
-)
 from mechbench_compute.protocol.read_tokenizer_id import read_tokenizer_id
 from mechbench_compute.protocol.serialize_model import serialize_model
 
@@ -62,10 +54,28 @@ seed it reproduces the un-intervened sample byte for byte.
            "Chat-shaped records: `user` (required), `system` and `prefill` "
            "(optional; the prefill is read only with `continue_prefill`), "
            "an `id`, and optionally `coords`.", many=True),
-        INTERVENTION,
-        _DIRECTION_PORT,
-        _SOURCE_PORT,
-        ADAPTER,
+        In("intervention", "intervene/spec",
+           "An intervention declared as an object — its `items` are spec "
+           "items in the grammar `intervene/apply` documents — applied "
+           "during every forward pass this node runs. A `direction` or "
+           "`source` an item needs arrives on the port of that name. "
+           "Where the node also has an inline `spec` or `intervention` "
+           "param, the param wins when both are given.",
+           required=False),
+        In("direction", "direction/vector",
+           "A direction that fills any spec item without one.", required=False),
+        In("source", "activations/vector | intervene/readout",
+           "A collection of `activations/vector` — a capture, intervened or "
+           "not — that fills any `mean`/`resample`/`patch` item without one. "
+           "A capture readout stored before 0.110.0 is read too.",
+           many=True, required=False),
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`. Under an intervention, ids are `<record id>-s<k>-f<factor>`, every item carries `factor` in its `coords`, and the header carries `spec` (the items as run, objects replaced by their provenance), `weights` (parameter edits, when any) and `sweep` (the factors, `0.0` first when a control was added)."),
     params=(
@@ -76,8 +86,95 @@ seed it reproduces the un-intervened sample byte for byte.
           "being produced, `\"all\"` every token so far, `\"generated\"` what "
           "the model has said. Or the items arrive as an `intervene/spec` on "
           "the `intervention` port. Without either, plain sampling.",
-          None, fields=_SPEC_FIELDS),
-        *_SWEEP_PARAMS,
+          None, fields=(
+              P("point", "string", "Where in the forward pass to act.", "resid_post", value="point"),
+              P("parameter", "string",
+                "Edit this weight instead of an activation, named as the module tree names it; "
+                "`*` stands for one segment.",
+                None),
+              P("layers", "int | list[int] | \"all\"", "Which layers the item applies to.", "all"),
+              P("positions", "selector", "Which token positions.", "last"),
+              P("heads", "int | list[int]", "Only these attention heads, at a point with a head axis.", None),
+              P("neurons", "int | list[int]", "Only these indices along the feature axis.", None),
+              P("op", "string", "What to do there — the table above lists each op and what it needs.", "zero",
+                choices=("zero", "mean", "resample", "patch", "add", "scale", "clamp", "project_out",
+                         "rotate", "truncate")),
+              P("strength", "float", "The item's magnitude, multiplied by each sweep factor.", 1.0),
+              P("direction", "json",
+                "The direction, usually a stored one (`{\"$ref\": …}`); or it arrives on the node's `direction` port.", None),
+              P("direction2", "json", "For `rotate`: the second axis of the plane.", None),
+              P("source", "json",
+                "For `mean`, `resample` and `patch`: the replacement activations, or they arrive on the "
+                "node's `source` port.",
+                None),
+              P("row", "object", "For `patch`: which row of `source` to write in.", None,
+                fields=(P("index", "int", "The row's index.", 0),)),
+              P("condition", "object",
+                "Act only where the activation projects onto a direction above (or below) a threshold.", None,
+                fields=(
+                    P("direction", "json", "The direction projected onto."),
+                    P("threshold", "float", "The projection's threshold.", 0.0),
+                    P("above", "bool", "Act above the threshold; `false` acts below it.", True),
+                )),
+              P("except", "bool",
+                "Invert the sets this item names — every layer, head or neuron BUT "
+                "those — which measures a circuit's completeness where the direct "
+                "ablation measures its faithfulness.",
+                False),
+              P("from", "object",
+                "For `patch`: where the row is read, when that is not where it is "
+                "written — the patchscope's move.", None, fields=(
+                    P("layer", "int", "The source layer."),
+                    P("point", "string", "The source point; the item's own by default.", None, value="point"),
+                )),
+              P("pattern", "object",
+                "At `attn.scores` or `attn.weights`: the attention EDGE to act on — "
+                "which source positions the selected destinations may attend to.",
+                None, fields=(
+                    P("from", "selector", "The source (key) positions."),
+                    P("to", "selector", "The destination (query) positions; the item's `positions` by default.", None),
+                )),
+              P("renormalize", "bool",
+                "At `attn.weights`, after zeroing: rescale the rows that lost mass so "
+                "they sum to one again. The rows that lost none are left as they are.",
+                True),
+              P("seed", "int", "The seed `resample` draws with; the node's `seed` by default.", None),
+              P("sweep_over", "list[string]",
+                "Which of the node's sweep axes vary THIS item — `[\"layers\"]` sweeps "
+                "this item's layers and leaves its strength alone. Every axis, by "
+                "default.",
+                None, choices=("strength", "layers", "heads", "positions", "neurons")),
+              P("side", "string",
+                "For a weight's `project_out`: the side facing the residual stream, where the module's "
+                "name does not imply it.",
+                None, choices=("in", "out")),
+              P("rank", "int", "For a weight's `truncate`: how many singular directions to keep.", None),
+          )),
+        P("sweep", "object",
+          "The axes to vary, each a list of values the spec items' field of "
+          "that name takes in turn: `{\"strength\": [0.5, 1.0, 2.0]}` scales "
+          "every item's `strength`; `{\"layers\": [0, 1, 2]}` runs the spec at "
+          "each layer; `heads`, `positions` and `neurons` likewise. Several "
+          "axes are a cartesian product, run with `strength` outermost, and "
+          "each becomes a coordinate on every row — `factor`, `layer`, `head`, "
+          "`position`, `neuron` — so a sweep is summarised, compared and "
+          "plotted on the axis it varied.",
+          {"strength": [1.0]}, fields=(
+              P("strength", "list[float]", "The factors; `0` is the untouched model.", [1.0]),
+              P("layers", "list[json]",
+                "The layers, one cell each: `[0, 1, 2]`, or `[[0,1],[2,3]]` for "
+                "groups. The coordinate is the layer, or `0+1` for a group.", None),
+              P("heads", "list[json]", "The attention heads, one cell each.", None),
+              P("positions", "list[selector]", "The position selectors, one cell each.", None),
+              P("neurons", "list[json]", "The feature indices, one cell each.", None),
+          )),
+        P("control", "bool",
+          "Add a factor‑0 run — the model untouched — to the sweep, so every "
+          "record has a baseline (`factor: 0.0`). One run however many axes "
+          "the sweep has: an unintervened pass does not depend on the layer "
+          "the intervention would have named. Set `false` when the sweep "
+          "already contains a strength of `0` or no baseline is wanted.",
+          True),
         P("n", "int", "How many completions to sample per record.", 1),
         P("start", "int",
           "The first sample index. Indices run `start` … `start + n − 1`; "

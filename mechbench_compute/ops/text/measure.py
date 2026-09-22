@@ -6,7 +6,6 @@ from typing import Any
 from mechbench_compute.blocks.build_collection import build_collection
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.common import TARGET_UNIFORM, TARGET_WEIGHTS
 
 OP = Op(
     name="text/measure",
@@ -113,7 +112,17 @@ and "Steampunk Fantasy" are readable beside the names the map has.
                 "captures the `ana` the vocabulary spells, which is what the value is compared "
                 "against downstream — and a match outside it is no match. "
                 "A stored word list may be given by reference.", None,
-                fields=(TARGET_UNIFORM, TARGET_WEIGHTS), stored="text/word-list"),
+                fields=(
+                    P("uniform", "list[string]",
+                      "The outcomes, weighted equally. Wins over `weights` when "
+                      "both are given.",
+                      None),
+                    P("weights", "map[string, float]",
+                      "Outcome → weight, each finite and at least 0: raw corpus "
+                      "frequencies, say. A stored word list may be given by "
+                      "reference.",
+                      None, stored="text/word-list"),
+                ), stored="text/word-list"),
               P("count", "int", "For `list`: how many items a valid list has.", None),
           )),
         P("mode", "string",

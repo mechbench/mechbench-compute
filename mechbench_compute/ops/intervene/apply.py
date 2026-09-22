@@ -18,14 +18,6 @@ from mechbench_compute.intervene.sweep_as_run import sweep_as_run
 from mechbench_compute.intervene.sweep_cells import sweep_cells
 from mechbench_compute.intervene.serialize_spec import serialize_spec
 from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P
-from mechbench_compute.lexicon.model import (
-    _DIRECTION_PORT,
-    _SOURCE_PORT,
-    _SPEC_FIELDS,
-    _SWEEP_PARAMS,
-    ADAPTER,
-    INTERVENTION,
-)
 
 OP = Op(
     name="intervene/apply",
@@ -164,10 +156,28 @@ one item can zero every layer's `o_proj`.
            "its `user`, `prompt` or `text` field. A record may also carry its "
            "own `tracked`, which takes precedence over the param of the same "
            "name.", many=True),
-        INTERVENTION,
-        _DIRECTION_PORT,
-        _SOURCE_PORT,
-        ADAPTER,
+        In("intervention", "intervene/spec",
+           "An intervention declared as an object — its `items` are spec "
+           "items in the grammar `intervene/apply` documents — applied "
+           "during every forward pass this node runs. A `direction` or "
+           "`source` an item needs arrives on the port of that name. "
+           "Where the node also has an inline `spec` or `intervention` "
+           "param, the param wins when both are given.",
+           required=False),
+        In("direction", "direction/vector",
+           "A direction that fills any spec item without one.", required=False),
+        In("source", "activations/vector | intervene/readout",
+           "A collection of `activations/vector` — a capture, intervened or "
+           "not — that fills any `mean`/`resample`/`patch` item without one. "
+           "A capture readout stored before 0.110.0 is read too.",
+           many=True, required=False),
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('intervene/readout', collection=True,
                   doc='For a decision readout, one item per record per factor: `id`, `coords`, `factor`, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp}` for the tokens asked about). A capture readout is a capture: an `activations/vector` collection with one item per record per factor per hook point — `id`, `coords`, `factor`, `position`, `token`, `space` (at most 4096 values) — the shape `activations/capture` emits, so `geometry/compare`, `direction/regress` and another intervention\'s `source` read it unchanged. Either way the header carries `spec` (the list as run, with directions and sources replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf), `sweep` (the factors, including `0.0` when a control was added) and `readout`.',
@@ -177,8 +187,95 @@ one item can zero every layer's `o_proj`.
           "The intervention items, applied together in one forward pass per "
           "record; the fields are described under *Spec items* above. Or the "
           "items arrive as an `intervene/spec` object on the `intervention` "
-          "port; one or the other is required.", None, fields=_SPEC_FIELDS),
-        *_SWEEP_PARAMS,
+          "port; one or the other is required.", None, fields=(
+              P("point", "string", "Where in the forward pass to act.", "resid_post", value="point"),
+              P("parameter", "string",
+                "Edit this weight instead of an activation, named as the module tree names it; "
+                "`*` stands for one segment.",
+                None),
+              P("layers", "int | list[int] | \"all\"", "Which layers the item applies to.", "all"),
+              P("positions", "selector", "Which token positions.", "last"),
+              P("heads", "int | list[int]", "Only these attention heads, at a point with a head axis.", None),
+              P("neurons", "int | list[int]", "Only these indices along the feature axis.", None),
+              P("op", "string", "What to do there — the table above lists each op and what it needs.", "zero",
+                choices=("zero", "mean", "resample", "patch", "add", "scale", "clamp", "project_out",
+                         "rotate", "truncate")),
+              P("strength", "float", "The item's magnitude, multiplied by each sweep factor.", 1.0),
+              P("direction", "json",
+                "The direction, usually a stored one (`{\"$ref\": …}`); or it arrives on the node's `direction` port.", None),
+              P("direction2", "json", "For `rotate`: the second axis of the plane.", None),
+              P("source", "json",
+                "For `mean`, `resample` and `patch`: the replacement activations, or they arrive on the "
+                "node's `source` port.",
+                None),
+              P("row", "object", "For `patch`: which row of `source` to write in.", None,
+                fields=(P("index", "int", "The row's index.", 0),)),
+              P("condition", "object",
+                "Act only where the activation projects onto a direction above (or below) a threshold.", None,
+                fields=(
+                    P("direction", "json", "The direction projected onto."),
+                    P("threshold", "float", "The projection's threshold.", 0.0),
+                    P("above", "bool", "Act above the threshold; `false` acts below it.", True),
+                )),
+              P("except", "bool",
+                "Invert the sets this item names — every layer, head or neuron BUT "
+                "those — which measures a circuit's completeness where the direct "
+                "ablation measures its faithfulness.",
+                False),
+              P("from", "object",
+                "For `patch`: where the row is read, when that is not where it is "
+                "written — the patchscope's move.", None, fields=(
+                    P("layer", "int", "The source layer."),
+                    P("point", "string", "The source point; the item's own by default.", None, value="point"),
+                )),
+              P("pattern", "object",
+                "At `attn.scores` or `attn.weights`: the attention EDGE to act on — "
+                "which source positions the selected destinations may attend to.",
+                None, fields=(
+                    P("from", "selector", "The source (key) positions."),
+                    P("to", "selector", "The destination (query) positions; the item's `positions` by default.", None),
+                )),
+              P("renormalize", "bool",
+                "At `attn.weights`, after zeroing: rescale the rows that lost mass so "
+                "they sum to one again. The rows that lost none are left as they are.",
+                True),
+              P("seed", "int", "The seed `resample` draws with; the node's `seed` by default.", None),
+              P("sweep_over", "list[string]",
+                "Which of the node's sweep axes vary THIS item — `[\"layers\"]` sweeps "
+                "this item's layers and leaves its strength alone. Every axis, by "
+                "default.",
+                None, choices=("strength", "layers", "heads", "positions", "neurons")),
+              P("side", "string",
+                "For a weight's `project_out`: the side facing the residual stream, where the module's "
+                "name does not imply it.",
+                None, choices=("in", "out")),
+              P("rank", "int", "For a weight's `truncate`: how many singular directions to keep.", None),
+          )),
+        P("sweep", "object",
+          "The axes to vary, each a list of values the spec items' field of "
+          "that name takes in turn: `{\"strength\": [0.5, 1.0, 2.0]}` scales "
+          "every item's `strength`; `{\"layers\": [0, 1, 2]}` runs the spec at "
+          "each layer; `heads`, `positions` and `neurons` likewise. Several "
+          "axes are a cartesian product, run with `strength` outermost, and "
+          "each becomes a coordinate on every row — `factor`, `layer`, `head`, "
+          "`position`, `neuron` — so a sweep is summarised, compared and "
+          "plotted on the axis it varied.",
+          {"strength": [1.0]}, fields=(
+              P("strength", "list[float]", "The factors; `0` is the untouched model.", [1.0]),
+              P("layers", "list[json]",
+                "The layers, one cell each: `[0, 1, 2]`, or `[[0,1],[2,3]]` for "
+                "groups. The coordinate is the layer, or `0+1` for a group.", None),
+              P("heads", "list[json]", "The attention heads, one cell each.", None),
+              P("positions", "list[selector]", "The position selectors, one cell each.", None),
+              P("neurons", "list[json]", "The feature indices, one cell each.", None),
+          )),
+        P("control", "bool",
+          "Add a factor‑0 run — the model untouched — to the sweep, so every "
+          "record has a baseline (`factor: 0.0`). One run however many axes "
+          "the sweep has: an unintervened pass does not depend on the layer "
+          "the intervention would have named. Set `false` when the sweep "
+          "already contains a strength of `0` or no baseline is wanted.",
+          True),
         P("readout", "object",
           "What to read after the intervened forward pass. "
           "`{\"type\": \"decision\"}` records the next-token distribution at "

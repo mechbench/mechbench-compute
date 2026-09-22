@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.records import _RECORDS
+from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
 
 OP = Op(
@@ -12,7 +11,11 @@ OP = Op(
 `hi` are counted separately rather than dropped, so the total always equals
 the number of records. An exact reduce: counts add.
 """,
-    inputs=(_RECORDS,),
+    inputs=(In("records", "collection | records/table",
+               "The records to work on: any collection of items — records, "
+               "decision reads, vectors, verdicts, tree summaries — since every "
+               "item has an id and its fields; a table's rows are read as records.",
+               many=True),),
     output=Output('records/histogram', collection=False, doc='`bins` (the counts, in order), `below`, `above`.'),
     params=(
         P("value", "string", "The numeric field to bin."),

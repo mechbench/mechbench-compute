@@ -17,12 +17,6 @@ from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import (
-    _LAYERS_ALL,
-    _POSITIONS_DOC,
-    _RESIDUAL_POINT,
-    ADAPTER,
-)
 
 OP = Op(
     name="activations/capture",
@@ -61,20 +55,33 @@ layers or records.
            "The prompts (`user`, `prompt` or `text`), each optionally with "
            "`coords`, and a `subject` when `position` is `\"subject\"`. A "
            "document collection is read the same way.", many=True),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('activations/vector', collection=True, doc='One item per record per layer (per head, for Q/K sources): `{id, coords, space, vector, norm}`, plus `token` (the token read, when not pooled) and `n_pooled` when pooled. The header carries `model`, `point`, `source`, `position` (`"pooled"` when pooled), `layers`, `d_model`, and `skipped_empty` listing any records dropped under `skip_empty`.'),
     params=(
-        _LAYERS_ALL,
-        _RESIDUAL_POINT,
+        P("layers", "list[int] | \"all\"",
+          "Which layers to run over.",
+          "all"),
+        P("point", "string",
+          "Which residual stream to read: `\"resid_post\"` (after each "
+          "layer) or `\"resid_pre\"` (before it).",
+          "resid_post", choices=("resid_post", "resid_pre"), value="point"),
         P("source", "string",
           "What to capture: `\"resid\"` (the residual stream, one vector per "
           "layer), `\"queries\"` or `\"keys\"` (attention Q or K, one vector "
           "per layer per head).",
           "resid", choices=("resid", "queries", "keys")),
         P("position", "selector",
-          f"Which token's vector to read: {_POSITIONS_DOC}, resolving to a "
-          "single position. Ignored when `pool` is set.",
+          "Which token's vector to read: `\"last\"`, `\"all\"`, a list of "
+          "indices (negative from the end), `{\"tokens\": [...]}`, `{\"range\": "
+          "[a, b]}`, `{\"after\": n}`, `\"subject\"` or `\"generated\"`, "
+          "resolving to a single position. Ignored when `pool` is set.",
           "last"),
         P("pool", "object",
           "Read a set of positions and reduce them to one vector: "

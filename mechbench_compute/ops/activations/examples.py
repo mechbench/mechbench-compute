@@ -13,7 +13,6 @@ from mechbench_compute.distill import render
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER
 
 OP = Op(
     name="activations/examples",
@@ -52,7 +51,13 @@ came from rather than as a bare number.
            "The direction to excite; its space says where to read. A "
            "collection carrying exactly one direction is that direction.",
            required=False),
-        ADAPTER,
+        In("adapter", "adapter/lora",
+           "A LoRA adapter to fuse on top of the model for this node only — "
+           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "reference, or a stored adapter. Fuses last, on top of any "
+           "adapters the model reference itself carries; `adapter_scale` "
+           "scales this one.",
+           required=False),
     ),
     output=Output('records/record', collection=True,
                   doc='One item per kept window: `value` (the projection at the exciting token), `token`, `text` (the window), `tokens` (its token strings), `values` (each of their projections, so `records/plot mark: "tokens"` colours the whole window), `hit` (the exciting token\'s index among them), `rank`, and `coords` with `record`, `position` and — under `sign: "both"` — `side`. The header carries `model`, `layer`, `point`, `window`, `sign`, `neuron` when one was named, and `over`: the corpus\'s `n_tokens`, `mean`, `sd`, `min`, `max`.'),

@@ -3,8 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import Op, Output, P
-from mechbench_compute.lexicon.model import ADAPTER
+from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="weights/circuit",
@@ -47,7 +46,13 @@ Every row is an ordinary record, so `records/rank value: "strength"` finds
 the strongest components and `records/select where: {"kind": "q"}` the
 query-side composers.
 """,
-    inputs=(ADAPTER,),
+    inputs=(In("adapter", "adapter/lora",
+               "A LoRA adapter to fuse on top of the model for this node only — "
+               "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+               "reference, or a stored adapter. Fuses last, on top of any "
+               "adapters the model reference itself carries; `adapter_scale` "
+               "scales this one.",
+               required=False),),
     output=Output('records/record', collection=True,
                   doc='For `ov` and `qk`, one item per (layer, head, component): `coords` (`layer`, `head`, `rank`, `circuit`), `strength` (the singular value), `left` and `right` (each `{token, score}`), `kv_group`. For `composition`, one per (source head, kind): `coords` (`layer`, `head`, `kind`, `into_layer`, `into_head`) and `score`. The header carries `circuit`, the model, and `into` or `components`/`top_k`.'),
     params=(
