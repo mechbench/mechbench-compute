@@ -87,11 +87,13 @@ It works because of a fact about this code rather than a preference:
 among the 114 definitions operations share there is not one reference
 cycle, so each can be a file with plain imports at its top.
 
-While the move is under way, the module a helper left is that package's
-`__init__.py` and imports the helper back, so nothing that named it
-through the module breaks. An operation's file is different: it is a
-leaf, nothing imports back from it, and whatever named its contents
-through their old module was rewritten to name the new one.
+A package's `__init__.py` says what the topic is, and imports back only
+the names something still reaches through the package rather than
+through the helper's own file — `from mechbench_compute.interp import
+read_pair`, a test that patches `judge.chat_mod`. A helper everything
+names by its own path is not listed there at all, so the `__init__.py`
+is a short and shrinking list rather than a second index of the
+package. An operation's file is a leaf: nothing imports back from it.
 
 ## What `ctx` offers
 

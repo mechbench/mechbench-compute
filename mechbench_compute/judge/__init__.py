@@ -31,15 +31,6 @@ test rather than a special case.
 
 from __future__ import annotations
 
-import json
-import re
-import statistics
-from collections.abc import Mapping, Sequence
-from typing import Any
-
-from mechbench_compute import chat as chat_mod
-from mechbench_compute.judge.constants import SCALES, FIRST_NUMBER  # noqa: F401
-from mechbench_compute.judge.parse_json_object import parse_json_object  # noqa: F401
-from mechbench_compute.judge.read_rationale import read_rationale  # noqa: F401
+from mechbench_compute import chat as chat_mod  # noqa: F401
 
 

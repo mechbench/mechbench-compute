@@ -16,44 +16,11 @@ Producers here are pure (numpy over vector items) except
 
 from __future__ import annotations
 
-import hashlib
-
-from collections.abc import Mapping, Sequence
-from typing import Any
-
-import numpy as np
-
-from mechbench_compute import points as P
-from mechbench_compute import shapes as S
-from mechbench_compute.directions.coerce_array import coerce_array  # noqa: F401
-from mechbench_compute.directions.constants import KIND  # noqa: F401
-from mechbench_compute.directions.is_direction import is_direction  # noqa: F401
 from mechbench_compute.directions.add import add  # noqa: F401
-from mechbench_compute.directions.constants import DEFAULT_AXIS  # noqa: F401
-from mechbench_compute.directions.collect_directions import collect_directions  # noqa: F401
-from mechbench_compute.directions.select_layer_items import select_layer_items  # noqa: F401
+from mechbench_compute.directions.coerce_array import coerce_array  # noqa: F401
 from mechbench_compute.directions.make import make  # noqa: F401
-from mechbench_compute.directions.build_model_provenance import build_model_provenance  # noqa: F401
-from mechbench_compute.directions.collect_models import collect_models  # noqa: F401
-from mechbench_compute.directions.check_same_space import check_same_space  # noqa: F401
-from mechbench_compute.directions.resolve_space import resolve_space  # noqa: F401
 from mechbench_compute.directions.read_space import read_space  # noqa: F401
 
-
-# --- construction ----------------------------------------------------------
-
-
-# --- producers --------------------------------------------------------------
-
-
-# --- arithmetic (pure) --------------------------------------------------------
-
-
-# --- the unembedding as a lens -------------------------------------------------------
-
-
-# --- pure-block adapters (inputs, params) ---------------------------------------------
-
-
+#: Pure blocks this package contributes, taken by `blocks.PURE_BLOCKS`.
 PURE_DIRECTION_BLOCKS = {
 }

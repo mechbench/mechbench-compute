@@ -4,7 +4,7 @@ An operation named `family/name` is the module
 `mechbench_compute.ops.<family>.<name>` (a hyphen in the name is an
 underscore in the path). That module holds `OP`, the declaration, and
 `run(ctx, inputs, params)`, the one entry point. Nothing lists the
-operations: `modules()` finds them by walking this package.
+operations: `load_modules()` finds them by walking this package.
 """
 from __future__ import annotations
 

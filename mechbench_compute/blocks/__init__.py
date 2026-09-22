@@ -27,14 +27,8 @@ Design rules these implement:
 
 from __future__ import annotations
 
-import math
-
-import random
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable
 from typing import Any
-
-
-# --- registry ---------------------------------------------------------------
 
 # Op ref -> callable. Pure blocks take (inputs, params); model blocks
 # are registered by the executor host (the runner), which owns model
@@ -93,10 +87,8 @@ PURE_BLOCKS.update(_TOOL_BLOCKS)
 from mechbench_compute.blocks.expand_cells import expand_cells  # noqa: F401
 from mechbench_compute.blocks.expand_grid import expand_grid  # noqa: F401
 from mechbench_compute.blocks.read_group_key import read_group_key  # noqa: F401
-from mechbench_compute.blocks.read_interval import read_interval  # noqa: F401
 from mechbench_compute.blocks.read_items import read_items  # noqa: F401
-from mechbench_compute.blocks.build_collection import build_collection  # noqa: F401
-from mechbench_compute.blocks.pure_blocks import _PureBlocks  # noqa: F401
+from mechbench_compute.blocks.pure_blocks import _PureBlocks
 
 # An operation that has its own file (docs/OPS_LAYOUT.md) and runs with
 # no executor is callable here by name, as the ones above are; the

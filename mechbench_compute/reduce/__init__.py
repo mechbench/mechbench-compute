@@ -24,11 +24,11 @@ function of N alone even for merges that are merely associative.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
-from mechbench_compute.reduce.monoid import Monoid  # noqa: F401
+
 from mechbench_compute.reduce.find_monoid import find_monoid  # noqa: F401
+from mechbench_compute.reduce.monoid import Monoid  # noqa: F401
 
 ALGEBRAS = ("collect", "monoid", "ordered")
 

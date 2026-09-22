@@ -24,49 +24,21 @@ Everything here is deterministic given the spec and the records
 
 from __future__ import annotations
 
-import contextlib
-import json
-
-import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
-import mlx.core as mx
-import numpy as np
-
-from mechbench_compute import directions as dirs
-from mechbench_compute import positions as POS
-from mechbench_compute import shapes as S
-from mechbench_compute.points import LAYOUT as _LAYOUT
-from mechbench_compute.intervene.coerce_int_list import coerce_int_list  # noqa: F401
-from mechbench_compute.intervene.coerce_axis_coord import coerce_axis_coord  # noqa: F401
-from mechbench_compute.intervene.cell import Cell  # noqa: F401
 from mechbench_compute.intervene.compile import compile  # noqa: F401
-from mechbench_compute.intervene.compiled import Compiled  # noqa: F401
-from mechbench_compute.intervene.constants import SWEEP_AXES  # noqa: F401
 from mechbench_compute.intervene.edit_weights import edit_weights  # noqa: F401
-from mechbench_compute.intervene.plan import Plan, plan  # noqa: F401
-from mechbench_compute.intervene.build_rows_matrix import build_rows_matrix  # noqa: F401
+from mechbench_compute.intervene.plan import plan  # noqa: F401
 from mechbench_compute.intervene.scale_specs import scale_specs  # noqa: F401
-from mechbench_compute.intervene.read_source_items import read_source_items  # noqa: F401
-from mechbench_compute.intervene.spec import OPS, Spec, _GLOBAL_POINTS, _SAME  # noqa: F401
+from mechbench_compute.intervene.spec import Spec  # noqa: F401
 from mechbench_compute.intervene.spec_error import SpecError  # noqa: F401
 from mechbench_compute.intervene.spec_intervention import SpecIntervention  # noqa: F401
-from mechbench_compute.intervene.read_spec_items import read_spec_items  # noqa: F401
-from mechbench_compute.intervene.sweep_as_run import sweep_as_run  # noqa: F401
 from mechbench_compute.intervene.sweep_cells import sweep_cells  # noqa: F401
-from mechbench_compute.intervene.serialize_spec import serialize_spec  # noqa: F401
-
-
-# --- parsing -----------------------------------------------------------------------
 
 
 def sweep_factors(params: Mapping[str, Any]) -> list[float]:
     """The strengths a node's `sweep` runs — `sweep_cells` read by a
     caller that varies nothing else."""
     return [c.factor for c in sweep_cells(params)]
-
-
-# --- the block ---------------------------------------------------------------------
-
 

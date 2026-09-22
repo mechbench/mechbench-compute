@@ -36,28 +36,11 @@ truth of what the model actually saw.
 
 from __future__ import annotations
 
-import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable
 from typing import Any
 
-import numpy as np
-
-from mechbench_compute import points as P
-from mechbench_compute import shapes as S
-from mechbench_compute.trajectory.read_header import read_header  # noqa: F401
 from mechbench_compute.trajectory.project import project  # noqa: F401
-from mechbench_compute.trajectory.read_points import read_points  # noqa: F401
-from mechbench_compute.trajectory.read_trajectory import read_trajectory  # noqa: F401
 
-# --- shapes ------------------------------------------------------------------
-
-
-# --- capture (the model block) -----------------------------------------------
-
-
-# --- pure blocks over trajectories -------------------------------------------
-
-
-#: Pure blocks this module contributes (registered by blocks.PURE_BLOCKS).
+#: Pure blocks this package contributes, taken by `blocks.PURE_BLOCKS`.
 PURE: dict[str, Callable[..., Any]] = {
 }

@@ -51,27 +51,9 @@ The numbers each module gets:
 
 from __future__ import annotations
 
-import os
-import re
-import tempfile
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Any
-
-import numpy as np
-from mechbench_compute.weights.constants import RESIDUAL_SIDE, MODEL_SCOPE  # noqa: F401
-from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords  # noqa: F401
-from mechbench_compute.weights.read_direction import read_direction  # noqa: F401
-from mechbench_compute.weights.edit_parameters import WEIGHT_OPS, edit_parameters  # noqa: F401
-from mechbench_compute.weights.resolve_module import resolve_module  # noqa: F401
+from mechbench_compute.weights.compute_effective_rank import compute_effective_rank  # noqa: F401
+from mechbench_compute.weights.edit_parameters import edit_parameters  # noqa: F401
 from mechbench_compute.weights.read_parameters import read_parameters  # noqa: F401
-from mechbench_compute.weights.compile_point_pattern import compile_point_pattern  # noqa: F401
-from mechbench_compute.weights.project_out import project_out  # noqa: F401
 from mechbench_compute.weights.restore_parameters import restore_parameters  # noqa: F401
 from mechbench_compute.weights.select_points import select_points  # noqa: F401
-from mechbench_compute.weights.truncate import truncate  # noqa: F401
-from mechbench_compute.weights.compute_effective_rank import compute_effective_rank  # noqa: F401
-
-
-# --- a head's circuits, read from the weights alone -----------------------------
-
 
