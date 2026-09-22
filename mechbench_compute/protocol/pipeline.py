@@ -49,7 +49,6 @@ class Pipeline:
         import mechbench_schema as ms
 
         from mechbench_compute import __version__ as core_version
-        from mechbench_compute.blocks import PURE_BLOCKS
         from mechbench_compute.seeds import hardware_class
 
         from pathlib import Path
@@ -707,8 +706,6 @@ class Pipeline:
                         result_base=extra.get("resultPath"),
                         resume_items=resume_kwargs.get("resume_items"),
                         resume_state=resume_kwargs.get("resume_state"))
-                elif block in PURE_BLOCKS:
-                    results[nid] = PURE_BLOCKS[block](inputs, params)
                 else:
                     raise ValueError(f"unknown block: {block!r}")
             except MissingUpstream:
