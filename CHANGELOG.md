@@ -13,6 +13,111 @@ nothing said so.
 
 ---
 
+## 0.131.0 — 2026-09-22
+
+### Changes that raise
+
+- **`sees.own_thinking: "native"` refuses a rendering that edits earlier
+  turns.** It is new, so nothing that ran before raises; with it,
+  `text/render` refuses a `window` that drops turns, a `system` prompt
+  that names `{turn}`, and an `others_thinking` of `last_turns` or
+  `truncate_words`, because a provider discards or rejects returned
+  reasoning once anything before it has changed.
+
+### Changes that alter results without raising
+
+- **Reasoning never reaches `text`.** A reply's `text` is now its prose
+  alone, from every adapter. What changed, by source:
+  - **Anthropic:** a `thinking` block used to become a text part, so a
+    run with `display: "summarized"` (or any model that returned its
+    thinking text) had that reasoning inside the item's `text`, ahead
+    of the prose. It now goes to the item's `reasoning`.
+  - **Gemini:** a part marked `thought: true` (thought summaries, with
+    `includeThoughts`) used to be joined into `text`. It now goes to
+    `reasoning`.
+  - **OpenAI-compatible hosts:** `reasoning_content`, `reasoning` and
+    `reasoning_details` were ignored (lost, not leaked); they are now
+    kept in `reasoning`. Reasoning a host writes inline in `content` —
+    a leading `<think>…</think>`, or a turn closed by `</think>` with no
+    opening tag — used to be `text` and is now `reasoning`.
+  - **Local models:** Gemma 4 marks reasoning with a thinking channel
+    (`<|channel>thought\n…<channel|>`, special tokens). That markup and
+    what it holds now leave `text`; a thought cut off at `max_tokens`
+    is reasoning and the item is empty with cause `reasoning`. Gemma 3,
+    Llama and Qwen 2.5 declare no reasoning tokens and their output is
+    unchanged byte for byte. A Gemma 4 run with thinking off is
+    unchanged unless the model wrote a channel anyway (the larger
+    checkpoints can write an empty one); that markup now leaves `text`.
+
+  **How to tell whether a stored result is affected:** its items'
+  `text` contains what is now `reasoning` — for Anthropic and Gemini,
+  the run had thinking text turned on and the text begins with the
+  model working the problem; for a local Gemma 4 run, the text contains
+  `<|channel>`. Stored results are not rewritten. A judge or measure
+  downstream of such a run read the reasoning as part of the reply,
+  and a re-run reads the reply alone.
+- **A memo or cassette replays through the current mapping — for
+  entries recorded from now on.** An entry now keeps the provider's
+  response body beside the mapped parts, and a replay reads that body
+  through the adapter as it is today. Entries recorded before this
+  release kept only the mapped parts, so they replay as they were
+  recorded: a memoized run whose reasoning went into `text` keeps it
+  there on replay. To separate it, re-record under a new memo label
+  (it costs the calls again). A tool-loop request after a reasoning
+  turn now carries that reasoning in the provider's own form, so its
+  request hash differs from before and it misses an old memo.
+- **Items carry `reasoning`, `metadata.turn` and `metadata.rounds`.**
+  `reasoning` is a list of `{text, redacted?, provider, model,
+  native?}`: `native` is the provider's own block — a signature, a
+  redacted or encrypted payload, a message-level field — kept verbatim
+  so the same model can be handed the turn back. `metadata.turn`
+  records the order of the reply's parts and any signature a text part
+  carried (Gemini). `metadata.rounds` keeps the earlier assistant turns
+  of a tool loop when they carried reasoning. `text/extend` carries
+  `reasoning` and `turn` onto the transcript message, and `thinking`
+  now joins the item's readable reasoning with any `<think>` it split.
+- **Signatures are stored.** They are opaque bytes, often several
+  kilobytes; they are stored once, inside `reasoning[].native` or on
+  the turn entry they rode on, and never copied into `text`.
+- **`eval/judge`'s `on_missing` defaults to `"skip"`.** A subject with
+  nothing to judge used to fail the node; it is now an unjudged row
+  naming the missing field, counted in `summary.n_unjudged`, and the
+  rest are graded — so a `text/chat` node on `on_empty: "keep"` feeding
+  a judge completes. Set `on_missing: "error"` for the old behaviour.
+- **The Anthropic adapter reports `reasoning_tokens`** from
+  `usage.output_tokens_details.thinking_tokens` when the API sends it.
+- **The price table and registry are versioned `2026-09-22`**, so every
+  call record's `price_table` changes; prices already in the table did
+  not change.
+
+### Other
+
+- **Reasoning goes back to the provider in its own form.** Within a
+  tool loop every assistant turn is sent back with its reasoning:
+  Anthropic `thinking` and `redacted_thinking` blocks unchanged and in
+  order; Gemini thought parts, and each `thoughtSignature` on the very
+  part it came on (a Gemini 3 function call without one is refused);
+  `reasoning_content` to DeepSeek and Fireworks, and the returned
+  reasoning fields to a generic OpenAI-compatible host such as
+  OpenRouter. xAI's and OpenAI's chat completions have no field to
+  take reasoning back, and are sent none. Reasoning goes only to the
+  provider that wrote it; Gemini, DeepSeek and the other chat hosts
+  also require the same model, and Anthropic takes any of its own
+  models' blocks, as its documentation asks, dropping what the target
+  cannot read. It is never turned into text.
+- **`text/render` takes `sees.own_thinking: "native"`**: a participant's
+  own turns go back as its model wrote them, reasoning blocks and
+  signatures included, so a conversation continued from a stored
+  transcript hands the same model its reasoning back byte for byte.
+- **A local model's reasoning goes back through its own chat template**
+  as `reasoning_content`, for the same model only; the template
+  decides whether an earlier turn's reasoning is shown.
+- **`deepseek` is a provider**: `https://api.deepseek.com`, priced at
+  the peak rates of `deepseek-flash` and `deepseek-v4-pro`.
+- The canonical message model has a `reasoning` part and a
+  `Signature` on text and tool-call parts; `Completion.reasoning`
+  lists a reply's reasoning.
+
 ## 0.130.0 — 2026-09-22
 
 ### Changes that raise
