@@ -161,8 +161,8 @@ The same two rules, applied to the thing that calls an operation's `run`.
 under `mechbench_compute/protocol/` named for its topic:
 
 ```
-pipeline.py       walking the graph: order, resume, emission
-dispatch.py       how a node reaches an operation's run()
+pipeline.py       walking the graph, and nothing else
+dispatch.py       what answers for a node, and the one hop to it
 model.py          loading weights, fusing adapters
 remote.py         the nodes a provider answers, run in a wave
 tools.py          what a model may call mid-turn
@@ -175,3 +175,13 @@ What they share is one definition per file, as `serialize_params` and
 `read_tokenizer_id` already were. The class is still one class, and its
 methods and their call sites are unchanged: a mixin is how a method keeps
 its `self`.
+
+The walk itself is not a mixin's worth of topics but one loop over the
+nodes, and each thing it does at a node is a definition in a file named
+for it, under the same rule as any other helper: `RunState` (what a run
+carries from node to node), `Resolver` (a node's references made
+values), `Progress` (what a watcher is told), and `sort_nodes`,
+`gather_inputs`, `read_resume_entry`, `restore_node`, `store_result`,
+`check_failures`, `build_manifest`. The loop passes the state to each,
+so the walk reads as what it is: order the nodes, and for each one
+resolve, dispatch, record.

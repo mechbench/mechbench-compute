@@ -14,8 +14,8 @@ than instantiating per request.
 `ProtocolExecutor` is composed from one mixin per topic, each a file of
 its own, so that one question about it is answered by one file:
 
-    pipeline.py       walking the graph: order, resume, emission
-    dispatch.py       how a node reaches an operation's run()
+    pipeline.py       walking the graph, and nothing else
+    dispatch.py       what answers for a node, and the one hop to it
     model.py          loading weights, fusing adapters
     remote.py         the nodes a provider answers, run in a wave
     tools.py          what a model may call mid-turn
@@ -25,6 +25,12 @@ its own, so that one question about it is answered by one file:
 
 A mixin is how a method keeps its `self`: every method reads the same
 executor state whichever file it is written in.
+
+What the walk does at each node is a definition per file beside them,
+each named for itself — `run_state.py` (what a run carries), and
+`resolver.py`, `progress.py`, `sort_nodes.py`, `gather_inputs.py`,
+`read_resume_entry.py`, `restore_node.py`, `store_result.py`,
+`check_failures.py`, `build_manifest.py`.
 """
 
 from __future__ import annotations
