@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from mechbench_compute.blocks import PURE_BLOCKS
+from mechbench_compute import ops
 from mechbench_compute.lexicon import BY_NAME
 from mechbench_compute.lexicon._base import In
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec, sort_edges
@@ -27,7 +27,7 @@ def _branch(node, ids, **fields):
 
 
 def _zip(branches, **params):
-    return PURE_BLOCKS["records/zip"]({"branches": branches}, params)
+    return ops.run_standalone("records/zip", {"branches": branches}, params)
 
 
 class TestPortArity:

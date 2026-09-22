@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from mechbench_compute import points as P
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.trajectory.project import project
 

@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute import points as P
 from mechbench_compute import shapes as S
 from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P
 from mechbench_compute.trajectory.read_header import read_header

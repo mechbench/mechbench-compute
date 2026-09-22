@@ -14,8 +14,8 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
+from mechbench_compute import ops
 from mechbench_compute import weights as W
-from mechbench_compute.blocks import PURE_BLOCKS
 from mechbench_compute.ops.adapter.measure import compute_delta_spectrum
 
 
@@ -61,7 +61,7 @@ def _random_pairs(seed=0, layers=(0, 1), rank=4, out=6, in_=5):
 
 
 def _measure(payload, **params):
-    return PURE_BLOCKS["adapter/measure"]({"adapter": payload}, params)
+    return ops.run_standalone("adapter/measure", {"adapter": payload}, params)
 
 
 class TestTheSpectrumIsExact:
@@ -170,7 +170,7 @@ class TestComparingTwoAdapters:
         other = pairs if same else _random_pairs(seed=2, layers=(0,))
         one = _measure(_adapter(pairs), vectors=vectors, source="a")
         two = _measure(_adapter(other), vectors=vectors, source="b")
-        return PURE_BLOCKS["records/union"]({"a": one, "b": two}, {})
+        return ops.run_standalone("records/union", {"a": one, "b": two}, {})
 
     def test_a_union_of_two_measurements_is_still_a_delta_collection(self):
         union = self._union_of_two(same=False)
@@ -178,7 +178,7 @@ class TestComparingTwoAdapters:
         assert len(union["items"]) == 4       # two modules, two adapters
 
     def test_two_adapters_compare_module_by_module(self):
-        out = PURE_BLOCKS["geometry/compare"](
+        out = ops.run_standalone("geometry/compare", 
             {"items": self._union_of_two(same=False)},
             {"metric": "cosine", "by": "module", "axis": "adapter"})
         groups = out["items"]
@@ -193,7 +193,7 @@ class TestComparingTwoAdapters:
             assert abs(g["matrix"][0][1]) <= 1.0
 
     def test_the_same_adapter_twice_is_perfectly_aligned(self):
-        out = PURE_BLOCKS["geometry/compare"](
+        out = ops.run_standalone("geometry/compare", 
             {"items": self._union_of_two(same=True)},
             {"metric": "cosine", "by": "module", "axis": "adapter"})
         for g in out["items"]:
@@ -201,13 +201,13 @@ class TestComparingTwoAdapters:
 
     def test_comparing_across_modules_is_refused_by_name(self):
         with pytest.raises(ValueError, match="own space"):
-            PURE_BLOCKS["geometry/compare"](
+            ops.run_standalone("geometry/compare", 
                 {"items": self._union_of_two(same=False)},
                 {"metric": "cosine", "by": None})
 
     def test_without_vectors_the_metric_says_what_is_missing(self):
         with pytest.raises(ValueError, match="vectors: true"):
-            PURE_BLOCKS["geometry/compare"](
+            ops.run_standalone("geometry/compare", 
                 {"items": self._union_of_two(same=False, vectors=False)},
                 {"metric": "cosine", "by": "module"})
 
@@ -241,7 +241,7 @@ class TestAZeroDelta:
     def test_comparing_it_refuses_by_name_instead_of_comparing_nothing(self):
         one = _measure(self._with_a_zero(), vectors=True, source="a")
         two = _measure(self._with_a_zero(), vectors=True, source="b")
-        union = PURE_BLOCKS["records/union"]({"a": one, "b": two}, {})
+        union = ops.run_standalone("records/union", {"a": one, "b": two}, {})
         with pytest.raises(ValueError, match="carry no vector"):
-            PURE_BLOCKS["geometry/compare"](
+            ops.run_standalone("geometry/compare", 
                 {"items": union}, {"metric": "cosine", "by": "module"})

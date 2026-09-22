@@ -27,8 +27,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from mechbench_compute.reduce.find_monoid import find_monoid  # noqa: F401
-from mechbench_compute.reduce.monoid import Monoid  # noqa: F401
+from mechbench_compute.reduce.find_monoid import find_monoid
+from mechbench_compute.reduce.monoid import Monoid
 
 ALGEBRAS = ("collect", "monoid", "ordered")
 
@@ -106,17 +106,7 @@ def reduce_chunks(block: str, chunks: Sequence[Sequence[Mapping[str, Any]]],
         if m is None:
             raise ValueError(f"{block} declares monoid but has no Monoid implementation")
         return m.finalize(merge_tree(m, [m.partial(c, params) for c in chunks]), params)
-    from mechbench_compute.blocks import PURE_BLOCKS
+    from mechbench_compute import ops
 
-    fn = PURE_BLOCKS[block]
     leaves = [r for c in chunks for r in c]
-    return fn({**(inputs or {}), port: leaves}, params)
-
-
-# --- pure-block adapters for the generic monoids ------------------------------------
-
-
-PURE_REDUCE_BLOCKS = {
-}
-for _b in PURE_REDUCE_BLOCKS:
-    REDUCE_ALGEBRA[_b] = "monoid"
+    return ops.run_standalone(block, {**(inputs or {}), port: leaves}, params)

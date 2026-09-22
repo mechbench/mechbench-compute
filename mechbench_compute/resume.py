@@ -86,7 +86,7 @@ def _body_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = No
     nodes = body.get("nodes") if isinstance(body, Mapping) else None
     if not nodes:
         return "restart"
-    from mechbench_compute.blocks import PURE_BLOCKS
+    from mechbench_compute import ops
 
     levels = []
     for n in nodes:
@@ -95,7 +95,7 @@ def _body_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = No
         block = _name(str(n.get("block", "")))
         # A pure block is a function of its inputs: reproducible by
         # construction, whatever the registry says of it.
-        levels.append("reproducible" if block in PURE_BLOCKS
+        levels.append("reproducible" if block in ops.find_standalone()
                       else resume_level(block, n.get("params") or {}, n.get("inputs") or {}))
     return min(levels, key=lambda lv: _RANK.get(lv, 0)) if levels else "restart"
 

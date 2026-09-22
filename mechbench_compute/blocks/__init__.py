@@ -27,12 +27,7 @@ Design rules these implement:
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
-
-# Op ref -> callable. Pure blocks take (inputs, params); model blocks
-# are registered by the executor host (the runner), which owns model
-# lifecycle.
 
 
 def arch_header(arch: Any) -> dict[str, Any]:
@@ -54,45 +49,7 @@ def arch_header(arch: Any) -> dict[str, Any]:
     return out
 
 
-PURE_BLOCKS: dict[str, Callable[..., Any]] = {
-}
-
-
-# Trajectory readouts: pure numpy over trajectory records.
-from mechbench_compute.trajectory import PURE as _TRAJECTORY_PURE
-
-PURE_BLOCKS.update(_TRAJECTORY_PURE)
-
-
-# Directions as first-class objects: pure producers and arithmetic live
-# in `directions`; the vocabulary projection is a model block in the
-# executor.
-from mechbench_compute.directions import (
-    PURE_DIRECTION_BLOCKS as _DIRECTION_BLOCKS,
-)
-
-PURE_BLOCKS.update(_DIRECTION_BLOCKS)
-
-# Exact generic monoid reduces: sum, top-k, histogram.
-from mechbench_compute.reduce import PURE_REDUCE_BLOCKS as _REDUCE_BLOCKS
-
-PURE_BLOCKS.update(_REDUCE_BLOCKS)
-
-# Tool handlers are ordinary blocks: what a model may call is what the
-# platform can already do.
-from mechbench_compute.tools import PURE_TOOL_BLOCKS as _TOOL_BLOCKS
-
-PURE_BLOCKS.update(_TOOL_BLOCKS)
-
 from mechbench_compute.blocks.expand_cells import expand_cells  # noqa: F401
 from mechbench_compute.blocks.expand_grid import expand_grid  # noqa: F401
 from mechbench_compute.blocks.read_group_key import read_group_key  # noqa: F401
 from mechbench_compute.blocks.read_items import read_items  # noqa: F401
-from mechbench_compute.blocks.pure_blocks import _PureBlocks
-
-# An operation that has its own file (docs/OPS_LAYOUT.md) and runs with
-# no executor is callable here by name, as the ones above are; the
-# lookup happens when asked for, never at import.
-PURE_BLOCKS = _PureBlocks(PURE_BLOCKS)
-
-

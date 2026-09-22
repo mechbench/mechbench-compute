@@ -28,8 +28,8 @@ import re
 
 import pytest
 
-from mechbench_compute.block_params import ACCEPTED, COMMON, check_inputs, check_params
 from mechbench_compute import ops
+from mechbench_compute.block_params import ACCEPTED, COMMON, check_inputs, check_params
 from mechbench_compute.lexicon import BY_NAME
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
@@ -445,7 +445,7 @@ def _dispatch_branch(ref: str) -> str:
     src = (ROOT / P).read_text()
     m = re.search(
         rf'block == "{re.escape(ref)}":\s*\n(.*?)(?=\n\s+elif block|\n\s+else:)',
-        src, re.S)
+        src, re.DOTALL)
     return m.group(1) if m else ""
 
 
@@ -454,7 +454,7 @@ def _registry_entry(ref: str) -> str:
     hands `inputs["records"]` to the function the site names."""
     src = (ROOT / "blocks/__init__.py").read_text()
     m = re.search(rf'"{re.escape(ref)}":\s*\n?\s*lambda inputs, params:(.*?)(?=\n\s+"[a-z]|\n\}})',
-                  src, re.S)
+                  src, re.DOTALL)
     return m.group(1) if m else ""
 
 
@@ -480,12 +480,10 @@ def ports_read(ref: str) -> set[str]:
 def registered_ops() -> set[str]:
     """Every op the executor can run: the pure registry plus the blocks
     the dispatcher names."""
-    from mechbench_compute.blocks import PURE_BLOCKS
-
     # The dispatcher compares the resolved bare name (docs/LEXICON.md §1).
     dispatched = set(re.findall(r'block == "([a-z0-9-]+/[a-z0-9-]+)"',
                                 (ROOT / P).read_text()))
-    return set(PURE_BLOCKS) | dispatched | set(ops.load_modules())
+    return set(ops.find_standalone()) | dispatched | set(ops.load_modules())
 
 
 # --- the gate ----------------------------------------------------------------

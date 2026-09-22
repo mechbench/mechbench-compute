@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute import points as P
 from mechbench_compute import shapes as S
 from mechbench_compute.directions.coerce_array import coerce_array
 from mechbench_compute.directions.read_space import read_space

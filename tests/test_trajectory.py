@@ -9,11 +9,11 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
-from mechbench_compute import blocks, trajectory
+from mechbench_compute import ops, trajectory
 from mechbench_compute.block_params import check_params
+from mechbench_compute.ops.direction.fit import fit_mean_difference
 from mechbench_compute.ops.records.select import select
 from mechbench_compute.ops.records.union import union
-from mechbench_compute.ops.direction.fit import fit_mean_difference
 from mechbench_compute.ops.text.measure import measure_texts
 from mechbench_compute.ops.trajectory.aggregate import aggregate
 from mechbench_compute.ops.trajectory.capture import capture
@@ -294,7 +294,6 @@ class TestAggregate:
         assert rows[("lh", 0)]["n"] == 2 and rows[("lh", 0)]["spread"] == 1.0
 
     def test_window_as_vectors_feeds_from_vectors(self):
-        from mechbench_compute import directions as dirs
         out = aggregate({"trajectory": self._labelled()},
                                    {"by": "label", "as": "vectors",
                                     "steps": {"range": [0, 2]}})
@@ -330,7 +329,7 @@ class TestWiring:
         for ref in ("trajectory/project",
                     "trajectory/compare",
                     "trajectory/aggregate"):
-            assert ref in blocks.PURE_BLOCKS
+            assert ref in ops.find_standalone()
 
     def test_params_are_guarded(self):
         with pytest.raises(ValueError, match="does not accept"):
@@ -358,7 +357,6 @@ class TestWiring:
         # Every item carries its own space; the port is the batch coordinate.
         assert [r["coords"]["batch"] for r in out["items"]] == ["adapted", "base"]  # port order
         assert all(r["space"]["layer"] == 12 and "label" not in r for r in out["items"])
-        from mechbench_compute import directions as dirs
         d = fit_mean_difference(out, layer=12, axis="batch", positive="base", negative="adapted")
         v = np.asarray(d["vector"])
         assert v[1] > 0 and v[2] < 0

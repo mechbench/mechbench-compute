@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from mechbench_compute import points as P
 from mechbench_compute.directions.add import add
 from mechbench_compute.directions.collect_directions import collect_directions
 from mechbench_compute.lexicon._base import WILDCARD, In, Op, Output, P

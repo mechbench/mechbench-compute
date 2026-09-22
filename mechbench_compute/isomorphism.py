@@ -89,7 +89,7 @@ def check(block: str, leaves: Sequence[Mapping[str, Any]], params: Mapping[str, 
     `inputs` the block's other inputs (unchunked, passed verbatim).
     Returns a report; raises AssertionError with the first violating
     partition on failure."""
-    from mechbench_compute.blocks import PURE_BLOCKS
+    from mechbench_compute import ops
 
     alg = rd.algebra(block)
     rng = random.Random(seed)
@@ -104,7 +104,7 @@ def check(block: str, leaves: Sequence[Mapping[str, Any]], params: Mapping[str, 
         raise AssertionError(f"{block} is declared ordered but reduce_chunks did not refuse it")
 
     if alg == "collect":
-        flat = PURE_BLOCKS[block]({**(inputs or {}), port: list(leaves)}, params)
+        flat = ops.run_standalone(block, {**(inputs or {}), port: list(leaves)}, params)
     else:
         m0 = rd.find_monoid(block, params)
         flat = m0.finalize(m0.partial(list(leaves), params), params)

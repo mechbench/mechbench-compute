@@ -36,11 +36,4 @@ truth of what the model actually saw.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
-
 from mechbench_compute.trajectory.project import project  # noqa: F401
-
-#: Pure blocks this package contributes, taken by `blocks.PURE_BLOCKS`.
-PURE: dict[str, Callable[..., Any]] = {
-}

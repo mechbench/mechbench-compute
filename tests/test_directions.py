@@ -132,7 +132,7 @@ class TestProducers:
         # difference of their means is a direction in the basis they
         # share, not in either model — so two such axes (from two
         # adapters) compare, and the models are on the derivation.
-        from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute import ops
         from mechbench_compute.lexicon import kinds as K
 
         def capture(model, seed):
@@ -144,12 +144,13 @@ class TestProducers:
         base = capture("fake/base", 0)
         axes = {}
         for i, name in enumerate(["die", "letters"]):
-            pair = PURE_BLOCKS["records/union"]({"base": base, "adapted": capture(f"fake/{name}", i + 1)}, {})
+            pair = ops.run_standalone(
+                "records/union", {"base": base, "adapted": capture(f"fake/{name}", i + 1)}, {})
             axes[name] = fit_mean_difference(pair, layer=12, axis="batch", positive="base", negative="adapted")
             assert axes[name]["space"]["model"] is None
             assert axes[name]["derivation"]["models"] == [f"fake/{name}", "fake/base"]
-        union = PURE_BLOCKS["records/union"](axes, {})
-        sim = PURE_BLOCKS["geometry/compare"]({"items": union}, {"axis": "batch"})
+        union = ops.run_standalone("records/union", axes, {})
+        sim = ops.run_standalone("geometry/compare", {"items": union}, {"axis": "batch"})
         assert sim["items"][0]["ids"] == ["die", "letters"]
         assert -1.0 <= sim["items"][0]["matrix"][0][1] <= 1.0
 
@@ -192,16 +193,16 @@ class TestArithmetic:
 
 class TestBlocks:
     def test_registered_and_callable(self):
-        from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute import ops
 
         v = _vectors()
-        fn = PURE_BLOCKS["direction/fit"]
-        x = fn({"vectors": v}, {"layer": 3, "positive": "pos", "negative": "neg"})
+        x = ops.run_standalone(
+            "direction/fit", {"vectors": v}, {"layer": 3, "positive": "pos", "negative": "neg"})
         assert x["kind"] == "direction/vector"
-        pair = PURE_BLOCKS["records/union"]({"a": x, "b": dict(x)}, {})
-        sim = PURE_BLOCKS["geometry/compare"]({"items": pair}, {})
+        pair = ops.run_standalone("records/union", {"a": x, "b": dict(x)}, {})
+        sim = ops.run_standalone("geometry/compare", {"items": pair}, {})
         assert abs(sim["items"][0]["matrix"][0][1] - 1.0) < 1e-6
-        avg = PURE_BLOCKS["direction/average"]({"d1": x, "d2": x}, {})
+        avg = ops.run_standalone("direction/average", {"d1": x, "d2": x}, {})
         assert avg["derivation"]["method"] == "average"
 
     def test_levels_declared(self):

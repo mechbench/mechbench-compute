@@ -20,7 +20,3 @@ from mechbench_compute.directions.add import add  # noqa: F401
 from mechbench_compute.directions.coerce_array import coerce_array  # noqa: F401
 from mechbench_compute.directions.make import make  # noqa: F401
 from mechbench_compute.directions.read_space import read_space  # noqa: F401
-
-#: Pure blocks this package contributes, taken by `blocks.PURE_BLOCKS`.
-PURE_DIRECTION_BLOCKS = {
-}

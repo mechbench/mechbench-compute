@@ -35,12 +35,12 @@ def _spec(*blocks: str):
 class TestPreflight:
     def test_a_bad_last_node_refuses_before_the_first_one_runs(self, monkeypatch):
         ran = []
-        from mechbench_compute import blocks as blocks_mod
+        from mechbench_compute.ops.records import cross
 
-        real = blocks_mod.PURE_BLOCKS["records/cross"]
-        monkeypatch.setitem(
-            blocks_mod.PURE_BLOCKS, "records/cross",
-            lambda inputs, params: (ran.append(1), real(inputs, params))[1])
+        real = cross.run
+        monkeypatch.setattr(
+            cross, "run",
+            lambda ctx, inputs, params: (ran.append(1), real(ctx, inputs, params))[1])
 
         with pytest.raises(ValueError, match="cannot run"):
             ProtocolExecutor().run(_spec("records/cross", "records/selekt"))
@@ -83,12 +83,12 @@ class TestParamsAndPorts:
         # The 014 trace: an August graph whose LAST node passed
         # `template` to a block that lost the param. It ran for a day.
         ran = []
-        from mechbench_compute import blocks as blocks_mod
+        from mechbench_compute.ops.records import cross
 
-        real = blocks_mod.PURE_BLOCKS["records/cross"]
-        monkeypatch.setitem(
-            blocks_mod.PURE_BLOCKS, "records/cross",
-            lambda inputs, params: (ran.append(1), real(inputs, params))[1])
+        real = cross.run
+        monkeypatch.setattr(
+            cross, "run",
+            lambda ctx, inputs, params: (ran.append(1), real(ctx, inputs, params))[1])
 
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
             "graph": {"nodes": [

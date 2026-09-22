@@ -5,7 +5,7 @@ modes, over records and document_collections."""
 
 import pytest
 
-from mechbench_compute.blocks import PURE_BLOCKS
+from mechbench_compute import ops
 from mechbench_compute.ops.text.measure import measure_texts
 
 STORIES = [
@@ -31,7 +31,7 @@ OPENING = {
 
 
 def test_registered():
-    assert "text/measure" in PURE_BLOCKS
+    assert "text/measure" in ops.find_standalone()
 
 
 def test_pattern_prefix_and_annotate_mode():

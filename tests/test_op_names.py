@@ -87,8 +87,8 @@ class TestEveryTableIsKeyedByBareNames:
         return sorted(k for k in keys if k not in BY_NAME)
 
     def test_pure_registry(self):
-        from mechbench_compute.blocks import PURE_BLOCKS
-        assert self._bad(PURE_BLOCKS) == []
+        from mechbench_compute import ops
+        assert self._bad(ops.find_standalone()) == []
 
     def test_resume_table(self):
         from mechbench_compute.resume import BLOCK_RESUME, DYNAMIC_LEVEL
@@ -96,17 +96,16 @@ class TestEveryTableIsKeyedByBareNames:
         assert self._bad(DYNAMIC_LEVEL) == []
 
     def test_reduce_algebra(self):
-        from mechbench_compute.reduce import MONOIDS, PURE_REDUCE_BLOCKS, REDUCE_ALGEBRA
+        from mechbench_compute.reduce import MONOIDS, REDUCE_ALGEBRA
         assert self._bad(REDUCE_ALGEBRA) == []
         assert self._bad(MONOIDS) == []
-        assert self._bad(PURE_REDUCE_BLOCKS) == []
 
     def test_param_table(self):
         from mechbench_compute.block_params import ACCEPTED
         assert set(ACCEPTED) == set(BY_NAME)
 
     def test_the_dispatch_chain(self):
-        import mechbench_compute.protocol as protocol
+        from mechbench_compute import protocol
         src = pathlib.Path(protocol.__file__).read_text()
         compared = set(re.findall(r'block == "([^"]+)"', src))
         assert self._bad(compared) == []

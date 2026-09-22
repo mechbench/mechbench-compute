@@ -24,10 +24,10 @@ from mechbench_compute.lexicon import BY_NAME, OPS, Op
 # documentation site.
 INTERNAL = [
     re.compile(r"\b0\d{5}\b"),
-    re.compile(r"\b(?:task|tasks|epic|epics)\s+\d", re.I),
-    re.compile(r"\bstep\s+\d{2}\b", re.I),
-    re.compile(r"\bexperiment\s+0\d{2}\b", re.I),
-    re.compile(r"\bmechbench-experiments\b", re.I),
+    re.compile(r"\b(?:task|tasks|epic|epics)\s+\d", re.IGNORECASE),
+    re.compile(r"\bstep\s+\d{2}\b", re.IGNORECASE),
+    re.compile(r"\bexperiment\s+0\d{2}\b", re.IGNORECASE),
+    re.compile(r"\bmechbench-experiments\b", re.IGNORECASE),
 ]
 
 
@@ -78,7 +78,7 @@ def test_no_param_names_a_port(op: Op) -> None:
     assert not (op.param_names & op.port_names), (
         f"{op.name}: {sorted(op.param_names & op.port_names)} declared as both")
     for where, text in _texts(op):
-        assert not re.search(r"by edge,? or (the|by) (the )?param", text, re.I), (
+        assert not re.search(r"by edge,? or (the|by) (the )?param", text, re.IGNORECASE), (
             f"{op.name} {where}: an input is described as a param")
     for retired in ("user_field", "system_field", "prefill_field", "answer_field",
                     "prediction_field", "reference_field", "messages_field",
@@ -307,10 +307,10 @@ class TestWhatAnOperationNeeds:
 
         src = pathlib.Path(inspect.getfile(protocol)).read_text()
         bodies = dict(re.findall(
-            r'\n    def (_block_[a-z_]+)\(.*?\n(.*?)(?=\n    def |\Z)', src, re.S))
+            r'\n    def (_block_[a-z_]+)\(.*?\n(.*?)(?=\n    def |\Z)', src, re.DOTALL))
         arms = dict(re.findall(
             r'block == "([a-z0-9-]+/[a-z0-9-]+)":\s*\n(.*?)(?=\n\s*elif block ==|\n\s*else:)',
-            src, re.S))
+            src, re.DOTALL))
         body = arms.get(block, "")
         if "_run_model_block" in body:
             return True
@@ -349,9 +349,9 @@ class TestWhatAnOperationNeeds:
         assert {op.name for op in lexicon.OPS if op.requires == "by-model"} == set(REMOTE_BLOCKS)
 
     def test_the_pure_registry_is_pure(self) -> None:
-        from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute import ops
 
-        for name in PURE_BLOCKS:
+        for name in ops.find_standalone():
             if name in lexicon.BY_NAME:
                 assert lexicon.BY_NAME[name].requires == "pure", name
 

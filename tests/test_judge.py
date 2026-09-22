@@ -12,12 +12,9 @@ from __future__ import annotations
 import pytest
 
 from mechbench_compute import judge as J
-from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
-from mechbench_compute.ops.eval.judge import Scale
-from mechbench_compute.ops.eval.judge import aggregate
-from mechbench_compute.ops.eval.judge import build_prompts
+from mechbench_compute.ops.eval.judge import Scale, aggregate, build_prompts, summarize
 from mechbench_compute.ops.eval.judge import run_judge as run
-from mechbench_compute.ops.eval.judge import summarize
+from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 
 STORIES = [
     {"id": "s1", "coords": {"arm": "base"}, "text": "The dust settled slowly."},
@@ -187,11 +184,11 @@ class TestTheBlock:
         assert out["judge"]["scale"] == "numeric"
 
     def test_the_output_is_a_record_set_downstream_blocks_can_read(self):
-        from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute import ops
 
         out = judged('{"score": 3}')
-        stats = PURE_BLOCKS["records/summarize"](
-            {"records": out}, {"by": ["arm"], "value": "score"})
+        stats = ops.run_standalone(
+            "records/summarize", {"records": out}, {"by": ["arm"], "value": "score"})
         assert stats["kind"] == "records/table"
         assert {r["arm"] for r in stats["rows"]} == {"base", "tuned"}
 

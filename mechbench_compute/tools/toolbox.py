@@ -98,10 +98,10 @@ class Toolbox:
                     f"tool {tool.name!r} names a protocol handler, which only "
                     "the executor can run")
             return self._runner(handler["protocol"], inputs, params)
-        from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute import ops
 
-        if ref in PURE_BLOCKS:
-            return PURE_BLOCKS[ref](inputs, params)
+        if ref in ops.find_standalone():
+            return ops.run_standalone(ref, inputs, params)
         # A model block or a sub-protocol: the executor owns those, and
         # a toolbox built without one can say so precisely.
         if self._runner is None:

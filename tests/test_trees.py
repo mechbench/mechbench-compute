@@ -12,11 +12,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mechbench_compute import trees
-from mechbench_compute.blocks import PURE_BLOCKS
-from mechbench_compute.ops.geometry.span import grow_minimum_spanning_tree
-from mechbench_compute.ops.geometry.span import build_span_trees
-from mechbench_compute.ops.geometry.span import measure_tree
+from mechbench_compute import ops, trees
+from mechbench_compute.ops.geometry.span import (
+    build_span_trees,
+    grow_minimum_spanning_tree,
+    measure_tree,
+)
 
 
 def similarity_of(points: np.ndarray) -> dict:
@@ -68,7 +69,7 @@ class TestTheMeasure:
     """The three shapes, and why variance is never reported alone."""
 
     def stats(self, kind, **params):
-        out = PURE_BLOCKS["geometry/span"](
+        out = ops.run_standalone("geometry/span", 
             {"similarity": similarity_of(corpus(kind))}, params)
         return out["items"][0]
 
@@ -94,12 +95,12 @@ class TestTheMeasure:
         # multiplied — corpora embedded at different layers stay
         # comparable.
         base = similarity_of(corpus("clustered"))
-        cv1 = PURE_BLOCKS["geometry/span"](
+        cv1 = ops.run_standalone("geometry/span", 
             {"similarity": base}, {})["items"][0]["cv"]
         scaled = {**base, "items": [{**base["items"][0], "matrix": [
             [1 - (1 - v) * 0.5 for v in row]
             for row in base["items"][0]["matrix"]]}]}
-        cv2 = PURE_BLOCKS["geometry/span"](
+        cv2 = ops.run_standalone("geometry/span", 
             {"similarity": scaled}, {})["items"][0]["cv"]
         assert cv1 == pytest.approx(cv2, abs=0.02)
 
@@ -108,9 +109,9 @@ class TestTheBlock:
     def test_it_follows_a_similarity_over_vectors(self):
         rows = [{"id": f"r{i}", "layer": 3, "head": None, "label": None,
                  "vector": v.tolist()} for i, v in enumerate(corpus("clustered"))]
-        sim = PURE_BLOCKS["geometry/compare"](
+        sim = ops.run_standalone("geometry/compare", 
             {"items": {"kind": "residual_vectors", "rows": rows}}, {})
-        out = PURE_BLOCKS["geometry/span"]({"similarity": sim}, {})
+        out = ops.run_standalone("geometry/span", {"similarity": sim}, {})
         assert out["items"][0]["layer"] == 3 and out["items"][0]["group"] == "layer=3"
         assert out["items"][0]["n"] == len(rows)
         assert out["metric"] == "cosine" and out["over"] == "activations/vector"
@@ -118,17 +119,17 @@ class TestTheBlock:
     def test_a_table_reads_the_items_directly(self):
         # One item per group, and `records/tabulate` reads them as
         # rows — there is no flat duplicate beside them.
-        out = PURE_BLOCKS["geometry/span"](
+        out = ops.run_standalone("geometry/span", 
             {"similarity": similarity_of(corpus("even"))}, {})
         item = out["items"][0]
         assert {"layer", "n", "mean", "variance", "cv", "bridges"} <= set(item)
-        table = PURE_BLOCKS["records/tabulate"]({"records": out}, {})
+        table = ops.run_standalone("records/tabulate", {"records": out}, {})
         assert table["kind"] == "records/table"
         assert [r["n"] for r in table["rows"]] == [item["n"]]
 
     def test_a_wrong_input_says_what_it_wanted(self):
         with pytest.raises(ValueError, match="geometry/similarity"):
-            PURE_BLOCKS["geometry/span"]({"similarity": [1, 2]}, {})
+            ops.run_standalone("geometry/span", {"similarity": [1, 2]}, {})
 
 
 class TestCentering:
@@ -143,7 +144,7 @@ class TestCentering:
         return common + rng.normal(0, spread, size=(n, d)).astype(np.float32)
 
     def _mean_edge(self, rows, **options):
-        sim = PURE_BLOCKS["geometry/compare"](
+        sim = ops.run_standalone("geometry/compare", 
             {"items": {"kind": "residual_vectors", "rows": rows}},
             {"metric": "cosine", "options": options})
         out = build_span_trees({"similarity": sim}, {})

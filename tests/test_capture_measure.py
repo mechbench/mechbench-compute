@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from mechbench_compute import blocks
+from mechbench_compute import ops
 
 
 def _docs(*texts):
@@ -14,8 +14,8 @@ def _docs(*texts):
 
 
 def _run(docs, measure, mode="annotate"):
-    return blocks.PURE_BLOCKS["text/measure"]({"documents": docs},
-                                              {"mode": mode, "measures": [measure]})
+    return ops.run_standalone("text/measure", {"documents": docs},
+                              {"mode": mode, "measures": [measure]})
 
 
 class TestCapture:

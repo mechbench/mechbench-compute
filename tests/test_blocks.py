@@ -3,9 +3,9 @@ protocol leans on — deterministic, growth-safe, expectation-judging."""
 
 import pytest
 
+from mechbench_compute.ops.eval.expect import check_expectations
 from mechbench_compute.ops.records.cross import cross_factors
 from mechbench_compute.ops.records.fill import fill_templates
-from mechbench_compute.ops.eval.expect import check_expectations
 
 WORDS = ["alpha", "bravo", "charlie", "delta", "echo"]
 
@@ -188,10 +188,11 @@ class TestRename:
             rename([{"id": "a"}], {})
 
     def test_it_is_registered_and_reads_a_collection(self):
-        from mechbench_compute.blocks import PURE_BLOCKS
+        from mechbench_compute import ops
         from mechbench_compute.lexicon import kinds as K
 
-        out = PURE_BLOCKS["records/rename"](
+        out = ops.run_standalone(
+            "records/rename",
             {"records": K.collection("records/record", [{"id": "a", "q": 1}])},
             {"fields": {"q": "user"}})
         assert out["item_kind"] == "records/record" and out["items"] == [{"id": "a", "user": 1}]
@@ -202,13 +203,14 @@ def test_every_records_block_reads_a_collection_on_its_port():
     `collection` — never a bare list. Every records block must read it
     through the one reader; `records/fill` iterated the container
     itself once and read its keys as records."""
-    from mechbench_compute.blocks import PURE_BLOCKS
+    from mechbench_compute import ops
     from mechbench_compute.lexicon import kinds as K
 
     design = K.collection("records/record", [
         {"id": "a", "coords": {"g": "x"}, "values": {"g": "noir"}, "v": 1.0},
     ])
-    out = PURE_BLOCKS["records/fill"]({"records": design}, {"templates": {"user": "a {g} story"}})
+    out = ops.run_standalone("records/fill", {"records": design},
+                             {"templates": {"user": "a {g} story"}})
     assert out["items"] == [{"id": "a", "coords": {"g": "x"}, "user": "a noir story"}]
     for ref, params in (("records/select", {"where": {"g": "x"}}),
                         ("records/rename", {"fields": {"v": "value"}}),
@@ -217,7 +219,7 @@ def test_every_records_block_reads_a_collection_on_its_port():
                         ("records/rank", {"value": "v", "k": 1}),
                         ("records/bin", {"value": "v", "lo": 0, "hi": 2, "bins": 2}),
                         ("records/summarize", {"value": "v", "by": ["g"]})):
-        PURE_BLOCKS[ref]({"records": design}, params)
+        ops.run_standalone(ref, {"records": design}, params)
 
 
 def test_table_from_records_flattens_coords_and_types_columns():
@@ -335,6 +337,7 @@ class TestAFigureCarriesItsVocabulary:
         # The executor's model-block wrapper stamps `arch` from the model
         # it ran, so no block has to know the landmarks exist.
         from types import SimpleNamespace
+
         from mechbench_compute.protocol import ProtocolExecutor
         ex = ProtocolExecutor()
         arch = SimpleNamespace(n_layers=4, global_layers=(1, 3), first_kv_shared_layer=2)
@@ -359,7 +362,6 @@ class TestAFigureCarriesItsVocabulary:
         from types import SimpleNamespace
 
         from mechbench_compute.lexicon import kinds as K
-        from mechbench_compute import protocol as P
 
         body_out = K.collection("records/record", [{"id": "r", "silhouette": 0.3}],
                                 arch=dict(self.ARCH))

@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute import Ablate, lexicon
+from mechbench_compute import lexicon
 from mechbench_compute import shapes as S
 from mechbench_compute.distill import render
 from mechbench_compute.interp.read_last_logp import read_last_logp

@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 from mechbench_compute import metrics as M
+from mechbench_compute import ops
 from mechbench_compute import shapes as S
-from mechbench_compute.blocks import PURE_BLOCKS
 from mechbench_compute.lexicon import kinds as K
 
 SP = S.space(model="fake/m", layer=12, point="resid_post", d=3)
@@ -129,15 +129,15 @@ class TestTheOps:
         # cross-genre pairs on one or two — so the genre split shows in
         # the separation, while the tree has no bridges, every step being
         # one axis. A sanity test that the record metric reads the design.
-        design = PURE_BLOCKS["records/cross"]({}, {"factors": [
+        design = ops.run_standalone("records/cross", {}, {"factors": [
             {"name": "genre", "levels": [{"key": "noir"}, {"key": "fable"}]},
             {"name": "seed", "levels": [{"key": "1"}, {"key": "2"}, {"key": "3"}]}]})
-        sim = PURE_BLOCKS["geometry/compare"]({"items": design}, {"axis": "genre"})
+        sim = ops.run_standalone("geometry/compare", {"items": design}, {"axis": "genre"})
         assert sim["metric"] == "hamming" and sim["metric_kind"] == "distance"
         item = sim["items"][0]
         assert item["group"] == "all" and len(item["ids"]) == 6
         assert item["separation"]["intra"] == 1.0 and item["separation"]["inter"] > 1.0
-        tree = PURE_BLOCKS["geometry/span"]({"similarity": sim}, {"bridge_sigma": 0.5})
+        tree = ops.run_standalone("geometry/span", {"similarity": sim}, {"bridge_sigma": 0.5})
         t = tree["items"][0]
         assert tree["metric"] == "hamming" and tree["over"] == "records/record"
         assert t["n"] == 6 and t["max"] == 1.0
@@ -154,17 +154,17 @@ class TestTheOps:
             ports[name] = direction(None, list(base + rng.normal(0, 0.02, 3)))
         ports["joint4"] = direction(None, [0.0, 0.0, 1.0])
         ports["joint4_s1000"] = direction(None, [0.0, 0.1, 1.0])
-        union = PURE_BLOCKS["records/union"](ports, {})
+        union = ops.run_standalone("records/union", ports, {})
         assert union["item_kind"] == "activations/vector"
         assert sorted(it["id"] for it in union["items"]) == sorted(ports)
-        sim = PURE_BLOCKS["geometry/compare"]({"items": union}, {"axis": "batch"})
+        sim = ops.run_standalone("geometry/compare", {"items": union}, {"axis": "batch"})
         item = sim["items"][0]
         assert item["group"] == "layer=12" and len(item["ids"]) == 8
         by = {(p["a"], p["b"]): p["value"] for p in item["pairs"]}
         assert by[("die", "letters")] > 0.99
         assert by[("die", "joint4")] < 0.1
         assert item["pairs"][0]["value"] >= item["pairs"][-1]["value"]
-        tree = PURE_BLOCKS["geometry/span"]({"similarity": sim}, {})["items"][0]
+        tree = ops.run_standalone("geometry/span", {"similarity": sim}, {})["items"][0]
         # Six near-identical axes and two strangers: the longest edges
         # are the bridges to the joints.
         assert tree["n"] == 8 and tree["bridges"] >= 1
@@ -175,20 +175,20 @@ class TestTheOps:
         reads = [read(f"a{i}", {"x": 0.8 - i * 0.02, "y": 0.2 + i * 0.02}, family="a") for i in range(4)]
         reads += [read(f"b{i}", {"x": 0.2 + i * 0.02, "y": 0.8 - i * 0.02}, family="b") for i in range(4)]
         coll = K.collection("logits/decision", reads, top_k=2)
-        sim = PURE_BLOCKS["geometry/compare"]({"items": coll}, {"axis": "family", "by": None})
+        sim = ops.run_standalone("geometry/compare", {"items": coll}, {"axis": "family", "by": None})
         assert sim["metric"] == "jensen-shannon" and sim["over"] == "logits/decision"
         item = sim["items"][0]
         assert item["nn_purity"] == 1.0 and item["separation"]["gap"] > 0
-        tree = PURE_BLOCKS["geometry/span"]({"similarity": sim}, {"bridge_sigma": 1.0})["items"][0]
+        tree = ops.run_standalone("geometry/span", {"similarity": sim}, {"bridge_sigma": 1.0})["items"][0]
         assert tree["components_after_cut"] == 2
 
     def test_a_kl_tree_is_refused_naming_the_asymmetry(self):
         reads = [read("a", {"x": 0.7, "y": 0.3}), read("b", {"x": 0.3, "y": 0.7})]
-        sim = PURE_BLOCKS["geometry/compare"](
+        sim = ops.run_standalone("geometry/compare", 
             {"items": K.collection("logits/decision", reads)}, {"metric": "kl", "by": None})
         assert sim["symmetric"] is False
         with pytest.raises(ValueError, match="symmetric"):
-            PURE_BLOCKS["geometry/span"]({"similarity": sim}, {})
+            ops.run_standalone("geometry/span", {"similarity": sim}, {})
 
     def test_grouping_by_a_coordinate(self):
         # A funnel's items are one read per (record, layer): compare the
@@ -200,7 +200,7 @@ class TestTheOps:
                 r["layer"] = layer
                 items.append(r)
         coll = K.collection("logits/funnel", items)
-        sim = PURE_BLOCKS["geometry/compare"]({"items": coll}, {"by": "layer"})
+        sim = ops.run_standalone("geometry/compare", {"items": coll}, {"by": "layer"})
         assert [it["group"] for it in sim["items"]] == ["layer=3", "layer=7"]
         assert all(len(it["ids"]) == 3 for it in sim["items"])
 

@@ -8,9 +8,8 @@ import random
 import pytest
 
 from mechbench_compute import isomorphism as iso
+from mechbench_compute import ops, seeds
 from mechbench_compute import reduce as rd
-from mechbench_compute import seeds
-from mechbench_compute.blocks import PURE_BLOCKS
 from mechbench_compute.ops.records.total import FloatSum
 
 
@@ -42,7 +41,7 @@ class TestMonoidLaws:
     def test_group_stats_monoid_equals_the_flat_block_exactly(self):
         leaves = _leaves(200, seed=3)
         params = {"by": ["g"], "value": "delta"}
-        flat = PURE_BLOCKS["records/summarize"]({"records": leaves}, params)
+        flat = ops.run_standalone("records/summarize", {"records": leaves}, params)
         chunks = [leaves[i:i + 37] for i in range(0, len(leaves), 37)]
         chunked = rd.reduce_chunks("records/summarize", chunks, params)
         # rows compare as sets (the flat block's group order is insertion order)
@@ -242,7 +241,7 @@ NOT_LEAF_STREAM: dict[str, str] = {
 
 class TestCatalog:
     def test_every_pure_block_is_classified(self):
-        assert set(PURE_BLOCKS) == set(CATALOG) | set(NOT_LEAF_STREAM)
+        assert set(ops.find_standalone()) == set(CATALOG) | set(NOT_LEAF_STREAM)
 
     @pytest.mark.parametrize("block", sorted(CATALOG))
     def test_the_law_holds_across_the_catalog(self, block):

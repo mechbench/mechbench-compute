@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute import points as P
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.trajectory.read_points import read_points
 from mechbench_compute.trajectory.read_trajectory import read_trajectory
