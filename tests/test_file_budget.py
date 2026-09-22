@@ -40,7 +40,6 @@ BUDGET = 600
 OVER_BUDGET: dict[str, int] = {
     "lexicon/kinds.py": 1101,
     "bench.py": 982,
-    "protocol/pipeline.py": 916,
     "distill.py": 881,
     "plot.py": 817,
     "finetune.py": 677,

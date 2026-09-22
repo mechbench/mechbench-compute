@@ -13,7 +13,6 @@ what it calls is `_run_op` in protocol/dispatch.py.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import UTC
 from typing import Any
 
@@ -25,6 +24,7 @@ from mechbench_compute.protocol.missing_upstream import MissingUpstream
 from mechbench_compute.protocol.progress import Progress
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 from mechbench_compute.protocol.read_missing_policy import read_missing_policy
+from mechbench_compute.protocol.resolver import Resolver
 from mechbench_compute.protocol.serialize_params import serialize_params
 from mechbench_compute.protocol.sort_edges import sort_edges
 from mechbench_compute.protocol.sort_nodes import sort_nodes
@@ -52,8 +52,6 @@ class Pipeline:
 
         from mechbench_compute import __version__ as core_version
         from mechbench_compute.seeds import hardware_class
-
-        from pathlib import Path
 
         from mechbench_compute import dataflow
         from mechbench_compute import tensors as tensors_mod
@@ -101,212 +99,10 @@ class Pipeline:
         #: emit of the evidence needs should the run fail.
         held: dict[str, tuple[str, Any]] = {}
 
-        # What actually resolved: every $fetch's content hash and every
-        # model ref's snapshot commit, recorded into the result manifest
-        # — reproducibility by record; pins opt into strictness.
-        resolved: dict[str, dict] = {"objects": {}, "models": {}}
-
-        def fetch_object(ref, want=None):
-            from mechbench_compute import bench
-            fetched, meta = bench.fetch(ref, with_meta=True)
-            got = (meta or {}).get("content_hash") or ""
-            resolved["objects"][str(ref)] = got
-            if want and not got.endswith(str(want)):
-                raise ValueError(
-                    f"pinned object {ref!r} resolved to {got!r}, "
-                    f"expected sha256 {want!r}")
-            payload = fetched.get("payload", fetched) if isinstance(fetched, dict) else fetched
-            if tensors_mod.is_tensor(payload):
-                # A tensor collection's rows are shards beside it: fetched
-                # into the cache, verified, and read one shard at a time.
-                # The same progress callbacks a checkpoint's fetch uses.
-                if self._on_download is not None:
-                    self._on_download(str(ref), None)
-                payload = tensors_mod.materialize(
-                    payload, str(ref), bench.get_file_chunks,
-                    Path.home() / ".mechbench" / "tensors",
-                    on_bytes=self._on_download_bytes)
-            return payload
-
-        def stored_inputs_of(node):
-            """The bench objects a node reads by reference, in the order it
-            names them: its lineage inputs beside its upstream nodes. A
-            frequency table fetched into a param is an input of the node
-            that trained on it. Read off the node itself rather than
-            collected as fetches happen, because remote nodes resolve
-            alongside their siblings and a fetch's timing says nothing
-            about whose it was."""
-            found: list[str] = []
-
-            def walk(v):
-                if declared:
-                    if dataflow.is_param_ref(v):
-                        v = bound_params.get(v["$param"])
-                    if dataflow.is_object_ref(v):
-                        path = v["$ref"].get("bench")
-                        if isinstance(path, str) and path not in found:
-                            found.append(path)
-                        return
-                elif isinstance(v, dict) and "$fetch" in v:
-                    path = v["$fetch"]
-                    if isinstance(path, str) and path.startswith("$"):
-                        path = bindings.get(path[1:])
-                    if isinstance(path, str) and path not in found:
-                        found.append(path)
-                    return
-                if isinstance(v, dict):
-                    for x in v.values():
-                        walk(x)
-                elif isinstance(v, list):
-                    for x in v:
-                        walk(x)
-
-            walk(node.get("inputs") or {})
-            walk(node.get("params") or {})
-            return found
-
-        def resolve_declared(v, keep_reference=False):
-            """The declared form's two references, and nothing else: a
-            string that begins with `$` is a string here."""
-            if dataflow.is_param_ref(v):
-                name = v["$param"]
-                if name not in bound_params:
-                    raise ValueError(f"unbound param: {name!r}")
-                return resolve_declared(bound_params[name], keep_reference)
-            if dataflow.is_object_ref(v):
-                which, source = dataflow.source_of(v)
-                if keep_reference:
-                    # The op asked for the address, not what is at it.
-                    return dict(v["$ref"])
-                if which == "bench":
-                    return fetch_object(source, v["$ref"].get("sha256"))
-                if which == "hf_dataset":
-                    return resolve_hf_dataset(source)
-                return resolve_hf_adapter(source)
-            if isinstance(v, dict):
-                return {k: resolve_declared(x) for k, x in v.items()}
-            if isinstance(v, list):
-                return [resolve_declared(x) for x in v]
-            return v
-
-        def resolve_value(v):
-            """Recursive param resolution. Forms beyond literals:
-            "$name"                    -> the run binding (a string).
-            {"$fetch": ref}            -> the bench object's payload.
-            {"$fetch": ref, "sha256":} -> same, verified against the
-                                          pinned content hash.
-            In a declared graph: {"$param": name} and {"$ref": source}."""
-            if declared:
-                return resolve_declared(v)
-            if isinstance(v, str) and v.startswith("$"):
-                name = v[1:]
-                if name not in bindings:
-                    raise ValueError(f"unbound hole: {v}")
-                return bindings[name]
-            if isinstance(v, dict) and set(v.keys()) == {"$hf_adapter"}:
-                return resolve_hf_adapter(resolve_value(v["$hf_adapter"]))
-            if isinstance(v, dict) and set(v.keys()) == {"$hf_dataset"}:
-                return resolve_hf_dataset(resolve_value(v["$hf_dataset"]))
-            if isinstance(v, dict) and "$fetch" in v                     and set(v.keys()) <= {"$fetch", "sha256"}:
-                return fetch_object(resolve_value(v["$fetch"]), v.get("sha256"))
-            if isinstance(v, dict):
-                return {k: resolve_value(x) for k, x in v.items()}
-            if isinstance(v, list):
-                return [resolve_value(x) for x in v]
-            return v
-
-        def resolve_hf_dataset(spec):
-            """{"$hf_dataset": {repo, split, config?, revision?, limit?,
-            columns?: {id?, coords?: [...]}}} -> a record stream shaped
-            like our own: {id, coords, values} per row, columns as
-            values (Template substitutes them), declared coords
-            columns lifted into coords. Resolution recorded (repo,
-            requested revision, arrow fingerprint, rows)."""
-            from datasets import load_dataset
-
-            hf_token = (secrets or {}).get("hf", {}).get("token")
-            repo = spec["repo"]
-            split = spec.get("split", "train")
-            config = spec.get("config")
-            revision = spec.get("revision")
-            limit = spec.get("limit")
-            colmap = spec.get("columns") or {}
-            kwargs = {"split": split}
-            if revision:
-                kwargs["revision"] = revision
-            if hf_token:
-                kwargs["token"] = hf_token
-            ds = (load_dataset(repo, config, **kwargs) if config
-                  else load_dataset(repo, **kwargs))
-            n = min(int(limit), len(ds)) if limit else len(ds)
-            id_col = colmap.get("id")
-            coord_cols = list(colmap.get("coords") or [])
-            records = []
-            for i in range(n):
-                row = ds[i]
-                rid = str(row[id_col]) if id_col else f"{split}-{i}"
-                coords = {c: str(row[c]) for c in coord_cols}
-                values = {k: str(v) for k, v in row.items()
-                          if k not in coord_cols}
-                records.append({"id": rid,
-                                 "coords": {"split": split, **coords},
-                                 "values": values})
-            key = f"{repo}@{revision}" if revision else repo
-            resolved.setdefault("datasets", {})[key] = {
-                "repo": repo, "config": config, "split": split,
-                "revision": revision,
-                "fingerprint": getattr(ds, "_fingerprint", None),
-                "rows_total": len(ds), "rows_used": n}
-            return lexicon.collection("records/record", records)
-
-        def resolve_hf_adapter(spec):
-            """{"$hf_adapter": {repo, revision?}} -> an adapter object
-            payload imported from a hub PEFT LoRA repo. The resolved
-            snapshot commit is recorded."""
-            from huggingface_hub import snapshot_download
-
-            from mechbench_compute.peft import peft_import
-
-            repo = spec["repo"]
-            revision = spec.get("revision")
-            kwargs = {"allow_patterns": ["adapter_*", "*.json"]}
-            if revision:
-                kwargs["revision"] = revision
-            hf_token = (secrets or {}).get("hf", {}).get("token")
-            if hf_token:
-                kwargs["token"] = hf_token
-            local = snapshot_download(repo, **kwargs)
-            commit = local.rstrip("/").rsplit("/", 1)[-1]
-            payload = peft_import(local)
-            resolved.setdefault("adapters", {})[
-                f"{repo}@{revision}" if revision else repo] = {
-                "repo": repo, "revision": revision, "commit": commit,
-                "target_modules": payload["lora"]["target_modules"]}
-            return payload
-
-        def record_model(ref):
-            if not isinstance(ref, str) or ref in resolved["models"]:
-                return
-            from mechbench_compute.hub import (
-                parse_model_ref,
-                resolve_cached_revision,
-            )
-            try:
-                repo, rev = parse_model_ref(ref)
-                resolved["models"][ref] = {
-                    "repo": repo, "pinned": rev,
-                    "commit": resolve_cached_revision(repo, rev)}
-            except Exception:  # noqa: BLE001 — recording is best-effort
-                resolved["models"][ref] = {"repo": ref, "pinned": None,
-                                            "commit": None}
-
-        def resolve_params(params, block=None):
-            if declared and block is not None:
-                # A param whose op asked for the reference itself gets the
-                # address; every other is resolved to what is there.
-                return {k: resolve_declared(v, dataflow.wants_reference(block, k))
-                        for k, v in (params or {}).items()}
-            return {k: resolve_value(v) for k, v in (params or {}).items()}
+        resolver = Resolver(
+            declared=declared, bindings=bindings, bound_params=bound_params,
+            secrets=secrets, on_download=self._on_download,
+            on_download_bytes=self._on_download_bytes)
 
         order = sort_nodes(nodes, edges)
         results: dict[str, Any] = {}
@@ -381,48 +177,7 @@ class Pipeline:
             except KeyError:
                 raise ValueError(f"unknown block: {node['block']!r}") from None
             progress.start_node(pos, nid)
-            raw_params = node.get("params") or {}
-            if block in ("records/map", "records/fold") and isinstance(raw_params.get("body"), Mapping):
-                # A map's or a fold's body is the CHILD run's graph,
-                # holes and all: `$topic` is bound per record by `bind`,
-                # `$participant` per step by `over`, not by this run.
-                # Resolving it here would refuse a hole that is not this
-                # protocol's to fill.
-                params = resolve_params(
-                    {k: v for k, v in raw_params.items() if k != "body"}, block)
-                params["body"] = raw_params["body"]
-            else:
-                params = resolve_params(raw_params, block)
-            if "model" in params:
-                # A binding may be a structured ModelRef. Normalize it
-                # HERE — adapters are fetched through the same recording
-                # path as $fetch, so a run's manifest names everything it
-                # actually loaded.
-                mval = params.get("model")
-                if isinstance(mval, dict) or hasattr(mval, "adapter_labels"):
-                    from mechbench_compute import model_ref as model_ref_mod
-
-                    def _fetch_recording(label):
-                        from mechbench_compute import bench
-
-                        fetched, meta = bench.fetch(label, with_meta=True)
-                        resolved["objects"][str(label)] = (
-                            (meta or {}).get("content_hash") or ""
-                        )
-                        return (
-                            fetched.get("payload", fetched)
-                            if isinstance(fetched, dict)
-                            else fetched
-                        )
-
-                    ref = model_ref_mod.resolve(mval, fetch=_fetch_recording)
-                    params = {**params, "model": ref}
-                    # An endpoint has no repo to pin; what a run records
-                    # about it is the version that ANSWERED, per call.
-                    if not ref.is_endpoint:
-                        record_model(ref.base)
-                else:
-                    record_model(mval)
+            params = resolver.resolve_node_params(node, block)
             # Edges in a canonical order: by port, then by the edge's own
             # `index` when it has one, then by source node id. Two
             # consequences. A VARIADIC port receives them as an ordered
@@ -514,9 +269,9 @@ class Pipeline:
                     raise ValueError(
                         f"{nid}: port {port!r} is wired by an edge and also "
                         f"given under `inputs` — one or the other")
-                inputs[port] = resolve_value(raw)
+                inputs[port] = resolver.resolve_value(raw)
                 if isinstance(raw, dict) and "$fetch" in raw:
-                    input_paths[port] = str(resolve_value(raw["$fetch"]))
+                    input_paths[port] = str(resolver.resolve_value(raw["$fetch"]))
                 inline_hashes.append(
                     f"{port}:{resume_mod.content_hash(inputs[port])}")
             # An input written under `params` is an unknown param, and
@@ -610,8 +365,8 @@ class Pipeline:
                         nid, block, inputs, params, secrets,
                         nodes=nodes, edges=edges, order=order,
                         results=results, missing=missing,
-                        resolve_params=resolve_params,
-                        resolve_value=resolve_value,
+                        resolve_params=resolver.resolve_params,
+                        resolve_value=resolver.resolve_value,
                         item_reporter=progress.open_items,
                         expand=progress.expand,
                         node_view=progress.node_view,
@@ -700,7 +455,7 @@ class Pipeline:
                                 if e["from"]["node"] in held else None)
                             for e in in_edges) if cited is not None),
                         # …and the stored objects it read by reference.
-                        *stored_inputs_of(node)])),
+                        *resolver.read_stored_inputs(node)])),
                     # Provenance records the stored identity.
                     operation=lexicon.canonical_path(block),
                     params=serialize_params(params),
@@ -743,7 +498,7 @@ class Pipeline:
                     out = bench.emit(
                         f"{result_base}/{dataflow.INTERMEDIATES}/{nid}",
                         results[nid],
-                        inputs=list(stored_inputs_of(nodes[nid])),
+                        inputs=list(resolver.read_stored_inputs(nodes[nid])),
                         operation=lexicon.canonical_path(held_block),
                         params=serialize_params(held_params))
                     node_paths[nid] = out["path"]
@@ -799,7 +554,7 @@ class Pipeline:
             # never have to infer an absence from a shorter list.
             **({"nodes_missing": {nid: missing[nid] for nid in order
                                   if nid in missing}} if missing else {}),
-            "resolved": resolved,
+            "resolved": resolver.resolved,
             # Where this ran. Recorded, never fingerprinted: bit-identity
             # is promised within a hardware class.
             "resources": {"hardware": hardware_class(),
