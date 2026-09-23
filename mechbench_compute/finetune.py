@@ -113,7 +113,7 @@ def target_map_from_spec(spec: Mapping[str, Any]) -> TargetMap:
         weights = spec.get("weights")
         # A fetched `target_map` object arrives as its payload, `{kind,
         # weights}` — the form the lexicon's own example writes
-        # (`"weights": {"$fetch": …}`), so unwrap one level.
+        # (`"weights": {"$ref": …}`), so unwrap one level.
         if isinstance(weights, Mapping) and isinstance(weights.get("weights"), Mapping):
             weights = weights["weights"]
         if not weights:

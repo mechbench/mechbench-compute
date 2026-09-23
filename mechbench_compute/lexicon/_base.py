@@ -586,11 +586,6 @@ class Op:
                 return p
         return self.wildcard
 
-    @property
-    def emits(self) -> Output | None:
-        """An accepted spelling of `output`."""
-        return self.output
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -602,8 +597,6 @@ class Op:
             "description": self.description,
             "inputs": [p.to_dict() for p in self.inputs],
             "output": self.output.to_dict() if self.output else None,
-            # The same output under its other accepted key.
-            "emits": self.output.to_dict() if self.output else None,
             "params": [p.to_dict() for p in self.params],
             "example": self.example,
             "example_inputs": self.example_inputs,

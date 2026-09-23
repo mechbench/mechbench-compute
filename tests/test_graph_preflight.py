@@ -29,7 +29,7 @@ def _spec(*blocks: str):
                           "to": {"node": f"n{i}", "port": "records"},
                           "kind": "records"})
     return ProtocolSpec(kind="pipeline", prompt="", model_id=None,
-                        extra={"graph": {"nodes": nodes, "edges": edges}})
+                        extra={"graph": {"dataflow": 2, "nodes": nodes, "edges": edges}})
 
 
 class TestPreflight:
@@ -65,7 +65,7 @@ class TestPreflight:
 
     def test_a_node_with_no_block_is_named_too(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [{"id": "nameless", "params": {}}], "edges": []}})
+            "graph": {"dataflow": 2, "nodes": [{"id": "nameless", "params": {}}], "edges": []}})
         with pytest.raises(ValueError, match="nameless: no block"):
             ProtocolExecutor().run(spec)
 
@@ -91,7 +91,7 @@ class TestParamsAndPorts:
             lambda ctx, inputs, params: (ran.append(1), real(ctx, inputs, params))[1])
 
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [
+            "graph": {"dataflow": 2, "nodes": [
                 {"id": "design", "block": "records/cross", "params": dict(CROSS)},
                 {"id": "cap", "block": "activations/capture",
                  "params": {"model": "m", "layers": [12], "template": "chat"},
@@ -106,7 +106,7 @@ class TestParamsAndPorts:
 
     def test_a_param_error_and_a_block_error_are_reported_together(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [
+            "graph": {"dataflow": 2, "nodes": [
                 {"id": "a", "block": "records/stats", "params": {}},
                 {"id": "b", "block": "records/cross",
                  "params": {**CROSS, "facters": []}},
@@ -120,7 +120,7 @@ class TestParamsAndPorts:
 
     def test_an_edge_onto_a_port_that_does_not_exist(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [
+            "graph": {"dataflow": 2, "nodes": [
                 {"id": "design", "block": "records/cross", "params": dict(CROSS)},
                 {"id": "pick", "block": "records/select", "params": {}},
             ], "edges": [{"from": {"node": "design", "port": "records"},
@@ -131,7 +131,7 @@ class TestParamsAndPorts:
 
     def test_a_required_port_with_nothing_on_it(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [
+            "graph": {"dataflow": 2, "nodes": [
                 {"id": "pick", "block": "records/select", "params": {}},
             ], "edges": []}})
         with pytest.raises(ValueError, match="needs an input on its 'records' port"):
@@ -142,7 +142,7 @@ class TestParamsAndPorts:
         # optional, and a graph that leaves it alone is runnable.
         out = ProtocolExecutor().run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None, extra={
-                "graph": {"nodes": [
+                "graph": {"dataflow": 2, "nodes": [
                     {"id": "design", "block": "records/cross", "params": dict(CROSS)},
                     {"id": "pick", "block": "records/select",
                      "params": {"where": {"x": "a"}}},
@@ -155,7 +155,7 @@ class TestParamsAndPorts:
         # `records/union` names its ports freely; what it needs is that
         # there be some.
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [
+            "graph": {"dataflow": 2, "nodes": [
                 {"id": "merged", "block": "records/union", "params": {}},
             ], "edges": []}})
         with pytest.raises(ValueError, match="at least one input edge"):

@@ -96,7 +96,7 @@ class TestTheExecutorHashesBeforeItEmits:
                             lambda target, *a, **k: emitted.append(target) or {"path": target})
         monkeypatch.setattr(protocol, "bench", bench, raising=False)
 
-        graph = {"nodes": [{
+        graph = {"dataflow": 2, "nodes": [{
             "id": "gen", "block": "text/generate",
             "params": {"model": BASE, "n": 1, "seed": 7},
                        "inputs": {"records": [{"id": "r", "user": "Write."}]}}],
@@ -116,7 +116,7 @@ class TestTheExecutorHashesBeforeItEmits:
         emitted: list[str] = []
         monkeypatch.setattr(bench, "emit",
                             lambda target, *a, **k: emitted.append(target) or {"path": target})
-        graph = {"nodes": [{
+        graph = {"dataflow": 2, "nodes": [{
             "id": "gen", "block": "text/generate",
             "params": {"model": BASE, "n": 1, "seed": 7},
                        "inputs": {"records": [{"id": "r", "user": "Write."}]}}],

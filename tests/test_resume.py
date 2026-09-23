@@ -66,7 +66,7 @@ def _fake_generate_substrate(monkeypatch, calls: _Calls):
 
 def _gen_spec(n=3):
     graph = {
-        "nodes": [
+        "dataflow": 2, "nodes": [
             {"id": "gen", "block": "text/generate",
              "params": {"model": "fake/m@rev", "n": n, "seed": 7},
              "inputs": {"records": [

@@ -33,7 +33,7 @@ decides. A set of records renders as overlaid curves.
         _CHAT_RECORDS,
         In("adapter", "adapter/lora",
            "A LoRA adapter to fuse on top of the model for this node only — "
-           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "from an `adapter/train` node, a `{\"$ref\": {\"hf_adapter\": {\"repo\": …}}}` "
            "reference, or a stored adapter. Fuses last, on top of any "
            "adapters the model reference itself carries; `adapter_scale` "
            "scales this one.",
@@ -71,7 +71,7 @@ def run(ctx, inputs, params):
 
     model = ctx.model(params.get("model"))
     tok = model.tokenizer
-    # By edge, or the common `records` param (a literal or a $fetch),
+    # By edge, or the common `records` param (a literal or a $ref),
     # like every other model block: a block that read only the edge
     # would run over nothing when the prompts arrive by param.
     records = lexicon.items_of(inputs.get("records") or [])

@@ -112,7 +112,7 @@ def test_example_would_be_accepted(op: Op) -> None:
         pytest.skip("no example written")
     # The example must not name a param the block refuses — the exact
     # mistake the documentation exists to prevent — and its inputs must
-    # land on ports the block has. A `{"$fetch": …}` carries no kind
+    # land on ports the block has. A `{"$ref": …}` carries no kind
     # until it resolves, so the example's inputs are checked by port
     # name, with every required port present.
     check_params(op.name, op.example)

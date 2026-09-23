@@ -232,7 +232,7 @@ class TestThroughTheExecutor:
     def test_a_chat_node_with_tools_runs_end_to_end(self):
         from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 
-        graph = {"nodes": [{
+        graph = {"dataflow": 2, "nodes": [{
             "id": "ask", "block": "text/chat",
             "params": {
                 "model": {"provider": "mock", "model": "mock-large"},

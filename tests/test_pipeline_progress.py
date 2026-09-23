@@ -17,7 +17,7 @@ def _spec():
     # showed the overrun in production. Each reads its own conditions —
     # a decision read is not a record stream another read could take.
     graph = {
-        "nodes": [
+        "dataflow": 2, "nodes": [
             {"id": "read1", "block": "logits/read",
              "params": {}, "inputs": {"conditions": [{"id": "c", "user": "u"}]}},
             {"id": "read2", "block": "logits/read",

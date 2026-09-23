@@ -269,7 +269,7 @@ class TestTheBlock:
 
 class TestThroughTheExecutor:
     def test_a_judge_node_runs_end_to_end(self):
-        graph = {"nodes": [{
+        graph = {"dataflow": 2, "nodes": [{
             "id": "grade", "block": "eval/judge",
             "params": {
                 "judge": {"model": {"provider": "mock", "model": "judge-1"},
@@ -304,7 +304,7 @@ class TestThroughTheExecutor:
         ex = ProtocolExecutor()
         monkeypatch.setattr(ex, "_model_loaded", lambda *_a, **_k: FakeModel())
         out = ex.run(ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [{
+            "graph": {"dataflow": 2, "nodes": [{
                 "id": "grade", "block": "eval/judge",
                 "params": {
                     "judge": {"model": "google/gemma-3-4b-it",

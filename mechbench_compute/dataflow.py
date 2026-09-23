@@ -1,30 +1,32 @@
-"""The declared dataflow form, as the executor reads it (design in
+"""The dataflow form, as the executor reads it (design in
 mechbench/docs/DATAFLOW.md).
 
-A protocol in the declared form carries `dataflow: 2` and speaks in two
-references — `{"$param": name}` and `{"$ref": source}` — where the legacy
-form had string holes and the `$fetch` macro. A reference is a value: it
+A protocol carries `dataflow: 2` and speaks in two references —
+`{"$param": name}` and `{"$ref": source}`. A reference is a value: it
 can be bound, passed along, and it sits only where a declaration admits
 it. An edge's source is a node's output or one of the protocol's inputs.
+A graph without the marker is refused by `check_form`, naming what it
+found, and nothing in it is read.
 
-This module does two things, both before anything runs:
+Before anything runs:
 
-- `lower` rewrites a declared graph into the shapes the executor runs:
-  an edge from a protocol input becomes that input's bound value on the
-  port, and `from: {node, output}` becomes `{node, port}`. Lowering puts
-  each value in the same place the executor would otherwise have found
-  it, so ordering, resume, missing-node handling and fingerprints are
-  unaffected and a node keeps its fingerprint across the two forms.
+- `check_form` refuses a spec that is not in this form.
+- `lower` rewrites the graph into the shapes the executor runs: an edge
+  from a protocol input becomes that input's bound value on the port,
+  and `from: {node, output}` becomes `{node, port}`. Each value lands
+  where the executor reads it, so ordering, resume, missing-node
+  handling and fingerprints see one shape.
 - `check_refs` refuses a `$ref` that sits where no declaration admits a
   stored object, by node and place.
 
-Resolution itself stays in the executor (`resolve_value`), which holds the
+Resolution itself stays in the executor (`Resolver`), which holds the
 bench client and the record of what resolved.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from mechbench_compute import lexicon
@@ -35,9 +37,15 @@ DATAFLOW = 2
 #: take the name.
 INTERMEDIATES = "nodes"
 SOURCES = ("bench", "hf_dataset", "hf_adapter")
-#: The legacy macros, which a declared graph must not contain: there a
-#: `$`-keyed object is one of the two references or it is a mistake.
+#: Macros a graph must not contain: a `$`-keyed object is one of the
+#: two references or it is a mistake.
 LEGACY_MACROS = ("$fetch", "$hf_dataset", "$hf_adapter")
+#: Where a refusal of the undeclared form points.
+DATAFLOW_DOCS = "https://docs.mechbench.ai/dataflow/"
+#: What `find_undeclared` says of a graph whose only fault is the
+#: missing marker.
+NO_MARKER = 'no "dataflow": 2 marker'
+_HOLE = re.compile(r"^\$[A-Za-z][A-Za-z0-9_-]*$")
 
 
 def is_declared(graph: Any) -> bool:
@@ -62,13 +70,72 @@ def source_of(ref: Mapping[str, Any]) -> tuple[str, Any]:
     return which[0], source[which[0]]
 
 
+def find_undeclared(graph: Any) -> str | None:
+    """What makes this graph not the declared form, in a phrase, or None
+    when it carries the marker. The first construct found is named, so
+    a refusal points at something the author can see."""
+    if is_declared(graph):
+        return None
+    if not isinstance(graph, Mapping):
+        return "a graph that is not an object"
+    nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
+    for n in nodes:
+        if isinstance(n, Mapping) and n.get("block") == "protocol-input":
+            return f"a protocol-input node {n.get('id')!r}"
+
+    def walk(v: Any, at: str) -> str | None:
+        if isinstance(v, str) and _HOLE.match(v):
+            return f'a "{v}" string hole at {at}'
+        if isinstance(v, Mapping):
+            macro = next((k for k in LEGACY_MACROS if k in v), None)
+            if macro:
+                return f"{macro} at {at}"
+            for k, x in v.items():
+                found = walk(x, f"{at}.{k}")
+                if found:
+                    return found
+        elif isinstance(v, list):
+            for i, x in enumerate(v):
+                found = walk(x, f"{at}.{i}")
+                if found:
+                    return found
+        return None
+
+    for n in nodes:
+        if not isinstance(n, Mapping):
+            continue
+        for where in ("params", "inputs"):
+            found = walk(n.get(where) or {}, f"{n.get('id')}.{where}")
+            if found:
+                return found
+    for e in graph.get("edges") or []:
+        src = e.get("from") if isinstance(e, Mapping) else None
+        if isinstance(src, Mapping) and "port" in src:
+            return f"an edge from {{node, port}} ({src.get('node')}.{src.get('port')})"
+    return NO_MARKER
+
+
+def check_form(extra: Mapping[str, Any]) -> None:
+    """Refuse a run spec that is not in the declared form: a graph
+    without the marker, or a run bound by `bindings` rather than
+    `params` and `inputs`."""
+    found = find_undeclared(extra.get("graph") or {})
+    if found is None and extra.get("bindings"):
+        found = "a run bound by `bindings` rather than `params` and `inputs`"
+    if found is not None:
+        raise ValueError(
+            f"this protocol is in the legacy dataflow form ({found}), which is no "
+            f'longer read. Write it in the declared form, marked "dataflow": 2: '
+            f"see {DATAFLOW_DOCS}")
+
+
 def lower(graph: Mapping[str, Any], bound_inputs: Mapping[str, Any]) -> dict[str, Any]:
     """A declared graph in the executor's working shapes.
 
     An edge from `{"input": name}` puts the run's bound value for that
-    input on the target port, as an inline input — the same place the
-    legacy `{"$fetch": "$corpus"}` sat, so the node's input hash, and
-    with it its fingerprint, is formed identically in both forms.
+    input on the target port, as an inline input, so the node's input
+    hash — and with it its fingerprint — is formed from the value
+    itself, wherever it came from.
     """
     nodes = [dict(n, inputs=dict(n.get("inputs") or {})) for n in graph.get("nodes", [])]
     by_id = {n["id"]: n for n in nodes}

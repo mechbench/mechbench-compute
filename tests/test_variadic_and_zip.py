@@ -78,7 +78,7 @@ class TestTwoEdgesIntoOnePort:
 
     def _spec(self, port="records"):
         return ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [
+            "graph": {"dataflow": 2, "nodes": [
                 {"id": "one", "block": "records/cross", "params": dict(CROSS)},
                 {"id": "two", "block": "records/cross", "params": dict(CROSS)},
                 {"id": "pick", "block": "records/select", "params": {}},
@@ -174,7 +174,7 @@ class TestZip:
 class TestZipInAGraph:
     def test_two_branches_through_the_executor(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [
+            "graph": {"dataflow": 2, "nodes": [
                 {"id": "design", "block": "records/cross", "params": dict(CROSS)},
                 {"id": "left", "block": "records/fill",
                  "params": {"templates": {"user": "left {x}"}}},
@@ -203,7 +203,7 @@ class TestZipInAGraph:
 
     def test_a_variadic_port_with_too_few_edges_is_refused_at_load(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
-            "graph": {"nodes": [
+            "graph": {"dataflow": 2, "nodes": [
                 {"id": "design", "block": "records/cross", "params": dict(CROSS)},
                 {"id": "pairs", "block": "records/zip", "params": {}},
             ], "edges": [

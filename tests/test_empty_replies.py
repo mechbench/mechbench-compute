@@ -281,7 +281,7 @@ class TestThePolicy:
                                 "policy": "keep"}
 
     def test_the_executor_carries_the_header_and_the_mark(self):
-        graph = {"nodes": [{"id": "chat", "block": "text/chat",
+        graph = {"dataflow": 2, "nodes": [{"id": "chat", "block": "text/chat",
                             "params": {"model": ENDPOINT, "budget_usd": 1.0,
                                        "provider_options": {"mock": {"empty": "reasoning"}}},
                             "inputs": {"records": records(2)}}], "edges": []}
@@ -369,7 +369,7 @@ class TestTheJudge:
 def test_an_empty_story_kept_by_chat_is_unjudged_and_the_judge_completes():
     """`text/chat` keeps an empty reply marked; the judge after it grades
     what has text and counts the rest, instead of failing the graph."""
-    graph = {"nodes": [
+    graph = {"dataflow": 2, "nodes": [
         {"id": "stories", "block": "text/chat",
          "params": {"model": ENDPOINT, "budget_usd": 1.0, "on_empty": "keep",
                     "provider_options": {"mock": {"empty": "reasoning"}}},

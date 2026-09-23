@@ -26,7 +26,7 @@ item has no token ids to replay and the block refuses it.
            "a stored one arrives as `{\"$ref\": …}`.", many=True),
         In("adapter", "adapter/lora",
            "A LoRA adapter to fuse on top of the model for this node only — "
-           "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+           "from an `adapter/train` node, a `{\"$ref\": {\"hf_adapter\": {\"repo\": …}}}` "
            "reference, or a stored adapter. Fuses last, on top of any "
            "adapters the model reference itself carries; `adapter_scale` "
            "scales this one.",
@@ -53,7 +53,7 @@ def run(ctx, inputs, params):
     if coll is None:
         raise ValueError(
             "text/score needs a document collection on its `collection` "
-            "port — by edge, or `{\"$fetch\": …}` under the node's inputs")
+            "port — by edge, or `{\"$ref\": …}` under the node's inputs")
     items = lexicon.items_of(coll)
     if ctx.on_start:
         ctx.on_start(len(items))

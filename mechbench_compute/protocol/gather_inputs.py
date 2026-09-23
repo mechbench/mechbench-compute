@@ -91,7 +91,7 @@ def gather_inputs(state, nid, node, op_here, in_edges, resolver):
         else:
             inputs[port] = stand_in
     # An input given inline under the node's `inputs` — a literal, or
-    # `{"$fetch": …}` of a stored object — fills a port the way an edge
+    # `{"$ref": …}` of a stored object — fills a port the way an edge
     # does, and its content hash joins the fingerprint the way an
     # upstream node's would.
     inline_hashes: list[str] = []
@@ -103,8 +103,6 @@ def gather_inputs(state, nid, node, op_here, in_edges, resolver):
                 f"{nid}: port {port!r} is wired by an edge and also "
                 f"given under `inputs` — one or the other")
         inputs[port] = resolver.resolve_value(raw)
-        if isinstance(raw, dict) and "$fetch" in raw:
-            input_paths[port] = str(resolver.resolve_value(raw["$fetch"]))
         inline_hashes.append(
             f"{port}:{resume_mod.content_hash(inputs[port])}")
     return inputs, input_paths, inline_hashes

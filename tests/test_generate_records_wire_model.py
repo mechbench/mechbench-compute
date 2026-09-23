@@ -41,14 +41,14 @@ def _resolved_ref() -> model_ref_mod.ModelRef:
 
 
 def _spec(fidelity: str):
-    graph = {"nodes": [{
+    graph = {"dataflow": 2, "nodes": [{
         "id": "gen", "block": "text/generate",
-        "params": {"model": "$model", "n": 2, "seed": 7, "fidelity": fidelity},
+        "params": {"model": {"$param": "model"}, "n": 2, "seed": 7, "fidelity": fidelity},
         "inputs": {"records": [{"id": "flash", "user": "Write a story."}]},
     }], "edges": []}
     return ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
         "graph": graph,
-        "bindings": {"model": {"base": {"hf": BASE},
+        "params": {"model": {"base": {"hf": BASE},
                                "adapters": [{"bench": LABEL}]}},
     })
 
@@ -58,7 +58,7 @@ def adapted_run(monkeypatch):
     calls = _Calls()
     _fake_generate_substrate(monkeypatch, calls)
     ref = _resolved_ref()
-    # The executor resolves the binding through model_ref.resolve, which
+    # The executor resolves the param through model_ref.resolve, which
     # fetches the adapter from the bench; stand that in with the resolved
     # object so the test sees exactly what a real run's params hold.
     monkeypatch.setattr(model_ref_mod, "resolve", lambda mval, **kw: ref)
@@ -102,7 +102,7 @@ class TestTheRecordedModel:
         change what it records."""
         calls = _Calls()
         _fake_generate_substrate(monkeypatch, calls)
-        graph = {"nodes": [{
+        graph = {"dataflow": 2, "nodes": [{
             "id": "gen", "block": "text/generate",
             "params": {"model": BASE, "n": 1, "seed": 7, "fidelity": "trace"},
             "inputs": {"records": [{"id": "flash", "user": "Write."}]}}],

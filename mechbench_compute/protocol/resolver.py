@@ -8,10 +8,9 @@ model's snapshot commit — so a run's manifest names everything it
 loaded. Reproducibility is by record here; a pin is how a caller opts
 into strictness instead.
 
-Two reference vocabularies meet, and `declared` says which one is in
-force. A declared graph writes `{"$param": name}` and `{"$ref":
-source}`; the older form writes `"$name"` for a binding and `{"$fetch":
-ref}` for a stored object. Nothing else is a reference in either.
+A graph writes `{"$param": name}` for a run param and `{"$ref":
+source}` for a stored object, a hub dataset or a hub adapter. Nothing
+else is a reference: a string that begins with `$` is a string.
 """
 
 from __future__ import annotations
@@ -25,11 +24,8 @@ from mechbench_compute import dataflow, lexicon
 class Resolver:
     """Resolver: see this module's docstring."""
 
-    def __init__(self, *, declared: bool, bindings: Mapping[str, Any],
-                 bound_params: Mapping[str, Any], secrets=None,
+    def __init__(self, *, bound_params: Mapping[str, Any], secrets=None,
                  on_download=None, on_download_bytes=None) -> None:
-        self.declared = declared
-        self.bindings = bindings
         self.bound_params = bound_params
         self.secrets = secrets
         self.on_download = on_download
@@ -76,18 +72,10 @@ class Resolver:
         found: list[str] = []
 
         def walk(v):
-            if self.declared:
-                if dataflow.is_param_ref(v):
-                    v = self.bound_params.get(v["$param"])
-                if dataflow.is_object_ref(v):
-                    path = v["$ref"].get("bench")
-                    if isinstance(path, str) and path not in found:
-                        found.append(path)
-                    return
-            elif isinstance(v, dict) and "$fetch" in v:
-                path = v["$fetch"]
-                if isinstance(path, str) and path.startswith("$"):
-                    path = self.bindings.get(path[1:])
+            if dataflow.is_param_ref(v):
+                v = self.bound_params.get(v["$param"])
+            if dataflow.is_object_ref(v):
+                path = v["$ref"].get("bench")
                 if isinstance(path, str) and path not in found:
                     found.append(path)
                 return
@@ -102,16 +90,17 @@ class Resolver:
         walk(node.get("params") or {})
         return found
 
-    # --- the two reference vocabularies -------------------------------------
+    # --- references ---------------------------------------------------------
 
-    def resolve_declared(self, v, keep_reference=False):
-        """The declared form's two references, and nothing else: a
-        string that begins with `$` is a string here."""
+    def resolve_value(self, v, keep_reference=False):
+        """A value with its references resolved: `{"$param": name}` to
+        the run's param, `{"$ref": source}` to what is stored there, or
+        to the address itself under `keep_reference`."""
         if dataflow.is_param_ref(v):
             name = v["$param"]
             if name not in self.bound_params:
                 raise ValueError(f"unbound param: {name!r}")
-            return self.resolve_declared(self.bound_params[name], keep_reference)
+            return self.resolve_value(self.bound_params[name], keep_reference)
         if dataflow.is_object_ref(v):
             which, source = dataflow.source_of(v)
             if keep_reference:
@@ -123,32 +112,6 @@ class Resolver:
                 return self.resolve_hf_dataset(source)
             return self.resolve_hf_adapter(source)
         if isinstance(v, dict):
-            return {k: self.resolve_declared(x) for k, x in v.items()}
-        if isinstance(v, list):
-            return [self.resolve_declared(x) for x in v]
-        return v
-
-    def resolve_value(self, v):
-        """Recursive param resolution. Forms beyond literals:
-        "$name"                    -> the run binding (a string).
-        {"$fetch": ref}            -> the bench object's payload.
-        {"$fetch": ref, "sha256":} -> same, verified against the
-                                      pinned content hash.
-        In a declared graph: {"$param": name} and {"$ref": source}."""
-        if self.declared:
-            return self.resolve_declared(v)
-        if isinstance(v, str) and v.startswith("$"):
-            name = v[1:]
-            if name not in self.bindings:
-                raise ValueError(f"unbound hole: {v}")
-            return self.bindings[name]
-        if isinstance(v, dict) and set(v.keys()) == {"$hf_adapter"}:
-            return self.resolve_hf_adapter(self.resolve_value(v["$hf_adapter"]))
-        if isinstance(v, dict) and set(v.keys()) == {"$hf_dataset"}:
-            return self.resolve_hf_dataset(self.resolve_value(v["$hf_dataset"]))
-        if isinstance(v, dict) and "$fetch" in v and set(v.keys()) <= {"$fetch", "sha256"}:
-            return self.fetch_object(self.resolve_value(v["$fetch"]), v.get("sha256"))
-        if isinstance(v, dict):
             return {k: self.resolve_value(x) for k, x in v.items()}
         if isinstance(v, list):
             return [self.resolve_value(x) for x in v]
@@ -157,8 +120,8 @@ class Resolver:
     # --- the hub ------------------------------------------------------------
 
     def resolve_hf_dataset(self, spec):
-        """{"$hf_dataset": {repo, split, config?, revision?, limit?,
-        columns?: {id?, coords?: [...]}}} -> a record stream shaped
+        """{"$ref": {"hf_dataset": {repo, split, config?, revision?,
+        limit?, columns?: {id?, coords?: [...]}}}} -> a record stream shaped
         like our own: {id, coords, values} per row, columns as
         values (Template substitutes them), declared coords
         columns lifted into coords. Resolution recorded (repo,
@@ -201,7 +164,7 @@ class Resolver:
         return lexicon.collection("records/record", records)
 
     def resolve_hf_adapter(self, spec):
-        """{"$hf_adapter": {repo, revision?}} -> an adapter object
+        """{"$ref": {"hf_adapter": {repo, revision?}}} -> an adapter object
         payload imported from a hub PEFT LoRA repo. The resolved
         snapshot commit is recorded."""
         from huggingface_hub import snapshot_download
@@ -245,7 +208,7 @@ class Resolver:
 
     def fetch_recording(self, label):
         """A model ref's adapter, fetched through the same recording
-        path a `$fetch` takes, so a run's manifest names everything it
+        path a `$ref` takes, so a run's manifest names everything it
         actually loaded."""
         from mechbench_compute import bench
 
@@ -259,32 +222,31 @@ class Resolver:
     # --- a node's params ----------------------------------------------------
 
     def resolve_params(self, params, block=None):
-        if self.declared and block is not None:
-            # A param whose op asked for the reference itself gets the
-            # address; every other is resolved to what is there.
-            return {k: self.resolve_declared(v, dataflow.wants_reference(block, k))
-                    for k, v in (params or {}).items()}
-        return {k: self.resolve_value(v) for k, v in (params or {}).items()}
+        # A param whose op asked for the reference itself gets the
+        # address; every other is resolved to what is there.
+        return {k: self.resolve_value(
+                    v, block is not None and dataflow.wants_reference(block, k))
+                for k, v in (params or {}).items()}
 
     def resolve_node_params(self, node, block):
         """One node's params, ready for its operation."""
         raw_params = node.get("params") or {}
         if (block in ("records/map", "records/fold")
                 and isinstance(raw_params.get("body"), Mapping)):
-            # A map's or a fold's body is the CHILD run's graph, holes
-            # and all: `$topic` is bound per record by `bind`,
-            # `$participant` per step by `over`, not by this run.
-            # Resolving it here would refuse a hole that is not this
-            # protocol's to fill.
+            # A map's or a fold's body is the CHILD run's graph: its
+            # `{"$param": "topic"}` is bound per record by `bind`, its
+            # `{"$param": "participant"}` per step by `over`, not by this
+            # run. Resolving it here would refuse a param that is not
+            # this protocol's to bind.
             params = self.resolve_params(
                 {k: v for k, v in raw_params.items() if k != "body"}, block)
             params["body"] = raw_params["body"]
         else:
             params = self.resolve_params(raw_params, block)
         if "model" in params:
-            # A binding may be a structured ModelRef. Normalize it HERE
+            # A param may be a structured ModelRef. Normalize it HERE
             # — adapters are fetched through the same recording path as
-            # $fetch, so a run's manifest names everything it actually
+            # a `$ref`, so a run's manifest names everything it actually
             # loaded.
             mval = params.get("model")
             if isinstance(mval, dict) or hasattr(mval, "adapter_labels"):

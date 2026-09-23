@@ -26,7 +26,7 @@ enters the body on the body input named `state` (an edge `{"from":
 is longer than it: each object's keys are `$param`s the body's nodes read
 that step — `[{"participant": "ana"}, {"participant": "bo"}]` with `steps:
 6` is a six-turn round robin. A body that needs no per-step values takes
-`steps` alone. The step's index is bound as `$step`.
+`steps` alone. The step's index is bound as `{"$param": "step"}`.
 
 **Stopping.** `until: {"field": "stopped"}` ends the fold early when every
 item of the state has a non-empty value in that field — which is how a
@@ -119,9 +119,8 @@ def run(ctx, inputs, params):
         raise ValueError(
             "records/fold needs a `body`: a graph, with `nodes` and "
             "`edges`, run once per step")
-    # A fold's body is a declared graph by construction: the state
-    # reaches it by an edge from `{"input": "state"}`, which only the
-    # declared form has.
+    # The body is a graph of the run's own form, written without the
+    # marker a whole protocol carries.
     body = {**body, "dataflow": dataflow_mod.DATAFLOW}
     over = params.get("over")
     if over is not None and not (isinstance(over, list)
@@ -162,11 +161,11 @@ def run(ctx, inputs, params):
                 stopped = "until"
                 break
             continue
-        step_params = {**(ctx.bindings or {}), **over[t % len(over)], "step": t}
+        step_params = {**(ctx.run_params or {}), **over[t % len(over)], "step": t}
         out = child.run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None,
-            extra={"graph": body, "bindings": step_params,
-                   "params": step_params, "inputs": {"state": state}}),
+            extra={"graph": body, "params": step_params,
+                   "inputs": {"state": state}}),
             secrets=ctx.secrets)
         outputs = out.payload.get("outputs") or {}
         if want:

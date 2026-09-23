@@ -48,7 +48,7 @@ to exactly that depth.
           ""),
         P("expect_depth", "int | string",
           "Turn on the gate: every item must tokenize to exactly this many "
-          "tokens after the prefix. `\"\"` or `\"none\"` (as a run binding) "
+          "tokens after the prefix. `\"\"` or `\"none\"` (as a string param) "
           "means no gate.",
           None),
         P("top_fragmented", "int",
@@ -136,8 +136,8 @@ def measure_tokenizer(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
     items = _read_strings(inputs)
     prefix = str(params.get("prefix", "") or "")
     prefix_ids = encode(tokenizer, prefix) if prefix else []
-    # A hole must always bind, and run bindings are strings: "" (or
-    # "none") means no gate, and a numeric string is the expected depth.
+    # A string param reads "" (or "none") as no gate, and a numeric
+    # string as the expected depth.
     expect = params.get("expect_depth")
     if isinstance(expect, str):
         expect = None if expect.strip().lower() in ("", "none") else expect

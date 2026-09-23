@@ -86,8 +86,6 @@ export interface LexiconOp {
    * when a param has a value or an input port is filled. An op and a
    * protocol are declared in the same words (epic 000553). */
   output: LexiconOutput | null;
-  /** The old name of `output`, read until 000565. */
-  emits: LexiconOutput | null;
   params: LexiconParam[];
   example: Record<string, unknown> | null;
   example_inputs: Record<string, unknown> | null;
@@ -121,9 +119,8 @@ def _op(op: Any) -> dict[str, Any]:
     d = op.to_dict()
     for gone in ("description",):
         d.pop(gone)
-    for key in ("output", "emits"):
-        if d[key]:
-            d[key] = {k: v for k, v in d[key].items() if k != "doc"}
+    if d["output"]:
+        d["output"] = {k: v for k, v in d["output"].items() if k != "doc"}
     return d
 
 

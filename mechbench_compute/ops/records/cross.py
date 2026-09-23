@@ -116,7 +116,7 @@ def _sample_value(gen: Mapping[str, Any], index: int) -> str:
     elif kind == "words":
         # word_list: an inline list, or a fetched word_list object
         # payload ({kind: "word_list", words: [...]}) — the executor's
-        # {"$fetch": ref} resolution hands the payload through whole.
+        # {"$ref": source} resolution hands the payload through whole.
         raw = gen.get("word_list") or []
         words = raw.get("words") if isinstance(raw, Mapping) else raw
         if not words:

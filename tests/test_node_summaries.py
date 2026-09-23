@@ -11,7 +11,7 @@ from __future__ import annotations
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec, summarize_node
 
 GRAPH = {
-    "nodes": [
+    "dataflow": 2, "nodes": [
         {"id": "design", "block": "records/cross",
          "params": {"factors": [{"name": "x", "levels": [{"key": "a"}, {"key": "b"}, {"key": "c"}]},
                                 {"name": "y", "levels": [{"key": "1"}, {"key": "2"}]}]}},

@@ -1,8 +1,7 @@
-"""The declared dataflow form through the executor: `{"$param"}` and
-`{"$ref"}` resolved as values, protocol inputs as edge sources, a stored
-object named as a lineage input wherever it sat — and the property a
-rewrite rests on: two spellings of one protocol compute the same bytes
-under the same node fingerprints.
+"""The dataflow form through the executor: `{"$param"}` and `{"$ref"}`
+resolved as values, protocol inputs as edge sources, a stored object
+named as a lineage input wherever it sat — and a graph in any other form
+refused before anything runs, naming what it found.
 
 Pure blocks only, with the bench faked, so nothing here needs a model.
 """
@@ -50,14 +49,6 @@ def fake_bench(monkeypatch):
 MEASURE = {"type": "list", "name": "genres", "separator": ", ",
            "extract": r'"genres"\s*:\s*"([^"]*)'}
 
-LEGACY = {
-    "nodes": [{
-        "id": "said", "block": "text/measure",
-        "params": {"mode": "$mode", "measures": [{**MEASURE, "items": {"$fetch": "lab/p/freqs"}}]},
-        "inputs": {"documents": {"$fetch": "$draws"}},
-    }],
-    "edges": [],
-}
 DECLARED = {
     "dataflow": 2,
     "nodes": [{
@@ -86,19 +77,45 @@ def _run(extra, hooks=None, resume=None):
     return payload, hooks
 
 
-def test_a_migrated_protocol_computes_the_same_bytes_under_the_same_fingerprints(fake_bench):
-    """What lets stored protocols be rewritten without invalidating a
-    cache or a resume: a fingerprint is over what a node resolved TO, and
-    both forms resolve to the same values in the same places."""
-    old, old_hooks = _run({"graph": LEGACY, "bindings": {"mode": "items", "draws": "lab/p/draws"},
-                           "resultPath": "lab/p/results/j_old"})
-    new, new_hooks = _run({"graph": DECLARED, "params": {"mode": "items"},
-                           "inputs": {"draws": {"$ref": {"bench": "lab/p/draws"}}},
-                           "resultPath": "lab/p/results/j_new"})
-    assert dump_canonical(old["outputs"]["said"]) == dump_canonical(new["outputs"]["said"])
-    assert old_hooks.fingerprints == new_hooks.fingerprints
-    said = {r["item"]: r for r in new["outputs"]["said"]["items"]}
+def test_a_run_binds_params_and_inputs_by_name(fake_bench):
+    out, _ = _run({"graph": DECLARED, "params": {"mode": "items"},
+                   "inputs": {"draws": {"$ref": {"bench": "lab/p/draws"}}},
+                   "resultPath": "lab/p/results/j_new"})
+    said = {r["item"]: r for r in out["outputs"]["said"]["items"]}
     assert said["Mystery"]["count"] == 2 and said["Steampunk Fantasy"]["in_vocabulary"] is False
+
+
+_NODE = {"id": "said", "block": "text/measure", "params": {"mode": "items"}}
+
+
+@pytest.mark.parametrize("extra, found", [
+    ({"graph": {"nodes": [_NODE], "edges": []}},
+     'no "dataflow": 2 marker'),
+    ({"graph": {"nodes": [{**_NODE, "params": {"mode": "$mode"}}], "edges": []}},
+     'a "$mode" string hole at said.params.mode'),
+    ({"graph": {"nodes": [{**_NODE, "inputs": {"documents": {"$fetch": "lab/p/draws"}}}], "edges": []}},
+     "$fetch at said.inputs.documents"),
+    ({"graph": {"nodes": [{**_NODE, "inputs": {"documents": {"$hf_dataset": {"repo": "r"}}}}], "edges": []}},
+     "$hf_dataset at said.inputs.documents"),
+    ({"graph": {"nodes": [{"id": "corpus", "block": "protocol-input"}, _NODE], "edges": []}},
+     "a protocol-input node 'corpus'"),
+    ({"graph": {"nodes": [_NODE, {**_NODE, "id": "again"}],
+                "edges": [{"from": {"node": "said", "port": "out"}, "to": {"node": "again", "port": "documents"}}]}},
+     "an edge from {node, port} (said.out)"),
+    ({"graph": DECLARED, "bindings": {"mode": "items"}},
+     "a run bound by `bindings` rather than `params` and `inputs`"),
+])
+def test_a_graph_in_the_legacy_form_is_refused_by_what_it_carries(fake_bench, extra, found):
+    ran = []
+    hooks = _Hooks()
+    hooks.executor = lambda: ProtocolExecutor(on_node_start=lambda nid, fp: ran.append(nid))
+    with pytest.raises(ValueError) as refused:
+        _run(extra, hooks)
+    assert str(refused.value) == (
+        f"this protocol is in the legacy dataflow form ({found}), which is no longer "
+        f'read. Write it in the declared form, marked "dataflow": 2: '
+        f"see https://docs.mechbench.ai/dataflow/")
+    assert ran == [] and fake_bench == {}
 
 
 def test_every_stored_object_a_node_reads_is_a_lineage_input(fake_bench):
@@ -264,10 +281,8 @@ def test_an_output_must_name_a_node_and_not_the_intermediates_folder(fake_bench)
               "outputs": [{"name": "nodes", "from": {"node": "picked"}}]})
 
 
-def test_a_legacy_protocol_keeps_its_terminals_under_their_ids(fake_bench):
-    legacy = {"nodes": TWO_NODES["nodes"],
-              "edges": [{"from": {"node": "grid", "port": "out"}, "to": {"node": "picked", "port": "records"}}]}
-    payload, _ = _run({"graph": legacy, "bindings": {}, "resultPath": "lab/p/results/j4"})
+def test_a_run_with_no_declared_outputs_keeps_its_terminals_under_their_ids(fake_bench):
+    payload, _ = _run({"graph": TWO_NODES, "params": {}, "resultPath": "lab/p/results/j4"})
     assert sorted(fake_bench) == ["lab/p/results/j4/grid", "lab/p/results/j4/picked"]
     assert list(payload["outputs"]) == ["picked"] and "output_nodes" not in payload
 

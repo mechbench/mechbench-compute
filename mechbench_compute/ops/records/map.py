@@ -20,9 +20,11 @@ things to each record had to be written once per record, or flattened
 into one node that knew how to do all of them.
 
 `body` is a graph, run once per record with that record's fields bound
-into its holes by `bind`: `{"topic": "user"}` puts each record's `user`
-field in the body's `$topic`. The body is written once, against one
-record, and reads as what it is.
+into its params by `bind`: `{"topic": "user"}` puts each record's `user`
+field in the body's `{"$param": "topic"}`. The body is written once,
+against one record, and reads as what it is. The run's own params reach
+the body too, so a body that names `{"$param": "model"}` gets the run's
+model; `bind` shadows them.
 
 Each invocation is an **item keyed by the record's id**, so an
 interrupted map resumes exactly as an interrupted chat node does: the
@@ -53,12 +55,13 @@ collect.
     params=(
         P("body", "object",
           "The graph to run per record — `{nodes, edges}`, the same shape a "
-          "protocol's graph has. Its holes are filled by `bind`.", fields=(
+          "protocol's graph has. Its `{\"$param\"}`s are filled by `bind`, "
+          "and by the run's own params.", fields=(
               P("nodes", "list[json]", "The body's nodes, as a protocol graph writes them."),
               P("edges", "list[json]", "The body's edges.", []),
           )),
         P("bind", "map[string, string]",
-          "Hole name → the record field that fills it, per record.",
+          "Param name in the body → the record field that fills it, per record.",
           None),
         P("over", "json",
           "The values to map over, in place of the `records` port: a list, "
@@ -83,7 +86,7 @@ collect.
              "body": {"nodes": [{"id": "write", "block": "text/generate",
                                  "params": {"model": {"$param": "model"}, "n": 3,
                                             "messages": [{"role": "user",
-                                                          "content": "$topic"}]}}],
+                                                          "content": {"$param": "topic"}}]}}],
                       "edges": []}},
     example_inputs={"records": {"$ref": {"bench": "you/lab/topics"}}},
 )
@@ -98,12 +101,11 @@ def run(ctx, inputs, params):
     by the record's id, so the spool and the resume machinery treat it
     exactly as they treat a chat node's items.
 
-    `bind` maps a record's fields into the body's holes, so the body
-    is written once with `$holes` and the stream supplies them. The
-    protocol's own bindings reach the body too — it is a
-    sub-protocol, not a foreign graph, and a body that names the
-    run's `$model` should get the run's model — with `bind`
-    shadowing them, since the per-record value is the specific one.
+    `bind` maps a record's fields into the body's `{"$param"}`s, so
+    the body is written once and the stream supplies them. The run's
+    own params reach the body too — it is a sub-protocol, not a
+    foreign graph — with `bind` shadowing them, since the per-record
+    value is the specific one.
 
     The isomorphism the chunking law wants is structural here: the body
     sees ONE record at a time and nothing else, so map over chunks is
@@ -119,14 +121,9 @@ def run(ctx, inputs, params):
             "records/map needs a `body`: a graph, with `nodes` and "
             "`edges`, run once per record. A stored protocol by "
             "reference is task 000393's; an inline body works now.")
-    # A body is written in its run's vocabulary, and only the run knows
-    # which: under a declared run the body's `{"$param"}`s are checked
-    # against the run's params before anything starts, so the child run
-    # has to read them the same way; under the older form the body's
-    # holes are `$name` strings, which the declared form reads as plain
-    # strings.
-    if ctx.declared:
-        body = {**body, "dataflow": dataflow_mod.DATAFLOW}
+    # The body is a graph of the run's own form, written without the
+    # marker a whole protocol carries.
+    body = {**body, "dataflow": dataflow_mod.DATAFLOW}
     bind = dict(params.get("bind") or {})
     over = params.get("over")
     if over is not None:
@@ -191,25 +188,22 @@ def run(ctx, inputs, params):
             if ctx.on_item:
                 ctx.on_item(key, ctx.resume_items[key], True)
             continue
-        bound = {hole: rec.get(field) for hole, field in bind.items()}
+        bound = {name: rec.get(field) for name, field in bind.items()}
         missing_fields = [f for h, f in bind.items() if rec.get(f) is None]
         if missing_fields:
             raise ValueError(
                 f"record {key!r} has no {', '.join(missing_fields)} to "
-                f"bind into the body's holes")
-        # A body in the declared form reads its `{"$param"}`s from
-        # `params`: the record's bound fields, over the enclosing run's
-        # params reached by name. A body in the older form reads
-        # `bindings`, so both are passed.
-        child_bound = {**(ctx.bindings or {}), **bound}
+                f"bind into the body's params")
+        # The body reads its `{"$param"}`s from the record's bound
+        # fields, over the enclosing run's params reached by name.
+        child_bound = {**(ctx.run_params or {}), **bound}
         out = child.run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None,
             # The record itself, for a body that needs more of it
             # than `bind` can name: an edge from `{"input":
             # "record"}` carries it, the way a fold's body takes its
             # `state`. Only a body that names the input reads it.
-            extra={"graph": body, "bindings": child_bound,
-                   "params": child_bound,
+            extra={"graph": body, "params": child_bound,
                    "inputs": {"record": K.collection(record_kind, [rec])}}),
             secrets=ctx.secrets)
         outputs = out.payload.get("outputs") or {}

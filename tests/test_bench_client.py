@@ -93,23 +93,28 @@ class TestFetchUnwraps:
 
 
 class TestLaunch:
-    def test_it_posts_bindings_and_budget_and_returns_the_bare_run(self, fake):
+    def test_it_posts_params_and_budget_and_returns_the_bare_run(self, fake):
         fake.add("POST", "/protocols/owner~p~proto/runs",
                  {"id": "r1", "jobId": "j1"})
-        out = bench.launch("owner~p~proto", {"model": "gemma"}, budget=2.5)
+        out = bench.launch("owner~p~proto", params={"model": "gemma"}, budget=2.5)
         assert out == {"id": "r1", "jobId": "j1"}
         call = fake.calls[-1]
         assert call["method"] == "POST" and call["url"].endswith("/runs")
         import json
-        assert json.loads(call["body"]) == {"bindings": {"model": "gemma"},
+        assert json.loads(call["body"]) == {"params": {"model": "gemma"},
                                             "budgetUsd": 2.5}
         assert call["timeout"] == 90  # binding+queue can be slow
 
     def test_no_budget_sends_no_cap(self, fake):
         fake.add("POST", "/runs", {"id": "r", "jobId": "j"})
-        bench.launch("p", {"a": "b"})
+        bench.launch("p")
         import json
-        assert "budgetUsd" not in json.loads(fake.calls[-1]["body"])
+        assert json.loads(fake.calls[-1]["body"]) == {"params": {}}
+
+    def test_a_positional_binding_is_refused(self, fake):
+        import pytest
+        with pytest.raises(TypeError):
+            bench.launch("p", {"a": "b"})
 
     def test_it_binds_params_and_inputs_by_name_and_asks_to_keep(self, fake):
         # The declared form: a path given for an input is the stored
@@ -138,15 +143,14 @@ class TestCreateProtocol:
                                                      "name": "018-axes"}})
         out = bench.create_protocol("benji", "lab", "018-axes",
                                     graph={"nodes": [], "edges": []},
-                                    description="d",
-                                    signature={"inputs": [], "outputs": []})
+                                    description="d")
         assert out == {"id": "prt_1", "version": 1, "name": "018-axes"}
 
         import json
         body = json.loads(fake.calls[-1]["body"])
         assert body["ownerHandle"] == "benji" and body["projectSlug"] == "lab"
-        assert body["graph"] == {"nodes": [], "edges": []}
-        assert body["signature"] == {"inputs": [], "outputs": []}
+        assert body["graph"] == {"dataflow": 2, "nodes": [], "edges": []}
+        assert body["signature"] == {"params": [], "inputs": [], "outputs": []}
         assert fake.calls[-1]["url"].endswith("/protocols")
 
     def test_a_bare_reply_passes_through(self, fake):
@@ -165,10 +169,14 @@ class TestCreateProtocol:
                                      "inputs": [],
                                      "outputs": [{"name": "said", "from": {"node": "said"}}]}
         assert body["graph"]["dataflow"] == 2
+
+    def test_a_graph_in_the_legacy_form_is_refused_before_anything_is_sent(self, fake):
         import pytest
-        with pytest.raises(ValueError, match="not both"):
-            bench.create_protocol("benji", "lab", "p", graph={"nodes": [], "edges": []},
-                                  params=[], signature={"inputs": [], "outputs": []})
+        with pytest.raises(ValueError, match=r'legacy dataflow form \(a "\$model" string hole at g.params.model\)'):
+            bench.create_protocol("benji", "lab", "p", graph={
+                "nodes": [{"id": "g", "block": "text/generate", "params": {"model": "$model"}}],
+                "edges": []})
+        assert fake.calls == []
 
 class TestRunningAnAuthorTwice:
     """The second run is the protocol's second VERSION, not a second
@@ -186,8 +194,7 @@ class TestRunningAnAuthorTwice:
         fake.add("PATCH", "/protocols/prt_1",
                  {"protocol": {"id": "prt_1", "version": 2, "name": "018-axes"}})
         out = bench.create_protocol("benji", "lab", "018-axes",
-                                    graph={"nodes": [{"id": "n"}], "edges": []},
-                                    signature={"inputs": [], "outputs": []})
+                                    graph={"nodes": [{"id": "n"}], "edges": []})
         assert out == {"id": "prt_1", "version": 2, "name": "018-axes"}
         patch = fake.calls[-1]
         assert patch["method"] == "PATCH"
@@ -196,8 +203,8 @@ class TestRunningAnAuthorTwice:
         sent = json.loads(patch["body"])
         # The graph and the signature travel; the name and the project
         # do not — they are what identified it.
-        assert sent["graph"] == {"nodes": [{"id": "n"}], "edges": []}
-        assert sent["signature"] == {"inputs": [], "outputs": []}
+        assert sent["graph"] == {"dataflow": 2, "nodes": [{"id": "n"}], "edges": []}
+        assert sent["signature"] == {"params": [], "inputs": [], "outputs": []}
         assert "name" not in sent and "projectSlug" not in sent
 
     def test_exists_error_raises_instead(self, fake):

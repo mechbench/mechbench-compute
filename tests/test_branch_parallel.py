@@ -41,7 +41,7 @@ def _chat(nid, n_records=1, **params):
 
 def _spec(nodes, edges=()):
     return ProtocolSpec(kind="pipeline", prompt="", model_id=None,
-                        extra={"graph": {"nodes": nodes, "edges": list(edges)}})
+                        extra={"graph": {"dataflow": 2, "nodes": nodes, "edges": list(edges)}})
 
 
 class TestWhatCountsAsRemote:

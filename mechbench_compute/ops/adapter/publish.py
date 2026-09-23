@@ -14,7 +14,7 @@ OP = Op(
 The adapter's weights and config are written in PEFT's layout with a README
 naming the base model, rank, alpha, target modules and training steps, and
 uploaded as one commit. The result names that commit, so
-`{"$hf_adapter": {"repo": …, "revision": …}}` fetches it straight back into
+`{"$ref": {"hf_adapter": {"repo": …, "revision": …}}}` fetches it straight back into
 a protocol — the round trip.
 
 Needs a Hugging Face write token in the job owner's vault. `dry_run` stages
@@ -43,7 +43,7 @@ def run(ctx, inputs, params):
     objects to the hub as a PEFT LoRA repo (adapter_config.json +
     adapter_model.safetensors + a model card carrying its bench
     provenance). The returned hf_push record names the commit, so
-    `$hf_adapter: {repo, revision}` can fetch it straight back — the
+    `{"$ref": {"hf_adapter": {repo, revision}}}` can fetch it straight back — the
     round trip.
 
     dry_run stages the repo directory and reports files/sizes
@@ -57,8 +57,8 @@ def run(ctx, inputs, params):
     payload = inputs.get("adapter")
     if not isinstance(payload, dict) or "data" not in payload:
         raise ValueError("hf/push-adapter needs an adapter object "
-                         "(input port `adapter` or params.adapter "
-                         "via $fetch)")
+                         "(input port `adapter`, by edge or "
+                         "`{\"$ref\": …}`)")
     repo = str(params.get("repo") or "").strip()
     if "/" not in repo:
         raise ValueError("hf/push-adapter needs params.repo as "
@@ -90,7 +90,7 @@ def run(ctx, inputs, params):
             if payload.get("steps") else "",
             "",
             ("Load with PEFT (`PeftModel.from_pretrained`) or fetch "
-             "back into a mechbench protocol via `$hf_adapter`."),
+             "back into a mechbench protocol via `{\"$ref\": {\"hf_adapter\": …}}`."),
         ]
         with open(os.path.join(out, "README.md"), "w") as f:
             f.write("\n".join(line for line in card if line is not None))

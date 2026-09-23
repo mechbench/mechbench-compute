@@ -28,16 +28,14 @@ class RunState:
         from mechbench_compute import resume as resume_mod
 
         extra = self.extra = spec.extra or {}
-        graph = extra.get("graph") or {}
-        self.bindings = extra.get("bindings") or {}
-        # The declared form: the run binds `params` and `inputs` by name,
-        # and the graph refers to them with values no literal can be. It
-        # is lowered here, so everything below — ordering, resume,
+        # The run binds `params` and `inputs` by name, and the graph
+        # refers to them with values no literal can be. A spec in any
+        # other form is refused here, before anything is read; the graph
+        # is then lowered, so everything below — ordering, resume,
         # missing nodes, fingerprints — sees one graph shape.
-        self.declared = dataflow.is_declared(graph)
+        dataflow.check_form(extra)
         self.bound_params = extra.get("params") or {}
-        if self.declared:
-            graph = dataflow.lower(graph, extra.get("inputs") or {})
+        graph = dataflow.lower(extra.get("graph") or {}, extra.get("inputs") or {})
         self.graph = graph
         self.nodes: dict[str, Any] = {n["id"]: n for n in graph.get("nodes", [])}
         self.edges: list[dict] = graph.get("edges", [])
@@ -47,7 +45,7 @@ class RunState:
         # intermediate — so a node can be renamed without moving a result
         # anyone depends on. Without them, terminals are the outputs,
         # under their ids.
-        self.declared_outputs = extra.get("outputs") if self.declared else None
+        self.declared_outputs = extra.get("outputs")
         self.outputs_of: dict[str, list[str]] = {}
         for o in self.declared_outputs or []:
             source = o["from"]["node"]
@@ -66,7 +64,7 @@ class RunState:
         self.keep = str(extra.get("keep") or "all")
         if self.keep not in ("all", "outputs"):
             raise ValueError(f"keep must be 'all' or 'outputs', not {self.keep!r}")
-        self.discard = self.declared and self.keep == "outputs"
+        self.discard = self.keep == "outputs"
         self.result_base = extra.get("resultPath")
         self.order = sort_nodes(self.nodes, self.edges)
         # Before anything runs: is this graph runnable at all? Blocks,
@@ -74,8 +72,7 @@ class RunState:
         # run says so in the first second rather than after the nodes
         # upstream of the mistake have been computed.
         check_graph(self.nodes, self.edges, self.order)
-        if self.declared:
-            dataflow.check_refs(self.nodes, self.bound_params)
+        dataflow.check_refs(self.nodes, self.bound_params)
         self.resume = resume or {}
         self.forced_restart = self.read_forced_restart(resume_mod)
 

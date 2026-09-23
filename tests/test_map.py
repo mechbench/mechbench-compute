@@ -17,24 +17,23 @@ TOPICS = [{"id": "t1", "coords": {"kind": "a"}, "user": "dusk"},
           {"id": "t2", "coords": {"kind": "b"}, "user": "kettle"}]
 
 #: A body that makes two records out of the one it is given, so a
-#: `stream` collect has something to flatten. The hole is a WHOLE value
-#: — `"$topic"`, never `"$topic-{n}"` — which is the substitution rule
-#: everywhere a protocol writes one.
+#: `stream` collect has something to flatten. A `{"$param"}` is a WHOLE
+#: value, never spliced into a string.
 BODY = {"nodes": [
     {"id": "design", "block": "records/cross",
      "params": {"factors": [
          {"name": "n", "levels": [{"key": "1"}, {"key": "2"}]},
-         {"name": "topic", "levels": [{"key": "$topic"}]}]}},
+         {"name": "topic", "levels": [{"key": {"$param": "topic"}}]}]}},
     {"id": "write", "block": "records/fill",
      "params": {"templates": {"text": "{topic}-{n}"}}},
 ], "edges": [
-    {"from": {"node": "design", "port": "records"},
+    {"from": {"node": "design"},
      "to": {"node": "write", "port": "records"}, "kind": "records"},
 ]}
 
 
 def _spec(**params):
-    graph = {"nodes": [
+    graph = {"dataflow": 2, "nodes": [
         {"id": "each", "block": "records/map",
          "params": {"body": BODY, "bind": {"topic": "user"}, **params},
          "inputs": {"records": TOPICS}},
@@ -83,7 +82,7 @@ class TestCollectPolicies:
 
 class TestTheBody:
     def test_a_record_missing_a_bound_field_is_refused_by_name(self):
-        graph = {"nodes": [
+        graph = {"dataflow": 2, "nodes": [
             {"id": "each", "block": "records/map",
              "params": {"body": BODY, "bind": {"topic": "prompt"}},
              "inputs": {"records": TOPICS}},
@@ -100,7 +99,7 @@ class TestTheBody:
                "edges": list(BODY["edges"])}
         with pytest.raises(ValueError, match="name one with `output`"):
             ProtocolExecutor().run(ProtocolSpec(
-                kind="pipeline", prompt="", model_id=None, extra={"graph": {
+                kind="pipeline", prompt="", model_id=None, extra={"graph": {"dataflow": 2,
                     "nodes": [{"id": "each", "block": "records/map",
                                "params": {"body": two, "bind": {"topic": "user"}},
                                "inputs": {"records": TOPICS}}],
@@ -113,7 +112,7 @@ class TestTheBody:
                                                   "levels": [{"key": "q"}]}]}}],
                "edges": list(BODY["edges"])}
         out = ProtocolExecutor().run(ProtocolSpec(
-            kind="pipeline", prompt="", model_id=None, extra={"graph": {
+            kind="pipeline", prompt="", model_id=None, extra={"graph": {"dataflow": 2,
                 "nodes": [{"id": "each", "block": "records/map",
                            "params": {"body": two, "bind": {"topic": "user"},
                                       "output": "write"},
@@ -121,46 +120,46 @@ class TestTheBody:
                 "edges": []}})).payload["outputs"]["each"]
         assert [i["text"] for i in K.items_of(out)][:2] == ["dusk-1", "dusk-2"]
 
-    def test_the_body_sees_the_protocol_s_own_bindings(self):
+    def test_the_body_sees_the_protocol_s_own_params(self):
         """A body is a sub-protocol, not a foreign graph: a run launched
-        with `$model` should be able to name it inside the body, rather
+        with a `model` param should be able to name it inside the body, rather
         than carrying the same constant on every record to bind it in."""
         body = {"nodes": [
             {"id": "design", "block": "records/cross",
              "params": {"factors": [
-                 {"name": "topic", "levels": [{"key": "$topic"}]},
-                 {"name": "era", "levels": [{"key": "$era"}]}]}},
+                 {"name": "topic", "levels": [{"key": {"$param": "topic"}}]},
+                 {"name": "era", "levels": [{"key": {"$param": "era"}}]}]}},
             {"id": "write", "block": "records/fill",
              "params": {"templates": {"text": "{topic} in {era}"}}},
         ], "edges": list(BODY["edges"])}
-        graph = {"nodes": [
+        graph = {"dataflow": 2, "nodes": [
             {"id": "each", "block": "records/map",
              "params": {"body": body, "bind": {"topic": "user"}},
              "inputs": {"records": TOPICS}},
         ], "edges": []}
         out = ProtocolExecutor().run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None,
-            extra={"graph": graph, "bindings": {"era": "1890"}}))
+            extra={"graph": graph, "params": {"era": "1890"}}))
         assert [i["text"] for i in K.items_of(out.payload["outputs"]["each"])] == [
             "dusk in 1890", "kettle in 1890"]
 
     def test_a_record_s_binding_shadows_the_protocol_s(self):
         """Both name `topic`; the per-record value is the specific one."""
-        graph = {"nodes": [
+        graph = {"dataflow": 2, "nodes": [
             {"id": "each", "block": "records/map",
              "params": {"body": BODY, "bind": {"topic": "user"}},
              "inputs": {"records": TOPICS[:1]}},
         ], "edges": []}
         out = ProtocolExecutor().run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None,
-            extra={"graph": graph, "bindings": {"topic": "ignored"}}))
+            extra={"graph": graph, "params": {"topic": "ignored"}}))
         assert [i["text"] for i in K.items_of(out.payload["outputs"]["each"])] == [
             "dusk-1", "dusk-2"]
 
     def test_no_body_is_refused_with_what_a_body_is(self):
         with pytest.raises(ValueError, match="needs a `body`"):
             ProtocolExecutor().run(ProtocolSpec(
-                kind="pipeline", prompt="", model_id=None, extra={"graph": {
+                kind="pipeline", prompt="", model_id=None, extra={"graph": {"dataflow": 2,
                     "nodes": [{"id": "each", "block": "records/map",
                                "params": {}, "inputs": {"records": TOPICS}}],
                     "edges": []}}))
@@ -188,7 +187,7 @@ class TestResumeAndIsomorphism:
         """The isomorphism the chunking law wants, structurally: the body
         sees one record and nothing else, so a chunk of the stream maps
         to exactly its part of the output."""
-        graph = {"nodes": [{"id": "each", "block": "records/map",
+        graph = {"dataflow": 2, "nodes": [{"id": "each", "block": "records/map",
                             "params": {"body": BODY, "bind": {"topic": "user"}},
                             "inputs": {"records": TOPICS[:1]}}], "edges": []}
         half = ProtocolExecutor().run(ProtocolSpec(
@@ -199,10 +198,10 @@ class TestResumeAndIsomorphism:
                                     if i["coords"]["mapped"] == "t1"]
 
 
-class TestDeclaredBody:
-    """The declared form: a body refers to the map's
-    bound names and the run's params with `{"$param"}`; nothing is a
-    `$` string, and the map's own names are not the protocol's."""
+class TestParamsInTheBody:
+    """A body refers to the map's bound names and the run's params with
+    `{"$param"}`; nothing is a `$` string, and the map's own names are
+    not the protocol's."""
 
     def test_a_declared_body_binds_its_names_per_record_and_the_runs_by_name(self):
         body = {"dataflow": 2, "nodes": [
@@ -228,9 +227,8 @@ class TestDeclaredBody:
         assert [i["text"] for i in K.items_of(out)] == [
             "x:dusk-1", "x:dusk-2", "x:kettle-1", "x:kettle-2"]
 
-    def test_a_body_written_in_the_declared_form_names_the_run_s_model(self):
-        """A declared run's body is declared too, whether or not it
-        repeats `dataflow` itself: `{"$param": "model"}` on a body node
+    def test_a_body_names_the_run_s_model(self):
+        """A body need not repeat `dataflow` itself: `{"$param": "model"}` on a body node
         is the run's model, resolved before the loader sees it, the same
         way a fold's body reads one."""
         body = {"nodes": [

@@ -24,7 +24,7 @@ def _records(n=3):
 
 
 def _spec(params, records=None):
-    graph = {"nodes": [{"id": "chat", "block": "text/chat",
+    graph = {"dataflow": 2, "nodes": [{"id": "chat", "block": "text/chat",
                         "params": {"model": ENDPOINT, "budget_usd": 5.0, **params},
                         "inputs": {"records": records if records is not None
                                    else _records()}}],

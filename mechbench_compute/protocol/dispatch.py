@@ -59,8 +59,7 @@ class Dispatch:
                 on_item=on_item, on_start=progress.expand, secrets=secrets,
                 on_checkpoint=on_checkpoint,
                 input_paths=dict(input_paths),
-                bindings=state.bound_params if state.declared else state.bindings,
-                declared=state.declared,
+                run_params=state.bound_params,
                 result_base=state.result_base,
                 resume_items=resume_kwargs.get("resume_items"),
                 resume_state=resume_kwargs.get("resume_state"))

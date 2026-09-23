@@ -586,7 +586,7 @@ def list_prefix_hashes(prefix: str, *, api_url: str | None = None,
 TERMINAL = ("done", "done_with_missing", "failed", "cancelled", "interrupted")
 
 
-def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
+def launch(protocol: str, *,
            params: dict[str, Any] | None = None,
            inputs: dict[str, Any] | None = None,
            keep: str | None = None,
@@ -597,19 +597,13 @@ def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
     A protocol declares `params` (typed values: the model, an `n`) and
     `inputs` (stored objects, by path or as a `{"$ref"}`), and a run
     binds each by name. `keep="outputs"` asks for the
-    intermediates to be held on the runner rather than stored. The
-    positional `bindings` is the legacy form, read by the server as a
-    name the signature declares as a param or as an input.
+    intermediates to be held on the runner rather than stored.
 
     Returns the bare run, with `id` and `jobId` on it —
     record the job id at once; a job id in a scrollback is a job id lost.
     """
     url, key = _config(api_url, api_key)
-    body: dict[str, Any] = {}
-    if bindings:
-        body["bindings"] = dict(bindings)
-    if params is not None:
-        body["params"] = dict(params)
+    body: dict[str, Any] = {"params": dict(params or {})}
     if inputs is not None:
         body["inputs"] = {
             name: ({"$ref": {"bench": v}} if isinstance(v, str) else v)
@@ -618,8 +612,6 @@ def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
         if keep not in ("all", "outputs"):
             raise ValueError(f"keep is 'all' or 'outputs', not {keep!r}")
         body["keep"] = keep
-    if not body:
-        body["bindings"] = {}
     if budget is not None:
         body["budgetUsd"] = budget
     return _request(
@@ -629,7 +621,7 @@ def launch(protocol: str, bindings: dict[str, Any] | None = None, *,
 
 
 def create_protocol(owner: str, project: str, name: str, *, graph: dict,
-                    description: str = "", signature: dict | None = None,
+                    description: str = "",
                     params: list[dict] | None = None,
                     inputs: list[dict] | None = None,
                     outputs: list[dict] | None = None,
@@ -644,9 +636,9 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
     three lists — `params=[{"name", "type", "default"?, "doc"?}]`,
     `inputs=[{"name", "kind", "many"?, "default"?}]`, `outputs=[{"name",
     "from": {"node", "output"?}}]` — and its graph carries `dataflow:
-    2`. Given any of the three, the signature is built from them (the
-    others default to empty); `signature=` is the legacy way of saying
-    the same, and is still read.
+    2`, added here when the graph leaves it out. A graph in any other
+    form — string holes, `$fetch`, a `protocol-input` node — raises
+    before anything is sent.
 
     **Running an author twice makes a second VERSION, not a second
     protocol.** A project holds one protocol per name;
@@ -664,20 +656,19 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
     """
     if exists not in ("version", "error"):
         raise ValueError(f"exists is 'version' or 'error', not {exists!r}")
-    if params is not None or inputs is not None or outputs is not None:
-        if signature is not None:
-            raise ValueError("pass params/inputs/outputs, or a signature; not both")
-        signature = {"params": list(params or []), "inputs": list(inputs or []),
-                     "outputs": list(outputs or [])}
-        if isinstance(graph, dict) and graph.get("dataflow") != 2:
-            graph = {"dataflow": 2, **graph}
+    from mechbench_compute import dataflow
+
+    if isinstance(graph, dict) and dataflow.find_undeclared(graph) == dataflow.NO_MARKER:
+        graph = {"dataflow": dataflow.DATAFLOW, **graph}
+    dataflow.check_form({"graph": graph})
+    signature = {"params": list(params or []), "inputs": list(inputs or []),
+                 "outputs": list(outputs or [])}
     url, key = _config(api_url, api_key)
     body: dict[str, Any] = {
         "ownerKind": owner_kind, "ownerHandle": owner, "projectSlug": project,
         "name": name, "description": description, "graph": graph,
+        "signature": signature,
     }
-    if signature is not None:
-        body["signature"] = signature
     try:
         out = _request(
             "POST", f"{url}/protocols", key,
@@ -690,9 +681,8 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
         # The name is this protocol's; give it the new graph. The server
         # bumps the version, snapshots the last one, and the runs that
         # pinned it still replay.
-        patch: dict[str, Any] = {"graph": graph, "description": description}
-        if signature is not None:
-            patch["signature"] = signature
+        patch: dict[str, Any] = {"graph": graph, "description": description,
+                                 "signature": signature}
         out = _request(
             "PATCH", f"{url}/protocols/{taken}", key,
             body=json.dumps(patch).encode("utf-8"),

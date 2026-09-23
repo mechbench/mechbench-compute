@@ -18,7 +18,7 @@ def _graph(policy=None):
             "index": 1}
     if policy:
         edge["on_missing"] = policy
-    return {"nodes": [
+    return {"dataflow": 2, "nodes": [
         {"id": "design", "block": "records/cross", "params": dict(CROSS)},
         {"id": "good", "block": "records/fill",
          "params": {"templates": {"user": "good {x}"}}},
@@ -169,7 +169,7 @@ class TestTheWholePathWithoutAMonkeypatch:
                                "provider_options": {"mock": options}},
                     "inputs": {"records": [
                         {"id": "r1", "coords": {"prompt": "p1"}, "user": "hi"}]}}
-        return {"nodes": [
+        return {"dataflow": 2, "nodes": [
             chat("up", text="a real answer"),
             chat("down", fail="the provider is down"),
             {"id": "pairs", "block": "records/zip",
@@ -221,7 +221,7 @@ class TestValidation:
                 kind="pipeline", prompt="", model_id=None, extra={"graph": g}))
 
     def test_placeholder_on_a_singular_port_is_refused(self):
-        g = {"nodes": [
+        g = {"dataflow": 2, "nodes": [
             {"id": "design", "block": "records/cross", "params": dict(CROSS)},
             {"id": "fit", "block": "direction/fit", "params": {"axis": "x"}},
             {"id": "vocab", "block": "direction/unembed",

@@ -193,10 +193,9 @@ def test_every_closed_set_is_the_codes_own() -> None:
 
 
 def _binding(v: Any) -> bool:
-    """A value that resolves at run time: `"$model"`, `{"$fetch": …}`."""
-    if isinstance(v, str):
-        return v.startswith("$")
-    return isinstance(v, dict) and len(v) == 1 and str(next(iter(v))).startswith("$")
+    """A value that resolves at run time: `{"$param": …}`, `{"$ref": …}`.
+    A string that begins with `$` is a string."""
+    return isinstance(v, dict) and len(v) == 1 and next(iter(v)) in ("$param", "$ref")
 
 
 def _fields(p: Param) -> list[Param]:

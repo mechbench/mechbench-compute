@@ -43,8 +43,8 @@ class Pipeline:
         outputs), and the whole graph runs in this one job — the
         executor does no multi-job planning.
 
-        Params may reference bindings: any string param "$name"
-        resolves to spec bindings[name]."""
+        Params refer to the run's own with `{"$param": name}`, and to
+        stored objects with `{"$ref": source}`."""
         from datetime import datetime
 
         import mechbench_schema as ms
@@ -54,7 +54,6 @@ class Pipeline:
 
         state = RunState(spec, resume)
         resolver = Resolver(
-            declared=state.declared, bindings=state.bindings,
             bound_params=state.bound_params, secrets=secrets,
             on_download=self._on_download,
             on_download_bytes=self._on_download_bytes)
@@ -170,8 +169,10 @@ class Pipeline:
             produced_by=ms.ToolInfo(tool="mechbench-runner",
                                     version=core_version),
             inputs=[],
+            # The fingerprint's shape is fixed, `bindings` and all, so a
+            # run's fingerprint stays comparable with every stored one.
             params_fingerprint=ms.fingerprint_params(
-                {"graph": state.graph, "bindings": state.bindings}),
+                {"graph": state.graph, "bindings": {}}),
             schema_version=ms.__version__,
         )
         return ms.Emitted(payload=payload, provenance=prov)

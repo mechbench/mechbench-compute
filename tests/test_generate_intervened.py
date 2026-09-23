@@ -117,7 +117,7 @@ def seen(monkeypatch):
 
 
 def _run(params, inputs=None):
-    graph = {"nodes": [{"id": "gen", "block": "text/generate",
+    graph = {"dataflow": 2, "nodes": [{"id": "gen", "block": "text/generate",
                         "params": {"model": "fake/m@rev", "n": 2, "seed": 7, **params},
                         "inputs": {"records": [RECORD], **(inputs or {})}}], "edges": []}
     out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,

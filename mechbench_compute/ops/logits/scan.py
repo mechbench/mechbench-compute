@@ -38,7 +38,7 @@ become visible?
                "`prompt` or `text` field. A record may carry its own `tracked`.",
                many=True), In("adapter", "adapter/lora",
                          "A LoRA adapter to fuse on top of the model for this node only — "
-                         "from an `adapter/train` node, an `{\"$hf_adapter\": {\"repo\": …}}` "
+                         "from an `adapter/train` node, a `{\"$ref\": {\"hf_adapter\": {\"repo\": …}}}` "
                          "reference, or a stored adapter. Fuses last, on top of any "
                          "adapters the model reference itself carries; `adapter_scale` "
                          "scales this one.",
