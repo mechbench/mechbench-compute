@@ -35,6 +35,9 @@ and local `text/chat` graph on the previous release and this one).
 - **The header's `ended`** on `text/generate` and `text/chat`: the
   items counted by ending, every ending present and zero when none.
   A result stored before this has neither; that reads as unknown.
+- **A run's manifest carries it too**: `node_summaries.<node>.ended`
+  for every generation node, so a job's result says whether any node
+  was cut off without fetching the node.
 
 ## 0.131.0 — 2026-09-22
 

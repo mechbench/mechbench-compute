@@ -14,7 +14,9 @@ def summarize_node(value: Any, spend: Mapping[str, Any] | None = None) -> dict[s
     is spelled — a retired plural object, a bare list); `{kind,
     collection: false}` for one object, with `rows` when it is a table of
     them; `{}` for a value that carries no kind. `spend_usd` when the node
-    called a provider."""
+    called a provider; `ended`, copied from a generation node's header,
+    so the manifest says whether any node's items were cut off without
+    fetching the node."""
     out: dict[str, Any] = {}
     if isinstance(value, list):
         out = {"kind": lexicon.COLLECTION, "collection": True, "items": len(value)}
@@ -22,6 +24,8 @@ def summarize_node(value: Any, spend: Mapping[str, Any] | None = None) -> dict[s
         item_kind = lexicon.item_kind_of(value)
         if item_kind is not None:
             out = {"kind": item_kind, "collection": True, "items": len(lexicon.items_of(value))}
+            if isinstance(value.get("ended"), Mapping):
+                out["ended"] = dict(value["ended"])
         elif isinstance(value.get("kind"), str):
             try:
                 name, _plural = lexicon.resolve_kind(value["kind"], warn=False)

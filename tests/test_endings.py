@@ -194,6 +194,7 @@ class TestTheNode:
         node = out.payload["outputs"]["chat"]
         assert node["ended"]["max_tokens"] == 1
         assert node["items"][0]["metadata"]["sampling"]["ended"] == "max_tokens"
+        assert out.payload["node_summaries"]["chat"]["ended"] == node["ended"]
 
 
 # --- local ---------------------------------------------------------------------
@@ -308,3 +309,13 @@ def test_an_old_result_reads_with_the_field_absent_not_wrong():
     # Counting it invents nothing: an item without the word is not
     # counted as any ending, least of all a natural one.
     assert count_endings(old["items"]) == dict.fromkeys(ENDINGS, 0)
+
+
+def test_the_manifest_carries_each_generation_nodes_count():
+    from mechbench_compute.protocol import summarize_node
+
+    node = {"kind": "collection", "item_kind": "text/document", "items": [{}, {}],
+            "ended": dict.fromkeys(ENDINGS, 0) | {"end": 1, "max_tokens": 1}}
+    assert summarize_node(node)["ended"] == node["ended"]
+    # A node without the count (any other op, or one stored before it) has none.
+    assert "ended" not in summarize_node({**node, "ended": None})
