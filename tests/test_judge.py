@@ -292,7 +292,7 @@ class TestThroughTheExecutor:
         monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
         monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
         monkeypatch.setattr(generate, "sample_completion_cached",
-                            lambda *a, **k: '{"score": 2, "rationale": "flat"}')
+                            lambda *a, **k: ('{"score": 2, "rationale": "flat"}', []))
 
         class FakeTok:
             def apply_chat_template(self, turns, **kw):

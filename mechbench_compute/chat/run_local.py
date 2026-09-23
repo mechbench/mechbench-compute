@@ -4,9 +4,11 @@ from typing import Any
 
 from mechbench_compute.chat.build_request import build_request
 from mechbench_compute.chat.count_by_cause import count_by_cause
+from mechbench_compute.chat.count_endings import count_endings
 from mechbench_compute.chat.constants import ITEM_KIND, LOCAL
 from mechbench_compute.chat.build_item import build_item
 from mechbench_compute.chat.open_toolbox import open_toolbox
+from mechbench_compute.chat.read_local_ending import read_local_ending
 from mechbench_compute.chat.read_records import read_records
 from mechbench_compute.chat.refuse_remote_only import refuse_remote_only
 from mechbench_compute.chat.render_conversation import render_conversation
@@ -111,11 +113,13 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                         live = plan.live(cell, prompt_tokens, rec)
                     else:
                         prefill, live = prefill_decision(model, ids), None
-                    text = sample_completion_cached(
+                    text, out_ids = sample_completion_cached(
                         model, ids, max_tokens=max_tokens, temperature=temperature,
-                        top_p=top_p, rng=rng, prefill=prefill,
+                        top_p=top_p, rng=rng, prefill=prefill, return_ids=True,
                         stop_strings=stop_strings,
                         **({"interventions": live} if plan else {}))
+                    ended = read_local_ending(tok, out_ids, stop_strings=stop_strings,
+                                              max_tokens=max_tokens)
                     thought, text = split_reasoning(text, delimiters)
                     said = tuple(pm.ReasoningPart(text=t, provider=LOCAL, model=model_name)
                                  for t in thought)
@@ -170,7 +174,8 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                                   parts=(*thoughts, pm.TextPart(text)) if thoughts else (),
                                   tool_errors=item_errors,
                                   sampling={"temperature": temperature, "top_p": top_p,
-                                            "seed": seed, "index": k},
+                                            "seed": seed, "index": k,
+                                            "ended": "empty" if thoughts and not text else ended},
                                   tool_runs=[r.to_wire() for r in box.runs],
                                   sandbox_calls=(session.calls if session else ()),
                                   sandbox_snapshot=(session.final_wire() if session else None),
@@ -192,6 +197,7 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
         name=params.get("name", "chat"),
         description=params.get("description", ""),
         fidelity="text",
+        ended=count_endings(items),
         **(plan.header() if plan else {}),
         # Reported even when zero: "no tool calls" and "no tool calls
         # and nobody tried" are different facts about a run.

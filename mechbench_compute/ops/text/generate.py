@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from mechbench_compute import lexicon
 from mechbench_compute import thinking as THINK
+from mechbench_compute.chat.count_endings import count_endings
+from mechbench_compute.chat.read_local_ending import read_local_ending
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.protocol.read_tokenizer_id import read_tokenizer_id
 from mechbench_compute.protocol.serialize_model import serialize_model
@@ -31,7 +33,8 @@ a sample at the first of its strings, which are not kept in the text:
 with `stop: ["\""]` a sample is the answer and nothing after it. Each
 item's `metadata.sampling.ended` says how it ended — `"stop"`, `"end"`
 (the model ended its turn) or `"max_tokens"` — so an answer that never
-closed is distinguishable from one that did.
+closed is distinguishable from one that did, and the header's `ended`
+counts the items by ending, so a glance says whether any was cut off.
 
 With `fidelity: "trace"` each item also keeps its token ids, character
 offsets and the prompt/body segmentation, which is what `score` needs to
@@ -77,7 +80,7 @@ seed it reproduces the un-intervened sample byte for byte.
            "scales this one.",
            required=False),
     ),
-    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity`. Under an intervention, ids are `<record id>-s<k>-f<factor>`, every item carries `factor` in its `coords`, and the header carries `spec` (the items as run, objects replaced by their provenance), `weights` (parameter edits, when any) and `sweep` (the factors, `0.0` first when a control was added)."),
+    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text`, `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity` and `ended`: the items counted by `metadata.sampling.ended`, every ending `text/chat` names present and zero when none (`{\"end\": 3, \"stop\": 0, \"max_tokens\": 1, …}`), so `max_tokens` above zero means samples were cut off at the limit. A header without `ended` was stored before the count existed: its items carry `metadata.sampling.ended` from 0.99.0 on, and the count is theirs to take. Under an intervention, ids are `<record id>-s<k>-f<factor>`, every item carries `factor` in its `coords`, and the header carries `spec` (the items as run, objects replaced by their provenance), `weights` (parameter edits, when any) and `sweep` (the factors, `0.0` first when a control was added)."),
     params=(
         P("spec", "list[object]",
           "An intervention's items, applied at every forward pass — the "
@@ -296,12 +299,8 @@ def run(ctx, inputs, params):
                         prefill=prefill, return_ids=True,
                         stop_strings=stop_strings,
                         **({"interventions": plan.live(cell, prompt_tokens, rec)} if plan else {}))
-                    if stop_strings and any(s in tok.decode(out_ids) for s in stop_strings):
-                        ended = "stop"
-                    elif len(out_ids) >= max_tokens:
-                        ended = "max_tokens"
-                    else:
-                        ended = "end"
+                    ended = read_local_ending(tok, out_ids, stop_strings=stop_strings,
+                                              max_tokens=max_tokens)
                     coords = {**rec.get("coords", {}), "sample": k}
                     if plan:
                         coords.update(cell.axes)
@@ -371,4 +370,5 @@ def run(ctx, inputs, params):
         name=params.get("name", "generated"),
         description=params.get("description", ""),
         fidelity=fidelity,
+        ended=count_endings(items),
         **(plan.header() if plan else {}))

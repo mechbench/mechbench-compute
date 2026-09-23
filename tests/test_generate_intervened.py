@@ -304,7 +304,7 @@ class TestChatUnderAnIntervention:
         monkeypatch.setattr(distill, "prefill_decision",
                             lambda m, ids, interventions=None: seen.append(("prefill", interventions)) or None)
         monkeypatch.setattr(generate, "sample_completion_cached",
-                            lambda *a, interventions=None, **k: seen.append(("sample", interventions)) or "said")
+                            lambda *a, interventions=None, **k: seen.append(("sample", interventions)) or ("said", []))
         out = chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
                                  [{"id": "q0", "user": "a question", "coords": {"topic": "t"}}],
                                  {"n": 1, "seed": 3, **params})

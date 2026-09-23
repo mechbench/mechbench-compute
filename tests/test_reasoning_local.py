@@ -85,7 +85,7 @@ def run_local(monkeypatch, tok, reply):
 
     monkeypatch.setattr(distill, "encode", lambda t, text: [1, 2, 3])
     monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
-    monkeypatch.setattr(generate, "sample_completion_cached", lambda *a, **k: reply)
+    monkeypatch.setattr(generate, "sample_completion_cached", lambda *a, **k: (reply, []))
     return chat_mod.run_local(FakeModel(), mr.parse("google/gemma-4-e4b-it"),
                               [{"id": "r0", "user": "What is 2+2?"}], {"n": 1, "seed": 3})
 

@@ -7,8 +7,10 @@ from mechbench_compute.chat.build_item import build_item
 from mechbench_compute.chat.build_request import build_request
 from mechbench_compute.chat.constants import ITEM_KIND, ON_EMPTY
 from mechbench_compute.chat.count_by_cause import count_by_cause
+from mechbench_compute.chat.count_endings import count_endings
 from mechbench_compute.chat.open_toolbox import open_toolbox
 from mechbench_compute.chat.read_empty import read_empty
+from mechbench_compute.chat.read_ending import read_ending
 from mechbench_compute.chat.read_records import read_records
 from mechbench_compute.chat.resolve_sandbox_tools import resolve_sandbox_tools
 from mechbench_compute.chat.summarize_spend import summarize_spend
@@ -140,7 +142,10 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                           parts=out.parts, call=out.call.to_wire(),
                           sampling={"temperature": params.get("temperature"),
                                     "max_tokens": int(params.get("max_tokens", 1024)),
-                                    "seed": req.seed, "index": k},
+                                    "seed": req.seed, "index": k,
+                                    "ended": read_ending(provider, out.stop_reason,
+                                                         tool_call=bool(out.tool_calls),
+                                                         empty=out.empty is not None)},
                           tool_runs=[r.to_wire() for r in box.runs],
                           rounds=rounds,
                           sandbox_calls=(session.calls if session else ()),
@@ -203,5 +208,6 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                "by_cause": count_by_cause([read_empty(it) for it in empties]),
                "ids": [str(it.get("id")) for it in empties],
                "policy": on_empty},
+        ended=count_endings(items),
     )
 

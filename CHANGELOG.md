@@ -13,6 +13,29 @@ nothing said so.
 
 ---
 
+## Unreleased — every generation says how it ended (000657)
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._ Additive only: a local item's `text` and every field it had
+are byte-identical (checked by running the same small `text/generate`
+and local `text/chat` graph on the previous release and this one).
+
+- **`metadata.sampling.ended` on every item of `text/chat`**, local
+  and remote, in the words `text/generate` already used: `end`, `stop`,
+  `max_tokens`, and for a reply that could end another way `tool_call`,
+  `filtered`, `empty` (with `metadata.empty` saying why) and `other`.
+  Each provider's stop reason is mapped onto them (anthropic, openai
+  Chat Completions and Responses, xai, deepseek, gemini); the provider's
+  own word stays in `metadata.call.stop_reason`.
+- **The header's `ended`** on `text/generate` and `text/chat`: the
+  items counted by ending, every ending present and zero when none.
+  A result stored before this has neither; that reads as unknown.
+
 ## 0.131.0 — 2026-09-22
 
 ### Changes that raise

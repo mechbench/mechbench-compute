@@ -183,7 +183,7 @@ class TestLocalPath:
         monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
         monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
         monkeypatch.setattr(generate, "sample_completion_cached",
-                            lambda *a, **k: "a local answer")
+                            lambda *a, **k: ("a local answer", []))
         out = chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
                                  _records(2), {"n": 1, "seed": 3})
         assert [i["text"] for i in out["items"]] == ["a local answer"] * 2
@@ -239,7 +239,7 @@ class TestLocalPath:
         monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
         monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
         monkeypatch.setattr(generate, "sample_completion_cached",
-                            lambda *a, **k: next(replies))
+                            lambda *a, **k: (next(replies), []))
         out = chat_mod.run_local(
             FakeModel(), mr.parse("Qwen/Qwen2.5-3B-Instruct"), _records(1),
             {"n": 1, "tools": ["calc"], "max_tool_rounds": 2})
@@ -276,7 +276,7 @@ class TestLocalPath:
         monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
         monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
         monkeypatch.setattr(generate, "sample_completion_cached",
-                            lambda *a, **k: "55")
+                            lambda *a, **k: ("55", []))
         with pytest.raises(dialects.NoToolDialect, match="no tool protocol"):
             chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
                                _records(1), {"n": 1, "tools": ["calc"]})
@@ -297,7 +297,7 @@ class TestLocalPath:
         monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
         monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
         monkeypatch.setattr(generate, "sample_completion_cached",
-                            lambda *a, **k: "55")
+                            lambda *a, **k: ("55", []))
         out = chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
                                  _records(1), {"n": 1})
         assert out["items"][0]["text"] == "55"
@@ -333,7 +333,7 @@ class TestToolErrors:
         mp = _pt.MonkeyPatch()
         mp.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
         mp.setattr(distill, "prefill_decision", lambda m, ids: None)
-        mp.setattr(generate, "sample_completion_cached", lambda *a, **k: reply)
+        mp.setattr(generate, "sample_completion_cached", lambda *a, **k: (reply, []))
         try:
             return chat_mod.run_local(
                 FakeModel(), mr.parse("Qwen/Qwen2.5-3B-Instruct"), _records(1),
@@ -422,7 +422,7 @@ class TestEveryParamIsAPromise:
         monkeypatch.setattr(distill, "encode", lambda tok, text: [1, 2, 3])
         monkeypatch.setattr(distill, "prefill_decision", lambda m, ids: None)
         monkeypatch.setattr(generate, "sample_completion_cached",
-                            lambda *a, **k: sampled)
+                            lambda *a, **k: (sampled, []))
         return chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
                                   _records(1), {"n": 1, "seed": 3, **params})
 
