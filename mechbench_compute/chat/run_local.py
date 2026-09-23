@@ -7,6 +7,7 @@ from mechbench_compute.chat.count_by_cause import count_by_cause
 from mechbench_compute.chat.count_endings import count_endings
 from mechbench_compute.chat.constants import ITEM_KIND, LOCAL
 from mechbench_compute.chat.build_item import build_item
+from mechbench_compute.chat.describe_reasoning_only import describe_reasoning_only
 from mechbench_compute.chat.open_toolbox import open_toolbox
 from mechbench_compute.chat.read_local_ending import read_local_ending
 from mechbench_compute.chat.read_records import read_records
@@ -181,12 +182,7 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                                   sandbox_snapshot=(session.final_wire() if session else None),
                                   cell=cell if plan else None)
                 if thoughts and not text:
-                    item["metadata"]["empty"] = {"cause": "reasoning", "message": (
-                        f"{model_name}: the reply is reasoning only — its "
-                        f"thinking ran to max_tokens ({max_tokens}) or closed "
-                        "with nothing after it. The reasoning is kept in the "
-                        "item's `reasoning`; raise max_tokens so the reply has "
-                        "room after it.")}
+                    item["metadata"]["empty"] = describe_reasoning_only(model_name, max_tokens)
                 items.append(item)
                 if on_item:
                     on_item(key, item)

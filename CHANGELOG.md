@@ -13,7 +13,7 @@ nothing said so.
 
 ---
 
-## Unreleased — every generation says how it ended (000657)
+## Unreleased — every generation says how it ended (000657); `text/generate` keeps reasoning out of `text` (000662)
 
 ### Changes that raise
 
@@ -21,9 +21,31 @@ _None._
 
 ### Changes that alter results without raising
 
-_None._ Additive only: a local item's `text` and every field it had
-are byte-identical (checked by running the same small `text/generate`
-and local `text/chat` graph on the previous release and this one).
+- **`text/generate` splits a local model's reasoning out of `text`,
+  as local `text/chat` has since 0.131.0 (000662).** Gemma 4 can write
+  its thinking channel (`<|channel>thought\n…<channel|>`) before a
+  story even with thinking off; that thought used to be the start of the
+  item's `text`, so its opening, word counts and anything measured on it
+  were the plan's, not the story's. Now the thought goes to the item's
+  `reasoning` (`[{text, provider: "local", model}]`) and `text` is the
+  prose after it, stripped. A thought never closed is reasoning: such an
+  item has an empty `text`, `metadata.sampling.ended: "empty"` and
+  `metadata.empty.cause: "reasoning"`. Every item without a reasoning
+  section is byte-identical (checked on 023's animals4id corpus,
+  samples 40–55 of both prompts, main against this branch); the
+  `trace` at trace fidelity is the raw token stream as before. **To find
+  affected stored items:** an item whose `text` contains `<|channel>`
+  (Gemma 4) or `<think>`. In the corpora current findings read that
+  is 8 items of 9,890 in 58 collections: 012 n1000 `neutral-s24` and 025
+  genres-trie-sqrt `flash-s99` (both a thought never closed, so
+  reasoning only), 023 animals4id `flash-s48` (in the September job and
+  its regeneration), and four stories in 018's script-era files. Stored
+  results are not rewritten.
+
+The rest of this release is additive: a local item's `text` and every
+field it had are byte-identical (checked by running the same small
+`text/generate` and local `text/chat` graph on the previous release and
+this one).
 
 - **`metadata.sampling.ended` on every item of `text/chat`**, local
   and remote, in the words `text/generate` already used: `end`, `stop`,
