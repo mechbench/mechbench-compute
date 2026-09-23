@@ -31,8 +31,9 @@ _None._
   prose after it, stripped. A thought never closed is reasoning: such an
   item has an empty `text`, `metadata.sampling.ended: "empty"` and
   `metadata.empty.cause: "reasoning"`. Every item without a reasoning
-  section is byte-identical (checked on 023's animals4id corpus,
-  samples 40–55 of both prompts, main against this branch); the
+  section is byte-identical (checked by running 023's animals4id story
+  node, samples 40–55 of both prompts, on the previous code and this:
+  31 of 32 items identical, the one that differs is `flash-s48`); the
   `trace` at trace fidelity is the raw token stream as before. **To find
   affected stored items:** an item whose `text` contains `<|channel>`
   (Gemma 4) or `<think>`. In the corpora current findings read that
