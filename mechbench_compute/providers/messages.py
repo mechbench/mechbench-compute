@@ -36,12 +36,19 @@ from typing import Any
 
 ROLES = ("user", "assistant")
 
+#: The values of a request's `api`: None and "chat_completions" are one
+#: choice, the provider's usual API.
+APIS = (None, "chat_completions", "responses")
+
 
 @dataclass(frozen=True)
 class Signature:
     """A provider's continuation token riding on a text or tool-call
     part: opaque bytes that go back on that same part, to the provider
-    and model that issued them, and nowhere else."""
+    and model that issued them, and nowhere else. Gemini's
+    `thoughtSignature` is one; on the Responses API it is the output
+    item the part was read from (a `message` or a `function_call`, with
+    its id and `phase`), as JSON, which goes back as that item."""
 
     provider: str
     model: str
@@ -299,6 +306,11 @@ class ChatRequest:
     json_mode: bool = False
     logprobs: int | None = None
     provider_options: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    #: Which of a provider's APIs answers: None for its usual one, or
+    #: "responses" for OpenAI's and xAI's Responses API. Part of the
+    #: request's identity, since the two return different things for
+    #: one question (encrypted reasoning, on the Responses API only).
+    api: str | None = None
 
     def options_for(self, provider: str) -> dict[str, Any]:
         """This provider's passthrough options (never another's)."""
@@ -355,6 +367,13 @@ def request(value: Any = None, **overrides: Any) -> ChatRequest:
                               {"type": "object", "properties": {}}))
         for t in (raw.pop("tools", ()) or ()))
     stop = tuple(raw.pop("stop", ()) or ())
+    api = raw.pop("api", None)
+    if api not in APIS:
+        raise ValueError(
+            f"api is one of {', '.join(a for a in APIS if a)}, not {api!r}")
+    # Chat Completions is what `api` absent means, so naming it changes
+    # nothing about the request, its hash included.
+    raw["api"] = None if api == "chat_completions" else api
     req = ChatRequest(messages=ms, tools=tools, stop=stop, **raw)
     req.check_options()
     return req
@@ -386,6 +405,8 @@ def canonical(req: ChatRequest, *, provider: str | None = None) -> dict[str, Any
         out["stop"] = list(req.stop)
     if req.json_mode:
         out["json_mode"] = True
+    if req.api:
+        out["api"] = req.api
     opts = ({provider: req.options_for(provider)} if provider
             else {k: dict(v) for k, v in req.provider_options.items()})
     opts = {k: v for k, v in opts.items() if v}

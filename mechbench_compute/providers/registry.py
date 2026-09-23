@@ -29,7 +29,7 @@ from mechbench_compute.providers import pricing
 from mechbench_compute.providers.base import Capabilities
 from mechbench_compute.providers.limiter import RateLimits
 
-REGISTRY_VERSION = "2026-09-22"
+REGISTRY_VERSION = "2026-09-23"
 
 
 @dataclass(frozen=True)

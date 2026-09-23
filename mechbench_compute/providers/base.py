@@ -59,6 +59,8 @@ class Capabilities:
     embed: bool = False
     streaming: bool = False
     models: bool = False
+    #: Speaks the Responses API as well as its usual one (OpenAI, xAI).
+    responses: bool = False
 
     def to_wire(self) -> dict[str, Any]:
         return asdict(self)
@@ -253,6 +255,21 @@ class Transport(ABC):
         """Refuse a request that asks for something this provider does
         not have, by name."""
         caps = self.capabilities
+        if req.api == "responses":
+            if not caps.responses:
+                raise CapabilityUnsupported(
+                    self.name, 'api "responses"', "the Responses API is OpenAI's and xAI's; "
+                    "drop `api` to use this provider's own")
+            # Fields the Responses API has no place for. Refused rather
+            # than dropped, as everywhere: a request that silently lost
+            # its stop strings is a different question.
+            for name, present in (("stop", bool(req.stop)),
+                                  ("seed", req.seed is not None),
+                                  ("logprobs", req.logprobs is not None)):
+                if present:
+                    raise CapabilityUnsupported(
+                        self.name, f"{name} on the Responses API", "it has no such field; "
+                        'drop it, or ask for api: "chat_completions"')
         if req.tools and not caps.tools:
             raise CapabilityUnsupported(self.name, "tools")
         if req.tool_choice is not None and not req.tools:

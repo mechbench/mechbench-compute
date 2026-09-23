@@ -25,7 +25,8 @@ Mapping notes that matter:
   signed and encrypted entries that must return unmodified. A host that
   returned none is never sent any. OpenAI's own reasoning models return
   no reasoning here, only a count in `reasoning_tokens`: carrying their
-  reasoning needs the Responses API, which this adapter does not speak.
+  reasoning needs the Responses API, which a request asks for with
+  `api: "responses"` and `openai_responses.py` maps.
 - `logprobs` is `top_logprobs`, capped at 20 on OpenAI (more on some
   self-hosted servers) — the cap is a capability, declared per host.
 """
@@ -53,10 +54,10 @@ HOSTS: dict[str, tuple[str, Capabilities]] = {
     "openai": ("https://api.openai.com/v1", Capabilities(
         chat=True, complete=False, count_tokens=None, tools=True,
         json_mode=True, seed=True, logprobs=20, cache_control=False,
-        batch=True, embed=True, streaming=False, models=True)),
+        batch=True, embed=True, streaming=False, models=True, responses=True)),
     "xai": ("https://api.x.ai/v1", Capabilities(
         chat=True, tools=True, json_mode=True, seed=True, logprobs=8,
-        batch=False, embed=False, models=True)),
+        batch=False, embed=False, models=True, responses=True)),
     "fireworks": ("https://api.fireworks.ai/inference/v1", Capabilities(
         chat=True, complete=True, tools=True, json_mode=True, seed=True,
         logprobs=5, batch=False, embed=True, models=True)),
@@ -298,6 +299,16 @@ class OpenAICompatibleTransport(Transport):
         return body
 
     def _chat(self, req: msg.ChatRequest, *, on_token=None) -> AdapterResponse:
+        if req.api == "responses":
+            # The same provider through its other door: same key, host,
+            # prices and limits; another wire shape.
+            from mechbench_compute.providers import openai_responses
+
+            resp = http.post_json(f"{self._base}/responses", headers=self._headers(),
+                                  payload=openai_responses.body(req, self.name),
+                                  timeout=self._timeout, secrets=(self._token,))
+            return openai_responses.read_response(resp.body or {}, req, provider=self.name,
+                                                  headers=resp.headers)
         resp = http.post_json(f"{self._base}/chat/completions", headers=self._headers(),
                               payload=self._body(req), timeout=self._timeout,
                               secrets=(self._token,))

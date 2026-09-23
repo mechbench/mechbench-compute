@@ -9,7 +9,8 @@ from mechbench_compute.providers import messages as pm
 def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
                   model: str, provider_options: Mapping[str, Any],
                   seed: int | None = None,
-                  tools: Sequence[Any] | None = None) -> pm.ChatRequest:
+                  tools: Sequence[Any] | None = None,
+                  api: str | None = None) -> pm.ChatRequest:
     """One record's request. A record carries either a full `messages`
     conversation or the `system`/`user` fields a corpus record has —
     the same fields `generate` reads, so a protocol can swap a local
@@ -36,4 +37,5 @@ def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
         "json_mode": bool(params.get("json_mode", False)),
         "logprobs": params.get("logprobs"),
         "provider_options": dict(provider_options),
+        "api": api,
     })

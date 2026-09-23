@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-TABLE_VERSION = "2026-09-22"
+TABLE_VERSION = "2026-09-23"
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,10 @@ PRICES: dict[str, dict[str, Price]] = {
         "claude-haiku-4-5": Price(1.0, 5.0, 0.1, 1.25),
         "claude-fable-5": Price(3.0, 15.0, 0.3, 3.75),
     },
+    # GPT-6 Astra charges 2x input and 1.5x output for a whole request
+    # over 272K input tokens; the table holds the standard rate.
     "openai": {
+        "gpt-6-astra": Price(10.0, 50.0, 1.0),
         "gpt-5": Price(1.25, 10.0, 0.125),
         "gpt-4.1": Price(2.0, 8.0, 0.5),
         "gpt-4o": Price(2.5, 10.0, 1.25),
@@ -58,7 +61,12 @@ PRICES: dict[str, dict[str, Price]] = {
         "gemini-2.5-pro": Price(1.25, 10.0, 0.31),
         "gemini-2.5-flash": Price(0.30, 2.50, 0.075),
     },
+    # xAI doubles every rate from 200K tokens; the table holds the
+    # standard rate.
     "xai": {
+        "grok-4.7": Price(2.0, 6.0, 0.5),
+        "grok-4.6": Price(2.0, 6.0, 0.5),
+        "grok-4.5": Price(2.0, 6.0, 0.3),
         "grok-4": Price(3.0, 15.0, 0.75),
         "grok-3": Price(3.0, 15.0),
     },

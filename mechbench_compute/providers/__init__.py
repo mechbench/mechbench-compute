@@ -153,7 +153,12 @@ def remap_response(provider: str, raw: Any, req: Any, *,
 
         return read_response(raw, req, headers=headers)
     if provider in _OPENAI_SHAPED:
-        from mechbench_compute.providers.openai_compatible import read_response
+        if getattr(req, "api", None) == "responses":
+            # `api` is part of the request hash, so a body kept under
+            # this key came from the Responses API.
+            from mechbench_compute.providers.openai_responses import read_response
+        else:
+            from mechbench_compute.providers.openai_compatible import read_response
 
         return read_response(raw, req, provider=provider, headers=headers)
     return None

@@ -350,6 +350,17 @@ name.
           "A key that names no provider is refused: written at the top level "
           "it would reach nobody.",
           None),
+        P("api", "string",
+          "Which of the provider's APIs answers, for OpenAI and xAI. "
+          "`\"responses\"`: the Responses API, which returns the model's "
+          "reasoning as encrypted items that go back to the same model on "
+          "later turns and through the tool loop; it has no `stop`, `seed` "
+          "or `logprobs`. `\"chat_completions\"`: Chat Completions, where "
+          "that reasoning is a token count. Unset, a model uses Chat "
+          "Completions unless it needs the Responses API (GPT-6 Astra, "
+          "whose tool calls Chat Completions does not support). Refused "
+          "by any other provider.",
+          None, choices=("chat_completions", "responses")),
         P("base_url", "string",
           "Send requests to this endpoint instead of the provider's default "
           "— a proxy or a compatible self-hosted server.",

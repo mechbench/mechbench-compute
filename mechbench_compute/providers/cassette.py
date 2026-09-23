@@ -143,6 +143,18 @@ class Cassette:
                         label=str(value.get("label", "")), entries=entries)
 
 
+def _replay_capabilities(provider: str) -> Capabilities:
+    """A standalone replay's matrix: its provider's, so a replay accepts
+    what the recorded run could ask (the Responses API for OpenAI, say),
+    or a permissive one for a cassette that names no known provider."""
+    from mechbench_compute.providers import capabilities
+
+    try:
+        return capabilities(provider)
+    except ValueError:
+        return Capabilities(chat=True, tools=True, count_tokens="estimated")
+
+
 class CassetteTransport(Transport):
     """Wraps an adapter (or stands alone in `replay`).
 
@@ -167,8 +179,7 @@ class CassetteTransport(Transport):
         self.name = inner.name if inner is not None else (cassette.provider or "cassette")
         self.capabilities = (capabilities or
                              (inner.capabilities if inner is not None
-                              else Capabilities(chat=True, tools=True,
-                                                count_tokens="estimated")))
+                              else _replay_capabilities(cassette.provider)))
         self.misses: list[str] = []
 
     def _count_tokens(self, req: msg.ChatRequest) -> int:

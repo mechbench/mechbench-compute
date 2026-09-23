@@ -34,7 +34,7 @@ _LEXICON = ["harbor", "lantern", "ledger", "quartz", "meridian", "salt", "thicke
 MOCK_CAPABILITIES = Capabilities(
     chat=True, complete=True, count_tokens="exact", tools=True,
     json_mode=True, seed=True, logprobs=20, cache_control=True, batch=True,
-    embed=True, streaming=True, models=True,
+    embed=True, streaming=True, models=True, responses=True,
 )
 
 

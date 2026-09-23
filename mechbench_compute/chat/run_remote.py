@@ -53,6 +53,13 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         # The node's cap under the job's: a graph whose node caps sum
         # past the job's cap still cannot spend past the job's.
         budget = job_budget.child(budget.cap_usd)
+    # Which of the provider's APIs answers: the node's choice, else the
+    # model's default (the Responses API only where a model needs it).
+    api = params.get("api")
+    if api is None:
+        from mechbench_compute.providers.openai_responses import default_api
+
+        api = default_api(provider, ref.base)
     options = {**dict(ref.provider_options or {}),
                **dict(params.get("provider_options") or {})}
     n = int(params.get("n", 1))
@@ -101,11 +108,12 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                 continue
             item_sd = (item_seed(seed, rec.get("id"), k)
                        if seed is not None and transport.capabilities.seed
+                       and api != "responses"   # it has no seed field
                        else None)
             plan.append((key, dict(rec), k,
                          build_request(rec, params, model=ref.base,
                                        provider_options=options,
-                                       seed=item_sd, tools=specs)))
+                                       seed=item_sd, tools=specs, api=api)))
 
     def one(entry):
         key, rec, k, req = entry
