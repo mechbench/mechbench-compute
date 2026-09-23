@@ -13,6 +13,30 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+- _None._
+
+### Changes that alter results without raising
+
+- _None._
+
+### Other
+
+- `bench.push_protocol(file, "owner/project")` pushes a protocol file:
+  the server creates it by name, versions it when its graph or signature
+  changed, updates only its description, or leaves it unchanged, and
+  refuses the legacy form and failed wiring with their findings.
+  `bench.export_protocol(protocol, version=, path=)` writes the canonical
+  file a push reads back as unchanged. Both need mechbench-api with
+  `POST /protocols/push` (epic 000654).
+- `bench.launch(..., label=)` labels a run; `bench.runs(label=,
+  label_contains=, protocol=, project=, owner=, limit=)` lists runs by
+  label with their job, status, versions and spend; `bench.label_run(run,
+  label)` relabels one. They need mechbench-api with `/runs`.
+
 ## 0.131.0 — 2026-09-22
 
 ### Changes that raise
