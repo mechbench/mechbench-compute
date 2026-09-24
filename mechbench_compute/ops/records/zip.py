@@ -28,9 +28,10 @@ one branch are refused: zip needs one per key, and the fix is usually to
 key on more coordinates.
 
 Branches arrive on the **variadic `branches` port**: one edge per branch,
-each named by the node it came from unless `names` says otherwise. The
-port is ordered, so `names` lines up with the edges as the graph declares
-them.
+from a node or from one of the protocol's inputs, each named by the node
+or input it came from unless `names` says otherwise. The port is ordered
+by each edge's `index`, so `names` lines up with the edges as the graph
+declares them.
 
 A key that is not in every branch is an error by default, because a
 silently shorter output is a silently different experiment. `drop` keeps
@@ -86,8 +87,8 @@ def zip_branches(inputs: Mapping[str, Any],
     ["prompt", "seed"]`), which is what to use when two branches number
     their records differently but share a design.
 
-    A branch is named by the node it came from, unless `names` says
-    otherwise — the names become the keys of each output record's
+    A branch is named by the node or protocol input it came from, unless
+    `names` says otherwise — the names become the keys of each output record's
     `branches` map, and the field prefixes under `flatten`.
     """
     from mechbench_compute.lexicon import kinds as K
@@ -103,7 +104,8 @@ def zip_branches(inputs: Mapping[str, Any],
     if names and len(names) != len(edges):
         raise ValueError(
             f"`names` has {len(names)} entries for {len(edges)} branches")
-    labels = names or [str(e.get("node") or i) for i, e in enumerate(edges)]
+    labels = names or [str(e.get("node") or e.get("input") or i)
+                       for i, e in enumerate(edges)]
     if len(set(labels)) != len(labels):
         raise ValueError(f"two branches share a name: {labels}")
 
@@ -182,7 +184,7 @@ def zip_branches(inputs: Mapping[str, Any],
 
     return K.collection(
         "records/record", out,
-        branches=[{"name": label, "source": e.get("node"), "n": len(rows)}
+        branches=[{"name": label, "source": e.get("node") or e.get("input"), "n": len(rows)}
                   for label, e, rows in zip(labels, edges, indexed)],
         zipped={"by": by, "keys": len(out), "on_mismatch": on_mismatch,
                 "dropped": sorted(map(str, missing))[:50] if missing else []},

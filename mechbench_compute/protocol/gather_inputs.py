@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mechbench_compute import lexicon
+from mechbench_compute import dataflow, lexicon
 from mechbench_compute.protocol.missing_upstream import MissingUpstream
 from mechbench_compute.protocol.read_missing_policy import read_missing_policy
 
@@ -98,6 +98,10 @@ def gather_inputs(state, nid, node, op_here, in_edges, resolver):
     for port, raw in sorted((node.get("inputs") or {}).items()):
         if raw is None:
             continue
+        if dataflow.is_input_branches(raw):
+            add_input_branches(inputs, input_paths, inline_hashes, port, raw,
+                               in_edges, resolver)
+            continue
         if port in inputs:
             raise ValueError(
                 f"{nid}: port {port!r} is wired by an edge and also "
@@ -106,3 +110,34 @@ def gather_inputs(state, nid, node, op_here, in_edges, resolver):
         inline_hashes.append(
             f"{port}:{resume_mod.content_hash(inputs[port])}")
     return inputs, input_paths, inline_hashes
+
+
+def add_input_branches(inputs, input_paths, inline_hashes, port, raw, in_edges,
+                       resolver) -> None:
+    """Put the protocol inputs lowered onto a variadic port among the
+    port's node edges, ordered as `sort_edges` orders edges: by `index`,
+    then by source name. Each input's hash joins the fingerprint with its
+    position, since the order of the branches is part of the result."""
+    from mechbench_compute import resume as resume_mod
+
+    index_of = {e["from"]["node"]: int(e.get("index", 0))
+                for e in in_edges if e["to"]["port"] == port}
+    from_edges = inputs.get(port) or []
+    paths = dict(zip((entry["node"] for entry in from_edges),
+                     input_paths.get(port) or []))
+    entries = [((index_of.get(entry["node"], 0), str(entry["node"])), entry,
+                paths.get(entry["node"], ""))
+               for entry in from_edges]
+    for branch in raw:
+        value = resolver.resolve_value(branch["value"])
+        ref = branch["value"]
+        stored = (ref["$ref"].get("bench") or "") if dataflow.is_object_ref(ref) else ""
+        entries.append(((branch["index"], branch["input"]),
+                        {"input": branch["input"], "value": value}, stored))
+    entries.sort(key=lambda entry: entry[0])
+    inputs[port] = [entry for _key, entry, _path in entries]
+    input_paths[port] = [path for _key, _entry, path in entries]
+    for pos, (_key, entry, _path) in enumerate(entries):
+        if "input" in entry:
+            inline_hashes.append(
+                f"{port}.{pos}:{resume_mod.content_hash(entry['value'])}")

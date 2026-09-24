@@ -164,18 +164,22 @@ def check_inputs(block: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
         if value is None:
             continue
         if port.variadic and isinstance(value, list) and all(
-                isinstance(v, Mapping) and set(v) >= {"node", "value"} for v in value):
+                isinstance(v, Mapping) and "value" in v and ("node" in v or "input" in v)
+                for v in value):
             # A variadic port's value is the EDGES, not the items: each
-            # entry is `{node, value}`, and what is checked is what each
+            # entry is `{node, value}`, or `{input, value}` for an edge
+            # from a protocol input, and what is checked is what each
             # edge carries. Nothing is wrapped — the list is the port's
             # shape.
             for entry in value:
                 actual, _plural = _kind_of(entry["value"])
                 if actual is not None and not any(
                         K.satisfies(actual, d) for d in port.kinds):
+                    source = (f"node {entry['node']!r}" if "node" in entry
+                              else f"input {entry['input']!r}")
                     raise ValueError(
                         f"{block} port {name!r} takes `{port.kind}`, but the "
-                        f"edge from {entry['node']!r} carries `{actual}`.")
+                        f"edge from {source} carries `{actual}`.")
             out[name] = value
             continue
         actual, plural = _kind_of(value)
