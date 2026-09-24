@@ -12,7 +12,6 @@ import hashlib
 
 import pytest
 from mechbench_schema import dump_canonical
-from mechbench_schema.identity import InvalidPathError
 
 from mechbench_compute import bench, dataflow
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
@@ -477,10 +476,6 @@ def test_a_port_that_takes_one_source_still_refuses_an_input_and_an_edge():
         dataflow.lower(graph, {"recs": []})
 
 
-@pytest.mark.xfail(
-    strict=True, raises=InvalidPathError,
-    reason="mechbench-schema holds a hash segment to the 63-char name limit, and "
-           "`sha256:<digest>` is 71; passes once the schema's path grammar admits it")
 def test_keep_outputs_stores_an_output_that_reads_a_held_intermediate(monkeypatch):
     """Through the real `bench.emit`, with only the HTTP call faked: the
     output's provenance cites the held node as `~hash/sha256:<digest>`,
