@@ -47,7 +47,12 @@ _None._
   takes `exclude` (words not counted), and in `items` mode emits one row
   per distinct word with `count` and `texts`, the number of texts using
   it. `items` mode with only a `lexical` measure, once refused, now
-  tallies its words.
+  tallies its words. `word` says what a word is (a regular expression;
+  `\S+` for whitespace tokens), on `lexical` and `opening`.
+- **Openings (000664).** `text/measure` type `opening`: a text's first
+  `words` words, lowercased and joined by spaces; in `corpus` mode
+  `<name>_distinct` and `<name>_values`, each opening with how many
+  texts start that way.
 
 ## 0.133.0 — 2026-09-23
 

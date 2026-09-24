@@ -218,3 +218,34 @@ class TestWordsUsed:
         with pytest.raises(ValueError, match="`list` or `lexical`"):
             measure_texts({"records": list(TEXTS)},
                           {"mode": "items", "measures": [{"type": "pattern", "patterns": ["x"]}]})
+
+    def test_word_says_what_a_word_is(self):
+        annotated = measure_texts({"records": list(TEXTS)}, {"measures": [
+            {"type": "lexical", "name": "ws", "word": r"\S+"},
+            {"type": "lexical", "name": "az", "word": r"[A-Za-z']+"}]})
+        assert annotated[1]["ws_words"] == 6
+        assert annotated[1]["az_words"] == 7
+        assert "lamp-lit" not in self._rows(word=r"[A-Za-z']+")
+        assert self._rows(word=r"[A-Za-z']+")["lamp"] == (1, 1)
+
+
+class TestOpening:
+    STORIES = ({"id": "a", "text": "  The old man, who kept the light, slept."},
+               {"id": "b", "text": "the Old man - who knew"},
+               {"id": "c", "text": "Rain."},
+               {"id": "d", "text": ""})
+
+    def test_an_opening_is_the_first_words_lowercased(self):
+        rows = measure_texts({"records": list(self.STORIES)},
+                             {"measures": [{"type": "opening", "name": "o", "word": "[A-Za-z']+"}]})
+        assert [r["o"] for r in rows] == ["the old man who", "the old man who", "rain", ""]
+
+    def test_corpus_mode_counts_distinct_openings_commonest_first(self):
+        out = measure_texts({"records": list(self.STORIES)},
+                            {"mode": "corpus", "measures": [{"type": "opening", "name": "o", "words": 2}]})[0]
+        assert out["o_distinct"] == 3
+        assert out["o_values"][0] == {"value": "the old", "count": 2}
+
+    def test_words_is_at_least_one(self):
+        with pytest.raises(ValueError, match="at least 1"):
+            measure_texts({"records": list(self.STORIES)}, {"measures": [{"type": "opening", "words": 0}]})

@@ -20,9 +20,10 @@ Each entry of `measures` is applied to every record's `text`:
 | `type` | Fields written per record | Options |
 |---|---|---|
 | `pattern` | `<name>`: 1 if any regex matches, else 0 | `patterns` (list of regexes), `where`: `"anywhere"` or `"prefix"` (must match at the start), `ignore_case` |
-| `lexical` | `<name>_words`, `<name>_distinct`, `<name>_dup` (1 − distinct/words) | `lowercase` (default true), `min_length`, `exclude` (words not counted) |
+| `lexical` | `<name>_words`, `<name>_distinct`, `<name>_dup` (1 − distinct/words) | `lowercase` (default true), `min_length`, `exclude` (words not counted), `word` (what a word is) |
 | `corpus_frequency` | `<name>`: the statistic over the reference frequency of the text's words; `<name>_coverage`: the fraction of words found in the table | `frequencies` (word → count, or wire a `frequencies` input), `stat`: `"mean_log10"` (rarer vocabulary ⇒ lower), `"mean"` or `"coverage"`, `lowercase`, `min_length` |
 | `list` | `<name>_parsed` (1 if the list was found), `<name>_items`, `<name>_distinct`, `<name>_duplicates`, `<name>_unknown` (items outside `items`, when given), `<name>_first`, `<name>_valid` (found, no duplicates, nothing unknown, and `count` items when given) | `separator` (default `", "`), `extract` (a regex whose first group is the list; the whole text without it), `items` (the vocabulary: a list, or a map's `weights` or `uniform`), `count`, `ignore_case` |
+| `opening` | `<name>`: the text's first `words` words, joined by single spaces | `words` (default 4), `lowercase` (default true), `word` |
 | `capture` | `<name>`: the value the pattern's group held, absent when nothing matched | `pattern` (the regex), `group` (default 1; the whole match when the pattern has none), `as`: `"string"` or `"number"`, `take`: the `"first"` match or the `"last"`, `on_missing`: `"null"` or `"error"`, `items` (a vocabulary, which canonicalises the value), `ignore_case` |
 
 A **capture** is the one that reads a value out rather than counting or
@@ -49,12 +50,21 @@ This is what the corpus SAID, in its own vocabulary: an answer outside
 the map is a row like any other, labelled rather than dropped, so "Sci-Fi"
 and "Steampunk Fantasy" are readable beside the names the map has.
 
+An **opening** is how a text starts, in words: the first `words` of them,
+lowercased, joined by single spaces, so "The old man — who" and "the old
+man, who" are one opening. In `corpus` mode it gives `<name>_distinct`,
+how many different openings the corpus has, and `<name>_values`, each
+opening with how many texts start that way, commonest first. A corpus
+that begins one way a hundred times has one opening.
+
 A `lexical` measure in `items` mode gives one record per distinct word —
 `item`, `count` (occurrences), `texts` (how many texts use it: its
 document frequency), and `share` (of all words) — so "97 of 100 stories
 say *last*" is a row, and `records/rank` on `texts` lists the words a
 corpus converges on. A word is a run of letters, apostrophes and
-hyphens. `exclude` names words to leave out — the function words a
+hyphens unless `word` says otherwise: a regular expression each match of
+which is one word, so `\\S+` counts whitespace-separated tokens and
+`[A-Za-z']+` splits a hyphenated word in two. `exclude` names words to leave out — the function words a
 ranking would otherwise lead with — and they are left out of the
 per-text counts as well. The list is the author's: no words are
 excluded unless named.
@@ -80,9 +90,9 @@ excluded unless named.
           "table above.",
           None, fields=(
               P("type", "string", "Which measurement. One of `type` or `kind` is required.", None,
-                choices=("pattern", "lexical", "corpus_frequency", "list", "capture")),
+                choices=("pattern", "lexical", "corpus_frequency", "list", "capture", "opening")),
               P("kind", "string", "The older spelling of `type`; read when `type` is absent.", None,
-                choices=("pattern", "lexical", "corpus_frequency", "list", "capture")),
+                choices=("pattern", "lexical", "corpus_frequency", "list", "capture", "opening")),
               P("name", "string", "The field it writes; the type by default.", None),
               P("patterns", "list[string]", "For `pattern`: the regular expressions.", None),
               P("pattern", "string",
@@ -105,8 +115,12 @@ excluded unless named.
                 "is the last, a header the first.", "first",
                 choices=("first", "last")),
               P("ignore_case", "bool", "For `pattern` and `list`: match without regard to case.", False),
-              P("lowercase", "bool", "For `lexical` and `corpus_frequency`: lowercase words first.", True),
+              P("lowercase", "bool", "For `lexical`, `corpus_frequency` and `opening`: lowercase words first.", True),
               P("min_length", "int", "For `lexical` and `corpus_frequency`: the shortest word counted.", 1),
+              P("word", "string",
+                "For `lexical` and `opening`: the regular expression a word matches. By "
+                "default a run of letters, apostrophes and hyphens.", None),
+              P("words", "int", "For `opening`: how many words an opening is.", 4),
               P("exclude", "list[string]",
                 "For `lexical`: words not counted, compared after lowercasing when "
                 "`lowercase` is set. A stored word list may be given by reference.",
@@ -170,13 +184,13 @@ def run(ctx, inputs, params):
 _WORD_RE = None
 
 
-def _split_words(text: str, lowercase: bool, min_length: int) -> list[str]:
+def _split_words(text: str, lowercase: bool, min_length: int, word: Any = None) -> list[str]:
     global _WORD_RE
     import re
 
     if _WORD_RE is None:
         _WORD_RE = re.compile(r"[A-Za-z'\u2019-]+")
-    words = _WORD_RE.findall(text)
+    words = (word or _WORD_RE).findall(text)
     if lowercase:
         words = [w.lower() for w in words]
     if min_length > 1:
@@ -218,45 +232,11 @@ def _read_exclude(name: str, exclude: Any, lowercase: bool) -> frozenset[str]:
 
 def measure_texts(inputs: Mapping[str, Any],
                   params: Mapping[str, Any]) -> Any:
-    """text/measure — configurable per-text measurements over a corpus
-    of records or a collection of documents (what `text/generate`
-    produces): meta-leak counts, opening-phrase counts, lexical spread,
-    corpus-frequency of vocabulary, each as a node with lineage.
-
-    params:
-      field       which field holds the text (default "text")
-      measures    list of measure specs, each {"kind", "name", ...}:
-        {"type": "pattern", "name": n, "patterns": [regex...],
-         "where": "prefix" | "anywhere" (default), "ignore_case": bool}
-            → per-record 0/1: does ANY pattern match?
-        {"type": "lexical", "name": n, "lowercase": bool=true,
-         "min_length": int=1}
-            → per-record word/distinct-word counts and duplication
-              (1 − distinct/total).
-        {"type": "corpus_frequency", "name": n, "stat":
-         "mean_log10" (default) | "mean" | "coverage",
-         "lowercase": bool=true, "min_length": int=1,
-         "frequencies": {word: count}   — or wire a `frequencies`
-         input whose payload carries {"weights": {...}}}
-            → per-record statistic over the reference frequency of the
-              words that appear in it ("coverage" = fraction of words
-              found in the table). The lexical-novelty instrument:
-              rarer vocabulary ⇒ lower mean_log10.
-        {"type": "list", "name": n, "separator": ", ", "extract": regex,
-         "items": [...] | target spec, "count": int, "ignore_case": bool}
-            → per-record parse of a drawn list: items,
-              distinct, duplicates, unknown (outside `items`), first,
-              parsed, valid. `extract`'s first group (else its whole
-              match) is the list; without it the whole text is.
-      mode        "annotate" (default): records with measure fields
-                  added — feed select/group-stats/table downstream.
-                  "corpus": ONE summary record — pattern counts and
-                  rates, corpus-wide distinct words and duplication,
-                  means of per-record frequency stats.
-                  "items": one record per distinct item a `list` measure
-                  parsed, with its count — what the corpus SAID, whether
-                  or not `items` contains it.
-    """
+    """`text/measure` over the texts on `records` or `documents`: each
+    measure in `params["measures"]` applied to every text, returned as
+    annotated records, one corpus summary record, or one record per item
+    or word, by `mode`. The measure types and their fields are the `OP`
+    declaration's table."""
     import math as _math
     import re
 
@@ -297,10 +277,10 @@ def measure_texts(inputs: Mapping[str, Any],
     for m in measures:
         kind = m.get("type") or m.get("kind")
         name = m.get("name") or kind
-        if kind not in ("pattern", "lexical", "corpus_frequency", "list", "capture"):
+        if kind not in ("pattern", "lexical", "corpus_frequency", "list", "capture", "opening"):
             raise ValueError(
                 f"text/measure: unknown measure type {kind!r}: one of "
-                "'pattern', 'lexical', 'corpus_frequency', 'list', 'capture'")
+                "'pattern', 'lexical', 'corpus_frequency', 'list', 'capture', 'opening'")
         if kind == "pattern":
             flags = re.IGNORECASE if m.get("ignore_case") else 0
             pats = [re.compile(pat, flags) for pat in m["patterns"]]
@@ -316,6 +296,7 @@ def measure_texts(inputs: Mapping[str, Any],
             compiled.append((name, kind,
                              {"lowercase": lower,
                               "min_length": int(m.get("min_length", 1)),
+                              "word": re.compile(m["word"]) if m.get("word") else None,
                               "exclude": _read_exclude(name, m.get("exclude"), lower)}))
         elif kind == "corpus_frequency":
             table = m.get("frequencies") or freq_input
@@ -336,6 +317,13 @@ def measure_texts(inputs: Mapping[str, Any],
                               "stat": stat,
                               "lowercase": lower,
                               "min_length": int(m.get("min_length", 1))}))
+        elif kind == "opening":
+            n_words = int(m.get("words", 4))
+            if n_words < 1:
+                raise ValueError(f"text/measure measure {name!r}: `words` is at least 1")
+            compiled.append((name, kind,
+                             {"words": n_words, "lowercase": bool(m.get("lowercase", True)),
+                              "word": re.compile(m["word"]) if m.get("word") else None}))
         elif kind == "capture":
             # One value, under the name asked for: a `list` measure can
             # read the same thing, but only as the first item of a list,
@@ -408,7 +396,7 @@ def measure_texts(inputs: Mapping[str, Any],
                            else p.search(probe)) for p in cfg["patterns"])
                 row[name] = 1 if hit else 0
             elif kind == "lexical":
-                words = _split_words(text, cfg["lowercase"], cfg["min_length"])
+                words = _split_words(text, cfg["lowercase"], cfg["min_length"], cfg["word"])
                 if cfg["exclude"]:
                     words = [w for w in words if w not in cfg["exclude"]]
                 distinct = len(set(words))
@@ -422,6 +410,10 @@ def measure_texts(inputs: Mapping[str, Any],
                     vocabulary.setdefault(w, [0, 0])[0] += 1
                 for w in set(words):
                     vocabulary[w][1] += 1
+            elif kind == "opening":
+                head = _split_words(text, cfg["lowercase"], 1, cfg["word"])[:cfg["words"]]
+                row[name] = " ".join(head)
+                captured.setdefault(name, []).append(row[name])
             elif kind == "capture":
                 found = list(cfg["pattern"].finditer(text))
                 hit = (found[-1] if cfg["take"] == "last" else found[0]) if found else None
@@ -564,6 +556,14 @@ def measure_texts(inputs: Mapping[str, Any],
                 summary[f"{name}_values"] = [
                     {"value": v, "count": n} for v, n in
                     sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+        elif kind == "opening":
+            counts = {}
+            for v in captured.get(name, []):
+                counts[v] = counts.get(v, 0) + 1
+            summary[f"{name}_distinct"] = len(counts)
+            summary[f"{name}_values"] = [
+                {"value": v, "count": n} for v, n in
+                sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
         elif kind == "lexical":
             summary[f"{name}_corpus_words"] = len(corpus_words)
             summary[f"{name}_corpus_distinct"] = len(set(corpus_words))
