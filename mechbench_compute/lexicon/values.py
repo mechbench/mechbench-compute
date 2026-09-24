@@ -26,8 +26,10 @@ SPACE = F("object", SPACE_DOC,
           required=["model", "layer", "point", "head", "d"])
 TOP = F("array", "The most likely tokens, ranked by probability, each `{token, p, logp}`.",
         items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}}})
-TRACKED = F("object", "Name → `{token, p, logp}` for the tokens the caller asked about, by the names it gave.",
+TRACKED = F("object", "Name → `{token, p, logp, variants}` for the answers the caller asked about, by the names it gave.",
             additionalProperties={"type": "object"})
+VARIANTS = F("array", "Each spelling of a tracked answer, with and without a leading space, as `{token, p, logp}`; one entry when both are the same token.",
+             items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}}})
 
 
 SPACE_VALUE = Value(
@@ -76,11 +78,14 @@ the text is what a person reads. The text includes the leading space when
 the tokenizer's piece has one — `" Paris"` and `"Paris"` are two different
 tokens, and the difference is usually the whole finding.
 
-Wherever a protocol names a token — the `tracked` parameter, a record's
-`outcomes`, an expectation's answer — the name is tokenized as a
-continuation of the prompt, so write it as it would follow the text
-(`" Paris"`, with the space). A name that tokenizes to several pieces is
-followed by its first piece, and the read says so.
+Wherever a protocol names an answer to follow — the `tracked` parameter,
+a record's `target` or `outcomes` — it is looked for both with a leading
+space and without one, whichever way it was written: `" Paris"` and
+`"Paris"` name the same answer, the pair of tokens `" Paris"` and `"Paris"`.
+Which of the two a model says first depends on what precedes it (after a
+chat template's assistant prefix it is usually the bare one), so the answer
+counts either way. An answer that tokenizes to several pieces is followed
+by its first piece, and the read says so.
 """,
 )
 
@@ -111,7 +116,7 @@ TRACKED_VALUE = Value(
     "tracked",
     "The tokens a read was asked to follow, by the names the protocol gave them, each with its probability.",
     fields={
-        "<name>": F("object", "`{token, p, logp}` for the token the name resolved to."),
+        "<name>": F("object", "`{token, p, logp, variants}` for the answer the name resolved to."),
     },
     doc="""\
 A map from the caller's names to what the model said about them. The names
@@ -124,6 +129,15 @@ The first entry is the **target**: the token a sweep's change in
 log-probability is taken on, the token a lens follows through the layers.
 With nothing named, the target is the model's own top-1 prediction for
 that prompt, and the read names it so.
+
+An answer is the set of its spellings with and without a leading space.
+`p` is their summed probability — the chance the model says the answer
+either way — and `logp` its log; `token` is the spelling this read gives
+more probability, and `variants` lists each spelling's own `{token, p,
+logp}`, one entry when both spellings are the same token. A change in
+log-probability is always taken on the set, on both sides; a rank is the
+better spelling's; a logit, which belongs to one token, is the preferred
+spelling's, and the op names it.
 
 A name whose token is nowhere in the model's ranking still appears, with
 whatever probability the model gave it; a read never drops an outcome

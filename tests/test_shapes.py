@@ -49,12 +49,12 @@ class TestItems:
 
     def test_distribution_ranks_and_tracks(self):
         lp = np.log(np.array([0.1, 0.6, 0.3]))
-        d = S.distribution(lp, Tok(), top_k=2, tracked={"yes": 2, "no": 0})
+        d = S.distribution(lp, Tok(), top_k=2)
         assert [t["token"]["text"] for t in d["top"]] == ["t1", "t2"]
         assert d["top"][0]["p"] == pytest.approx(0.6) and d["top"][0]["logp"] == pytest.approx(math.log(0.6), abs=1e-4)
-        assert d["tracked"]["yes"] == {"token": {"id": 2, "text": "t2"}, "p": 0.3, "logp": round(math.log(0.3), 4)}
+        assert S.read_token(Tok(), 2, float(lp[2])) == {"token": {"id": 2, "text": "t2"}, "p": 0.3, "logp": round(math.log(0.3), 4)}
         assert d["entropy_bits"] == pytest.approx(1.2955, abs=1e-3)
-        assert "tracked" not in S.distribution(lp, Tok(), top_k=1)
+        assert "tracked" not in d
 
     def test_ties_rank_by_token_id(self):
         lp = np.log(np.array([0.2, 0.2, 0.2, 0.2, 0.2]))

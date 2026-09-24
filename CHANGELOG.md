@@ -13,6 +13,71 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+- **A tracked answer that is empty or only whitespace raises** in every op
+  that follows one (`tracked`, a record's `target`, `outcomes`, `tracks`,
+  `track`, an attribution `contrast`). An empty text raised before; a
+  whitespace-only one used to follow the whitespace token.
+- **Python API:** `shapes.distribution` no longer takes `tracked` (use
+  `interp.read_distribution.read_distribution`, which scores answer sets);
+  `interp.collect_tracked_ids` and `interp.encode_target_token` are gone
+  (`interp.collect_tracked_answers`, `interp.answer.encode_answer`);
+  `lens.logit_lens_final` and `lens.logit_lens_per_position` take `target`
+  (a token id or an `Answer`) in place of `target_id`.
+
+### Changes that alter results without raising
+
+- **A tracked answer is the set of its spellings with and without a
+  leading space**, whichever way it was written: `" Paris"` and `"Paris"`
+  now name the same answer, the tokens `" Paris"` and `"Paris"` together.
+  Its `p` is the two spellings' summed probability and its `logp` the log
+  of that sum; a rank is the better spelling's; a logit (linear in one
+  unembedding row) is the spelling the model prefers on the clean prompt,
+  which the output names. Results change for **any run whose tracked text
+  tokenizes differently with and without a leading space** — that is,
+  nearly every word answer — by the other spelling's probability mass:
+  most where the text's spacing was not the model's (a `" Paris"` target
+  after a chat template's assistant prefix, where the model says
+  `"Paris"`), least where the model gives the other spelling almost
+  nothing. Answers whose two spellings are one token (digits and
+  punctuation on most tokenizers) do not move, and neither does a run
+  that named no target (the model's own top-1).
+  - `intervene/ablate-layers`, `intervene/ablate-heads`: `delta_logp`,
+    `mean_delta`, the aggregates and `baseline_logp` are of the set, on
+    both sides of every Δ; `own_top1` is flagged only when the model's
+    top-1 is neither spelling. `conditions[].target` is the preferred
+    spelling and `conditions[].variants` is new.
+  - `intervene/patch` (both methods) and `intervene/path`: `logprob` and
+    `prob` metrics are of the set, so `recovery`, `share`, `value_a`,
+    `value_b`, `delta` and `value` change; `logit` reads the spelling the
+    clean prompt prefers, which changes only where that is not the
+    spelling written. `target` names that spelling; `variants` is new.
+  - `logits/scan`: `logprob` is of the set and `rank` is the better
+    spelling's at every cell. `target` is the spelling preferred at the
+    model's output; `variants` is new.
+  - `logits/attribute`: the decomposed logit (and a two-token difference's
+    second term) is the spelling the model prefers on the prompt, so a run
+    whose written spelling was the less probable one now decomposes the
+    other token. `target`/`contrast` name it; `variants` and
+    `contrast_variants` are new.
+  - `logits/read` (single-token `tracked` and `outcomes`, tokenized in
+    context), `logits/read-layers`, `intervene/apply` and `intervene/steer`
+    decision readouts: `tracked.<name>` keeps `{token, p, logp}` with `p`
+    and `logp` of the set and `token` the spelling that reading prefers,
+    and gains `variants` (each spelling's own `{token, p, logp}`; one entry
+    when they coincide). `eval/expect` judging those reads sees the set's
+    mass. In `logits/read`, a spelling whose in-context tokenization would
+    change the prompt's tokens is left out of the set rather than raising.
+    `complete` outcomes, scored exactly by teacher forcing, do not change.
+- **The distances between reads** (`jensen_shannon`, `hellinger`,
+  `total_variation`, `kl` on `logits/distribution` kinds) take each
+  tracked answer's `variants`, each spelling at its own probability, so a
+  token's mass is still counted once; the support they compare over can
+  gain the spelling that was not written.
+
 ## 0.135.0 — 2026-09-24
 
 ### Changes that raise

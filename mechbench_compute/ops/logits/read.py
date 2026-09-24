@@ -20,10 +20,15 @@ assistant's turn is begun with it, so the read happens at the first token
 *after* the prefill — `'{ "name": "'` reads the first token of a JSON value.
 One prefill pass per record gives the full distribution; nothing is sampled.
 
-`tracked` turns the read into a forced choice: each named token is
-tokenized as a continuation of the rendered prompt and the probability of
-its first token is recorded under `tracked` by its name — `{"1": "1", …,
-"6": "6"}` for a die. A `rollout` goes further, expanding the most probable
+`tracked` turns the read into a forced choice: each named answer is
+tokenized as a continuation of the rendered prompt, both with a leading
+space and without one, and the probability of its first token is recorded
+under `tracked` by its name — `{"1": "1", …, "6": "6"}` for a die. The two
+spellings are one answer: `p` is their sum, `logp` its log, `token` the
+spelling the model prefers, and `variants` each spelling's own `{token, p,
+logp}` (one entry when both spell the same token). Which spelling a model
+says first depends on what precedes it — after a chat template's assistant
+prefix it is usually the bare one — so an answer is found either way. A `rollout` goes further, expanding the most probable
 *complete* outcomes token by token (best-first, reusing the prompt cache)
 so that multi-token answers are compared as wholes.
 
@@ -59,12 +64,13 @@ readings.
            "scales this one.",
            required=False),
     ),
-    output=Output('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked token by name, `{token, p, logp}`; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` and `complete_entropy_bits` with `complete`, and `rollout` when one was requested. The header carries `top_k`.'),
+    output=Output('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked answer by name, `{token, p, logp, variants}` — its spellings with and without a leading space summed; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` and `complete_entropy_bits` with `complete`, and `rollout` when one was requested. The header carries `top_k`.'),
     params=(
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"yes\": \" Yes\"}` — the candidate "
-          "answers of a forced choice, each recorded under `tracked`. A "
-          "record's own `tracked` takes precedence.",
+          "answers of a forced choice, each recorded under `tracked`, looked "
+          "for with and without a leading space and scored as the sum of the "
+          "two. A record's own `tracked` takes precedence.",
           None),
         P("top_k", "int", "How many of the most likely tokens to record.", 10),
         P("rollout", "object",
@@ -156,8 +162,9 @@ def run(ctx, inputs, params):
         prefill_decision,
         render,
         score_complete,
-        suffix_tokens,
     )
+    from mechbench_compute.interp.answer import Answer, encode_answer_in_context
+    from mechbench_compute.interp.read_distribution import read_distribution
 
     model = ctx.model(params.get("model"))
     tok = model.tokenizer
@@ -171,7 +178,6 @@ def run(ctx, inputs, params):
     rollout = params.get("rollout")
     complete = params.get("complete")
     top_k = int(params.get("top_k", 10))
-    from mechbench_compute import shapes as S
     out = []
     for cond in conditions:
         key = str(cond["id"])
@@ -184,15 +190,16 @@ def run(ctx, inputs, params):
         rendered, ids = r.text, r.ids
         prefill = prefill_decision(model, ids)
         lp = np.array(prefill[1] - mx.logsumexp(prefill[1])).astype(np.float64)
-        tracked: dict[str, int] = {}
+        tracked: dict[str, Answer] = {}
         for o in (cond.get("outcomes") or []):
-            tracked[str(o)] = int(suffix_tokens(tok, rendered, ids, o)[0])
+            tracked[str(o)] = encode_answer_in_context(tok, str(o), rendered, ids)
         for name, text in dict(cond.get("tracked") or params.get("tracked") or {}).items():
-            tracked.setdefault(str(name), int(suffix_tokens(tok, rendered, ids, str(text))[0]))
+            if str(name) not in tracked:
+                tracked[str(name)] = encode_answer_in_context(tok, str(text), rendered, ids)
         entry: dict[str, Any] = {
             "id": cond["id"],
             "coords": dict(cond.get("coords", {})),
-            **S.distribution(lp, tok, top_k=top_k, tracked=tracked),
+            **read_distribution(tok, lp, top_k=top_k, tracked=tracked),
         }
         if rollout:
             entry["rollout"] = expand_top_outcomes_cached(

@@ -47,7 +47,7 @@ with a `prefill`), where `logits/read` reads.
                          "adapters the model reference itself carries; `adapter_scale` "
                          "scales this one.",
                          required=False)),
-    output=Output('intervene/ablation', collection=True, doc="Per record, one item per layer: `id`, `layer`, `delta_logp`. The header's `conditions` carry each record's untouched read (`{id, target, baseline_logp}`), and `aggregates.mean_delta` / `aggregates.median_delta` are per-layer across all records, in `layers` order."),
+    output=Output('intervene/ablation', collection=True, doc="Per record, one item per layer: `id`, `layer`, `delta_logp`. The header's `conditions` carry each record's untouched read (`{id, target, variants, baseline_logp}` — `target` the spelling the model prefers, `variants` each spelling with and without a leading space as `{token, p, logp}`, and `baseline_logp`, like every Δ, of the spellings together), and `aggregates.mean_delta` / `aggregates.median_delta` are per-layer across all records, in `layers` order."),
     params=(
         P("point", "string | list[string]",
           "The sub-layer output(s) zeroed at each layer: `\"attn_out\"`, "
@@ -62,9 +62,10 @@ with a `prefill`), where `logits/read` reads.
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
           "the target — the answer whose dependence on each layer is measured. "
-          "Each is tokenized as a continuation of the rendered prompt: with a "
-          "leading space after a raw prompt, without one after a chat template's "
-          "assistant prefix. A record's own `tracked` takes precedence; with "
+          "Each answer is looked for with and without a leading space, "
+          "whichever way it is written, and its log-probability is that of the "
+          "two spellings together, on both sides of every Δ. A record's own "
+          "`tracked` takes precedence; with "
           "none named, the model's own top-1 prediction for that prompt is the "
           "target, and a target that differs from it is reported beside it.",
           None),
@@ -133,11 +134,11 @@ def ablate_layers(
         base_lp = read_last_logp(model.run(ids).logits)
         if on_item:
             on_item()
-        tok, _ = resolve_target(model, record, params, base_lp)
-        baseline = float(base_lp[tok])
+        answer, _ = resolve_target(model, record, params, base_lp)
+        baseline = answer.logp(base_lp)
         for layer in layers:
             lp = read_last_logp(model.run(ids, interventions=intervene(layer)).logits)
-            delta = float(lp[tok]) - baseline
+            delta = answer.logp(lp) - baseline
             damage_by_layer[layer].append(delta)
             rows.append({
                 "id": record.get("id"),
@@ -148,10 +149,11 @@ def ablate_layers(
                 on_item()
         conditions.append({
             "id": record.get("id"),
-            "target": S.token(model.tokenizer, tok),
+            "target": S.token(model.tokenizer, answer.preferred),
+            "variants": answer.variants(model.tokenizer, base_lp),
             "baseline_logp": round(baseline, 4),
             "template": "chat" if r.chat else "raw",
-            **report_own_top1(model, tok, base_lp),
+            **report_own_top1(model, answer, base_lp),
         })
 
     return load_kinds().collection(

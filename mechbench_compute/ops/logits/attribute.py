@@ -14,7 +14,7 @@ from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.report_own_top1 import report_own_top1
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
-from mechbench_compute.interp.encode_target_token import encode_target_token
+from mechbench_compute.interp.answer import encode_answer
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
@@ -40,6 +40,13 @@ With two `tracked` tokens, the contributions are to the *difference* of
 their logits (the first minus the second), which is usually the more
 interpretable quantity.
 
+A tracked answer is looked for with and without a leading space, but a
+logit belongs to one token and two logits do not add, so the decomposition
+is of the spelling the model gives more probability on this prompt.
+`target` (and `contrast`) name the spelling decomposed; `variants` (and
+`contrast_variants`) list every spelling with its probability, so a reader
+sees how much of the answer the other spelling carries.
+
 Because additivity only holds over the whole stream, `layers` must be
 `"all"`.
 """,
@@ -55,7 +62,7 @@ Because additivity only holds over the whole stream, `layers` must be
            "scales this one.",
            required=False),
     ),
-    output=Output('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …): `measures.contribution`, the `target` and `contrast` tokens, the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
+    output=Output('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …): `measures.contribution`, the `target` and `contrast` tokens (each the spelling the model prefers, with `variants` and `contrast_variants` listing every spelling as `{token, p, logp}`), the `additivity` check (`summed`, `true_logit`, `residual`), and `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head."),
     params=(
         P("apply_ln", "bool",
           "Fold the final norm's scale into the unembedding so contributions "
@@ -73,9 +80,9 @@ Because additivity only holds over the whole stream, `layers` must be
           None),
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
-          "the target — the logit being decomposed. Each is tokenized as a "
-          "continuation of the rendered prompt: with a leading space after a raw "
-          "prompt, without one after a chat template's assistant prefix. A "
+          "the target — the logit being decomposed. Each answer is looked for "
+          "with and without a leading space, and the spelling the model gives "
+          "more probability on the prompt is the one decomposed. A "
           "record's own `tracked` takes precedence; with none named, the model's "
           "own top-1 prediction for that prompt is the target, and a target that "
           "differs from it is reported beside it.",
@@ -136,11 +143,13 @@ def attribute_logits(
         ids = r.array
         result = model.run(ids, interventions=interventions)
         lp = read_last_logp(result.logits)
-        tok, tracked = resolve_target(model, record, params, lp)
-        others = [t for t in tracked.values() if t != tok]
+        answer, tracked = resolve_target(model, record, params, lp)
+        others = [a for a in tracked.values() if a.ids != answer.ids]
         contrast = record.get("contrast")
-        ctok = (encode_target_token(model, str(contrast)) if contrast
-                else (others[0] if others else None))
+        canswer = (encode_answer(model.tokenizer, str(contrast)).anchored(lp) if contrast
+                   else (others[0] if others else None))
+        tok = answer.preferred
+        ctok = canswer.preferred if canswer is not None else None
 
         acc = attribution.accumulated_resid(result.cache, include_pre=True)
         components = np.diff(acc, axis=0, prepend=np.zeros_like(acc[:1]))
@@ -183,9 +192,12 @@ def attribute_logits(
             {"contribution": [round(float(x), 4) for x in contrib]},
             coords=record.get("coords"),
             target=S.token(model.tokenizer, tok),
+            variants=answer.variants(model.tokenizer, lp),
             contrast=S.token(model.tokenizer, ctok) if ctok is not None else None,
+            contrast_variants=(canswer.variants(model.tokenizer, lp)
+                               if canswer is not None else None),
             template="chat" if r.chat else "raw",
-            **report_own_top1(model, tok, lp),
+            **report_own_top1(model, answer, lp),
             per_head=per_head or None,
             additivity={
                 "summed": round(summed, 3),

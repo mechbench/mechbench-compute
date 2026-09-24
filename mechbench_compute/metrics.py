@@ -135,7 +135,9 @@ def _supports(items: Sequence[Mapping[str, Any]]) -> np.ndarray:
     masses: list[dict[Any, float]] = []
     for d in dists:
         m: dict[Any, float] = {}
-        for entry in list(d.get("top") or []) + list((d.get("tracked") or {}).values()):
+        tracked = [v for t in (d.get("tracked") or {}).values()
+                   for v in (t.get("variants") or [t])]
+        for entry in list(d.get("top") or []) + tracked:
             k = key_of(entry)
             p = entry.get("p")
             if p is None and entry.get("logp") is not None:

@@ -43,7 +43,7 @@ about rather than all of them when the prompt set is large.
                          "adapters the model reference itself carries; `adapter_scale` "
                          "scales this one.",
                          required=False)),
-    output=Output('intervene/heads', collection=False, doc="One grid over axes `[layer, head]`: `measures.mean_delta` is the mean Δ log‑p across records; `conditions` lists each record's `{id, target, baseline_logp}`; `layers` and `n_heads` give the axes."),
+    output=Output('intervene/heads', collection=False, doc="One grid over axes `[layer, head]`: `measures.mean_delta` is the mean Δ log‑p across records; `conditions` lists each record's `{id, target, variants, baseline_logp}` — `target` the spelling the model prefers, `variants` each spelling with and without a leading space as `{token, p, logp}`, and `baseline_logp` (like every Δ) of the spellings together; `layers` and `n_heads` give the axes."),
     params=(
         P("layers", "list[int] | \"all\"",
           "Which layers to run over.",
@@ -51,9 +51,10 @@ about rather than all of them when the prompt set is large.
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
           "the target — the answer whose dependence on each head is measured. "
-          "Each is tokenized as a continuation of the rendered prompt: with a "
-          "leading space after a raw prompt, without one after a chat template's "
-          "assistant prefix. A record's own `tracked` takes precedence; with "
+          "Each answer is looked for with and without a leading space, "
+          "whichever way it is written, and its log-probability is that of the "
+          "two spellings together, on both sides of every Δ. A record's own "
+          "`tracked` takes precedence; with "
           "none named, the model's own top-1 prediction for that prompt is the "
           "target, and a target that differs from it is reported beside it.",
           None),
@@ -96,20 +97,21 @@ def ablate_heads(
         base_lp = read_last_logp(model.run(ids).logits)
         if on_item:
             on_item()
-        tok, _ = resolve_target(model, record, params, base_lp)
-        baseline = float(base_lp[tok])
+        answer, _ = resolve_target(model, record, params, base_lp)
+        baseline = answer.logp(base_lp)
         metas.append({
             "id": record.get("id"),
-            "target": S.token(model.tokenizer, tok),
+            "target": S.token(model.tokenizer, answer.preferred),
+            "variants": answer.variants(model.tokenizer, base_lp),
             "baseline_logp": round(baseline, 4),
             "template": "chat" if r.chat else "raw",
-            **report_own_top1(model, tok, base_lp),
+            **report_own_top1(model, answer, base_lp),
         })
         for li, layer in enumerate(layers):
             for head in range(n_heads):
                 lp = read_last_logp(model.run(
                     ids, interventions=[Ablate.head(layer, head)]).logits)
-                sums[li, head] += float(lp[tok]) - baseline
+                sums[li, head] += answer.logp(lp) - baseline
             if on_item:
                 on_item()
     mean = sums / len(records)

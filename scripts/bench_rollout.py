@@ -71,7 +71,7 @@ def main() -> int:
         t = time.perf_counter(); prefill = distill.prefill_decision(model, r.ids); phases["prefill"].append(ms(t))
         t = time.perf_counter()
         lp = np.array(prefill[1] - mx.logsumexp(prefill[1])).astype(np.float64)
-        S.distribution(lp, tok, top_k=10, tracked={})
+        S.distribution(lp, tok, top_k=10)
         phases["distribution"].append(ms(t))
         t = time.perf_counter()
         out = distill.expand_top_outcomes_cached(model, tok, r.ids, ROLLOUT, prefill=prefill)

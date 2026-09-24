@@ -39,15 +39,16 @@ decides. A set of records renders as overlaid curves.
            "scales this one.",
            required=False),
     ),
-    output=Output('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked`. The header carries `layers` and `top_k`."),
+    output=Output('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, variants}`: `p` and `logp` of its spellings with and without a leading space together, `token` the spelling that layer prefers, `variants` each spelling's own `{token, p, logp}`). The header carries `layers` and `top_k`."),
     params=(
         P("top_k", "int", "How many of the most likely tokens to record per layer.", 5),
         P("tracked", "map[string, string]",
           "Tokens to follow by name: `{\"yes\": \" Yes\", \"no\": \" No\"}` "
           "records each one's probability and log-probability under "
-          "`tracked.<name>`. Tokenized as a continuation, so include the "
-          "leading space where the model would. A record's own `tracked` "
-          "field takes precedence.",
+          "`tracked.<name>`. Each answer is looked for with and without a "
+          "leading space, whichever way it is written, and its probability is "
+          "the two spellings' sum. A record's own `tracked` field takes "
+          "precedence.",
           None),
     ),
     example={
@@ -73,8 +74,8 @@ def run(ctx, inputs, params):
             "the `records` port")
     n_layers = len(model.lm.model.layers)
     top_k = int(params.get("top_k", 5))
-    from mechbench_compute import shapes as S
-    from mechbench_compute.interp import collect_tracked_ids
+    from mechbench_compute.interp.collect_tracked_answers import collect_tracked_answers
+    from mechbench_compute.interp.read_distribution import read_distribution
 
     if ctx.on_start:
         ctx.on_start(len(records))
@@ -85,7 +86,7 @@ def run(ctx, inputs, params):
         r = model.run(
             mx.array([ids]),
             interventions=[Capture.residual(layers=range(n_layers))])
-        tracked = collect_tracked_ids(model, rec, tracked=params.get("tracked"))
+        tracked = collect_tracked_answers(model, rec, tracked=params.get("tracked"))
         for i in range(n_layers):
             row = model.project_to_logits(
                 r.cache[f"blocks.{i}.resid_post"])[0, -1, :]
@@ -95,7 +96,7 @@ def run(ctx, inputs, params):
                 "id": rec["id"],
                 "coords": dict(rec.get("coords", {})),
                 "layer": i,
-                **S.distribution(logp, tok, top_k=top_k, tracked=tracked),
+                **read_distribution(tok, logp, top_k=top_k, tracked=tracked),
             })
         if ctx.on_item:
             ctx.on_item()

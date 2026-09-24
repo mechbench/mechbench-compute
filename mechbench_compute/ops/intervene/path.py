@@ -73,7 +73,7 @@ are far apart, and treat a delta of that size as no path at all.
            required=False),
     ),
     output=Output('intervene/readout', collection=True,
-                  doc='One item per record per sender: `delta` (the change in the target\'s metric from the clean baseline), `value`, `cell` (the sender named), and `coords` carrying the sender\'s `layer`, `point` and `head` beside the receiver\'s `into_layer`, `into_point`, `into_head`. The header carries `metric`, `receiver`, `n_senders` and `target`.'),
+                  doc='One item per record per sender: `delta` (the change in the target\'s metric from the clean baseline), `value`, `cell` (the sender named), and `coords` carrying the sender\'s `layer`, `point` and `head` beside the receiver\'s `into_layer`, `into_point`, `into_head`. The header carries `metric`, `receiver`, `n_senders`, `target` (the spelling the clean prompt prefers) and `variants` (each spelling with and without a leading space as `{token, p, logp}` on the clean prompt).'),
     params=(
         P("receiver", "object",
           "What reads: `{\"point\": \"attn.q\", \"layer\": 23, \"head\": 5}`, "
@@ -91,14 +91,16 @@ are far apart, and treat a delta of that size as no path at all.
           "all-heads"),
         P("metric", "string",
           "What the delta is measured in: the target's log-probability, its "
-          "probability, or its raw logit.",
+          "probability, or its raw logit. The target's spellings with and "
+          "without a leading space count together for the first two; a logit "
+          "belongs to one token, so `logit` reads the spelling the clean prompt "
+          "prefers.",
           "logprob", choices=("logprob", "prob", "logit")),
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
           "the target — the answer whose path is traced; the clean prompt's "
-          "top‑1 by default. Each is tokenized as a continuation of the rendered "
-          "prompt: with a leading space after a raw prompt, without one after a "
-          "chat template's assistant prefix. A record's own `tracked` takes "
+          "top‑1 by default. Each answer is looked for with and without a "
+          "leading space, whichever way it is written. A record's own `tracked` takes "
           "precedence; with none named, the model's own top-1 prediction for "
           "that prompt is the target, and a target that differs from it is "
           "reported beside it.",
@@ -250,16 +252,13 @@ def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[
         want = clean_names + ([recv_name] if recv_name else [])
         a = model.run(ids_clean, interventions=[Capture.at(want)])
         clean_lp = read_last_logp(a.logits)
-        tok, _ = resolve_target(model, record, params, clean_lp)
+        answer, _ = resolve_target(model, record, params, clean_lp)
 
-        def read(logits, tok: int = tok) -> float:
+        def read(logits, answer=answer) -> float:
             row = logits[0, -1, :].astype(mx.float32)
             mx.eval(row)
             arr = np.array(row)
-            if metric == "logit":
-                return float(arr[tok])
-            lp = arr - float(mx.logsumexp(mx.array(arr)))
-            return float(np.exp(lp[tok])) if metric == "prob" else float(lp[tok])
+            return answer.read(metric, arr - float(mx.logsumexp(mx.array(arr))), arr)
 
         baseline = read(a.logits)
         sender_names = sorted({_name(s["point"], s["layer"]) for s in senders})
@@ -301,7 +300,8 @@ def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[
         metric=metric,
         receiver=receiver,
         n_senders=len(senders),
-        target=S.token(model.tokenizer, tok),
+        target=S.token(model.tokenizer, answer.preferred),
+        variants=answer.variants(model.tokenizer, clean_lp),
         description=(
             "Path patching: the change in the target's "
             f"{metric} when each sender's output is corrupted and only the "

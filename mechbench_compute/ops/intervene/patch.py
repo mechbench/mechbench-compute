@@ -9,6 +9,7 @@ from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
+from mechbench_compute.interp.answer import Answer
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.read_pair import read_pair
@@ -78,7 +79,7 @@ only the residual stream.
            "scales this one.",
            required=False),
     ),
-    output=Output('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` activation is patched in — measured under `method: \"exact\"`, estimated at first order under `\"attribution\"` — and `measures.share` is the same cell as a fraction of the `value_a`−`value_b` gap, 0 the corrupt run and 1 the clean one, so pairs with different gaps read on one scale (absent when a pair has no gap); `tokens` are prompt `b`'s; `target`, `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures. The header carries `method`, `point`, `metric`, `layers`."),
+    output=Output('intervene/trace', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.recovery` is the change in the target's `metric` from the `b` baseline when the `a` activation is patched in — measured under `method: \"exact\"`, estimated at first order under `\"attribution\"` — and `measures.share` is the same cell as a fraction of the `value_a`−`value_b` gap, 0 the corrupt run and 1 the clean one, so pairs with different gaps read on one scale (absent when a pair has no gap); `tokens` are prompt `b`'s; `target` (the spelling the clean prompt prefers), `variants` (each spelling with and without a leading space as `{token, p, logp}` on the clean prompt), `metric`, `value_a` and `value_b` (the metric on each prompt) ride along. A pair that could not be aligned has `error` and empty measures. The header carries `method`, `point`, `metric`, `layers`."),
     params=(
         P("layers", "list[int] | \"all\"",
           "Which layers to run over.",
@@ -93,7 +94,10 @@ only the residual stream.
           "registers recovery at any probability mass), `\"prob\"` (raw "
           "probability — only registers when the clean prompt puts real "
           "mass on the target) or `\"logit\"` (the raw logit — the usual "
-          "choice with `attribution`, being the most nearly linear).",
+          "choice with `attribution`, being the most nearly linear). The "
+          "target's spellings with and without a leading space count "
+          "together for `logprob` and `prob`; a logit belongs to one token, "
+          "so `logit` reads the spelling the clean prompt prefers.",
           "logprob", choices=("logprob", "prob", "logit")),
         P("point", "string",
           "The point patched: `\"resid_post\"` (after the layer) or "
@@ -103,9 +107,8 @@ only the residual stream.
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
           "the target — the clean answer whose recovery is traced; defaults to "
-          "the clean prompt's top‑1. Each is tokenized as a continuation of the "
-          "rendered prompt: with a leading space after a raw prompt, without one "
-          "after a chat template's assistant prefix. A record's own `tracked` "
+          "the clean prompt's top‑1. Each answer is looked for with and without "
+          "a leading space, whichever way it is written. A record's own `tracked` "
           "takes precedence; with none named, the model's own top-1 prediction "
           "for that prompt is the target, and a target that differs from it is "
           "reported beside it.",
@@ -176,15 +179,11 @@ def patch_trace(
             continue
         clean_run = model.run(ids_clean, interventions=[cap])
         clean_lp = read_last_logp(clean_run.logits)
-        tok, _ = resolve_target(model, record, params, clean_lp)
-        def read(lp: np.ndarray, logits: np.ndarray | None = None, tok: int = tok) -> float:
-            if metric == "logit":
-                return float(logits[tok])
-            return (float(np.exp(lp[tok])) if metric == "prob"
-                    else float(lp[tok]))
+        answer, _ = resolve_target(model, record, params, clean_lp)
 
-        def read_run(res) -> float:
-            return read(read_last_logp(res.logits), _read_last_logits(res.logits))
+        def read_run(res, answer=answer) -> float:
+            return answer.read(metric, read_last_logp(res.logits),
+                               _read_last_logits(res.logits))
 
         p_clean_in_clean = read_run(clean_run)
         corrupt_run = model.run(ids_corrupt)
@@ -193,7 +192,7 @@ def patch_trace(
         seq = n_corrupt
         if method == "attribution":
             recovery = _compute_attribution_grid(
-                model, ids_corrupt, layers, point, clean_run.cache, tok, metric)
+                model, ids_corrupt, layers, point, clean_run.cache, answer, metric)
             if on_item:
                 on_item()
         else:
@@ -218,7 +217,8 @@ def patch_trace(
         pairs.append(S.grid(
             record.get("id"), ["layer", "position"], measures,
             tokens=tokens, coords=record.get("coords"),
-            target=S.token(model.tokenizer, tok), metric=metric,
+            target=S.token(model.tokenizer, answer.preferred),
+            variants=answer.variants(model.tokenizer, clean_lp), metric=metric,
             value_a=round(p_clean_in_clean, 5), value_b=round(baseline, 5)))
     return load_kinds().collection(
         "intervene/trace", pairs,
@@ -249,18 +249,14 @@ def _read_last_logits(logits: mx.array) -> np.ndarray:
 
 
 def _compute_attribution_grid(model, ids_corrupt, layers: Sequence[int], point: str,
-                              clean_cache, tok: int, metric: str) -> list[list[float]]:
+                              clean_cache, answer: Answer, metric: str) -> list[list[float]]:
     names = [f"blocks.{layer}.{point}" for layer in layers]
     deltas = {n: mx.zeros(clean_cache[n].shape, dtype=mx.float32) for n in names}
 
     def objective(ds):
         hooks = {n: (lambda act, info, d=ds[n]: act + d.astype(act.dtype)) for n in names}
         res = model.run(ids_corrupt, hooks=hooks)
-        row = res.logits[0, -1, :].astype(mx.float32)
-        if metric == "logit":
-            return row[tok]
-        lp = (row - mx.logsumexp(row))[tok]
-        return mx.exp(lp) if metric == "prob" else lp
+        return answer.read_differentiable(metric, res.logits[0, -1, :].astype(mx.float32))
 
     grads = mx.grad(objective)(deltas)
     mx.eval(*grads.values())

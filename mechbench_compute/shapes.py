@@ -84,25 +84,21 @@ def direction_ref(d: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-def distribution(logp: np.ndarray, tokenizer, *, top_k: int,
-                 tracked: Mapping[str, int] | None = None) -> dict[str, Any]:
+def distribution(logp: np.ndarray, tokenizer, *, top_k: int) -> dict[str, Any]:
     lp = np.asarray(logp, dtype=np.float64).reshape(-1)
     probs = np.exp(lp)
     nz = probs[probs > 0]
-    out: dict[str, Any] = {
+    return {
         "entropy_bits": round(float(-(nz * np.log2(nz)).sum()), 4),
-        "top": [_entry(tokenizer, int(t), lp) for t in np.argsort(-lp, kind="stable")[: int(top_k)]],
+        "top": [read_token(tokenizer, int(t), float(lp[t]))
+                for t in np.argsort(-lp, kind="stable")[: int(top_k)]],
     }
-    if tracked:
-        out["tracked"] = {str(name): _entry(tokenizer, int(tid), lp)
-                          for name, tid in tracked.items()}
-    return out
 
 
-def _entry(tokenizer, tid: int, lp: np.ndarray) -> dict[str, Any]:
+def read_token(tokenizer, tid: int, logp: float) -> dict[str, Any]:
     return {"token": token(tokenizer, tid),
-            "p": round(float(math.exp(lp[tid])), _ROUND_P),
-            "logp": round(float(lp[tid]), _ROUND_LOGP)}
+            "p": round(float(math.exp(logp)), _ROUND_P),
+            "logp": round(float(logp), _ROUND_LOGP)}
 
 
 def grid(id: Any, axes: Sequence[str], measures: Mapping[str, Any], *,
@@ -218,5 +214,5 @@ def measures_of(item: Mapping[str, Any], legacy: Mapping[str, str]) -> dict[str,
 __all__ = [
     "coordinate", "coords_of", "direction_ref", "distribution", "distribution_of", "grid",
     "head_of", "label_of", "layer_of", "measures_of", "same_space", "space",
-    "space_of", "token", "vector",
+    "read_token", "space_of", "token", "vector",
 ]

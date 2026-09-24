@@ -30,6 +30,13 @@ model's unembedding as if it were the final layer, and the target token's
 log-probability and rank are read off. Rank 0 means the target is that
 position's top readout.
 
+A tracked answer is the set of its spellings with and without a leading
+space, since which one the model says depends on what comes before it:
+its log-probability is the log of the two spellings' summed probability,
+and its rank is the better of the two ranks. `target` names the spelling
+the model prefers at its final output, and `variants` lists each spelling
+with its probability there.
+
 The map answers: where in the sequence, and at what depth, does the answer
 become visible?
 """,
@@ -43,16 +50,16 @@ become visible?
                          "adapters the model reference itself carries; `adapter_scale` "
                          "scales this one.",
                          required=False)),
-    output=Output('logits/lens', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.logprob` and `measures.rank` (0 is the top readout), `tokens`, and the `target` token."),
+    output=Output('logits/lens', collection=True, doc="One grid per record over axes `[layer, position]`: `measures.logprob` (of the target's spellings together) and `measures.rank` (the better spelling's; 0 is the top readout), `tokens`, the `target` token (the spelling the model prefers at its output) and `variants` (each spelling as `{token, p, logp}` at the output)."),
     params=(
         P("layers", "list[int] | \"all\"",
           "Which layers to run over.",
           "all"),
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
-          "the target — the answer being watched for. Each is tokenized as a "
-          "continuation of the rendered prompt: with a leading space after a raw "
-          "prompt, without one after a chat template's assistant prefix. A "
+          "the target — the answer being watched for. Each answer is followed "
+          "with and without a leading space, whichever way it is written: its "
+          "probability is the two spellings' sum, its rank the better one's. A "
           "record's own `tracked` takes precedence; with none named, the model's "
           "own top-1 prediction for that prompt is the target, and a target that "
           "differs from it is reported beside it.",
@@ -93,9 +100,10 @@ def scan_positions(
     for record in records:
         ids = render(model, record).array
         result = model.run(ids, interventions=[cap])
-        tok, _ = resolve_target(model, record, params, read_last_logp(result.logits))
+        base_lp = read_last_logp(result.logits)
+        answer, _ = resolve_target(model, record, params, base_lp)
         ranks, logprobs = lens.logit_lens_per_position(
-            model, result.cache, tok, layers=layers)
+            model, result.cache, answer, layers=layers)
         tokens = [model.tokenizer.decode([int(t)])
                   for t in np.array(ids).reshape(-1)]
         rows.append(S.grid(
@@ -103,7 +111,8 @@ def scan_positions(
             {"logprob": [[round(float(x), 4) for x in r] for r in logprobs],
              "rank": [[int(x) for x in r] for r in ranks]},
             tokens=tokens, coords=record.get("coords"),
-            target=S.token(model.tokenizer, tok)))
+            target=S.token(model.tokenizer, answer.preferred),
+            variants=answer.variants(model.tokenizer, base_lp)))
         if on_item:
             on_item()
     return load_kinds().collection(

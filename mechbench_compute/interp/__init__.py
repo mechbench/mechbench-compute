@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from mechbench_compute.interp.collect_tracked_ids import collect_tracked_ids  # noqa: F401
 from mechbench_compute.interp.constants import MAX_VECTOR_FLOATS  # noqa: F401
 from mechbench_compute.interp.read_last_logp import read_last_logp  # noqa: F401
 from mechbench_compute.interp.read_pair import read_pair  # noqa: F401

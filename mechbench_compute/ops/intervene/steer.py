@@ -12,7 +12,8 @@ from mechbench_compute._mlx import mx
 from mechbench_compute.distill import render
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.read_last_logp import read_last_logp
-from mechbench_compute.interp.collect_tracked_ids import collect_tracked_ids
+from mechbench_compute.interp.collect_tracked_answers import collect_tracked_answers
+from mechbench_compute.interp.read_distribution import read_distribution
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
@@ -51,7 +52,7 @@ For anything beyond one direction at one layer and position, use
            "scales this one.",
            required=False),
     ),
-    output=Output('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked`. The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas."),
+    output=Output('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, variants}`: `p` and `logp` of its spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling's own `{token, p, logp}`). The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas."),
     params=(
         P("layer", "int",
           "The layer whose residual stream the direction is added to. Items "
@@ -83,9 +84,10 @@ For anything beyond one direction at one layer and position, use
         P("tracked", "map[string, string]",
           "Tokens to follow by name: `{\"yes\": \" Yes\", \"no\": \" No\"}` "
           "records each one's probability and log-probability under "
-          "`tracked.<name>`. Tokenized as a continuation, so include the "
-          "leading space where the model would. A record's own `tracked` "
-          "field takes precedence.",
+          "`tracked.<name>`. Each answer is looked for with and without a "
+          "leading space, whichever way it is written, and its probability is "
+          "the two spellings' sum. A record's own `tracked` field takes "
+          "precedence.",
           None),
     ),
     example={
@@ -168,7 +170,7 @@ def steer_inject(
         position = record.get("position", params.get("position", "last"))
         pos_idx = POS.one(position, seq, tokens=r.tokens(model.tokenizer),
                           record=record, prompt_len=r.prompt_len)
-        tracked = collect_tracked_ids(model, record, tracked=params.get("tracked"))
+        tracked = collect_tracked_answers(model, record, tracked=params.get("tracked"))
         for alpha in alphas:
             interventions = (
                 [] if alpha == 0.0
@@ -179,7 +181,7 @@ def steer_inject(
                 "id": record.get("id"),
                 "coords": dict(record.get("coords") or {}),
                 "factor": alpha,
-                **S.distribution(lp, model.tokenizer, top_k=top_k, tracked=tracked),
+                **read_distribution(model.tokenizer, lp, top_k=top_k, tracked=tracked),
             })
             if on_item:
                 on_item()
