@@ -228,6 +228,8 @@ NOT_LEAF_STREAM: dict[str, str] = {
         "one collection compared under a metric; its items are not bench leaves",
     "records/zip":
         "several branches aligned by key; its input is a set of streams, not one",
+    "records/diff":
+        "two collections matched by key and compared; a pair of streams, not one",
     "geometry/span":
         "one similarity collection, not a leaf stream",
     "adapter/measure":

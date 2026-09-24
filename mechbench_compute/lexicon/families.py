@@ -23,7 +23,9 @@ wrote — and everything plural is a collection of records of one kind.
 This family makes records (`cross` writes one per combination of
 factors, `fill` turns them into prompts), reshapes them (`select`,
 `rename`, `union`, `subtract`), reduces them (`summarize`, `total`,
-`rank`, `bin`) and presents them (`tabulate`, `plot`).
+`rank`, `bin`), compares two collections of them record by record
+(`diff`, the question a re-run asks of its predecessor) and presents
+them (`tabulate`, `plot`).
 
 Two rules run through it. A collection grows by union and never by
 mutation, so a node's output is a new object and the input is untouched.
