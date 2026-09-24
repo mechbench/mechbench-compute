@@ -57,6 +57,13 @@ refuse.
   spelling compares equal to its current name. As a node, its ports
   reference the two results, so the comparison cites both runs; the
   runner's `run diff` verb calls the same function.
+- **`bench.items(path, fields=, where=, sort=, order=, offset=, limit=,
+  lines=, chars=, count=, header=)` (000660).** Reads a stored
+  collection's items projected, filtered, sorted and trimmed on the
+  server, so an agent reading 200 story titles fetches about 12 KB, not
+  400. It lives in `bench_items.py` with `fetch_items`, which moved there;
+  `bench` re-exports both. It needs the mechbench-api deployed with it: an
+  older API ignores the new parameters and returns whole items.
 
 ## 0.132.0 — 2026-09-23
 
