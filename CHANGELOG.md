@@ -13,7 +13,7 @@ nothing said so.
 
 ---
 
-## Unreleased
+## 0.134.0 — 2026-09-23
 
 ### Changes that raise
 
@@ -71,6 +71,18 @@ _None._
 - **`records/tabulate` `by`, `order`, `descending` (000668).** The rows in
   the order asked for, by value or by a listed order of values. Ordering
   is a table's: a stored collection is kept in key order.
+- **A variadic port takes a protocol input beside a node edge (000667).**
+  `dataflow.lower` turned an input edge into the port's inline value and
+  then refused a port with both a value and an edge; each input on a
+  variadic port is now its own ordered entry, counted toward `min_edges`
+  and recorded in the fingerprint, and `records/zip` names a branch from
+  an input after the input. Only protocols that were refused before see
+  a new branch order or name.
+- **`keep: "outputs"` stores an output that reads a held intermediate
+  (000666).** Needs mechbench-schema 0.16.1, whose path grammar now
+  admits a `sha256:` hash segment (71 characters) that it used to hold to
+  the 63-character limit for a named segment; the output's lineage cites
+  the held node by that hash.
 
 ## 0.133.0 — 2026-09-23
 
