@@ -129,6 +129,13 @@ def _decision_leaves(n=30, seed=6):
     return out
 
 
+def _nested_leaves(n=30, seed=12):
+    rng = random.Random(seed)
+    return [{"id": f"n{i}", "coords": {"g": rng.choice(["a", "b"])},
+             "votes": [{"winner": rng.choice("AB")} for _ in range(rng.randint(0, 3))]}
+            for i in range(n)]
+
+
 def _template_leaves(n=25, seed=8):
     rng = random.Random(seed)
     return [{"id": f"v{i}", "coords": {"g": rng.choice(["a", "b"])},
@@ -163,6 +170,13 @@ CATALOG: dict[str, dict] = {
         "leaves": _paired_leaves(),
         "params": {"match_on": ["item"], "baseline_where": {"arm": "base"},
                    "value": "delta"}},
+    "records/count": {
+        "leaves": _leaves(120, seed=5), "params": {"field": "g", "equals": "a"}},
+    "records/correlate": {
+        "leaves": _leaves(120, seed=5),
+        "params": {"x": "delta", "y": "score", "by": ["g"], "interval": 0.9}},
+    "records/unnest": {
+        "leaves": _nested_leaves(), "params": {"field": "votes", "index": "vote"}},
     "records/contrast": {
         "leaves": _paired_leaves(),
         "params": {"value": "delta", "on": "arm", "a": "test", "b": "base",

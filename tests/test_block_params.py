@@ -166,6 +166,18 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/contrast.py", "run"),
         ("ops/records/contrast.py", "_read_field"),
         ("ops/records/contrast.py", "contrast")],
+    "records/count": [
+        ("ops/records/count.py", "run"),
+        ("ops/records/count.py", "count"),
+        ("ops/records/count.py", "_read_level"),
+        ("ops/records/count.py", "CountShare")],
+    "records/correlate": [
+        ("ops/records/correlate.py", "run"),
+        ("ops/records/correlate.py", "correlate"),
+        ("ops/records/correlate.py", "RankPoints")],
+    "records/unnest": [
+        ("ops/records/unnest.py", "run"),
+        ("ops/records/unnest.py", "unnest")],
     "text/render": [
         ("ops/text/render.py", "run"),
         ("ops/text/render.py", "parse_sees"),

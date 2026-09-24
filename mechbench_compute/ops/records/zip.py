@@ -20,7 +20,10 @@ each branch's record for a key IN one record.
 
 The **key** is `id` by default, or a list of coordinate names — `by:
 ["prompt", "seed"]` — which is what to use when two branches number their
-records differently but share a design. Two records with the same key in
+records differently but share a design. A name that is not a coordinate
+is read from the record's top-level field of that name, so a table's rows
+zip by the columns they were grouped on; the zipped record carries the
+key as coordinates either way. Two records with the same key in
 one branch are refused: zip needs one per key, and the fix is usually to
 key on more coordinates.
 
@@ -43,7 +46,8 @@ absent, for a readout that can report a missing arm.
     output=Output('records/record', collection=True, doc="One record per key: `id`, `coords` from the first branch that has it, and `branches` — a map of branch name to that branch's record (or `{missing: true}` under `placeholder`). With `flatten`, each branch's fields are copied up under a `<branch>_` prefix instead. The header carries `branches` (name, source node, count) and `zipped` (the key, how many came out, the policy, and what was dropped)."),
     params=(
         P("by", "\"id\" | list[string]",
-          "What to align on: record ids, or the named coordinates.",
+          "What to align on: record ids, or the named coordinates (a "
+          "top-level field where a record has no such coordinate).",
           "id"),
         P("on_mismatch", "string",
           "A key missing from some branch: `\"fail\"`, `\"drop\"` (keep only "
@@ -109,16 +113,21 @@ def zip_branches(inputs: Mapping[str, Any],
         raise ValueError(
             f"on_mismatch is 'fail', 'drop' or 'placeholder', not {on_mismatch!r}")
 
-    def key_of(rec: Mapping[str, Any]) -> Any:
-        if by == "id":
-            return str(rec.get("id"))
+    def read_key_values(rec: Mapping[str, Any]) -> dict[str, Any]:
+        # A coordinate first, then a top-level field of the same name: a
+        # table's rows carry their grouping as fields.
         coords = rec.get("coords") or {}
-        missing = [c for c in by if c not in coords]
+        missing = [c for c in by if c not in coords and rec.get(c) is None]
         if missing:
             raise ValueError(
                 f"record {rec.get('id')!r} has no {', '.join(missing)} "
                 f"coordinate to zip by")
-        return tuple(str(coords[c]) for c in by)
+        return {c: coords[c] if c in coords else rec[c] for c in by}
+
+    def key_of(rec: Mapping[str, Any]) -> Any:
+        if by == "id":
+            return str(rec.get("id"))
+        return tuple(str(v) for v in read_key_values(rec).values())
 
     indexed: list[dict[Any, Mapping[str, Any]]] = []
     for e in edges:
@@ -155,7 +164,8 @@ def zip_branches(inputs: Mapping[str, Any],
         first = next(r for r in present if r is not None)
         rec: dict[str, Any] = {
             "id": str(first.get("id")) if by == "id" else "-".join(k),
-            "coords": dict(first.get("coords") or {}),
+            "coords": ({**(first.get("coords") or {}), **read_key_values(first)}
+                       if by != "id" else dict(first.get("coords") or {})),
         }
         if flatten:
             for label, r in zip(labels, present):

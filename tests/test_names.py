@@ -56,7 +56,7 @@ VERBS = {
     "bin", "bootstrap", "build", "bump", "cache", "calculate", "call", "cap",
     "capture", "chat", "check", "choose", "classify", "clamp", "clear",
     "close", "coerce", "collect", "compare", "compile", "compute", "contrast",
-    "convert", "copy", "count", "cross", "decode", "decompose", "delete",
+    "convert", "copy", "correlate", "count", "cross", "decode", "decompose", "delete",
     "describe", "digest", "dispatch", "drop", "dump", "edit", "emit",
     "encode", "ensure", "estimate", "expand", "expect", "extend", "extract",
     "fetch", "fill", "filter", "find", "finish", "fit", "flatten",
@@ -75,7 +75,7 @@ VERBS = {
     "stack", "start", "steer", "stop", "store", "strip", "subtract", "sum",
     "summarize", "sweep", "tabulate", "take", "test", "time", "tokenize",
     "total", "trace", "track", "train", "trim", "truncate", "try", "unembed",
-    "union", "unpack", "update", "use", "validate", "verify", "walk", "wrap",
+    "union", "unnest", "unpack", "update", "use", "validate", "verify", "walk", "wrap",
     "write", "yield", "zip",
 }
 

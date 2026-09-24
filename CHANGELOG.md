@@ -13,6 +13,37 @@ nothing said so.
 
 ---
 
+## Unreleased (branch `analyses`)
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._ `records/zip` with `by` a list of names now reads a name that is
+not a coordinate from the record's top-level field, where it used to
+refuse the record; a zip that ran before runs the same.
+
+### Other
+
+- **`records/count` (000659).** k of n records whose `field` equals a
+  value, the proportion and its Wilson score interval, one row per `by`
+  group; `on_missing: "skip"` reports `n_missing`. A `MONOID` (sums).
+- **`records/correlate` (000659).** Spearman's rank correlation between
+  two numeric fields (ties at their average rank), one row per `by`
+  group; `interval` adds the Fisher z interval with the Bonett–Wright
+  standard error. A `MONOID` (the multiset of points).
+- **`records/unnest` (000659).** One record per element of a list field,
+  keeping the parent's coordinates plus an `index` coordinate and
+  `parent`: what makes a verdict's votes countable.
+- **`records/zip` keys on fields.** A `by` name that is not a coordinate
+  is read from the top-level field, so a table's rows zip by their
+  grouping columns, and the zipped record carries the key as
+  coordinates.
+
+---
+
 ## 0.132.0 — 2026-09-23
 
 ### Changes that raise
