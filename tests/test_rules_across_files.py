@@ -71,3 +71,113 @@ def test_a_function_call_replayed_without_its_reasoning_names_no_item_id():
              if i.get("type") == "function_call"]
     assert items == [{"type": "function_call", "call_id": "call_1", "name": "calc",
                       "arguments": '{"x": 1}'}]
+
+
+def test_the_tls_contexts_trust_certifi_not_the_interpreter_store(monkeypatch):
+    import ssl
+
+    import certifi
+
+    from mechbench_compute import guests
+    from mechbench_compute.providers import http
+
+    seen = []
+    monkeypatch.setattr(ssl, "create_default_context",
+                        lambda *a, **kw: seen.append(kw.get("cafile")) or object())
+    monkeypatch.setattr(http, "_ctx", None)
+    bench._tls("https://api.test")
+    guests._tls_context()
+    http._ssl_context()
+    assert seen == [certifi.where()] * 3
+
+
+def test_the_runner_reads_the_credential_file_compute_reads(monkeypatch, tmp_path):
+    import pathlib
+
+    monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: tmp_path))
+    assert bench._config_file() == tmp_path / ".mechbench" / "config.toml"
+
+
+def test_a_checkpoint_directory_carries_the_names_the_runner_eviction_reads(
+        monkeypatch, tmp_path):
+    import pathlib
+
+    from mechbench_compute import checkpoint
+    from mechbench_compute.protocol import ProtocolExecutor
+
+    monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(bench, "fetch", lambda label, with_meta=False: (
+        {"kind": "checkpoint_manifest", "files": []}, {}))
+    target = tmp_path / "materialized"
+    target.mkdir()
+    roots = []
+    monkeypatch.setattr(checkpoint, "materialize",
+                        lambda payload, fetch_file, root, **kw: roots.append(root) or target)
+    ProtocolExecutor()._materialize_checkpoint("o/p/checkpoints/c")
+    assert roots == [tmp_path / ".mechbench" / "checkpoints"]
+    assert (target / ".label").read_text() == "o/p/checkpoints/c"
+    assert checkpoint._COMPLETE_MARK == ".complete"
+
+
+def test_an_emitted_payload_keeps_its_bytes_binary(monkeypatch):
+    sent = []
+    monkeypatch.setattr(bench, "_request", lambda method, url, key, body=None, **kw:
+                        sent.append(body) or {})
+    bench.configure(api_url="https://api.test", api_key="k")
+    raw = b"\xff\x00\x80safetensors"
+    bench.emit("o/p/results/adapter", {"kind": "adapter/lora", "data": raw})
+    assert ms.load_raw(sent[0])["payload"]["data"] == raw
+
+
+def test_hub_progress_counts_the_byte_bars_and_not_the_file_count_bar():
+    import io
+
+    from mechbench_compute import hub
+
+    seen = []
+    bar = hub._progress_tqdm(lambda done, total: seen.append((done, total)))
+    files = bar(total=3, unit="it", file=io.StringIO())
+    shard = bar(total=100, unit="B", file=io.StringIO())
+    files.update(1)
+    shard.update(40)
+    assert seen == [(40, 100)]
+
+
+class _AddedToken:
+    def __init__(self, content):
+        self.content = content
+
+
+class _UnkTokenizer:
+    eos_token_id = 1
+    unk_token_id = 3
+
+    def __init__(self):
+        self.added_tokens_decoder = {106: _AddedToken("<turn|>"), 2: _AddedToken("<bos>")}
+
+    def convert_tokens_to_ids(self, token):
+        return self.unk_token_id
+
+
+def test_turn_end_ids_come_from_the_added_tokens_and_never_the_unk_id():
+    from mechbench_compute import generate
+
+    assert generate._stop_ids(_UnkTokenizer()) == {1, 106}
+
+
+def test_a_head_ablation_keeps_the_float32_mask_promotion():
+    import mlx.core as mx
+
+    from mechbench_compute import Ablate
+
+    hook = Ablate.head(0, 1).as_hooks()["blocks.0.attn.per_head_out"]
+    out = hook(mx.ones((1, 4, 2, 3), dtype=mx.bfloat16), None)
+    assert out.dtype == mx.float32
+    assert float(mx.abs(out[:, 1]).sum()) == 0.0 and float(out[:, 0].sum()) == 6.0
+
+
+def test_a_sampled_noise_level_is_the_value_every_stored_corpus_drew():
+    from mechbench_compute.ops.records import cross
+
+    value = cross._sample_value({"kind": "noise", "size": 12, "seed": 7}, 3)
+    assert value == 'Trf?x"ihw"I!'

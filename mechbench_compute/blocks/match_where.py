@@ -8,6 +8,7 @@ from typing import Any
 
 from mechbench_compute.blocks.read_field import read_field
 
+# external: mechbench-api — src/lib/item_query.ts parses and applies the same PATH OP VALUE grammar over the same dot paths; change both together
 OPS = ("!=", "<=", ">=", "=", "<", ">", "~")
 
 _WHERE = re.compile(r"^([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)(!=|<=|>=|=|<|>|~)([\s\S]*)$")

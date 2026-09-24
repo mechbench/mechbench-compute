@@ -104,6 +104,7 @@ def resolve(
     ref = parse(value)
     if ref.is_endpoint:
         return ref
+    # external: mechbench-models — the ModelRef wire schema caps `adapters` at 8 (src/protocol.ts); change both together
     if len(ref.adapter_labels) > 8:
         raise ValueError(
             f"adapter stack of depth {len(ref.adapter_labels)} — the cap "

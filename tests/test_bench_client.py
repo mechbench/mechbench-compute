@@ -318,6 +318,15 @@ class TestWatch:
         assert seen[0][1]["status"] is None and "502" in seen[0][1]["error"]
         assert seen[-1][1]["status"] == "done"
 
+    @pytest.mark.parametrize("status", ["done", "done_with_missing", "failed",
+                                        "cancelled", "interrupted"])
+    def test_every_finished_state_the_api_reports_ends_the_watch(self, fake, status):
+        fake.add("GET", "/jobs/j", Seq([
+            {"status": status},
+            RuntimeError("polled again after a finished state"),
+        ]))
+        assert [j["status"] for _, j in bench.watch(["j"], interval=0)] == [status]
+
     def test_two_jobs_both_run_to_terminal(self, fake):
         fake.add("GET", "/jobs/a", {"status": "done"})
         fake.add("GET", "/jobs/b", {"status": "failed", "errorMessage": "boom"})

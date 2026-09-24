@@ -207,6 +207,7 @@ def _forward_logits(lm, ids: list[int]) -> mx.array:
     return (out.logits if hasattr(out, "logits") else out)[0]
 
 
+# external: MLX/Metal — a full [seq, vocab] float32 logits tensor in the gradient graph trips the command-buffer watchdog on long prompts; slice rows before the cast
 def soft_ce(lm, batch: list[Example]) -> mx.array:
     total = mx.zeros(())
     count = 0
@@ -369,6 +370,7 @@ def score_items_fast(model, prompt_ids: list[int],
     return out
 
 
+# external: mlx-lm, mlx-vlm — batched (B>1) cached decoding corrupts every row after the first on the suffix step; keep prefix-cache scoring batch-1
 def _copy_prefix_cache(cache):
     import copy as _copy
     out = []

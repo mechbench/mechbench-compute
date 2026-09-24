@@ -178,6 +178,13 @@ class TestDeepSeek:
         assert turn["reasoning_content"] == "Use the calculator."
         assert turn["content"] is None
 
+    def test_fireworks_is_handed_its_reasoning_back_with_tools(self, monkeypatch):
+        _, script = run_chat(monkeypatch, "fireworks", "accounts/fireworks/models/kimi-k2",
+                             chat_bodies({"reasoning_content": "Use the calculator."},
+                                         {"reasoning_content": "It said 4."}))
+        turn = assistant_turn(script.sent[1], "fireworks")
+        assert turn["reasoning_content"] == "Use the calculator."
+
     def test_deepseek_is_a_registered_provider(self):
         from mechbench_compute.providers import pricing, registry
 
