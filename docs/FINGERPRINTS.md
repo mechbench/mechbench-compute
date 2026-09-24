@@ -1,11 +1,9 @@
 # What a node fingerprint covers, and what it does not
 
-Task 000433. A run that errors is a nuisance; a run that returns
-different numbers with no signal is a corrupted finding that gets
-written up, cited and built on. `resume.node_fingerprint` is what
-stands between us and the second one, so this is an inventory of what
-it actually covers — written after auditing it, not from the design
-intent.
+A run that errors is a nuisance; a run that returns different numbers
+with no signal is a corrupted finding that gets written up, cited and
+built on. `resume.node_fingerprint` is what stands between us and the
+second one, so this is an inventory of what it actually covers.
 
 ## The body that is hashed
 
@@ -46,30 +44,22 @@ different orders are one computation.
   what a block *does* without changing its name or its declared params
   and only `compute` notices.
 - **The environment** beyond the compute version: MLX version, chip,
-  numerics. Those are recorded as hardware/numerics lineage (000402)
-  but are not part of process identity.
+  numerics. Those are recorded as hardware/numerics lineage but are
+  not part of process identity.
 
-## Why `compute` had to be fixed (2026-09-11)
+## The version on a source tree
 
 `core_version` is `mechbench_compute.__version__`, which reads the
 installed distribution's **metadata**. Under `pip install -e`, that
 metadata only updates when somebody reinstalls — so the code can run
-arbitrarily far ahead of the version it claims.
-
-This was not hypothetical. Measured on this project the same day:
-
-- the runner's repo venv reported **0.20.0 while executing 0.36.0
-  code** — sixteen versions of drift;
-- the same interpreter reported **0.37.0 from the source repo and
-  0.36.0 from anywhere else**, because `importlib.metadata` resolved a
-  different dist depending on the working directory.
-
-Combined with "unstated defaults are not covered," that made a stale
-string the only thing standing between a changed block default and a
+arbitrarily far ahead of the version it claims, and `importlib.metadata`
+can resolve a different dist depending on the working directory.
+Combined with "unstated defaults are not covered," a stale string would
+be the only thing standing between a changed block default and a
 silently reused partial.
 
-**The fix:** when the imported package is *not* inside `site-packages`
-/ `dist-packages` — i.e. it is a source tree someone can edit — the
+So when the imported package is *not* inside `site-packages` /
+`dist-packages` — i.e. it is a source tree someone can edit — the
 version gains a digest of the `.py` content actually on disk:
 
 ```
@@ -98,9 +88,8 @@ is a **demand**, not a guarantee:
   capture is bit-identical.
 - `exchangeable` does not satisfy `reproducible`.
 
-Both of those are deliberate and documented in `resume.py`. Tests in
-`tests/test_fingerprints.py` pin them so the next reader does not have
-to re-derive the polarity.
+Both of those are deliberate. Tests in `tests/test_fingerprints.py`
+pin them so the next reader does not have to re-derive the polarity.
 
 A block absent from `BLOCK_RESUME` is `restart` — safe by omission.
 `residuals/vectors` and `vectors/mst` are both absent, so no partial of
@@ -111,8 +100,8 @@ theirs is ever reused.
 > If a change alters results without raising, it must move a
 > fingerprint.
 
-Today the only lever for "semantics changed" is the compute version, so
-that rule reduces to: **bump the version in the same commit as the
-behaviour change.** On a dev machine the source digest now enforces it
-automatically; on a released install it is still a human promise, which
-is what task 000434's two-list release notes are for.
+The only lever for "semantics changed" is the compute version, so that
+rule reduces to: **bump the version in the same commit as the behaviour
+change.** On a dev machine the source digest enforces it automatically;
+on a released install it is a human promise, which the release notes
+keep.

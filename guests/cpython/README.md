@@ -1,7 +1,7 @@
 # cpython — the sandbox's Python guest
 
 CPython 3.13.3 compiled to `wasip1` with wasi-sdk, plus its standard
-library as a directory to mount read-only. Task 000453.
+library as a directory to mount read-only.
 
 ## Shape
 
@@ -10,10 +10,9 @@ library as a directory to mount read-only. Task 000453.
 is **pure `.py` files** — `build/stdlib/`, ~10 MB, 530 files after
 trimming test suites, the IDE, tk, and the packaging bootstrap.
 
-This is the mount design 000358/000360 wanted: the stdlib is a
-read-only tree beside the working snapshot, not frozen into the binary,
-so a user can extend it with pure-Python packages by layering another
-mount. It runs with the stdlib preopened at `/usr/local/lib/python3.13`
+The stdlib is a read-only tree beside the working snapshot, not frozen
+into the binary, so a user can extend it with pure-Python packages by
+layering another mount. It runs with the stdlib preopened at `/usr/local/lib/python3.13`
 and `PYTHONHOME=/usr/local`.
 
 ## What works (smoke-tested in the sandbox)
@@ -37,7 +36,7 @@ and `PYTHONHOME=/usr/local`.
 - `sys.exit(n)` for n >= 126: WASI hosts reject `proc_exit` outside
   [0, 126) and CPython calls it directly, so the status clamps to 126.
   A `sitecustomize` hook writing `/.mechbench/exit` (the sandbox side
-  channel) is the fix — see 000453.
+  channel) is the fix.
 
 ## Build
 

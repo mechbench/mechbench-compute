@@ -1,7 +1,7 @@
 # mbshell — the sandbox's shell guest
 
 go-busybox's applets behind an in-process POSIX shell, standard Go
-compiled to `wasip1`. Task 000359.
+compiled to `wasip1`.
 
 ## Why not busybox's own `sh`
 

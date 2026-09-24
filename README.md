@@ -45,8 +45,7 @@ for tok, p in result.top_k(model.tokenizer, k=5):
 ## Distributional-target training (`distill` + `lora`)
 
 Primitives for training a model toward a specified *distribution* over
-responses rather than toward example responses (task
-`000114`):
+responses rather than toward example responses:
 soft-target cross-entropy at decision tokens has gradient P − T, so the
 adapter learns to *emit the distribution*.
 
@@ -103,7 +102,7 @@ adapter into the weights and every instrumented run sees the adapted
 model; `restore` flips it back, so base-vs-adapted comparisons run in one
 script.
 
-**Scoring tiers** (task 000227): `score_items` is the sequential
+**Scoring tiers**: `score_items` is the sequential
 reference oracle; `score_items_batched` adds length-bucketed batching
 (~1.5×); `score_items_fast` additionally splits the forward via
 `Model.trunk_hidden` / `Model.head_logits` and unembeds only the
@@ -129,9 +128,7 @@ is the remaining ~5–10× path.
 
 ## Status
 
-The `Arch` adapter supports Gemma 4 E4B and E2B; generalization to other architecture families is ongoing.
-
-The substrate epic that will define how intermediate results are cached and shared across experiments is `000162` (DAG solver + content-addressed memoization). It consumes the canonical-serialization guarantee from `000161` (binary formats) and the path grammar from `000163` (identity scheme).
+The hook-aware forwards cover Gemma 4, Gemma 3, Qwen 2.x and Llama 3.x.
 
 ## Relationship to other mechbench repos
 
