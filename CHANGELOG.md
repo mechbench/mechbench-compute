@@ -13,7 +13,7 @@ nothing said so.
 
 ---
 
-## Unreleased
+## 0.135.0 — 2026-09-24
 
 ### Changes that raise
 
@@ -50,6 +50,16 @@ nothing said so.
   families now share one mask routine that handles `None`, `"causal"`,
   boolean and additive masks, and a probed forward reproduces the plain
   forward's logits.
+
+### Other
+
+- **Comments and docstrings erased.** Only directives and `# external:`
+  facts remain as comments; docstrings remain only on the bench client's
+  public functions, which the docs site reads. A gate in the suite keeps it
+  so, and tests now hold the outside facts the comments carried. Error
+  messages no longer name internal tasks.
+- **Requires mechbench-schema 0.17.0**, whose `EndpointProvider` lists
+  `deepseek`; a test holds the provider registry and schema's list equal.
 
 ---
 
