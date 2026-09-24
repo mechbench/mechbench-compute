@@ -435,3 +435,93 @@ class TestCredentialDiscovery:
     def test_a_missing_login_is_a_clear_error(self, clean):
         with pytest.raises(bench.BenchError, match="mechbench login"):
             bench._config(None, None)
+
+
+class TestProtocolFiles:
+    """Push and export: the server decides what a push does;
+    the client reads the file and names the project."""
+
+    FILE = {"name": "draws", "description": "d", "params": [], "inputs": [],
+            "outputs": [{"name": "a", "from": {"node": "a"}}],
+            "graph": {"dataflow": 2, "nodes": [], "edges": []}}
+
+    def test_push_reads_the_file_and_names_the_project(self, fake, tmp_path):
+        import json
+        f = tmp_path / "draws.json"
+        f.write_text(json.dumps(self.FILE))
+        fake.add("POST", "/protocols/push", {"action": "unchanged", "protocol": {"id": "prt_1"}})
+        out = bench.push_protocol(f, "benji/lab")
+        assert out["action"] == "unchanged"
+        body = json.loads(fake.calls[-1]["body"])
+        assert body == {"ownerKind": "user", "ownerHandle": "benji", "projectSlug": "lab",
+                        "protocol": self.FILE}
+
+    def test_push_takes_a_parsed_file_and_an_org(self, fake):
+        import json
+        fake.add("POST", "/protocols/push", {"action": "created"})
+        bench.push_protocol(self.FILE, "acme/lab", owner_kind="org")
+        assert json.loads(fake.calls[-1]["body"])["ownerKind"] == "org"
+
+    def test_push_refuses_a_project_that_is_not_owner_slash_project(self, fake):
+        import pytest
+        with pytest.raises(ValueError, match="owner/project"):
+            bench.push_protocol(self.FILE, "lab")
+
+    def test_push_refuses_a_file_that_is_not_json(self, fake, tmp_path):
+        import pytest
+        f = tmp_path / "x.json"
+        f.write_text("name: draws")
+        with pytest.raises(bench.BenchError, match="not a JSON protocol file"):
+            bench.push_protocol(f, "benji/lab")
+
+    def test_a_refusal_carries_its_code_and_findings(self, fake):
+        import pytest
+        fake.add("POST", "/protocols/push", bench.BenchError(
+            "400", status=400, body={"code": "WIRING", "findings": [{"code": "UNKNOWN_PARAM"}]}))
+        with pytest.raises(bench.BenchError) as e:
+            bench.push_protocol(self.FILE, "benji/lab")
+        assert e.value.code() == "WIRING"
+
+    def test_export_writes_the_text_exactly(self, fake, tmp_path):
+        text = '{\n  "name": "draws"\n}\n'
+        fake.add("GET", "/protocols/prt_1/export?version=2",
+                 {"protocolId": "prt_1", "version": 2, "text": text})
+        f = tmp_path / "out.json"
+        out = bench.export_protocol("prt_1", version=2, path=f)
+        assert out["version"] == 2
+        assert f.read_text() == text
+
+    def test_export_of_the_head_names_no_version(self, fake):
+        fake.add("GET", "/protocols/prt_1/export", {"text": "{}\n", "version": 5})
+        bench.export_protocol("prt_1")
+        assert fake.calls[-1]["url"].endswith("/protocols/prt_1/export")
+
+
+class TestRunLabels:
+    """Labels: set at launch, changed with label_run, found
+    with runs."""
+
+    def test_launch_sends_the_label(self, fake):
+        import json
+        fake.add("POST", "/runs", {"id": "r", "jobId": "j", "label": "P0"})
+        bench.launch("p", params={}, label="P0")
+        assert json.loads(fake.calls[-1]["body"]) == {"params": {}, "label": "P0"}
+
+    def test_runs_filters_on_the_server(self, fake):
+        fake.add("GET", "/runs", [{"id": "r1", "label": "P0 on"}])
+        out = bench.runs(label_contains="P0", project="benji/lab", limit=5)
+        assert out == [{"id": "r1", "label": "P0 on"}]
+        url = fake.calls[-1]["url"]
+        assert "labelContains=P0" in url and "project=benji%2Flab" in url and "limit=5" in url
+
+    def test_runs_with_no_filter_asks_for_your_own(self, fake):
+        fake.add("GET", "/runs", [])
+        bench.runs()
+        assert fake.calls[-1]["url"] == "https://api.test/runs"
+
+    def test_label_run_patches_and_can_clear(self, fake):
+        import json
+        fake.add("PATCH", "/runs/j_1", {"id": "run_1", "label": None, "changed": True})
+        out = bench.label_run("j_1", None)
+        assert out["changed"] is True
+        assert json.loads(fake.calls[-1]["body"]) == {"label": None}

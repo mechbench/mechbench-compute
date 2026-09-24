@@ -13,11 +13,21 @@ nothing said so.
 
 ---
 
-## Unreleased — every generation says how it ended (000657); `text/generate` keeps reasoning out of `text` (000662)
+## 0.132.0 — 2026-09-23
 
 ### Changes that raise
 
-_None._
+- **The legacy dataflow form is refused, not read (000565).** A graph
+  without the `"dataflow": 2` marker, or carrying the old form's pieces
+  (string holes such as `"$model"`, `$fetch` and `$hf_*` references, the
+  protocol-input node, run `bindings`, `emits`), raises
+  `LEGACY_DATAFLOW` naming what it found and pointing at the declared
+  form. Every stored protocol on prod was checked first and none is in
+  the old form. `ops.Context.declared` is gone: it only told the two
+  forms apart. Write such a graph in the declared form.
+- **`bench.launch` takes params and inputs by keyword only.** The
+  positional `bindings` argument went with the old form: call
+  `launch(protocol, params=..., inputs=...)`.
 
 ### Changes that alter results without raising
 
@@ -43,10 +53,11 @@ _None._
   its regeneration), and four stories in 018's script-era files. Stored
   results are not rewritten.
 
-The rest of this release is additive: a local item's `text` and every
-field it had are byte-identical (checked by running the same small
-`text/generate` and local `text/chat` graph on the previous release and
-this one).
+### Other
+
+Everything below is additive: a local item's `text` and every field it
+had are byte-identical (checked by running the same small
+`text/generate` and local `text/chat` graph on 0.131.0 and this).
 
 - **`metadata.sampling.ended` on every item of `text/chat`**, local
   and remote, in the words `text/generate` already used: `end`, `stop`,
@@ -61,6 +72,25 @@ this one).
 - **A run's manifest carries it too**: `node_summaries.<node>.ended`
   for every generation node, so a job's result says whether any node
   was cut off without fetching the node.
+- **The Responses API for OpenAI and xAI (000650).** `text/chat` takes
+  `api: "responses"` (or `"chat_completions"`, the default for every model
+  but those Chat Completions cannot serve with tools, which default to
+  Responses). Reasoning items, `encrypted_content` included, are kept
+  verbatim in the item's `reasoning` and sent back only to the same
+  provider and model; requests are stateless (`store: false`). The field
+  joins a request's hash only when it is `"responses"`, so every existing
+  hash, cassette and memo is unchanged.
+- `bench.push_protocol(file, "owner/project")` pushes a protocol file:
+  the server creates it by name, versions it when its graph or signature
+  changed, updates only its description, or leaves it unchanged, and
+  refuses the legacy form and failed wiring with their findings.
+  `bench.export_protocol(protocol, version=, path=)` writes the canonical
+  file a push reads back as unchanged. Both need mechbench-api with
+  `POST /protocols/push` (epic 000654).
+- `bench.launch(..., label=)` labels a run; `bench.runs(label=,
+  label_contains=, protocol=, project=, owner=, limit=)` lists runs by
+  label with their job, status, versions and spend; `bench.label_run(run,
+  label)` relabels one. They need mechbench-api with `/runs`.
 
 ## 0.131.0 — 2026-09-22
 

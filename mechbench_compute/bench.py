@@ -62,15 +62,10 @@ class BenchError(RuntimeError):
 
 
 class BenchTransportError(BenchError):
-    """The call never got an answer the server stands behind: a dead
-    socket, a timeout, or a 5xx that survived every retry.
-
-    Separate from `BenchError` because the two mean opposite things to a
-    caller holding expensive compute. A 4xx says the payload is wrong and
-    will still be wrong next time. A transport failure says nothing about
-    the payload, so a host can keep the bytes and try again later instead
-    of discarding the work that produced them.
-    """
+    """No answer the server stands behind: a dead socket, a timeout, or a
+    5xx that survived every retry. A 4xx says the payload is wrong and
+    will be wrong next time; this says nothing about the payload, so a host
+    holding expensive compute keeps the bytes and tries again later."""
 
 
 #: Bounded retry for failures that carry no verdict on the request.
@@ -93,17 +88,11 @@ _DEFAULTS: dict[str, str] = {}
 
 
 def configure(*, api_url: str | None = None, api_key: str | None = None) -> None:
-    """Tell this module where the API is, without using the environment.
-
-    Research scripts set MECHBENCH_API_URL/MECHBENCH_API_KEY and that
-    stays the default. A *host* embedding this layer — mechbench-runner —
-    resolves credentials its own way: they live in
-    ~/.mechbench/config.toml, not the environment. Without this hook
-    such a host's pipeline executes perfectly and then fails on its
-    first emit with "no API url".
-
-    Explicit arguments to a call still win over anything set here.
-    """
+    """Tell this module where the API is without the environment, for a
+    host (mechbench-runner) whose credentials live in
+    ~/.mechbench/config.toml: without it such a host's pipeline runs and
+    then fails at its first emit with "no API url". Explicit arguments to
+    a call still win over anything set here."""
     if api_url:
         _DEFAULTS["url"] = api_url
     if api_key:
@@ -182,18 +171,11 @@ def _config(api_url: str | None, api_key: str | None) -> tuple[str, str]:
 
 
 def _tls(url: str) -> ssl.SSLContext | None:
-    """A TLS context with CA roots that exist.
-
-    `urllib` uses OpenSSL's default trust store, and a Python installed
-    by uv or from python.org on macOS has none — the default context
-    holds *zero* certificates. Every https:// call then fails with
-    CERTIFICATE_VERIFY_FAILED while anything using httpx keeps working,
-    because httpx bundles certifi.
-
-    The same asymmetry hit mechbench-runner's websocket client. Two
-    modules in this stack talk TLS without httpx; both now say so
-    explicitly.
-    """
+    """A TLS context with CA roots that exist: `urllib` uses OpenSSL's
+    trust store, which a Python from uv or python.org on macOS leaves
+    empty, so every https:// call fails CERTIFICATE_VERIFY_FAILED while
+    httpx, which bundles certifi, works. The runner's websocket client
+    says the same."""
     if not url.startswith("https://"):
         return None
     import ssl
@@ -574,10 +556,8 @@ def list_prefix_hashes(prefix: str, *, api_url: str | None = None,
 
 # --- runs, jobs, results -----------------------------------------------------
 #
-# The library under the three CLI verbs: launch a protocol, watch its
-# jobs, find a run by what it ran, read a node's result. The `mechbench
-# run/watch/result` verbs (mechbench-runner) are thin wrappers over
-# these; there is one implementation.
+# Launch, watch, find and read: the one implementation under the
+# `mechbench run/watch/result/runs/label` verbs (mechbench-runner).
 
 #: A job is finished — successfully or not — in exactly these states.
 #: `done_with_missing` is finished: the run completed and part
@@ -590,7 +570,8 @@ def launch(protocol: str, *,
            params: dict[str, Any] | None = None,
            inputs: dict[str, Any] | None = None,
            keep: str | None = None,
-           budget: float | None = None, api_url: str | None = None,
+           budget: float | None = None, label: str | None = None,
+           api_url: str | None = None,
            api_key: str | None = None) -> dict:
     """Bind a protocol and queue its job. `POST /protocols/:ref/runs`.
 
@@ -598,6 +579,7 @@ def launch(protocol: str, *,
     `inputs` (stored objects, by path or as a `{"$ref"}`), and a run
     binds each by name. `keep="outputs"` asks for the
     intermediates to be held on the runner rather than stored.
+    `label`, one line, says what the run is for: see `runs`, `label_run`.
 
     Returns the bare run, with `id` and `jobId` on it —
     record the job id at once; a job id in a scrollback is a job id lost.
@@ -614,6 +596,8 @@ def launch(protocol: str, *,
         body["keep"] = keep
     if budget is not None:
         body["budgetUsd"] = budget
+    if label is not None:
+        body["label"] = label
     return _request(
         "POST", f"{url}/protocols/{protocol}/runs", key,
         body=json.dumps(body).encode("utf-8"),
@@ -630,29 +614,17 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
                     api_url: str | None = None,
                     api_key: str | None = None) -> dict:
     """Register a protocol: `POST /protocols` with its graph and
-    signature. Returns the bare protocol (id, version, name, ...).
+    `params=[{"name", "type", "default"?, "doc"?}]`, `inputs=[{"name",
+    "kind", "many"?, "default"?}]`, `outputs=[{"name", "from": {"node",
+    "output"?}}]`. Returns the bare protocol. `dataflow: 2` is added when
+    the graph leaves it out; the legacy form raises before anything is sent.
 
-    A declared protocol says what it takes and keeps in
-    three lists — `params=[{"name", "type", "default"?, "doc"?}]`,
-    `inputs=[{"name", "kind", "many"?, "default"?}]`, `outputs=[{"name",
-    "from": {"node", "output"?}}]` — and its graph carries `dataflow:
-    2`, added here when the graph leaves it out. A graph in any other
-    form — string holes, `$fetch`, a `protocol-input` node — raises
-    before anything is sent.
-
-    **Running an author twice makes a second VERSION, not a second
-    protocol.** A project holds one protocol per name;
-    when the name is taken, this PATCHes the one that exists, which
-    bumps its version and snapshots the old one so a run that pinned it
-    still replays. `exists="error"` raises instead, for a caller that
-    means a name to be new.
-
-    Authoring a protocol by POSTing it again would leave one duplicate
-    v1 row per re-run, which is why this PATCHes instead.
-
-    `publish=True` publishes the version this call leaves at the head —
-    the exact version an article about its runs will embed — and puts
-    `publish_protocol_version`'s answer under `published`.
+    A project holds one protocol per name, so a taken name is PATCHed,
+    which makes the next VERSION and keeps the old one replayable
+    (`exists="error"` raises instead). A protocol kept as a file is better
+    pushed (`push_protocol`), which makes no version when nothing changed.
+    `publish=True` publishes the version left at the head, under
+    `published`.
     """
     if exists not in ("version", "error"):
         raise ValueError(f"exists is 'version' or 'error', not {exists!r}")
@@ -694,6 +666,43 @@ def create_protocol(owner: str, project: str, name: str, *, graph: dict,
         protocol = {**protocol, "published": publish_protocol_version(
             protocol["id"], protocol["version"], api_url=api_url, api_key=api_key)}
     return protocol
+
+
+def push_protocol(file: str | Path | dict, into: str, *, owner_kind: str = "user",
+                  api_url: str | None = None, api_key: str | None = None) -> dict:
+    """Push a protocol file (a path, or its parsed JSON: `name`,
+    `description`, `params`, `inputs`, `outputs`, `graph`) into `into`,
+    `owner/project`: `POST /protocols/push`. By its name the server
+    answers `{action, protocol, findings}`, the action `created`,
+    `versioned` (graph or signature changed), `described` (only the
+    description) or `unchanged`. The legacy form or failed wiring raises
+    `BenchError` with its code and findings, and nothing is stored."""
+    owner, _, project = into.partition("/")
+    if not owner or not project or "/" in project:
+        raise ValueError(f"a project is named owner/project, not {into!r}")
+    try:
+        content = file if isinstance(file, dict) else json.loads(Path(file).read_text())
+    except ValueError as e:
+        raise BenchError(f"{file}: not a JSON protocol file ({e})") from None
+    url, key = _config(api_url, api_key)
+    body = {"ownerKind": owner_kind, "ownerHandle": owner, "projectSlug": project,
+            "protocol": content}
+    return _request("POST", f"{url}/protocols/push", key, body=json.dumps(body).encode(),
+                    headers={"Content-Type": "application/json"}, timeout=90)
+
+
+def export_protocol(protocol: str, *, version: int | None = None,
+                    path: str | Path | None = None, api_url: str | None = None,
+                    api_key: str | None = None) -> dict:
+    """A version (the head by default) as its canonical file text, which a
+    push reads back as `unchanged`: `{protocolId, name, version, text}`,
+    and the text written to `path` exactly when one is given."""
+    url, key = _config(api_url, api_key)
+    query = "" if version is None else f"?version={int(version)}"
+    out = _request("GET", f"{url}/protocols/{protocol}/export{query}", key)
+    if path is not None:
+        Path(path).write_text(out["text"])
+    return out
 
 
 def _name_taken(e: BenchError) -> str | None:
@@ -834,17 +843,12 @@ def history(kind: str, entity_id: str, *, api_url: str | None = None,
 
 def cancel(job_id: str, *, reason: str = "", api_url: str | None = None,
            api_key: str | None = None) -> dict:
-    """Withdraw a job nobody is running.
-
-    `POST /jobs/:id/cancel`. Works while no compute is being spent —
-    `queued`; `preparing`, where the runner is fetching weights; and
-    `interrupted`, where a runner stopped and has not resumed — and
-    is refused for a running job, which a server cannot stop. Idempotent:
-    cancelling twice answers the same, with `alreadyCancelled` set, so two
-    people draining a queue do not race. Returns `{ok, status, from}`.
-
-    The counterpart of `launch`.
-    """
+    """Withdraw a job nobody is running, the counterpart of `launch`:
+    `POST /jobs/:id/cancel`. Works while no compute is being spent
+    (`queued`, `preparing`, `interrupted`); refused for a running job,
+    which a server cannot stop. Idempotent, with `alreadyCancelled` set,
+    so two people draining a queue do not race. Returns `{ok, status,
+    from}`."""
     url, key = _config(api_url, api_key)
     body = {"reason": reason} if reason else {}
     return _request(
@@ -872,16 +876,10 @@ def _progress_sig(j: dict) -> tuple:
 def watch(jobs: list[str], *, interval: float = 4.0, api_url: str | None = None,
           api_key: str | None = None):
     """Poll jobs to a terminal state, yielding `(job_id, job)` each time a
-    job's progress CHANGES — never the same state twice, so a long run does
-    not bury its interesting moment under identical lines. A transient fetch
+    job's progress CHANGES, never the same state twice. A transient fetch
     error yields `(job_id, {"status": None, "error": <str>})` and the poll
-    continues; the job is retried next round. The generator is exhausted
-    once every job is terminal.
-
-    It prints nothing: the caller renders (the CLI) or collects the final
-    states (`last = dict(bench.watch(jobs))` keeps the terminal one per job,
-    since each job's last yield is its terminal state).
-    """
+    continues. It prints nothing: `last = dict(bench.watch(jobs))` keeps
+    each job's terminal state, since that is its last yield."""
     import time
 
     url, key = _config(api_url, api_key)
@@ -928,6 +926,33 @@ def results_for(protocol: str, **bindings: Any) -> list[dict]:
     if params:
         path += "?" + urllib.parse.urlencode(params)
     return _request("GET", path, key)
+
+
+def runs(*, label: str | None = None, label_contains: str | None = None,
+         protocol: str | None = None, project: str | None = None,
+         owner: str | None = None, limit: int | None = None,
+         api_url: str | None = None, api_key: str | None = None) -> list[dict]:
+    """Runs newest first (`GET /runs`), by exact `label` or
+    `label_contains`, `protocol` id, `project` (`owner/project` or id),
+    or an `owner`'s (yours by default). Each row carries its job, status,
+    result path, protocol and compute versions, spend and label."""
+    import urllib.parse
+
+    url, key = _config(api_url, api_key)
+    query = {"label": label, "labelContains": label_contains, "protocol": protocol,
+             "project": project, "owner": owner, "limit": limit}
+    qs = urllib.parse.urlencode({k: v for k, v in query.items() if v is not None})
+    return _request("GET", f"{url}/runs{'?' + qs if qs else ''}", key)
+
+
+def label_run(run: str, label: str | None, *, api_url: str | None = None,
+              api_key: str | None = None) -> dict:
+    """Relabel a run (its id or its job's), or clear it with None:
+    `PATCH /runs/:id`. The change is in the job's history (`run.label`)."""
+    url, key = _config(api_url, api_key)
+    return _request("PATCH", f"{url}/runs/{run}", key,
+                    body=json.dumps({"label": label}).encode(),
+                    headers={"Content-Type": "application/json"})
 
 
 def result(job: str | dict, node: str, *, api_url: str | None = None,
