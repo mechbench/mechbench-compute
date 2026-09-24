@@ -6,6 +6,7 @@ from mlx_vlm.models import cache as cache_mod
 from mlx_vlm.models.gemma4.language import logit_softcap
 
 from . import _arch
+from ._attention_mask import apply_mask
 from .cache import ActivationCache, kv_offset
 from .hooks import HookFn, HookInfo, attn_internal_layers, mlp_internal_layers
 
@@ -109,26 +110,7 @@ def _attention_with_internals(
 
     scores = (queries @ keys_rep.transpose(0, 1, 3, 2)) * attn.scale
 
-    if mask is not None:
-        Q_len = scores.shape[-2]
-        K_len = scores.shape[-1]
-        if isinstance(mask, mx.array):
-            m = mask
-            if m.shape[-1] != K_len:
-                m = m[..., -K_len:]
-            scores = scores + m
-        elif mask == "causal":
-            i = mx.arange(Q_len).reshape(Q_len, 1)
-            j = mx.arange(K_len).reshape(1, K_len)
-            allowed = j <= (K_len - Q_len + i)
-            m = mx.where(allowed, mx.array(0.0, dtype=scores.dtype),
-                          mx.array(-1e9, dtype=scores.dtype))
-            scores = scores + m
-        else:
-            raise NotImplementedError(
-                f"Unknown mask type in manual attention path: {mask!r}. "
-                f"Expected None, 'causal', or an mx.array."
-            )
+    scores = apply_mask(scores, mask)
 
     scores = _dispatch(
         f"blocks.{layer_idx}.attn.scores", layer_idx, "attn.scores", scores,

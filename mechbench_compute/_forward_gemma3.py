@@ -5,6 +5,7 @@ from mlx_vlm.models import cache as cache_mod
 from mlx_vlm.models.base import create_attention_mask
 
 from . import _arch
+from ._attention_mask import apply_mask
 from .cache import ActivationCache, kv_offset
 from .hooks import HookFn, HookInfo, attn_internal_layers
 
@@ -76,11 +77,7 @@ def _attention_with_internals(
 
     scores = (q @ k.transpose(0, 1, 3, 2)) * attn.scale
 
-    if mask is not None and isinstance(mask, mx.array):
-        m = mask
-        if m.shape[-1] != scores.shape[-1]:
-            m = m[..., -scores.shape[-1] :]
-        scores = scores + m
+    scores = apply_mask(scores, mask)
 
     weights = mx.softmax(scores, axis=-1)
     weights = _dispatch(

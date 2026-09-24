@@ -3,6 +3,7 @@ from __future__ import annotations
 import mlx.core as mx
 import numpy as np
 import pytest
+from mlx import nn
 
 from mechbench_compute.attribution import logit_attrs
 
@@ -25,11 +26,13 @@ class StubModel:
         class Args:
             tie_word_embeddings = False
 
-        class Norm:
-            weight = mx.array(gain.astype(np.float32))
+        norm = nn.RMSNorm(D)
+        norm.weight = mx.array(gain.astype(np.float32))
 
         class Inner:
-            norm = Norm()
+            pass
+
+        Inner.norm = norm
 
         class M:
             args = Args()

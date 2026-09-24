@@ -115,15 +115,26 @@ def head_results(model, cache: ActivationCache, layer: int) -> np.ndarray:
     return out
 
 
+def _read_gain_offset(norm) -> float:
+    from mlx import nn
+    from mlx_vlm.models.gemma3.language import RMSNorm as Gemma3RMSNorm
+
+    offsets = {nn.RMSNorm: 0.0, Gemma3RMSNorm: 1.0}
+    if type(norm) not in offsets:
+        raise NotImplementedError(
+            f"apply_ln does not know the gain of a final norm of type "
+            f"{type(norm).__module__}.{type(norm).__qualname__}; known: "
+            + ", ".join(f"{t.__module__}.{t.__qualname__}" for t in offsets))
+    return offsets[type(norm)]
+
+
 def _final_norm_gain(model) -> np.ndarray:
     if model.arch.model_type in ("qwen2", "llama"):
-        w = model._model.model.norm.weight
-        offset = 0.0
+        norm = model._model.model.norm
     else:
-        w = model._model.language_model.model.norm.weight
-        offset = 1.0
-    arr = np.array(mx.array(w).astype(mx.float32))
-    return arr + offset
+        norm = model._model.language_model.model.norm
+    arr = np.array(mx.array(norm.weight).astype(mx.float32))
+    return arr + _read_gain_offset(norm)
 
 
 def logit_attrs(

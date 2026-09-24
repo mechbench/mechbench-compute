@@ -13,6 +13,46 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+- **`apply_ln` in `logits/attribute` (and `attribution.logit_attrs`) raises
+  `NotImplementedError` on a final norm whose class it does not know**,
+  instead of assuming a `1 + w` gain. The gain is now read from the class of
+  the loaded model's own final norm: `mlx.nn.RMSNorm` multiplies by `w`,
+  mlx-vlm's Gemma 3 `RMSNorm` by `1 + w`.
+
+### Changes that alter results without raising
+
+- **Gemma 4 direct logit attribution with `apply_ln`** used a final-norm
+  gain of `1 + w`; Gemma 4's final norm is a plain `mlx.nn.RMSNorm` and
+  multiplies by `w`. The per-component contributions were wrong per
+  dimension (so their ranking across layers could change, not just their
+  scale) and did not sum to the true logit. Every Gemma 4
+  `logits/attribute` result with `apply_ln` on (the default) changes,
+  including its `additivity` residual, which now comes out near zero.
+  Gemma 3, Qwen2 and Llama were right and do not move.
+- **Attention-internal probes on Gemma 3, Qwen2 and Llama attended in both
+  directions.** Any layer whose attention internals were hooked or captured
+  (`attn.weights`, `attn.per_head_out`, `attn.q`/`k`/`v` and the other
+  attention-internal points) took the manual attention path, which ignored
+  the `"causal"` string mask the libraries pass for a prompt pass. Those
+  layers' outputs, everything downstream of them, and the captured
+  attention weights themselves change for every run that probed attention
+  internals on these families.
+- **Sliding-window layers on the manual attention path, all four
+  families**, received the libraries' windowed mask as a boolean array and
+  added it to the scores as 0/1 instead of masking. That happens when the
+  prompt is longer than the sliding window, or (Gemma 4) when a sliding
+  layer runs against a non-empty KV cache. Gemma 4 probes on prompts
+  within the window were already correct and do not move. All four
+  families now share one mask routine that handles `None`, `"causal"`,
+  boolean and additive masks, and a probed forward reproduces the plain
+  forward's logits.
+
+---
+
 ## 0.134.0 — 2026-09-23
 
 ### Changes that raise

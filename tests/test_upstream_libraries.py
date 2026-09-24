@@ -8,7 +8,15 @@ import numpy as np
 import pytest
 from mlx import nn
 
-from mechbench_compute import _forward, attribution, head_weights, peft
+from mechbench_compute import (
+    _forward,
+    _forward_gemma3,
+    _forward_llama,
+    _forward_qwen,
+    attribution,
+    head_weights,
+    peft,
+)
 from mechbench_compute._arch import Arch
 from mechbench_compute.cache import ActivationCache
 
@@ -24,7 +32,8 @@ def _identity_linear(d):
     return lin
 
 
-def test_the_manual_attention_path_makes_a_causal_string_mask_causal():
+@pytest.mark.parametrize("forward", [_forward, _forward_gemma3, _forward_llama, _forward_qwen])
+def test_the_manual_attention_path_makes_a_causal_string_mask_causal(forward):
     d, n = 4, 5
     attn = SimpleNamespace(
         n_heads=1, n_kv_heads=1, head_dim=d, scale=1.0, use_k_eq_v=False,
@@ -35,10 +44,10 @@ def test_the_manual_attention_path_makes_a_causal_string_mask_causal():
     )
     cache = ActivationCache()
     x = mx.random.normal((1, n, d), key=mx.random.key(0))
-    _forward._attention_with_internals(
-        SimpleNamespace(self_attn=attn), x, "causal", None, shared_kv=None,
-        offset=0, hooks={}, capture_set={"blocks.0.attn.weights"}, cache=cache,
-        layer_idx=0)
+    extra = {"shared_kv": None, "offset": 0} if forward is _forward else {}
+    forward._attention_with_internals(
+        SimpleNamespace(self_attn=attn), x, "causal", None, hooks={},
+        capture_set={"blocks.0.attn.weights"}, cache=cache, layer_idx=0, **extra)
     weights = np.array(cache["blocks.0.attn.weights"])[0, 0]
     assert np.allclose(np.triu(weights, k=1), 0.0)
     assert np.allclose(weights.sum(axis=-1), 1.0)
@@ -84,12 +93,18 @@ def _norm_gain_model(model_type, norm):
     return SimpleNamespace(arch=SimpleNamespace(model_type=model_type), _model=wrapped)
 
 
-@pytest.mark.parametrize("model_type", ["gemma3", "llama", "qwen2"])
+@pytest.mark.parametrize("model_type", ["gemma3", "gemma4", "llama", "qwen2"])
 def test_the_final_norm_gain_is_what_the_family_s_own_norm_multiplies_by(model_type):
     from mlx_lm.models import llama, qwen2
     from mlx_vlm.models.gemma3 import language as gemma3
+    from mlx_vlm.models.gemma4 import language as gemma4
 
     make = {"gemma3": lambda d: gemma3.RMSNorm(d, eps=1e-6),
+            "gemma4": lambda d: gemma4.Gemma4TextModel(gemma4.TextConfig(
+                hidden_size=d, num_hidden_layers=1, intermediate_size=d,
+                num_attention_heads=1, num_key_value_heads=1, head_dim=d,
+                global_head_dim=d, vocab_size=8, vocab_size_per_layer_input=8,
+                hidden_size_per_layer_input=0, num_kv_shared_layers=0)).norm,
             "llama": lambda d: llama.nn.RMSNorm(d, eps=1e-6),
             "qwen2": lambda d: qwen2.nn.RMSNorm(d, eps=1e-6)}[model_type]
     d = 16
