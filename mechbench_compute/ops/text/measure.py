@@ -20,7 +20,7 @@ Each entry of `measures` is applied to every record's `text`:
 | `type` | Fields written per record | Options |
 |---|---|---|
 | `pattern` | `<name>`: 1 if any regex matches, else 0 | `patterns` (list of regexes), `where`: `"anywhere"` or `"prefix"` (must match at the start), `ignore_case` |
-| `lexical` | `<name>_words`, `<name>_distinct`, `<name>_dup` (1 − distinct/words) | `lowercase` (default true), `min_length` |
+| `lexical` | `<name>_words`, `<name>_distinct`, `<name>_dup` (1 − distinct/words) | `lowercase` (default true), `min_length`, `exclude` (words not counted) |
 | `corpus_frequency` | `<name>`: the statistic over the reference frequency of the text's words; `<name>_coverage`: the fraction of words found in the table | `frequencies` (word → count, or wire a `frequencies` input), `stat`: `"mean_log10"` (rarer vocabulary ⇒ lower), `"mean"` or `"coverage"`, `lowercase`, `min_length` |
 | `list` | `<name>_parsed` (1 if the list was found), `<name>_items`, `<name>_distinct`, `<name>_duplicates`, `<name>_unknown` (items outside `items`, when given), `<name>_first`, `<name>_valid` (found, no duplicates, nothing unknown, and `count` items when given) | `separator` (default `", "`), `extract` (a regex whose first group is the list; the whole text without it), `items` (the vocabulary: a list, or a map's `weights` or `uniform`), `count`, `ignore_case` |
 | `capture` | `<name>`: the value the pattern's group held, absent when nothing matched | `pattern` (the regex), `group` (default 1; the whole match when the pattern has none), `as`: `"string"` or `"number"`, `take`: the `"first"` match or the `"last"`, `on_missing`: `"null"` or `"error"`, `items` (a vocabulary, which canonicalises the value), `ignore_case` |
@@ -48,6 +48,16 @@ often it led one), `share`, and `in_vocabulary` when `items` was given.
 This is what the corpus SAID, in its own vocabulary: an answer outside
 the map is a row like any other, labelled rather than dropped, so "Sci-Fi"
 and "Steampunk Fantasy" are readable beside the names the map has.
+
+A `lexical` measure in `items` mode gives one record per distinct word —
+`item`, `count` (occurrences), `texts` (how many texts use it: its
+document frequency), and `share` (of all words) — so "97 of 100 stories
+say *last*" is a row, and `records/rank` on `texts` lists the words a
+corpus converges on. A word is a run of letters, apostrophes and
+hyphens. `exclude` names words to leave out — the function words a
+ranking would otherwise lead with — and they are left out of the
+per-text counts as well. The list is the author's: no words are
+excluded unless named.
 """,
     inputs=(
         In("records", "records/record",
@@ -97,6 +107,10 @@ and "Steampunk Fantasy" are readable beside the names the map has.
               P("ignore_case", "bool", "For `pattern` and `list`: match without regard to case.", False),
               P("lowercase", "bool", "For `lexical` and `corpus_frequency`: lowercase words first.", True),
               P("min_length", "int", "For `lexical` and `corpus_frequency`: the shortest word counted.", 1),
+              P("exclude", "list[string]",
+                "For `lexical`: words not counted, compared after lowercasing when "
+                "`lowercase` is set. A stored word list may be given by reference.",
+                None, stored="text/word-list"),
               P("frequencies", "map[string, float]",
                 "For `corpus_frequency`: word → count, unless a `frequencies` input is wired. "
                 "A stored word list may be given by reference.", None, stored="text/word-list"),
@@ -128,7 +142,8 @@ and "Steampunk Fantasy" are readable beside the names the map has.
         P("mode", "string",
           "`\"annotate\"`: emit each record with its measures. "
           "`\"corpus\"`: emit one summary record. `\"items\"`: emit one "
-          "record per distinct item a `list` measure parsed.",
+          "record per distinct item a `list` measure parsed, and per "
+          "distinct word a `lexical` measure counted.",
           "annotate", choices=("annotate", "corpus", "items")),
         P("keep", "bool",
           "In `annotate` mode, carry the whole item (text, trace, metadata) "
@@ -188,6 +203,17 @@ def _read_vocabulary(name: str, items: Any) -> list[str]:
     raise ValueError(
         f"text/measure measure {name!r}: `items` is a list of outcomes or a "
         "map with `weights` or `uniform`")
+
+
+def _read_exclude(name: str, exclude: Any, lowercase: bool) -> frozenset[str]:
+    if exclude is None:
+        return frozenset()
+    if isinstance(exclude, Mapping):
+        exclude = exclude.get("words") or list((exclude.get("weights") or {}).keys())
+    if not isinstance(exclude, (list, tuple)):
+        raise TypeError(
+            f"text/measure measure {name!r}: `exclude` is a list of words")
+    return frozenset(str(w).lower() if lowercase else str(w) for w in exclude)
 
 
 def measure_texts(inputs: Mapping[str, Any],
@@ -286,9 +312,11 @@ def measure_texts(inputs: Mapping[str, Any],
             compiled.append((name, kind, {"patterns": pats,
                                           "where": where}))
         elif kind == "lexical":
+            lower = bool(m.get("lowercase", True))
             compiled.append((name, kind,
-                             {"lowercase": bool(m.get("lowercase", True)),
-                              "min_length": int(m.get("min_length", 1))}))
+                             {"lowercase": lower,
+                              "min_length": int(m.get("min_length", 1)),
+                              "exclude": _read_exclude(name, m.get("exclude"), lower)}))
         elif kind == "corpus_frequency":
             table = m.get("frequencies") or freq_input
             if not isinstance(table, Mapping) or not table:
@@ -368,6 +396,8 @@ def measure_texts(inputs: Mapping[str, Any],
     said: dict[str, dict[str, dict]] = {}
     captured: dict[str, list[Any]] = {}
     corpus_words: list[str] = []
+    # Per lexical measure, word -> [occurrences, texts using it].
+    used: dict[str, dict[str, list[int]]] = {}
     for r in recs:
         text = str(r.get(field, ""))
         row = {**(r if keep else {}), "id": r.get("id"), "coords": coords_of(r)}
@@ -379,12 +409,19 @@ def measure_texts(inputs: Mapping[str, Any],
                 row[name] = 1 if hit else 0
             elif kind == "lexical":
                 words = _split_words(text, cfg["lowercase"], cfg["min_length"])
+                if cfg["exclude"]:
+                    words = [w for w in words if w not in cfg["exclude"]]
                 distinct = len(set(words))
                 row[f"{name}_words"] = len(words)
                 row[f"{name}_distinct"] = distinct
                 row[f"{name}_dup"] = (round(1.0 - distinct / len(words), 4)
                                       if words else 0.0)
                 corpus_words.extend(words)
+                vocabulary = used.setdefault(name, {})
+                for w in words:
+                    vocabulary.setdefault(w, [0, 0])[0] += 1
+                for w in set(words):
+                    vocabulary[w][1] += 1
             elif kind == "capture":
                 found = list(cfg["pattern"].finditer(text))
                 hit = (found[-1] if cfg["take"] == "last" else found[0]) if found else None
@@ -469,10 +506,10 @@ def measure_texts(inputs: Mapping[str, Any],
         return out
 
     if mode == "items":
-        if not any(kind == "list" for _, kind, _ in compiled):
+        if not any(kind in ("list", "lexical") for _, kind, _ in compiled):
             raise ValueError(
-                "text/measure mode 'items' needs a `list` measure: it tallies "
-                "what the lists said")
+                "text/measure mode 'items' needs a `list` or `lexical` measure: "
+                "it tallies what the lists said, or the words the texts used")
         rows = []
         for name, tally in said.items():
             total = sum(t["count"] for t in tally.values()) or 1
@@ -480,6 +517,14 @@ def measure_texts(inputs: Mapping[str, Any],
                 rows.append({"id": f"{name}:{t['item']}",
                              "coords": {"measure": name, "item": t["item"]},
                              **t, "share": round(t["count"] / total, 6)})
+        for name, vocabulary in used.items():
+            total = sum(c for c, _ in vocabulary.values()) or 1
+            for word, (c, texts) in sorted(vocabulary.items(),
+                                           key=lambda kv: (-kv[1][1], -kv[1][0], kv[0])):
+                rows.append({"id": f"{name}:{word}",
+                             "coords": {"measure": name, "item": word},
+                             "item": word, "count": c, "texts": texts,
+                             "share": round(c / total, 6)})
         return rows
 
     summary: dict[str, Any] = {"id": "corpus", "coords": {},

@@ -13,6 +13,42 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- **`text/measure` `items` mode with a `list` and a `lexical` measure**
+  now emits a row per word after the list items' rows.
+- **`records/summarize`, `rank`, `bin`, `total`, `subtract` and
+  `contrast` read their value field as a coordinate first**, then the
+  top-level field, as `count`, `correlate` and grouping already did. A
+  record that carries the same name as both a coordinate and a field now
+  reads the coordinate.
+
+### Other
+
+- **Dot paths (000664).** Every `records` operation that names a field
+  (`by`, `value`, `field`, `x`/`y`, `on`, `paired`, `where` keys and
+  `fields`) reads `metadata.call.usage.output_tokens` as a path from the
+  record's root, the paths the API's item projection reads; a coordinate
+  or top-level key of that name is read first. `blocks/read_field.py`.
+- **Conditions (000664).** `records/select`'s `where` also takes a list
+  of `PATH OP VALUE` conditions in the API's item-query grammar
+  (`= != < <= > >= ~`, a missing path is null), and `records/count` takes
+  the same list as `where` in place of `field`/`equals`: k is the records
+  meeting every condition. `blocks/match_where.py`.
+- **`records/subtract` `minus` (000664).** A field of the same record as
+  the baseline, in place of a matched baseline record.
+- **Words a corpus uses (000664).** `text/measure`'s `lexical` measure
+  takes `exclude` (words not counted), and in `items` mode emits one row
+  per distinct word with `count` and `texts`, the number of texts using
+  it. `items` mode with only a `lexical` measure, once refused, now
+  tallies its words.
+
 ## 0.133.0 — 2026-09-23
 
 ### Changes that raise

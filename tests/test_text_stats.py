@@ -217,6 +217,6 @@ def test_items_mode_without_a_vocabulary_labels_nothing():
     assert all(r["in_vocabulary"] is None for r in rows)
 
 
-def test_items_mode_needs_a_list_measure():
-    with pytest.raises(ValueError, match="needs a `list` measure"):
+def test_items_mode_needs_a_list_or_lexical_measure():
+    with pytest.raises(ValueError, match="needs a `list` or `lexical` measure"):
         measure_texts({"records": LISTS}, {"measures": [LEAK], "mode": "items"})
