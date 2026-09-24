@@ -13,7 +13,7 @@ nothing said so.
 
 ---
 
-## Unreleased
+## 0.136.0 — 2026-09-24
 
 ### Changes that raise
 
@@ -42,9 +42,11 @@ nothing said so.
   most where the text's spacing was not the model's (a `" Paris"` target
   after a chat template's assistant prefix, where the model says
   `"Paris"`), least where the model gives the other spelling almost
-  nothing. Answers whose two spellings are one token (digits and
-  punctuation on most tokenizers) do not move, and neither does a run
-  that named no target (the model's own top-1).
+  nothing. Answers whose two spellings are one token do not move, and
+  neither does a run that named no target (the model's own top-1). A
+  spelling whose first token is only whitespace is not a variant: Gemma
+  splits `" 3"` into a space token and `"3"`, so a digit answer on Gemma
+  stays the one token `"3"`.
   - `intervene/ablate-layers`, `intervene/ablate-heads`: `delta_logp`,
     `mean_delta`, the aggregates and `baseline_logp` are of the set, on
     both sides of every Δ; `own_top1` is flagged only when the model's
