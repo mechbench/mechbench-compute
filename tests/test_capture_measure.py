@@ -1,6 +1,3 @@
-"""The `capture` measure: read one value out of each text
-and call it what it is."""
-
 from __future__ import annotations
 
 import pytest
@@ -23,7 +20,6 @@ class TestCapture:
         out = _run(_docs("Rating: 4 of 5.", "Rating: 2 of 5."),
                    {"kind": "capture", "name": "rating", "pattern": r"Rating:\s*(\d+)", "as": "number"})
         assert [i["rating"] for i in out["items"]] == [4, 2]
-        # …and nothing else: no `_first`, no five columns of list statistics.
         assert set(out["items"][0]) == {"id", "coords", "rating"}
 
     def test_a_number_is_a_number_and_a_string_is_a_string(self):
@@ -46,8 +42,6 @@ class TestCapture:
         out = _run(_docs("So ANA goes next.", "Over to Bo.", "Cy takes it."),
                    {"kind": "capture", "name": "next", "pattern": r"\b(ana|bo|cy)\b",
                     "ignore_case": True, "items": ["ana", "bo"]})
-        # The value is the vocabulary's spelling, which is what a
-        # downstream binding compares against; one outside it is absent.
         assert [i.get("next") for i in out["items"]] == ["ana", "bo", None]
 
     def test_a_text_that_says_nothing_takes_the_declared_course(self):

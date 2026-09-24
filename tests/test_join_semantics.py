@@ -1,4 +1,3 @@
-"""Joins under partial failure."""
 from __future__ import annotations
 
 import pytest
@@ -9,9 +8,6 @@ CROSS = {"factors": [{"name": "x", "levels": [{"key": "a"}, {"key": "b"}]}]}
 
 
 def _graph(policy=None):
-    """design → good, bad → zip(branches), with the policy on the edge
-    from the branch that breaks. `bad`'s template is the one the test's
-    stand-in block raises on."""
     bad_params = {"templates": {"user": "{x}"}}
     edge = {"from": {"node": "bad", "port": "records"},
             "to": {"node": "pairs", "port": "branches"}, "kind": "records",
@@ -38,7 +34,6 @@ def _graph(policy=None):
 
 
 def _run(graph, monkeypatch, break_node="bad"):
-    """Run the graph with one node's block made to fail."""
     from mechbench_compute.ops.records import fill
 
     real = fill.run
@@ -62,9 +57,6 @@ class TestDefaultIsUnchanged:
             _run(_graph(), monkeypatch)
 
     def test_the_sibling_branch_finishes_first(self, monkeypatch):
-        # The failure is raised at the end of the run, so the good branch
-        # has already run — which is what makes the parallel scheduler
-        # safe: siblings settle before the status does.
         from mechbench_compute.ops.records import fill
 
         real = fill.run
@@ -101,8 +93,6 @@ class TestPlaceholder:
         payload = out.payload
         assert "pairs" in payload["nodes_executed"]
         pairs = payload["outputs"]["pairs"]
-        # Every key is present from the good branch and missing from the
-        # bad one — zip's own policy, over a branch that is empty.
         assert len(pairs["items"]) == 2
         assert pairs["items"][0]["branches"]["bad"] == {"missing": True}
         assert pairs["items"][0]["branches"]["good"]["user"].startswith("good")
@@ -110,14 +100,6 @@ class TestPlaceholder:
 
 
 class TestWithResultsStored:
-    """Every other test here hands the graph straight to the executor,
-    which stores nothing. A real job emits each node's result to the
-    bench and cites its upstreams as lineage — and an upstream that
-    produced nothing has no path to cite. That gap failed the first
-    stored run of a placeholder join with a bare `KeyError: 'down'`,
-    which is to say: the policy that exists to keep a run alive killed
-    it, and only where nobody was looking."""
-
     def test_a_placeholder_join_still_emits(self, monkeypatch):
         from mechbench_compute import bench
 
@@ -146,19 +128,12 @@ class TestWithResultsStored:
         out = ProtocolExecutor().run(spec).payload
 
         assert "u/p/results/j_1/pairs" in emitted
-        assert "u/p/results/j_1/bad" not in emitted   # it never ran
-        # Lineage names the input that exists and says nothing about the
-        # one that does not; `nodes_missing` is where the absence lives.
+        assert "u/p/results/j_1/bad" not in emitted
         assert lineage["u/p/results/j_1/pairs"] == ["u/p/results/j_1/good"]
         assert out["nodes_missing"]["bad"]["reason"].startswith("RuntimeError")
 
 
 class TestTheWholePathWithoutAMonkeypatch:
-    """What the docs example rehearses: two provider branches, one of
-    them down, zipped and judged. Nothing here is patched — the mock
-    refuses because the graph asked it to — so this is the shape a
-    protocol author can write and check before spending anything."""
-
     ENDPOINT = {"provider": "mock", "model": "mock-large"}
 
     def _graph(self, judge_policy):

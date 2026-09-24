@@ -1,13 +1,3 @@
-"""The bench client library — launch / watch / results_for / result, the
-unwrapping fetch, and credential discovery.
-
-Every HTTP call funnels through `bench._request`; these scripts that one
-chokepoint and assert the shape of what goes out and what comes back. The
-point is that an experiment (and the three CLI verbs over this) get the
-launch/watch/read plumbing from here, not re-derived over httpx, and that a
-payload is never unwrapped by hand.
-"""
-
 from __future__ import annotations
 
 import mechbench_schema as ms
@@ -17,17 +7,10 @@ from mechbench_compute import bench
 
 
 class Seq(list):
-    """A scripted SEQUENCE of responses — one consumed per call, the last
-    repeating. Distinct from a plain list, which is returned whole (a
-    listing response is itself a list)."""
+    pass
 
 
 class FakeReq:
-    """A stand-in for `bench._request`: scripted responses by (method,
-    url-substring), every call recorded. A scripted value that is an
-    Exception is raised; a `Seq` is consumed one entry per call; anything
-    else is returned whole."""
-
     def __init__(self) -> None:
         self.calls: list[dict] = []
         self.script: dict[tuple[str, str], object] = {}
@@ -52,8 +35,6 @@ class FakeReq:
 
 @pytest.fixture
 def fake(monkeypatch):
-    """A scripted transport, with credentials already resolved so no test
-    touches the real environment or `~/.mechbench`."""
     fr = FakeReq()
     monkeypatch.setattr(bench, "_request", fr)
     monkeypatch.setattr(bench, "_config", lambda u, k: ("https://api.test", "K"))
@@ -76,7 +57,6 @@ class TestFetchUnwraps:
         assert env["payload"] == {"kind": "ladder"} and "provenance" in env
 
     def test_a_typed_record_is_not_unwrapped(self, fake):
-        # top-level provenance but no `payload` — a typed record, left alone
         rec = {"kind": "decision_expansion", "provenance": {"created_at": "t"}}
         fake.add("GET", "/objects/", ms.dump_canonical(rec))
         assert bench.fetch("o/p/x") == rec
@@ -103,7 +83,7 @@ class TestLaunch:
         import json
         assert json.loads(call["body"]) == {"params": {"model": "gemma"},
                                             "budgetUsd": 2.5}
-        assert call["timeout"] == 90  # binding+queue can be slow
+        assert call["timeout"] == 90
 
     def test_no_budget_sends_no_cap(self, fake):
         fake.add("POST", "/runs", {"id": "r", "jobId": "j"})
@@ -117,8 +97,6 @@ class TestLaunch:
             bench.launch("p", {"a": "b"})
 
     def test_it_binds_params_and_inputs_by_name_and_asks_to_keep(self, fake):
-        # The declared form: a path given for an input is the stored
-        # object it names, and that is the only binding sent.
         fake.add("POST", "/runs", {"id": "r", "jobId": "j"})
         bench.launch("p", params={"model": "gemma", "n": 12},
                      inputs={"prompts": "lab/p/prompts", "given": [{"id": "1"}]},
@@ -137,8 +115,6 @@ class TestLaunch:
 
 class TestCreateProtocol:
     def test_it_posts_the_graph_and_returns_the_bare_protocol(self, fake):
-        # The protocols routes still wrap (`{protocol: …}`);
-        # the library unwraps once so no author does.
         fake.add("POST", "/protocols", {"protocol": {"id": "prt_1", "version": 1,
                                                      "name": "018-axes"}})
         out = bench.create_protocol("benji", "lab", "018-axes",
@@ -179,10 +155,6 @@ class TestCreateProtocol:
         assert fake.calls == []
 
 class TestRunningAnAuthorTwice:
-    """The second run is the protocol's second VERSION, not a second
-    protocol: re-launching an edited protocol under a new id is what
-    fills the bench with duplicate rows."""
-
     @staticmethod
     def _taken(pid="prt_1", version=1):
         return bench.BenchError(
@@ -201,8 +173,6 @@ class TestRunningAnAuthorTwice:
         assert patch["url"].endswith("/protocols/prt_1")
         import json
         sent = json.loads(patch["body"])
-        # The graph and the signature travel; the name and the project
-        # do not — they are what identified it.
         assert sent["graph"] == {"dataflow": 2, "nodes": [{"id": "n"}], "edges": []}
         assert sent["signature"] == {"params": [], "inputs": [], "outputs": []}
         assert "name" not in sent and "projectSlug" not in sent
@@ -229,9 +199,6 @@ PUBLISHED_VERSION = {"protocolId": "prt_1", "version": 2, "ownerHandle": "benji"
 
 
 class TestPublishing:
-    """An author script publishes the exact version an article will
-    embed."""
-
     def test_publish_answers_the_public_page_and_the_unpublished_includes(self, fake):
         fake.add("POST", "/versions/2/publish",
                  {"version": PUBLISHED_VERSION, "unpublishedIncludes": [{"name": "leaf"}]})
@@ -269,8 +236,6 @@ class TestCopy:
 
 
 class TestDelete:
-    """One verb for every deletable thing, a dry run first."""
-
     def test_an_id_names_its_route_and_a_path_is_an_object(self, fake):
         fake.add("DELETE", "https://api.test/", {"ok": True})
         bench.delete("prt_abc")
@@ -337,11 +302,10 @@ class TestWatch:
     def test_it_yields_only_on_change_until_terminal(self, fake):
         fake.add("GET", "/jobs/j", Seq([
             {"status": "running", "progressNum": 1, "progressDen": 2},
-            {"status": "running", "progressNum": 1, "progressDen": 2},  # same
+            {"status": "running", "progressNum": 1, "progressDen": 2},
             {"status": "done", "progressNum": 2, "progressDen": 2},
         ]))
         seen = list(bench.watch(["j"], interval=0))
-        # three polls, two distinct states -> two yields
         assert [j["status"] for _, j in seen] == ["running", "done"]
         assert all(jid == "j" for jid, _ in seen)
 
@@ -370,8 +334,7 @@ class TestResultsFor:
                                 ref={"provider": "x", "model": "y"})
         assert out and out[0]["jobId"] == "j"
         url = fake.calls[-1]["url"]
-        assert "binding.corpus=benji" in url  # url-encoded value
-        # a structured binding travels as canonical JSON the server parses
+        assert "binding.corpus=benji" in url
         assert "binding.ref=" in url and "provider" in url
 
     def test_no_bindings_lists_the_runs(self, fake):
@@ -402,9 +365,6 @@ class TestResult:
 
 
 class TestCredentialDiscovery:
-    """`_config` finds credentials the way the CLI does: argument, then
-    `configure`, then the environment, then `~/.mechbench/config.toml`."""
-
     @pytest.fixture(autouse=True)
     def clean(self, monkeypatch, tmp_path):
         monkeypatch.delenv("MECHBENCH_API_KEY", raising=False)
@@ -438,9 +398,6 @@ class TestCredentialDiscovery:
 
 
 class TestProtocolFiles:
-    """Push and export: the server decides what a push does;
-    the client reads the file and names the project."""
-
     FILE = {"name": "draws", "description": "d", "params": [], "inputs": [],
             "outputs": [{"name": "a", "from": {"node": "a"}}],
             "graph": {"dataflow": 2, "nodes": [], "edges": []}}
@@ -498,9 +455,6 @@ class TestProtocolFiles:
 
 
 class TestRunLabels:
-    """Labels: set at launch, changed with label_run, found
-    with runs."""
-
     def test_launch_sends_the_label(self, fake):
         import json
         fake.add("POST", "/runs", {"id": "r", "jobId": "j", "label": "P0"})

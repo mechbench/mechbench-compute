@@ -1,13 +1,3 @@
-"""The chunk-isomorphism test: the map/reduce law as a property test,
-run in CI over the catalog and by the api at seal for chunked run sets.
-
-For a reduce block and a leaf set: random partitions of the leaves,
-nested to random depth, must reduce to the flat result — exactly (by
-canonical-CBOR digest) for `collect` blocks and exact monoids, within
-an envelope for operations declared float-sensitive. `ordered` blocks
-are refused from chunking, which the test asserts too.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -26,8 +16,6 @@ def digest(value: Any) -> str:
 
 def random_partition(leaves: Sequence[Any], rng: random.Random, *,
                      max_depth: int = 3) -> list:
-    """A random nested partition of `leaves` preserving leaf order
-    within chunks: chunks of chunks to `max_depth`."""
     n = len(leaves)
     if n <= 1 or max_depth == 0:
         return [list(leaves)]
@@ -41,8 +29,6 @@ def random_partition(leaves: Sequence[Any], rng: random.Random, *,
 
 
 def _flatten_partition(part) -> list:
-    """Nested chunks -> the leaf list in order (a partition never
-    reorders leaves)."""
     if part and isinstance(part[0], list) and part and not isinstance(part[0], Mapping):
         out = []
         for p in part:
@@ -52,8 +38,6 @@ def _flatten_partition(part) -> list:
 
 
 def _reduce_nested(monoid: rd.Monoid, part, params) -> Any:
-    """Partial over a nested partition: leaves at any depth, merged with
-    the canonical tree at each level."""
     if part and isinstance(part[0], list) and not isinstance(part[0], Mapping):
         return rd.merge_tree(monoid, [_reduce_nested(monoid, p, params) for p in part])
     return monoid.partial(part, params)
@@ -85,10 +69,6 @@ def within_envelope(a: Any, b: Any, rel: float) -> bool:
 def check(block: str, leaves: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
           *, trials: int = 20, seed: int = 0, envelope: float | None = None,
           port: str = "records", inputs: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """Run the law for one block. `port` names the leaf-stream input and
-    `inputs` the block's other inputs (unchunked, passed verbatim).
-    Returns a report; raises AssertionError with the first violating
-    partition on failure."""
     from mechbench_compute import ops
 
     alg = rd.algebra(block)

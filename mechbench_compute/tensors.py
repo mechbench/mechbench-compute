@@ -1,24 +1,3 @@
-"""The tensor store: a collection whose items live in shards, not in
-its JSON.
-
-Every object on the bench is JSON, and an `activations/vector`
-collection caps at a few million floats — about 1,700 vectors of Gemma
-E4B width. Serious work wants activations for 10⁵–10⁶ tokens at a
-layer, to train a probe, a lens or a dictionary. That is a different
-object: the collection's header stays a small JSON object with
-`storage: "tensor"` and a `shards` list, and the rows live beside it
-as safetensors files — content-addressed raw objects under
-`<label>/shards/`, uploaded and downloaded by the same streaming paths
-a checkpoint's files use.
-
-A shard holds `vector` (`[rows, d]`), one tensor per numeric per-item
-field (`surprisal`, `position`, …), and the non-numeric per-item fields
-(`id`, `token`, `coords`, `space`) as a JSON table in the safetensors
-header. Read back, a shard yields items in exactly the shape the JSON
-collection's items have, one shard in memory at a time, so a reader
-that iterates streams and a reader that builds a matrix chooses to.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -32,14 +11,9 @@ import numpy as np
 
 STORAGE = "tensor"
 SHARDS_DIR = "shards"
-#: A shard stays under the API's single-object ceiling with room for
-#: its header: 48 MiB of rows.
 MAX_SHARD_BYTES = 48 << 20
 _COMPLETE_MARK = ".complete"
 
-#: The per-item fields a vector item carries beside its vector, and
-#: whether each is a number per item (a tensor column) or not (the
-#: JSON table).
 _VECTOR_KEY = "vector"
 
 
@@ -47,12 +21,7 @@ def is_tensor(collection: Any) -> bool:
     return isinstance(collection, Mapping) and collection.get("storage") == STORAGE
 
 
-# --- writing ------------------------------------------------------------------------
-
-
 def _split_item(item: Mapping[str, Any]) -> tuple[np.ndarray, dict[str, float], dict[str, Any]]:
-    """(vector, numeric fields, other fields) — numeric coords become
-    columns too, under `coords.<name>`."""
     vec = np.asarray(item[_VECTOR_KEY], dtype=np.float32).reshape(-1)
     numeric: dict[str, float] = {}
     other: dict[str, Any] = {}
@@ -75,17 +44,12 @@ def _split_item(item: Mapping[str, Any]) -> tuple[np.ndarray, dict[str, float], 
 
 
 def _raw_numeric(item: Mapping[str, Any], key: str) -> Any:
-    """The value as the item carried it, for `coords.<name>` or a top-level field."""
     if key.startswith("coords."):
         return (item.get("coords") or {}).get(key[len("coords."):])
     return item.get(key)
 
 
 class ShardWriter:
-    """Accumulates vector items and writes a shard whenever the rows
-    would exceed `max_bytes`; `close()` writes the last one and returns
-    the manifest entries."""
-
     def __init__(self, out_dir: str | Path, *, max_bytes: int = MAX_SHARD_BYTES,
                  max_rows: int | None = None) -> None:
         self.out = Path(out_dir)
@@ -113,7 +77,6 @@ class ShardWriter:
         for k in self._numeric:
             self._numeric[k].append(numeric.get(k, float("nan")))
         for k, v in numeric.items():
-            # A column is integer until a value says otherwise.
             self._ints[k] = self._ints.get(k, True) and float(v).is_integer() and isinstance(
                 _raw_numeric(item, k), int)
         self._vectors.append(vec)
@@ -132,8 +95,6 @@ class ShardWriter:
         name = f"shard-{k:04d}.safetensors"
         tensors = {_VECTOR_KEY: np.stack(self._vectors).astype(np.float32)}
         for col, vals in self._numeric.items():
-            # float64: a per-item number round-trips exactly, and it is
-            # eight bytes beside a row of thousands.
             tensors[col] = np.asarray(vals, dtype=np.float64)
         path = self.out / name
         ints = sorted(k for k, is_int in self._ints.items() if is_int and k in tensors)
@@ -150,16 +111,12 @@ class ShardWriter:
         self._numeric = {k: [] for k in self._numeric}
 
     def close(self) -> dict[str, Any]:
-        """What the collection's header records: the shards, the width,
-        the row count, and where the files are until they are uploaded."""
         self._flush()
         return {"storage": STORAGE, "shards": list(self.shards), "n_items": self.n_items,
                 "d": self._d, "_shard_dir": str(self.out)}
 
 
 def collection(item_kind: str, writer_header: Mapping[str, Any], **header: Any) -> dict[str, Any]:
-    """A tensor collection: the JSON header with no items, the shards
-    named. `lexicon.kinds.collection`'s twin for rows that live apart."""
     from mechbench_compute.lexicon import kinds as K
 
     out = K.collection(item_kind, [], **header)
@@ -167,15 +124,7 @@ def collection(item_kind: str, writer_header: Mapping[str, Any], **header: Any) 
     return out
 
 
-# --- reading ------------------------------------------------------------------------
-
-
 class ShardedItems(Sequence[dict[str, Any]]):
-    """The items of a tensor collection, read one shard at a time. A
-    Sequence, so `len`, indexing and iteration all work; iteration is
-    the streaming path (one shard in memory), indexing loads the shard
-    the index falls in and keeps only that one."""
-
     def __init__(self, shard_paths: Sequence[Path], rows: Sequence[int]) -> None:
         self._paths = [Path(p) for p in shard_paths]
         self._rows = [int(r) for r in rows]
@@ -201,7 +150,7 @@ class ShardedItems(Sequence[dict[str, Any]]):
             coords = dict(item.get("coords") or {})
             for k, col in numeric.items():
                 v = float(col[i])
-                if v != v:  # NaN: this item had no such field
+                if v != v:
                     continue
                 if k in ints:
                     v = int(v)
@@ -236,15 +185,11 @@ class ShardedItems(Sequence[dict[str, Any]]):
         return self.shard(k)[i - int(self._starts[k])]
 
     def shards(self) -> Iterator[list[dict[str, Any]]]:
-        """Shard by shard, for a reader that accumulates."""
         for k in range(len(self._paths)):
             yield self.shard(k)
 
 
 def items_of(collection: Mapping[str, Any]) -> ShardedItems:
-    """The items of a materialized tensor collection; refuses one whose
-    shards are not on disk yet, by name — the executor materializes a
-    `$ref` before its consumer runs."""
     where = collection.get("_shard_dir")
     if not where:
         raise ValueError(
@@ -258,10 +203,6 @@ def items_of(collection: Mapping[str, Any]) -> ShardedItems:
 def materialize(collection: Mapping[str, Any], label: str,
                 fetch_file: Callable[[str], Any], cache_root: str | Path,
                 on_bytes: Callable[[int, int], None] | None = None) -> dict[str, Any]:
-    """Fetch a tensor collection's shards into the cache, verified, and
-    return the collection with `_shard_dir` set — the same discipline a
-    checkpoint's files follow: keyed by the shards' hashes, verified
-    file by file, marked complete only at the end."""
     shards = list(collection.get("shards") or [])
     key = hashlib.sha256(json.dumps([s.get("sha256") for s in shards]).encode()).hexdigest()[:24]
     target = Path(cache_root) / key
@@ -296,9 +237,6 @@ def materialize(collection: Mapping[str, Any], label: str,
 
 def upload(collection: Mapping[str, Any], label: str, put_file: Callable[[str, Path], Any],
            have: Mapping[str, str] | None = None) -> dict[str, Any]:
-    """Put a tensor collection's shards under `<label>/shards/`, skipping
-    any already stored with the same hash, and return the collection as
-    it is emitted: no local path, the shards as recorded."""
     where = collection.get("_shard_dir")
     if not where:
         raise ValueError("nothing to upload: the collection names no local shard dir")

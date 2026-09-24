@@ -1,26 +1,3 @@
-"""The Anthropic Messages API.
-
-The canonical model was shaped after this one (system as a field,
-content parts, tool_use / tool_result), so the mapping is nearly
-transparent — which is the point of choosing a shape that a provider
-already agrees with rather than a lowest common denominator.
-
-Reasoning arrives as `thinking` blocks (readable text, or an empty
-string when display is omitted, and always a `signature`) and
-`redacted_thinking` blocks (an opaque `data` payload). Each becomes a
-reasoning part holding the block verbatim, and goes back exactly as it
-came: the API refuses a tool loop whose thinking blocks were altered or
-dropped. A block goes back to any Anthropic model, not only the one that
-wrote it: the API drops a block the target model cannot read, and a
-client that strips blocks itself loses reasoning a later model could
-have read — and, removing one from the middle of a history, invalidates
-every block after it.
-
-What is NOT here, by capability: logprobs (the API offers none) and
-`seed` (sampling is not reproducible), so a protocol that asks for
-either is refused by name before the job starts.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -55,8 +32,6 @@ def _content(m: msg.Message, model: str) -> list[dict[str, Any]]:
         if isinstance(p, msg.TextPart):
             out.append({"type": "text", "text": p.text})
         elif isinstance(p, msg.ReasoningPart):
-            # Another provider's reasoning is dropped, never turned into
-            # text; an Anthropic block goes back exactly as it came.
             if p.native and msg.is_replayable(p.provider, p.model, provider="anthropic",
                                               model=model, model_bound=False):
                 out.append(dict(p.native))
@@ -74,9 +49,6 @@ def _content(m: msg.Message, model: str) -> list[dict[str, Any]]:
 
 
 def read_block(block: Mapping[str, Any], model: str) -> msg.ReasoningPart:
-    """A `thinking` or `redacted_thinking` block as a reasoning part. A
-    block with empty text is ordinary (display omitted) and is kept: its
-    signature carries the reasoning."""
     text = str(block.get("thinking") or "")
     return msg.ReasoningPart(
         text=text, redacted=block.get("type") == "redacted_thinking" or not text,
@@ -85,8 +57,6 @@ def read_block(block: Mapping[str, Any], model: str) -> msg.ReasoningPart:
 
 def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
                   headers: Mapping[str, str] | None = None) -> AdapterResponse:
-    """A Messages API response body as canonical parts. Pure: a cassette
-    that kept the body maps it again through this on replay."""
     parts: list[msg.Part] = []
     unmapped: list[str] = []
     prose = False
@@ -103,9 +73,6 @@ def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
             parts.append(read_block(block, req.model))
             unmapped.append(kind)
         else:
-            # An unknown block type must never vanish silently, or
-            # a completion reads as empty beside a usage record
-            # saying hundreds of output tokens were written.
             unmapped.append(str(kind))
     u = data.get("usage") or {}
     usage = Usage(
@@ -135,9 +102,6 @@ def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
 
 def read_empty(unmapped: list[str], *, stop_reason: str, usage: Usage,
                max_tokens: int, reasoning_text: bool = False) -> EmptyReply:
-    """Why a reply with no prose and no tool call came back that way.
-    Only text blocks count as prose: a thinking block's text is the
-    reasoning, not the reply."""
     kinds = ", ".join(sorted(set(unmapped)))
     if stop_reason == "refusal":
         return EmptyReply("filtered", (
@@ -145,8 +109,6 @@ def read_empty(unmapped: list[str], *, stop_reason: str, usage: Usage,
             f"{usage.output_tokens} output tokens and returned no prose: the "
             "model declined the request."))
     if unmapped and set(unmapped) <= REASONING_BLOCKS:
-        # Reasoning blocks are mapped; what is missing is prose, and
-        # the cause is the output allowance.
         return EmptyReply("reasoning", (
             f"anthropic: {usage.output_tokens} of {max_tokens} "
             "output tokens (max_tokens) went to reasoning and no prose "
@@ -212,9 +174,6 @@ class AnthropicTransport(Transport):
             body["top_p"] = req.top_p
         if req.stop:
             body["stop_sequences"] = list(req.stop)
-        # Passthrough LAST: `provider_options.anthropic` is how a caller
-        # reaches cache_control, thinking budgets, service tiers and
-        # anything this module has not grown a field for.
         body.update(req.options_for(self.name))
         return body
 

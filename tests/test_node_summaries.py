@@ -1,11 +1,3 @@
-"""A run's manifest says what each node produced.
-
-The composer shows, beside a selected node, what the protocol's last
-run made there: the kind and how many. It reads that from the manifest
-rather than fetching every node's object, so the manifest carries a
-summary per executed node — and none for a node that did not run, which
-`nodes_missing` accounts for.
-"""
 from __future__ import annotations
 
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec, summarize_node

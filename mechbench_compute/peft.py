@@ -1,18 +1,3 @@
-"""PEFT interop: our adapter objects <-> PEFT LoRA repos, as a field
-rename rather than a translation.
-
-Parity map:
-
-- tensors: ours ``model.layers.{i}.{container}.{proj}.lora_{a,b}``
-  (a: (r, in), b: (out, r), delta = b @ a) <-> PEFT
-  ``base_model.model.model.layers.{i}.{container}.{proj}.lora_{A,B}.weight``
-  — identical shapes and merge convention (merge_and_unload is our
-  ``fuse``: W += (alpha/r) * B @ A).
-- config: rank <-> r, alpha <-> lora_alpha, target_modules verbatim,
-  base_model <-> base_model_name_or_path; peft_type LORA,
-  task_type CAUSAL_LM.
-"""
-
 from __future__ import annotations
 
 import json
@@ -29,14 +14,9 @@ WEIGHTS_NAME = "adapter_model.safetensors"
 
 
 def peft_export(adapter: dict, out_dir: str) -> str:
-    """Write an adapter object payload as a PEFT LoRA repo directory
-    (adapter_config.json + adapter_model.safetensors). Returns the
-    directory path."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    # Bytes -> temp-free load: mx.load needs a file; write then rewrite
-    # with PEFT key names.
     tmp = out / "_ours.safetensors"
     tmp.write_bytes(adapter["data"])
     ours = dict(mx.load(str(tmp)))
@@ -73,8 +53,6 @@ def peft_export(adapter: dict, out_dir: str) -> str:
 
 
 def peft_import(repo_dir: str) -> dict:
-    """Read a PEFT LoRA repo directory into an adapter object payload
-    (safetensors bytes re-keyed to our names + config mapped)."""
     d = Path(repo_dir)
     config = json.loads((d / CONFIG_NAME).read_text())
     if config.get("peft_type", "LORA").upper() != "LORA":
@@ -91,9 +69,6 @@ def peft_import(repo_dir: str) -> dict:
         i, container, proj, AB = m.groups()
         ours[f"model.layers.{i}.{container}.{proj}.lora_{AB.lower()}"] = w
     if extra:
-        # modules_to_save-style full weights change the model beyond
-        # LoRA deltas; fusing while ignoring them would produce a
-        # silently-wrong model. Refuse loudly.
         raise ValueError(
             f"adapter carries {len(extra)} non-LoRA weight(s) "
             f"(e.g. {extra[0]!r}) — modules_to_save/full-module "

@@ -75,26 +75,10 @@ def run(ctx, inputs, params):
 
 def zip_branches(inputs: Mapping[str, Any],
                  params: Mapping[str, Any]) -> dict[str, Any]:
-    """`records/zip`: align several branches' records into one record
-    per key, keeping which branch each came from.
-
-    Two branches over the same prompts produce two streams; a judge that
-    compares them needs record 7 of one beside record 7 of the other.
-    `records/union` concatenates — the items stay separate, distinguished
-    by a coordinate. This pairs them.
-
-    The key is `id` by default, or a list of coordinate names (`by:
-    ["prompt", "seed"]`), which is what to use when two branches number
-    their records differently but share a design.
-
-    A branch is named by the node or protocol input it came from, unless
-    `names` says otherwise — the names become the keys of each output record's
-    `branches` map, and the field prefixes under `flatten`.
-    """
     from mechbench_compute.lexicon import kinds as K
 
     edges = inputs.get("branches") or []
-    if isinstance(edges, Mapping):            # one branch, given inline
+    if isinstance(edges, Mapping):
         edges = [{"node": "branch", "value": edges}]
     if len(edges) < 2:
         raise ValueError(
@@ -116,8 +100,6 @@ def zip_branches(inputs: Mapping[str, Any],
             f"on_mismatch is 'fail', 'drop' or 'placeholder', not {on_mismatch!r}")
 
     def read_key_values(rec: Mapping[str, Any]) -> dict[str, Any]:
-        # A coordinate first, then a top-level field of the same name: a
-        # table's rows carry their grouping as fields.
         coords = rec.get("coords") or {}
         missing = [c for c in by if c not in coords and rec.get(c) is None]
         if missing:

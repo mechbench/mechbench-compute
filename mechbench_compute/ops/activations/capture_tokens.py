@@ -92,24 +92,12 @@ the surprise-direction probe.
 
 
 def run(ctx, inputs, params):
-    """activations/capture-tokens — one vector per token, each
-    carrying that token's own surprisal."""
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return capture_tokens(
         model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
 
 
-#: A per-token capture materialises one vector per (record, position,
-#: layer) — a different order of magnitude from one vector per record,
-#: so it has its own ceiling.
-#:
-#: The number is set by what the platform can STORE, not by taste. A
-#: canonical float costs about 8.3 bytes on the wire, and the API
-#: refuses an object over 64 MiB, so ~8.1M floats is the wall. This
-#: ceiling must stay under it: one set above it lets the whole capture
-#: run and fails at the emit, which is the worst place to learn a limit.
 MAX_TOKEN_VECTOR_FLOATS = 7_000_000
 
 
@@ -121,20 +109,6 @@ def capture_tokens(
     on_start=None,
     on_item=None,
 ):
-    """The residual at EVERY position, one vector per token.
-
-    `capture` reads one position per record — a decision point, a
-    subject, a pooled span. Some questions are about the sequence
-    itself: which way the residual moves as a token's surprisal rises,
-    how a representation builds across a passage. Those need a row per
-    token, which is this.
-
-    Each vector carries the token's own surprisal, in bits, because the
-    forward pass that produced the vector already computed it. Joining
-    the two afterwards, by (record, position), would be both awkward and
-    a chance to misalign them by one — the off-by-one that makes a
-    surprisal probe fit the NEXT token's difficulty.
-    """
     layers = resolve_layers(params.get("layers", "all"), model.arch.n_layers)
     point = hookpoints.normalize(str(params.get("point", "resid_post")))
     positions = params.get("positions", "all")
@@ -150,10 +124,6 @@ def capture_tokens(
         kept_per_record.append((record, r, idx))
 
     total = sum(len(idx) for _, _, idx in kept_per_record) * len(layers) * width
-    # Where the rows go: `"json"` is the collection itself, under the cap
-    # a stored object can hold; `"tensor"` writes the rows to shards
-    # beside the object, with no cap but disk; `"auto"` is json under the
-    # cap and tensor above it.
     storage = str(params.get("storage", "auto"))
     if storage not in ("auto", "json", "tensor"):
         raise ValueError(f"storage is 'auto', 'json' or 'tensor', not {storage!r}")
@@ -185,12 +155,6 @@ def capture_tokens(
     for record, r, idx in kept_per_record:
         ids = r.array
         result = model.run(ids, interventions=[cap])
-        # Surprisal of token i given everything before it, from the SAME
-        # forward pass that produced the vectors — the logits are already
-        # in hand, and a second pass would be both slower and a chance
-        # for the two to disagree. Position 0 has no predecessor and so
-        # carries none: a zero there would read as a confident
-        # prediction of the first token.
         seq = list(r.ids)
         lg = result.logits[0, :-1, :].astype(mx.float32)
         tgt = mx.array(seq[1:])

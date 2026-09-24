@@ -39,16 +39,6 @@ hub or needing a token.
 
 
 def run(ctx, inputs, params):
-    """adapter/publish — HF as DESTINATION: publish one of our adapter
-    objects to the hub as a PEFT LoRA repo (adapter_config.json +
-    adapter_model.safetensors + a model card carrying its bench
-    provenance). The returned hf_push record names the commit, so
-    `{"$ref": {"hf_adapter": {repo, revision}}}` can fetch it straight back — the
-    round trip.
-
-    dry_run stages the repo directory and reports files/sizes
-    without touching the hub (no token needed).
-    """
     import os
     import tempfile
 
@@ -66,8 +56,6 @@ def run(ctx, inputs, params):
     private = bool(params.get("private", True))
     dry_run = bool(params.get("dry_run", False))
     lora = payload.get("lora") or {}
-    # The base id, never the resolved object: this lands in a model
-    # card, where a ModelRef would render as its repr.
     base_model = payload.get("base_model") or read_tokenizer_id(params.get("model"))
 
     with tempfile.TemporaryDirectory() as d:

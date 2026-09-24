@@ -9,10 +9,6 @@ from mechbench_compute.providers import messages as pm
 
 @dataclass(frozen=True)
 class ToolDef:
-    """A capability offered to a model. `handler` is
-    `{"block": ref, "params": {...}}` or `{"protocol": "<id>"}`; the
-    second runs as a nested pipeline through the executor's runner."""
-
     name: str
     description: str = ""
     schema: Mapping[str, Any] = field(

@@ -7,16 +7,6 @@ from mechbench_compute.providers import messages as pm
 
 
 def write_turn(parts: Sequence[Any]) -> list[dict[str, Any]] | None:
-    """The order of a reply's parts, for storage beside its `text` and
-    `reasoning`: each reasoning part by its index in `reasoning`, each
-    text part by its span of `text` with any signature it carried, each
-    tool call whole. None when the reply is prose and tool calls alone,
-    whose order a reader never needs.
-
-    Nothing is stored twice: the prose lives in `text`, the reasoning
-    and its provider payload in `reasoning`, and `read_turn` puts the
-    turn back together exactly as the provider returned it.
-    """
     if not any(isinstance(p, pm.ReasoningPart) or getattr(p, "signature", None)
                for p in parts):
         return None

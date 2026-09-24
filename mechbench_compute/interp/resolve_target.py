@@ -10,10 +10,6 @@ from mechbench_compute.interp.collect_tracked_ids import collect_tracked_ids
 
 def resolve_target(model, record: Mapping[str, Any], params: Mapping[str, Any],
                    lp: np.ndarray | None) -> tuple[int, dict[str, int]]:
-    """(the target token, every tracked token): the first `tracked`
-    entry is the target; with none named, the model's own top-1 under
-    `lp` is. Returns the tracked map too, so a readout can report every
-    named token."""
     tracked = collect_tracked_ids(model, record, tracked=params.get("tracked"))
     if tracked:
         return next(iter(tracked.values())), tracked

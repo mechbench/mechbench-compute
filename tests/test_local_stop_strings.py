@@ -1,12 +1,3 @@
-"""The local sampler honours `stop`.
-
-`text/chat` declares `stop` and the remote adapters all put it on the
-wire; the local path read the tokenizer's turn-end tokens and nothing
-else, so a protocol that asked a local model to stop at a marker was
-answered as though it had not asked. A declared param that one path
-ignores is the failure `check_params` exists to prevent.
-"""
-
 from __future__ import annotations
 
 import numpy as np
@@ -19,10 +10,6 @@ WORDS = {1: "one", 2: " two", 3: " three", 4: " four", 5: " five", 0: ""}
 
 
 class _Row:
-    """Stands in for a logits row: the sampler under test never reads it
-    (the fixture's `_sample_next` is scripted), it only has to survive
-    the slicing the decode loop does."""
-
     def __getitem__(self, _k):
         return self
 
@@ -45,8 +32,6 @@ class _Model:
 
 @pytest.fixture
 def counting(monkeypatch):
-    """A sampler that emits 1,2,3,4,5 then the turn end, over a prefill
-    and cache that do nothing: what is under test is the stop check."""
     seq = iter([1, 2, 3, 4, 5, 0])
     monkeypatch.setattr(gen, "_sample_next", lambda *_a, **_k: next(seq))
     monkeypatch.setattr(gen, "_stop_ids", lambda _tok: {0})

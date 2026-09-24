@@ -21,14 +21,10 @@ OPS = ("zero", "mean", "resample", "patch", "add", "scale", "clamp",
 _GLOBAL_POINTS = frozenset({"embed", "final_norm", "logits"})
 
 
-#: "the selector this item already names" — a sentinel, because None is
-#: a selector (`positions: null` is `"last"`).
 _SAME = object()
 
 
 class Spec:
-    """One parsed spec item; `build(ids, tokens, layer)` returns the hook fn."""
-
     def __init__(self, item: Mapping[str, Any], *, n_layers: int, seed: int) -> None:
         point = str(item.get("point", "resid_post"))
         if point not in _LAYOUT:
@@ -51,12 +47,6 @@ class Spec:
         self.positions = item.get("positions", "last")
         self.heads = None if item.get("heads") is None else coerce_int_list(item["heads"])
         self.neurons = None if item.get("neurons") is None else coerce_int_list(item["neurons"])
-        # `except` inverts the sets this item names — everything BUT
-        # these layers, heads or neurons — which is how a circuit's
-        # completeness is measured against its faithfulness.
-        # Layers invert here, where the count is known; heads and
-        # neurons invert in the hook, where the tensor's own axis says
-        # how many there are.
         self.excepted = bool(item.get("except", False))
         if self.excepted:
             named = [k for k in ("layers", "heads", "neurons") if item.get(k) is not None]
@@ -71,9 +61,6 @@ class Spec:
             if item.get("layers") is not None and layers != "all":
                 keep = {int(x) for x in self.layers}
                 self.layers = [i for i in range(n_layers) if i not in keep]
-        # A `patch` may take its row from ANOTHER layer or point — the
-        # patchscope's move, reading a hidden state by writing it where
-        # a different prompt would read it.
         self.patch_from = item.get("from")
         if self.patch_from is not None:
             if op != "patch":
@@ -81,8 +68,6 @@ class Spec:
                                 f"{op!r}")
             if not isinstance(self.patch_from, Mapping):
                 raise SpecError("`from` is an object: {layer, point}")
-        # An attention edge: which SOURCE positions the selected
-        # destinations may attend to.
         self.pattern = item.get("pattern")
         if self.pattern is not None:
             if point not in ("attn.scores", "attn.weights"):
@@ -117,8 +102,6 @@ class Spec:
             raise SpecError("op 'patch' needs a `source` record (with `row`) or a `direction`")
         self._rng = np.random.default_rng(self.seed)
 
-    # ---- hook construction --------------------------------------------------------
-
     def hook_names(self) -> list[str]:
         return [self.point if layer is None else f"blocks.{layer}.{self.point}"
                 for layer in self.layers]
@@ -126,14 +109,6 @@ class Spec:
     def build(self, layer: int | None, tokens: Sequence[str],
               record: Mapping[str, Any] | None = None,
               prompt_len: int | None = None, growing: bool = False) -> Callable:
-        """The hook for one layer. `tokens` is the WHOLE sequence the
-        positions resolve against — a list the caller may grow while
-        decoding — and `prompt_len` where the prompt ends, for
-        `"generated"`; None means the tokens as first given. `growing`
-        says the sequence is still being written, so a token the
-        selector names that has not arrived selects nothing rather than
-        refusing; a one-shot pass keeps the refusal, which is how a
-        misspelt token is caught."""
         pos_axis, head_axis, feat_axis = _LAYOUT[self.point]
         fixed_prompt_len = len(tokens) if prompt_len is None else int(prompt_len)
         absent = "none" if growing else "error"
@@ -142,7 +117,6 @@ class Spec:
         op, strength = self.op, self.strength
         d = None if self.direction is None else mx.array(self.direction)
         cond = self.condition
-        # per-position replacement rows for mean / resample / patch
         rows = None
         if self.source is not None:
             src_layer, src_point = layer, self.point
@@ -152,18 +126,10 @@ class Spec:
             try:
                 rows = build_rows_matrix(self.source, src_layer, src_point)
             except SpecError:
-                # A source captured at another point still serves an op
-                # that only needs vectors of the right width.
                 rows = build_rows_matrix(self.source, src_layer)
         rng = self._rng
 
         def _positions(L: int, offset: int, selector: Any = _SAME) -> list[int]:
-            # One grammar (positions.py), resolved over the whole sequence
-            # seen so far — `offset` tokens already in the KV cache, then
-            # this chunk's `L` — and kept only where it falls inside the
-            # chunk, relative to it. A whole-prompt pass is the chunk at
-            # offset 0. `L` is the tensor's own length at this point,
-            # which a key/value axis may differ in.
             n = offset + L
             want = positions if selector is _SAME else selector
             try:
@@ -191,9 +157,6 @@ class Spec:
                 return mx.array(m).reshape(view)
 
             if self.pattern is not None:
-                # An edge: the destinations attend along the position
-                # axis, the sources sit on the feature (key) axis, which
-                # counts the whole sequence and so takes no offset.
                 to_sel = (sel_pos if "to" not in self.pattern
                           else _positions(L, int(getattr(info, "offset", 0) or 0), self.pattern["to"]))
                 from_sel = _positions(shape[feat_axis], 0, self.pattern["from"])
@@ -225,8 +188,6 @@ class Spec:
                 mask = mask & cmask
 
             if op == "zero":
-                # At a score, zero is a SCORE of zero, not a cut: what
-                # removes an edge before the softmax is −inf.
                 new = (mx.full(shape, float("-inf"), act.dtype)
                        if self.point == "attn.scores" else mx.zeros_like(act))
             elif op == "scale":
@@ -267,9 +228,6 @@ class Spec:
                 raise SpecError(op)
             out = mx.where(mask, new, act)
             if (self.point == "attn.weights" and op == "zero" and self.renormalize):
-                # A cut edge's mass has to go somewhere: the rows that
-                # lost one are renormalised, the rest are left untouched
-                # rather than divided by a rounded 1.
                 f = out.astype(mx.float32)
                 total = mx.sum(f, axis=feat_axis, keepdims=True)
                 touched = mx.sum(mask.astype(mx.float32), axis=feat_axis, keepdims=True) > 0

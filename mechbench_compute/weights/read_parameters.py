@@ -6,9 +6,6 @@ from mechbench_compute.weights.constants import MODEL_SCOPE
 
 
 def read_parameters(lm: Any) -> dict[str, Any]:
-    """`{name: tensor}` for every parameter of a loaded text decoder,
-    named as the module tree names it (`layers.12.self_attn.q_proj.
-    weight`), the `model.` scope stripped."""
     from mlx.utils import tree_flatten
 
     out: dict[str, Any] = {}

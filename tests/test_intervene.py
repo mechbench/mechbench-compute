@@ -1,7 +1,3 @@
-"""The declarative intervene block: the hook math on fake
-activations, spec parsing, the readout plumbing on a fake model, and
-an opt-in real-E2B check."""
-
 from __future__ import annotations
 
 import os
@@ -67,7 +63,7 @@ class TestOps:
         d = _dir([1, 0, 0, 0])
         out = _apply(_spec(op="clamp", strength=1.0, direction=d, positions="all"), a)
         assert np.allclose(out[0, :, 0], [1.0, -1.0, 0.5])
-        assert out[0, 0, 1] == 1.0  # orthogonal component untouched
+        assert out[0, 0, 1] == 1.0
 
     def test_rotate_quarter_turn_in_the_plane(self):
         a = mx.array(np.array([[[1.0, 0.0, 0.0, 0.0]]], np.float32))
@@ -88,7 +84,7 @@ class TestOps:
         a = _act(D=4)
         out = _apply(_spec(op="zero", positions="all", neurons=[1, 3]), a)
         assert np.all(out[0, :, [1, 3]] == 0) and np.allclose(out[0, :, [0, 2]], np.array(a)[0, :, [0, 2]])
-        heads_act = mx.array(np.ones((1, 2, 3, 4), np.float32))  # [B, n_heads, L, hd]
+        heads_act = mx.array(np.ones((1, 2, 3, 4), np.float32))
         spec = _spec(point="attn.per_head_out", op="zero", positions="all", heads=[1])
         out = _apply(spec, heads_act)
         assert np.all(out[0, 1] == 0) and np.all(out[0, 0] == 1)
@@ -146,9 +142,6 @@ class _FakeArch:
 
 
 class _FakeModel:
-    """A model whose 'logits' are a fixed function of the residual at
-    blocks.2.resid_post, so an intervention changes the readout."""
-
     tokenizer = _FakeTok()
     arch = _FakeArch()
 
@@ -160,12 +153,11 @@ class _FakeModel:
 
         hooks_d, caps = compose(interventions, hooks=hooks, capture=capture)
         L = int(ids.shape[-1])
-        h = mx.array(np.tile(np.arange(4, dtype=np.float32), (1, L, 1)))  # [1, L, 4]
+        h = mx.array(np.tile(np.arange(4, dtype=np.float32), (1, L, 1)))
         fn = hooks_d.get("blocks.2.resid_post")
         if fn is not None:
             out = fn(h, None)
             h = out if out is not None else h
-        # logits: 6-token vocab, a linear read of the residual
         W = mx.array(np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0],
                                [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0]], np.float32))
         logits = h @ W
@@ -195,14 +187,11 @@ class TestRunReadout:
         assert items == ["r1:0.0", "r1:1.0"]
         ctrl, steered = out["items"]
         assert ctrl["factor"] == 0.0 and steered["factor"] == 1.0
-        # the control residual is [0, 1, 2, 3], so its top token is id 3
-        # (" light" in the fake tokenizer); adding +10 along coordinate 0
-        # makes id 0 ("t0") the top token
         assert ctrl["top"][0]["token"]["text"] == " light"
         assert steered["top"][0]["token"]["text"] == "t0"
         assert set(ctrl["top"][0]) == {"token", "p", "logp"}
         assert steered["entropy_bits"] < ctrl["entropy_bits"]
-        assert out["spec"][0]["direction"]["derivation"]["method"] == "t"  # wire form, no vector
+        assert out["spec"][0]["direction"]["derivation"]["method"] == "t"
 
     def test_capture_readout(self):
         model = _FakeModel()
@@ -210,10 +199,6 @@ class TestRunReadout:
         out = run(model, [{"id": "r1", "user": "hi"}],
                      {"spec": [{"point": "resid_post", "layers": [2], "op": "project_out", "direction": d}],
                       "readout": {"kind": "capture", "points": ["blocks.2.resid_post"]}})
-        # A capture readout IS a capture: an activations/vector
-        # collection, one item per record per factor per point, in the
-        # space the hook name says, `factor` on each — the shape
-        # activations/capture emits, so geometry/compare reads it.
         assert out["item_kind"] == "activations/vector"
         assert out["readout"] == "capture" and out["points"] == ["blocks.2.resid_post"]
         cap_ctrl, cap_done = out["items"]
@@ -223,8 +208,6 @@ class TestRunReadout:
         assert cap_ctrl["vector"][1] == 1.0
         assert abs(cap_done["vector"][1]) < 1e-6
         assert "captures" not in cap_ctrl
-        # …and so a capture readout goes straight into geometry/compare,
-        # grouped by factor, separated on a record coordinate.
         from mechbench_compute.ops.geometry.compare import compare_geometry
         two = run(model, [{"id": "a", "user": "hi", "coords": {"sense": "x"}},
                              {"id": "b", "user": "yo", "coords": {"sense": "y"}}],
@@ -235,8 +218,6 @@ class TestRunReadout:
         assert sim["items"][1]["labels"] == ["x", "y"]
 
     def test_a_capture_readout_is_a_source(self):
-        # One intervention's capture patches into another: the captured
-        # residual at layer 2 becomes the `mean` replacement there.
         model = _FakeModel()
         captured = run(model, [{"id": "r1", "user": "hi"}],
                           {"spec": [{"point": "resid_post", "layers": [2], "op": "scale",
@@ -257,8 +238,6 @@ class TestRunReadout:
         assert out["spec"][0]["source"]["item_kind"] == "activations/vector"
 
     def test_a_capture_readout_stored_before_0_110_is_still_a_source(self):
-        # The nested shape — one readout row per record, vectors under
-        # `captures` — is what older stored results carry; it is read.
         model = _FakeModel()
         vec = S.vector(np.array([5.0, 6.0, 7.0, 8.0], np.float32),
                        S.space(model="fake", layer=2, point="resid_post", d=4), id="blocks.2.resid_post")
@@ -298,7 +277,6 @@ def test_real_project_out_zeroes_the_projection_at_the_point():
 
     model = Model.load(E2B)
     layer = model.arch.last_fresh_kv_global
-    # a direction from the model's own residual: capture, then project it out
     base = model.run(model.tokenize("The old lighthouse keeper", chat_template=False),
                      capture=[f"blocks.{layer}.resid_post"])
     v = np.array(base.cache[f"blocks.{layer}.resid_post"][0, -1].astype(mx.float32))
@@ -314,9 +292,6 @@ def test_real_project_out_zeroes_the_projection_at_the_point():
 
 
 class _WeightModel(_FakeModel):
-    """A model whose logits depend on one of its OWN parameters, so a
-    weight edit changes the readout and a failed restore would show."""
-
     def __init__(self):
         from mlx import nn
 
@@ -349,9 +324,6 @@ class _WeightModel(_FakeModel):
         r = super().run(ids, hooks=hooks, capture=capture,
                         interventions=interventions)
         w = self.lm.model.layers[0].self_attn.o_proj.weight.astype(mx.float32)
-        # The readout passes through the weight, embedded in the 6-token
-        # vocabulary: identity leaves the control alone, and a zeroed
-        # weight flattens the logits.
         top = mx.concatenate([w, mx.zeros((4, 2))], axis=1)
         bottom = mx.concatenate([mx.zeros((2, 4)), mx.eye(2)], axis=1)
         r.logits = r.logits @ mx.concatenate([top, bottom], axis=0)
@@ -360,9 +332,6 @@ class _WeightModel(_FakeModel):
 
 
 class TestWeightItems:
-    """A spec item that names a `parameter` edits the model for the
-    node, not the forward pass."""
-
     def _weight(self, model):
         return np.array(
             model.lm.model.layers[0].self_attn.o_proj.weight.astype(mx.float32))
@@ -376,7 +345,6 @@ class TestWeightItems:
         assert out["sweep"] == {"strength": [0.0, 1.0]}
         ctrl, edited = out["items"]
         assert ctrl["factor"] == 0.0 and edited["factor"] == 1.0
-        # The control saw the untouched model; the edited row did not.
         assert ctrl["top"][0]["p"] != pytest.approx(edited["top"][0]["p"])
         assert np.array_equal(self._weight(model), before), "the model was not restored"
 
@@ -418,9 +386,6 @@ class TestWeightItems:
 
 
 class TestSweepAxes:
-    """A sweep varies any spec field, not only strength: the
-    axes are a cartesian product, each a coordinate on the rows."""
-
     REC = {"id": "r1", "user": "hi"}
     ZERO = {"point": "resid_post", "op": "zero"}
 
@@ -431,7 +396,6 @@ class TestSweepAxes:
         assert [r.get("cell") for r in rows] == ["control", "layer=1", "layer=2", "layer=3"]
         assert [r["coords"].get("layer") for r in rows] == [None, 1, 2, 3]
         assert [r["factor"] for r in rows] == [0.0, 1.0, 1.0, 1.0]
-        # The stub's logits read blocks.2.resid_post, so only that cell moved.
         ctrl, l1, l2, l3 = rows
         assert l1["top"][0]["token"] == ctrl["top"][0]["token"]
         assert l3["top"][0]["token"] == ctrl["top"][0]["token"]
@@ -471,8 +435,8 @@ class TestSweepAxes:
             {"point": "resid_post", "op": "scale", "strength": 0.5}])
         [cell] = iv.sweep_cells({"sweep": {"layers": [3]}, "control": False})
         fixed, swept = compiled.at(cell)
-        assert fixed.layers == [0]          # its own layer stands
-        assert swept.layers == [3]          # and this one follows the axis
+        assert fixed.layers == [0]
+        assert swept.layers == [3]
 
     def test_refusals_name_the_axes(self):
         with pytest.raises(iv.SpecError, match="cannot vary depth"):

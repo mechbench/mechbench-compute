@@ -1,16 +1,8 @@
-"""`mlx.core`, for a module that has to import where mlx does not exist.
-
-An operation's file holds its declaration as well as its mechanism, and
-the declaration is read on machines that will never run the mechanism:
-the documentation build, the API, a runner without Apple silicon. So the
-import cannot fail there. What fails instead is the first use, and it
-says what is missing.
-"""
 from __future__ import annotations
 
 try:
     import mlx.core as mx
-except ImportError:  # pragma: no cover - exercised by tests/test_ops_layout.py
+except ImportError:  # pragma: no cover
 
     class _Missing:
         def __getattr__(self, name: str):

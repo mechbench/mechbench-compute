@@ -9,27 +9,11 @@ from mechbench_compute.weights.project_out import project_out
 from mechbench_compute.weights.select_points import select_points
 from mechbench_compute.weights.truncate import truncate
 
-#: What an intervention may do to a parameter. Deliberately fewer than
-#: the activation ops: an edit to a weight lasts for the whole node, so
-#: each of these has to be a statement about the model rather than about
-#: one forward pass.
 WEIGHT_OPS: tuple[str, ...] = ("zero", "scale", "project_out", "truncate")
 
 
 def edit_parameters(lm: Any, items: Sequence[Mapping[str, Any]],
                     factor: float = 1.0) -> list[tuple[str, Any]]:
-    """Apply weight edits in place; return the handle that undoes them.
-
-    The contract is `lora.fuse`'s, for the same reason: the ORIGINAL
-    tensors are kept and reinstalled, never recomputed backwards. An
-    edit that re-derived the old weight by inverting the new one would
-    not round-trip in bf16, and a run whose model is subtly not the one
-    it started with is the worst kind of wrong — it still produces
-    numbers.
-
-    `factor` scales every edit, so a sweep is the same spec at several
-    strengths.
-    """
     import mlx.core as mx
 
     tensors = read_parameters(lm)

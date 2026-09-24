@@ -1,11 +1,3 @@
-"""The operations, one file each. See docs/OPS_LAYOUT.md.
-
-An operation named `family/name` is the module
-`mechbench_compute.ops.<family>.<name>` (a hyphen in the name is an
-underscore in the path). That module holds `OP`, the declaration, and
-`run(ctx, inputs, params)`, the one entry point. Nothing lists the
-operations: `load_modules()` finds them by walking this package.
-"""
 from __future__ import annotations
 
 import ast
@@ -20,13 +12,6 @@ from typing import Any, Callable, Mapping
 
 @dataclass
 class Context:
-    """What the executor lends an operation for one node.
-
-    Every field has a default, so a test that needs only a model builds
-    one in a line: `run(Context(model=fake), inputs, params)`.
-    """
-
-    #: A model already loaded, for a test. Otherwise `executor` loads it.
     loaded: Any = None
     executor: Any = None
     on_item: Callable[..., None] | None = None
@@ -36,13 +21,10 @@ class Context:
     resume_state: Any = None
     secrets: Mapping[str, Any] | None = None
     input_paths: Mapping[str, str] = field(default_factory=dict)
-    #: The run's bound params, by name: what an operation running a body
-    #: of its own hands on to it, beneath what the body binds itself.
     run_params: Mapping[str, Any] | None = None
     result_base: str | None = None
 
     def model(self, ref: Any) -> Any:
-        """The loaded model a `model` param names."""
         if self.loaded is not None:
             return self.loaded
         if self.executor is None:
@@ -53,14 +35,12 @@ class Context:
 
 
 def resolve_module_name(op: str) -> str:
-    """`logits/read-layers` -> `mechbench_compute.ops.logits.read_layers`."""
     family, name = op.split("/", 1)
     return f"{__name__}.{family}.{name.replace('-', '_')}"
 
 
 @cache
 def load_modules() -> dict[str, ModuleType]:
-    """Every operation's module, by the operation's name."""
     found: dict[str, ModuleType] = {}
     for info in pkgutil.walk_packages(__path__, prefix=f"{__name__}."):
         if info.ispkg or info.name.rsplit(".", 1)[-1].startswith("_"):
@@ -82,16 +62,12 @@ def find(op: str) -> ModuleType | None:
 
 
 def fuses_adapter(op: str) -> bool:
-    """Whether the executor loads the model and fuses an adapter around
-    this operation: it needs local weights, and an adapter may arrive."""
     declared = load_modules()[op].OP
     return declared.requires == "mlx-local" and declared.port("adapter") is not None
 
 
 @cache
 def find_standalone() -> frozenset[str]:
-    """The operations that run with no executor: pure, and their `run`
-    never reads `ctx`. What a tool handler or a chunked reduce may call."""
     names = set()
     for name, mod in load_modules().items():
         if mod.OP.requires != "pure":
@@ -107,11 +83,4 @@ def run_standalone(op: str, inputs: Mapping[str, Any], params: Mapping[str, Any]
     return load_modules()[op].run(Context(), inputs, params)
 
 
-# Last, and deliberately: an operation's file imports its declaration's
-# vocabulary from `mechbench_compute.lexicon`, and the lexicon walks this
-# package as it initialises. Importing it here — from the parent package,
-# which finishes before any module inside it starts — means the lexicon
-# is past its walk before any operation's file executes. Import it from
-# an operation's file first and that walk reads a half-imported module
-# and finds no OP in it.
 import mechbench_compute.lexicon  # noqa: E402,F401

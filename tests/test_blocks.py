@@ -1,6 +1,3 @@
-"""Pure-block contracts: the stdlib pieces every
-protocol leans on — deterministic, growth-safe, expectation-judging."""
-
 import pytest
 
 from mechbench_compute.ops.eval.expect import check_expectations
@@ -42,8 +39,6 @@ def test_sampled_values_are_deterministic_in_seed_and_index_alone():
 
 
 def test_growing_a_sampled_factor_preserves_the_original_membership():
-    # The 100 -> 1000 growth guarantee: raising `count` must extend the
-    # set, never reshuffle it (values depend on (seed, index) alone).
     small = {"kind": "words", "size": 3, "count": 5, "seed": 7,
              "word_list": WORDS, "key_prefix": "w"}
     big = dict(small, count=12)
@@ -98,8 +93,6 @@ def test_eval_expectation_judges_and_aggregates():
                                      "over": ["1", "2", "3", "4", "5", "6"],
                                      "max_kl_bits": 0.05}},
     ]
-    # The reads are in the older spelling (`outcome_mass`, `top_tokens`);
-    # the judge reads them as distributions.
     out = check_expectations(
         {"results": results, "expectations": expectations}, {})
     assert out["item_kind"] == "eval/verdict"
@@ -134,8 +127,6 @@ def test_eval_expectation_reads_a_current_decision_collection():
 
 
 def test_eval_expectation_reads_its_ports_only():
-    # Inputs arrive on ports, never under params: a result list given
-    # there is not read (the executor refuses it by name before this).
     with pytest.raises(KeyError):
         check_expectations({}, {
             "results": [{"id": "a", "entropy_bits": 3.0}],
@@ -160,8 +151,6 @@ def test_suite_metric_records_shapes_lm_eval_results():
 
 
 class TestRename:
-    """records/rename: the one visible adaptation step."""
-
     def test_moves_fields_and_keeps_the_rest(self):
         from mechbench_compute.ops.records.rename import rename
 
@@ -173,11 +162,9 @@ class TestRename:
         from mechbench_compute.ops.records.rename import rename
 
         doc = {"id": "s0", "text": "…", "hit": 1, "metadata": {"coords": {"prompt": "flash"}}}
-        # Moves apply in order: the coords lift first, then the hit into it.
         out = rename([doc], {"fields": {"metadata.coords": "coords", "hit": "coords.hit"}})
         assert out[0] == {"id": "s0", "text": "…", "metadata": {},
                           "coords": {"prompt": "flash", "hit": 1}}
-        # The input record was not mutated.
         assert doc["hit"] == 1 and doc["metadata"]["coords"] == {"prompt": "flash"}
 
     def test_a_missing_field_is_left_alone_and_an_empty_map_is_refused(self):
@@ -199,10 +186,6 @@ class TestRename:
 
 
 def test_every_records_block_reads_a_collection_on_its_port():
-    """The executor hands a block the upstream node's output — a
-    `collection` — never a bare list. Every records block must read it
-    through the one reader; `records/fill` iterated the container
-    itself once and read its keys as records."""
     from mechbench_compute import ops
     from mechbench_compute.lexicon import kinds as K
 
@@ -267,10 +250,6 @@ def test_viz_spec_references_its_source_or_inlines_rows():
 
 
 class TestAFigureCarriesItsVocabulary:
-    """What turns a chart into a visualization (VISUALIZATION.md): prose
-    labels, the model's depth landmarks, callouts, and the field it
-    shares with the other figures on a page."""
-
     ROWS = [{"id": f"L{i}", "layer": i, "mean": -float(i) / 10, "kind": "local"} for i in range(4)]
     ARCH = {"n_layers": 4, "global_layers": [1, 3], "first_kv_shared_layer": 2}
 
@@ -293,8 +272,6 @@ class TestAFigureCarriesItsVocabulary:
             self._spec({"labels": {"z": "nothing"}})
 
     def test_landmarks_are_read_from_the_inputs_header(self):
-        # A sweep's result carries `arch`; a figure of it draws the
-        # landmarks without the author naming them.
         coll = {"kind": "collection", "item_kind": "intervene/ablation",
                 "items": self.ROWS, "arch": self.ARCH}
         spec = self._spec({}, records=coll)
@@ -309,9 +286,6 @@ class TestAFigureCarriesItsVocabulary:
             self._spec({"axes": {"layer": {"global": [1]}}})
 
     def test_a_summary_of_a_sweep_still_knows_the_model(self):
-        # The landmarks ride from the sweep through every records op the
-        # executor runs — the block itself knows nothing about
-        # them — so a figure two nodes downstream still draws them.
         from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
         coll = {"kind": "collection", "item_kind": "intervene/ablation",
                 "items": [{**r, "coords": {"layer": r["layer"]}} for r in self.ROWS],
@@ -325,17 +299,11 @@ class TestAFigureCarriesItsVocabulary:
         out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,
                                                   extra={"graph": graph}))
         payload = out.payload if hasattr(out, "payload") else out
-        # Only the leaf is an output; that the summary carried the
-        # landmarks shows in the figure it fed, which names them without
-        # having been told.
         figure = payload["outputs"]["figure"]
         assert figure["axes"] == {"layer": {"n": 4, "global": [1, 3], "kv_shared_from": 2}}
-        # And the figure itself carries them on for anything downstream.
         assert figure["arch"] == self.ARCH
 
     def test_every_model_block_result_carries_the_landmarks(self, monkeypatch):
-        # The executor's model-block wrapper stamps `arch` from the model
-        # it ran, so no block has to know the landmarks exist.
         from types import SimpleNamespace
 
         from mechbench_compute.protocol import ProtocolExecutor
@@ -345,20 +313,13 @@ class TestAFigureCarriesItsVocabulary:
         monkeypatch.setattr(ex, "_adapter_fused", lambda *a, **k: __import__("contextlib").nullcontext())
         out = ex._run_model_block(lambda inputs, params: {"kind": "collection", "items": []}, {}, {"model": "fake/m"})
         assert out["arch"] == self.ARCH
-        # A block that already said something about the model keeps it.
         kept = ex._run_model_block(lambda i, p: {"arch": {"n_layers": 99}}, {}, {"model": "fake/m"})
         assert kept["arch"] == {"n_layers": 99}
-        # And a model family without landmarks leaves them out, rather
-        # than inventing an empty list.
         plain = SimpleNamespace(n_layers=12)
         monkeypatch.setattr(ex, "_model_loaded", lambda _m: SimpleNamespace(arch=plain))
         assert ex._run_model_block(lambda i, p: {}, {}, {"model": "fake/m"})["arch"] == {"n_layers": 12}
 
     def test_a_map_keeps_the_landmarks_its_body_found(self, monkeypatch):
-        # A map's records are its sweep — forty-two layer numbers know
-        # nothing about any model — so the landmarks cannot come from the
-        # input the way they do for an ordinary records op. They are on
-        # the body's header, and only its items were being kept.
         from types import SimpleNamespace
 
         from mechbench_compute.lexicon import kinds as K
@@ -397,9 +358,6 @@ class TestAFigureCarriesItsVocabulary:
 
 
 def test_uniform_masses_derive_from_top_tokens():
-    """Plain decision reads emit top_tokens and no outcome_mass, so
-    the judge derives the masses rather than failing a distribution it
-    never looked at."""
     results = [{"id": "c1", "entropy_bits": 1.99, "top_tokens": [
         {"token": "3", "p": 0.2997}, {"token": "1", "p": 0.2334},
         {"token": "2", "p": 0.2334}, {"token": "4", "p": 0.2334},
@@ -422,25 +380,17 @@ def test_uniform_without_any_distribution_is_unjudgeable_not_false():
         {"results": results, "expectations": expectations}, {})
     row = table["items"][0]
     assert row["pass"] is None and "unjudgeable" in row["note"]
-    # ...and the summary does not count it as a judged failure.
     assert table["summary"]["n_judged"] == 0 and table["summary"]["n_unjudgeable"] == 1
 
 
-
-#: Two judged rows and one the judge could not be read for.
 JUDGED_ROWS = [
     {"id": "a", "coords": {"arm": "x"}, "score": 4.0},
-    {"id": "b", "coords": {"arm": "x"}},              # unparsed
+    {"id": "b", "coords": {"arm": "x"}},
     {"id": "c", "coords": {"arm": "y"}, "score": 2.0},
 ]
 
 
 class TestGroupStatsMissingValues:
-    """A judged corpus has rows a judge could not be read for. A mean
-    over the records that happened to have the field is
-    the kind of number nobody notices is wrong, so the default refuses
-    by name and `skip` reports what it dropped."""
-
     def test_a_missing_value_refuses_by_name_by_default(self):
         import pytest
 
@@ -465,9 +415,6 @@ class TestGroupStatsMissingValues:
 
 
 class TestAFigureIsReadAgainstALine:
-    """A figure whose claim is "close to fair" or "over the threshold"
-    needs the line to be read against (VISUALIZATION.md)."""
-
     ROWS = {"kind": "collection", "items": [
         {"id": "1", "face": "1", "p": 0.1808}, {"id": "2", "face": "2", "p": 0.1595},
     ]}
@@ -496,11 +443,6 @@ class TestAFigureIsReadAgainstALine:
 
 
 class TestASummaryOverAGrid:
-    """A trace is its cells: `records/summarize` reads a grid
-    cell by cell, the same rows `records/plot` draws, so a strip of what
-    each token's best cell recovers is one summarize away — in the flat
-    block and in its monoid alike."""
-
     TRACE = {"kind": "collection", "item_kind": "intervene/trace", "items": [
         {"id": "p1", "axes": ["layer", "position"], "tokens": ["The", "capital"],
          "coords": {"country": "France"},
@@ -533,10 +475,6 @@ A_CORPUS = {"kind": "document_collection", "items": [
 
 
 class TestRecordCoercion:
-    """A document collection IS a record stream — the thing generate,
-    chat and conversation emit. Blocks that wanted to read a corpus
-    were each writing their own coercion before this."""
-
     def test_items_are_records(self):
         from mechbench_compute.blocks import read_items
 
@@ -561,8 +499,6 @@ class TestRecordCoercion:
         class M:
             tokenizer = Tok()
 
-        # A document renders raw; a condition through the chat template;
-        # a condition may turn the template off; a raw record may turn it on.
         assert render(M(), {"id": "a", "text": "a story"}).text == "a story"
         r = render(M(), {"id": "a", "user": "u", "text": "t", "prefill": "{"})
         assert r.text == "<chat>u{" and r.chat
@@ -592,6 +528,5 @@ def test_eval_expectation_absent_judges_the_mass_on_outcomes_already_said():
     by_id = {r["id"]: r for r in out["items"]}
     assert by_id["clean"]["pass"] is True and by_id["clean"]["mass"] == 0.006
     assert by_id["repeats"]["pass"] is False and by_id["repeats"]["mass"] == 0.06
-    # "Humor" was never scored: no verdict, rather than a false pass.
     assert by_id["unread"]["pass"] is None and "Humor" in by_id["unread"]["note"]
     assert out["summary"]["n_judged"] == 2 and out["summary"]["n_unjudgeable"] == 1

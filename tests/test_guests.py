@@ -1,6 +1,3 @@
-"""Fetch-on-first-use guests. No network, no real
-guest: the contract is about hashes, and hashes can be tested with
-any bytes."""
 from __future__ import annotations
 
 import hashlib
@@ -104,14 +101,11 @@ class TestThePin:
             guests.ensure("g")
 
     def test_the_real_registry_pins_the_guest(self, monkeypatch):
-        monkeypatch.undo()  # the autouse fixture emptied it; look at the real one
+        monkeypatch.undo()
         from mechbench_compute import guests as real
         assert "mbshell" in real.REGISTRY, "the shell guest"
         g = real.REGISTRY["mbshell"]
         assert len(g.sha256) == 64 and g.size > 1_000_000 and g.source
-        # Hosted as a GitHub release on this repo, tagged by hash, gzipped.
-        # (An earlier test module may have install_local'd a file:// build
-        # over it, so accept either.)
         assert g.url.startswith("file://") or (
             g.url.startswith("https://github.com/mechbench/mechbench-compute/releases/download/")
             and g.sha256[:12] in g.url and g.url.endswith(".wasm.gz"))
@@ -140,8 +134,6 @@ class TestRuntimeMounts:
         assert path == p and mounts == () and env == {}
 
     def test_an_empty_pin_accepts_any_build(self, tmp_path):
-        # A guest whose reproducible hash is not yet recorded (sha256="")
-        # is unpinned and takes the local build without replace=True.
         guests.register(guests.Guest("cg", "", "", 0, source="unpinned"))
         g = guests.install_local("cg", _artifact(tmp_path))
         assert len(g.sha256) == 64
@@ -153,9 +145,6 @@ class TestRuntimeMounts:
         assert cp.env.get("PYTHONHOME") == "/usr/local"
         m = cp.mounts[0]
         assert m.at == "/usr/local/lib/python3.13"
-        # Hosted: the wasm is a release .wasm.gz and the stdlib mount a
-        # release .tar.gz, each pinned by its own hash. (A local test
-        # may have install_local'd a file:// build over it.)
         assert cp.url.startswith("file://") or (
             cp.url.startswith("https://github.com/mechbench/mechbench-compute/releases/")
             and cp.url.endswith(".wasm.gz") and len(cp.sha256) == 64)

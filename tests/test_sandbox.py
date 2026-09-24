@@ -1,10 +1,3 @@
-"""The WASI sandbox runtime against the real guest.
-
-Every test here runs mbshell — go-busybox's applets behind an
-in-process shell, standard Go compiled to wasip1; the actual binary,
-not a stub — so what passes is what a protocol would get. Skipped
-when the guest is not built on this machine (`guests/mbshell/build.sh`).
-"""
 from __future__ import annotations
 
 import os
@@ -22,11 +15,6 @@ L = sandbox.Limits
 
 @pytest.fixture(scope="module")
 def guest(tmp_path_factory):
-    """The guest's registered NAME, so every run resolves the way a
-    protocol's would. install_local hashes the local build against
-    the pin in `guests.REGISTRY`: a build that comes out different
-    fails here, on purpose, rather than running under the pinned
-    name."""
     if not BUILT.is_file():
         pytest.skip("mbshell.wasm not built on this machine — guests/mbshell/build.sh")
     os.environ["MECHBENCH_GUEST_CACHE"] = str(tmp_path_factory.mktemp("guests"))
@@ -88,17 +76,12 @@ class TestEveryLimitIsNamed:
         assert r.limit == "fuel" and r.fuel_used == 20_000_000
 
     def test_memory(self, guest):
-        # Go's runtime does not trap on a refused grow: it prints
-        # "fatal error: out of memory" and exits 2. Classified anyway.
         lines = fs.seeded({"l.txt": "".join(f"{os.urandom(8).hex()}\n" for _ in range(300_000))})
         r = sandbox.run(lines, ["sort", "l.txt"], guest=guest,
                         limits=L(memory_mb=16, output_bytes=1 << 20))
         assert r.limit == "memory_mb" and r.exit_code == 2, r.stderr[-300:]
 
     def test_a_cap_below_the_guest_minimum_is_the_same_limit(self, guest):
-        # The module declares a minimum linear memory (113 pages for
-        # this guest); a cap under it cannot instantiate. Still a
-        # Result — the protocol set the number — not an exception.
         r = sandbox.run(SEED, ["echo", "hi"], guest=guest, limits=L(memory_mb=4))
         assert r.limit == "memory_mb" and "below the guest's minimum" in r.stderr
 
@@ -107,16 +90,12 @@ class TestEveryLimitIsNamed:
         assert "stdout" in r.truncated and sandbox.TRUNCATED.format(n=100) in r.stdout
 
     def test_a_wait_completes_at_once(self, guest):
-        # Not denied, not slept: every wait fires immediately, in both
-        # modes, and the guest's clock jumps by the wait so Go's
-        # scheduler (which re-reads the clock after a poll) agrees.
         for strict in (False, True):
             r = sandbox.run(SEED, ["sh", "-c", "sleep 30; echo woke"], guest=guest,
                             limits=L(wall_seconds=1), strict=strict)
             assert r.ok and r.stdout == "woke\n" and r.duration_ms < 1000
 
     def test_the_clock_carries_the_wait(self, guest):
-        # `time` is the shell's keyword, measured off the guest clock.
         for strict in (False, True):
             r = sandbox.run(SEED, ["sh", "-c", "time sleep 5"], guest=guest, strict=strict)
             assert r.ok and "real\t0m5.00" in r.stdout, r.stdout
@@ -127,8 +106,6 @@ class TestEveryLimitIsNamed:
         assert r.limit == "wall_seconds" and 900 < r.duration_ms < 3000
 
     def test_strict_makes_the_run_a_function_of_its_inputs(self, guest):
-        # $SRANDOM is the shell reading the system RNG — random_get.
-        # Plain runs differ; strict runs are one value.
         plain = {sandbox.run(SEED, ["sh", "-c", "echo $SRANDOM"], guest=guest).stdout
                  for _ in range(4)}
         strict = {sandbox.run(SEED, ["sh", "-c", "echo $SRANDOM"], guest=guest, strict=True).stdout
@@ -137,9 +114,6 @@ class TestEveryLimitIsNamed:
         assert len(strict) == 1
 
     def test_strict_still_runs_ordinary_programs(self, guest):
-        # The first cut DENIED the clock, and nothing ran: the runtime
-        # reads it before main. Strict must be invisible to a program
-        # that never asks the time.
         r = sandbox.run(SEED, ["find", ".", "-name", "*.txt"], guest=guest, strict=True)
         assert r.ok and sorted(r.stdout.split()) == ["a.txt", "sub/b.txt"]
 
@@ -150,32 +124,22 @@ class TestEveryLimitIsNamed:
 
 
 class TestWhatTheSandboxCannotDo:
-    """Proven, not assumed."""
-
     def test_no_network(self, guest):
         r = sandbox.run(fs.EMPTY, ["wget", "-O", "x", "http://example.com/"],
                         guest=guest, limits=L(wall_seconds=5))
         assert r.exit_code != 0 and "x" not in r.snapshot.paths()
 
     def test_awk_works(self, guest):
-        # It panicked under TinyGo (no reflect.Type.NumIn); standard Go
-        # has the whole standard library.
         r = sandbox.run(SEED, ["awk", "{print NF}", "a.txt"], guest=guest)
         assert r.ok and r.stdout == "3\n"
 
     def test_a_directory_argument_is_an_ordinary_failure(self, guest):
-        # Under TinyGo, os.File.Read on a directory returned a negative
-        # count and bufio panicked — the whole sandbox died on `wc -c .`.
         for argv in (["wc", "-c", "."], ["sed", "p", "."], ["sh", "."]):
             r = sandbox.run(SEED, argv, guest=guest)
             assert r.exit_code > 0 and r.limit is None and "[trap]" not in r.stderr, argv
 
 
 class TestTheShell:
-    """mbshell: the applets behind an in-process POSIX shell. Every
-    command here would have been a fork in busybox's own sh, which is
-    why that one is stubbed under wasm and this one exists."""
-
     def sh(self, shell, script, **kw):
         return sandbox.run(SEED, ["sh", "-c", script], guest=shell, **kw)
 
@@ -210,14 +174,10 @@ class TestTheShell:
         assert a.ok and (a.stdout, a.snapshot.digest()) == (b.stdout, b.snapshot.digest())
 
     def test_xargs_runs_in_process(self, shell):
-        # xargs would exec; go-busybox-wasi.patch routes it through
-        # core.RunCommand, which mbshell points at its applet table.
         r = self.sh(shell, 'find . -name "*.txt" | sort | xargs wc -l')
         assert r.ok and r.stdout == "1 a.txt\n2 sub/b.txt\n3 total\n"
 
     def test_timeout_runs_the_command(self, shell):
-        # The duration is parsed and not enforced: nothing to signal,
-        # and the sandbox's wall cap is the only clock.
         r = self.sh(shell, "timeout 5 grep -c four sub/b.txt")
         assert r.ok and r.stdout == "1\n"
 
@@ -226,9 +186,6 @@ class TestTheShell:
         assert r.ok and r.stdout == "foo bar 1\n"
 
     def test_exit_statuses_wasi_cannot_carry(self, shell):
-        # WASI hosts reject proc_exit outside [0,126) and drop the
-        # number; the guest reports the real one through the side
-        # channel. 127 is every shell's "command not found".
         assert self.sh(shell, "nosuch").exit_code == 127
         assert self.sh(shell, "exit 200").exit_code == 200
         assert self.sh(shell, "exit 3").exit_code == 3

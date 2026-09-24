@@ -1,29 +1,4 @@
 #!/usr/bin/env python3
-"""Where the time goes in a decision read with rollout — the per-condition
-budget the release gate holds `logits/read` to.
-
-A decision read with rollout does, per condition: render the prompt,
-prefill it once into a KV cache, summarise the decision-position
-distribution, then expand the most likely complete outcomes by feeding
-each partial outcome against a copy of the prompt cache. The count of
-forwards is the algorithm's; the cost per forward is the model stack's
-and the machine's. This script measures both on the model the
-experiments run, so a release cannot slow the path without someone
-seeing the number.
-
-    python scripts/bench_rollout.py                 # 12 synthetic conditions
-    python scripts/bench_rollout.py --n 24 --budget-ms 150
-
-Prints a table of medians per phase and the implied cost per expansion
-forward; exits non-zero when that cost is over `--budget-ms`. Needs the
-model in the local Hugging Face cache and an otherwise idle machine —
-a busy GPU makes the number about the machine, not the code.
-
-Since 0.100.0 this is a tool, not a gate: `scripts/release.py` runs it
-only with `--with-model-budget` (task 000552). A release no longer waits
-on ~10 GB of weights, and the regression it was written for is counted
-in `tests/test_rollout_work.py` instead.
-"""
 from __future__ import annotations
 
 import argparse
@@ -34,8 +9,6 @@ import time
 MODEL = "mlx-community/gemma-4-e2b-it-bf16"
 ROLLOUT = {"top_k": 10, "max_forwards": 96, "terminators": ['"']}
 
-#: Chat-shaped conditions like a decision battery's: a system line, a
-#: user turn that ends at a JSON prefill, so the read lands on one token.
 SYSTEM = "You are a careful assistant. Answer with a single JSON string."
 USERS = [
     "Pick a first name for the {who} in this story, at random. Reply as {{\"name\": \"…\"}}.",
@@ -77,7 +50,7 @@ def main() -> int:
     for name in ("mlx_vlm", "mlx_lm"):
         try:
             versions.append(f"{name} {__import__(name).__version__}")
-        except Exception:  # noqa: BLE001 — a stack without it is fine
+        except Exception:  # noqa: BLE001
             pass
     print("  ".join(versions))
 
@@ -87,7 +60,7 @@ def main() -> int:
     tok = model.tokenizer
     conds = conditions(args.n)
     r = distill.render(model, conds[0])
-    distill.prefill_decision(model, r.ids)  # warm the stack once
+    distill.prefill_decision(model, r.ids)
 
     phases: dict[str, list[float]] = {k: [] for k in ("render", "prefill", "distribution", "expand", "condition")}
     pieces: dict[str, list[float]] = {k: [] for k in ("cache_copy", "suffix_forward_5", "dist_top50")}

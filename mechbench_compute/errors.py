@@ -1,10 +1,3 @@
-"""Custom exceptions raised by mechbench_compute.
-
-Each error message is designed to tell the user exactly how to fix the problem
-— closest valid name suggestions for typos, valid layer ranges for out-of-bounds
-indices, captured-keys hints when looking up missing cache entries.
-"""
-
 from __future__ import annotations
 
 import difflib
@@ -12,16 +5,10 @@ from typing import Iterable
 
 
 class InterpError(Exception):
-    """Base class for every error this package raises.
-
-    Catch this if you want a single except clause that handles all
-    framework-originating errors.
-    """
+    pass
 
 
 class InvalidHookName(InterpError):
-    """The given name is not a recognized hook point on Gemma 4 E4B."""
-
     def __init__(self, name: str, valid_names: Iterable[str]):
         valid = list(valid_names)
         suggestions = difflib.get_close_matches(name, valid, n=3, cutoff=0.6)
@@ -39,8 +26,6 @@ class InvalidHookName(InterpError):
 
 
 class LayerIndexOutOfRange(InterpError):
-    """A hook references a layer index that doesn't exist."""
-
     def __init__(self, layer_idx: int, n_layers: int):
         msg = (
             f"Layer index {layer_idx} is out of range. "
@@ -53,8 +38,6 @@ class LayerIndexOutOfRange(InterpError):
 
 
 class CacheKeyError(InterpError):
-    """A user looked up a cache key that wasn't captured during the forward."""
-
     def __init__(self, key: str, captured_keys: Iterable[str]):
         captured = list(captured_keys)
         suggestions = difflib.get_close_matches(key, captured, n=3, cutoff=0.6)

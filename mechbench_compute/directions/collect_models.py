@@ -7,7 +7,6 @@ from mechbench_compute import shapes as S
 
 
 def collect_models(vectors: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> list[str]:
-    """The distinct models the rows were captured from, in order."""
     seen: dict[str, None] = {}
     for r in rows:
         m = S.space_of(r, header=vectors).get("model")

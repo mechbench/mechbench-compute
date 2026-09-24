@@ -1,12 +1,3 @@
-"""The model inventory.
-
-The point of these is the arithmetic nobody expects: revisions of one
-repository share their blobs, so a revision's apparent size is not what
-deleting it returns. Measured on a real cache the difference was 68.6 GB
-apparent against 6.6 MB actually reclaimable — which is the difference
-between a useful tool and one that talks people into pointless deletions.
-"""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -54,8 +45,6 @@ class TestRepo:
         assert repo.main_commit is None
 
     def test_reclaimable_counts_only_superseded_revisions(self):
-        # The kept revision's 10.2 GB is not "reclaimable" — you would
-        # have to delete the model you are using to get it.
         repo = RepoInventory(
             "mlx-community/gemma-4",
             disk_bytes=26_300,
@@ -69,7 +58,6 @@ class TestRepo:
         assert len(repo.superseded) == 2
 
     def test_apparent_size_wildly_exceeds_the_disk_it_occupies(self):
-        """The property that makes the whole distinction necessary."""
         repo = RepoInventory(
             "mlx-community/gemma-4-E4B-it-bf16",
             disk_bytes=26_300,
@@ -78,7 +66,6 @@ class TestRepo:
         apparent = sum(r.size_bytes for r in repo.revisions)
         assert apparent == 64_000
         assert repo.disk_bytes == 26_300
-        # Deleting three of the four returns 48 bytes, not 48_000.
         assert repo.reclaimable_bytes < repo.disk_bytes / 100
 
 
@@ -91,14 +78,10 @@ class TestDelete:
             inventory.delete_revisions(["0" * 40])
 
     def test_it_refuses_an_abbreviated_commit(self):
-        # Deleting weights on a prefix match is not a risk worth taking.
         with pytest.raises(ValueError, match="in full"):
             inventory.delete_revisions(["448c70a4"])
 
     def test_a_machine_with_no_cache_refuses_like_any_unknown(self, monkeypatch):
-        """No cache directory means no commits are known — the same
-        honest refusal, never a CacheNotFound traceback. Surfaced by CI,
-        which is a fresh machine on every run."""
         import huggingface_hub
         from huggingface_hub.errors import CacheNotFound
 
@@ -127,8 +110,6 @@ class TestFormatBytes:
 
 class TestScan:
     def test_reads_the_cache_without_a_compute_backend(self, monkeypatch):
-        """inventory is one of the modules that must load anywhere: it is
-        what reports on a machine that cannot run anything."""
         import importlib.util
 
         real = importlib.util.find_spec
@@ -140,15 +121,10 @@ class TestScan:
         from mechbench_compute import backends
 
         assert backends.active() is None
-        # Still importable, still callable.
         assert isinstance(inventory.format_bytes(1), str)
 
 
 def test_a_machine_with_no_cache_directory_reports_empty(monkeypatch):
-    """The fresh-install truth: no downloads yet means an empty
-    inventory, never a CacheNotFound traceback out of `mechbench models`.
-    (HF_HUB_CACHE is baked into huggingface_hub at import time, so the
-    absent-directory condition is simulated at the API boundary.)"""
     import huggingface_hub
     from huggingface_hub.errors import CacheNotFound
 
@@ -159,4 +135,3 @@ def test_a_machine_with_no_cache_directory_reports_empty(monkeypatch):
     from mechbench_compute import inventory
 
     assert inventory.scan() == []
-

@@ -1,22 +1,3 @@
-"""The metrics bound to kinds (`Kind.metrics` in the lexicon), and the
-one function that applies one to a collection.
-
-A metric is declared on the kind it compares — `cosine` on
-`activations/vector`, `jensen-shannon` on `logits/distribution`,
-`hamming` on `records/record` — and a subtype inherits its ancestor's.
-`geometry/compare` asks this module for the pairwise matrix of a
-collection under a named metric; `geometry/span` turns that matrix into
-a tree. So "mst over anything comparable" is one op over any kind that
-declares how its items compare.
-
-Every implementation here takes the whole item list and returns the
-`[n, n]` matrix, because the vector metrics are a matrix product and a
-pairwise loop would be the wrong shape for them. The result is always a
-float64 array of Python-JSON-safe numbers; the vector metrics compute in
-float32, which is what the geometry readouts compute in, so both paths
-produce the same similarity bit for bit.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
@@ -28,7 +9,6 @@ from mechbench_compute import shapes as S
 from mechbench_compute.lexicon import kinds as K
 from mechbench_compute.lexicon._base import Metric
 
-#: (kind name, metric name) -> the function producing the matrix.
 IMPLEMENTATIONS: dict[tuple[str, str], Callable[[Sequence[Mapping[str, Any]], Mapping[str, Any]], np.ndarray]] = {}
 
 
@@ -40,8 +20,6 @@ def _implements(kind: str, name: str):
 
 
 def declared(item_kind: str) -> dict[str, Metric]:
-    """The metrics an item kind offers, its ancestors' included; the
-    nearest declaration wins by name."""
     out: dict[str, Metric] = {}
     for name in reversed(K.ancestry(item_kind)):
         for m in K.BY_KIND[name].metrics:
@@ -50,8 +28,6 @@ def declared(item_kind: str) -> dict[str, Metric]:
 
 
 def default_metric(item_kind: str) -> str | None:
-    """The metric a kind compares by when the protocol names none: the
-    first its nearest declaring ancestor lists."""
     for name in K.ancestry(item_kind):
         if K.BY_KIND[name].metrics:
             return K.BY_KIND[name].metrics[0].name
@@ -59,9 +35,6 @@ def default_metric(item_kind: str) -> str | None:
 
 
 def resolve(item_kind: str, name: str | None) -> tuple[str, Metric, Callable]:
-    """(the declaring kind, the metric, its implementation) for `name`
-    on `item_kind`, or the kind's default. Refuses a metric the kind
-    does not declare, naming the ones it does."""
     name = name or default_metric(item_kind)
     if name is None:
         raise ValueError(f"{item_kind} declares no metrics — nothing to compare its items by")
@@ -78,8 +51,6 @@ def resolve(item_kind: str, name: str | None) -> tuple[str, Metric, Callable]:
 
 
 def options_of(metric: Metric, options: Mapping[str, Any] | None) -> dict[str, Any]:
-    """The metric's options with defaults filled in; an option the
-    metric does not declare is refused by name."""
     given = dict(options or {})
     known = {o.name: o for o in metric.options}
     unknown = sorted(set(given) - set(known))
@@ -94,19 +65,12 @@ def options_of(metric: Metric, options: Mapping[str, Any] | None) -> dict[str, A
 
 def matrix(item_kind: str, items: Sequence[Mapping[str, Any]], name: str | None = None,
            options: Mapping[str, Any] | None = None) -> tuple[np.ndarray, Metric, dict[str, Any]]:
-    """The pairwise matrix of `items` under the named metric: `(matrix,
-    metric, options as applied)`."""
     _, metric, fn = resolve(item_kind, name)
     opts = options_of(metric, options)
     return fn(items, opts), metric, opts
 
 
-# --- activations/vector ---------------------------------------------------------------
-
-
 def _vectors(items: Sequence[Mapping[str, Any]]) -> np.ndarray:
-    """The items' vectors as one float32 matrix, refusing two that do
-    not share a space — with both spaces in the message."""
     for it in items[1:]:
         S.same_space(items[0], it)
     return np.array([it["vector"] for it in items], dtype=np.float32)
@@ -116,9 +80,6 @@ def _vectors(items: Sequence[Mapping[str, Any]]) -> np.ndarray:
 def cosine(items, options):
     x = _vectors(items)
     if options.get("center"):
-        # Transformer representations occupy a narrow cone around one
-        # dominant direction; subtracting the corpus mean removes it, so
-        # the cosine measures how two items differ rather than the cone.
         x = x - x.mean(axis=0, keepdims=True)
     norms = np.linalg.norm(x, axis=1, keepdims=True)
     normed = x / np.clip(norms, 1e-12, None)
@@ -139,21 +100,8 @@ def dot(items, options):
     return (x @ x.T).astype(np.float64)
 
 
-# --- adapter/delta ---------------------------------------------------------------------
-
-
 @_implements("adapter/delta", "cosine")
 def delta_cosine(items, options):
-    """Two adapters' writes at one module, compared through the
-    principal direction of each.
-
-    Not `activations/vector`'s cosine: these live in a module's OUTPUT
-    space, not a layer's residual, so there is no `space` to agree on —
-    what must agree is the module, and a comparison across modules is
-    refused here rather than producing a number for two different
-    spaces. A sign-free reading is deliberate: `u` and `−u` are the same
-    principal axis, so the magnitude is what carries the alignment.
-    """
     missing = [it.get("id") for it in items if not it.get("vector")]
     if missing:
         raise ValueError(
@@ -173,14 +121,7 @@ def delta_cosine(items, options):
     return (normed @ normed.T).astype(np.float64)
 
 
-# --- logits/distribution --------------------------------------------------------------
-
-
 def _supports(items: Sequence[Mapping[str, Any]]) -> np.ndarray:
-    """Each distribution as a row over the union of the tokens the items
-    carry (`top` and `tracked`, by token id, else by text), with the mass
-    none of them names as one last bucket — a read keeps its top tokens,
-    not the vocabulary, so this is the comparison the data allows."""
     dists = [S.distribution_of(it) for it in items]
     keys: list[Any] = []
     seen: set[Any] = set()
@@ -230,8 +171,6 @@ def _kl(p: np.ndarray, q: np.ndarray) -> float:
 
 @_implements("logits/distribution", "jensen-shannon")
 def jensen_shannon(items, options):
-    """The Jensen–Shannon distance: the square root of the divergence
-    in bits, in [0, 1]."""
     rows = _supports(items)
 
     def js(p, q):
@@ -254,18 +193,12 @@ def total_variation(items, options):
 
 @_implements("logits/distribution", "kl")
 def kl(items, options):
-    """KL(p ‖ q) in bits, row p against column q. Not symmetric."""
     rows = _supports(items)
     return _pairwise(rows, _kl)
 
 
-# --- records/record --------------------------------------------------------------------
-
-
 @_implements("records/record", "hamming")
 def hamming(items, options):
-    """How many coordinate axes two records differ on; an axis one of
-    them lacks counts as a difference."""
     coords = [dict(S.coords_of(it)) for it in items]
     axes = sorted({k for c in coords for k in c})
     n = len(items)

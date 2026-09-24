@@ -1,6 +1,3 @@
-"""`activations/examples`: the windows that most excite a
-direction, kept without holding the corpus."""
-
 from __future__ import annotations
 
 import os
@@ -38,11 +35,9 @@ class TestExamples:
         assert first["coords"]["record"] in ("r0", "r1")
         assert first["tokens"][first["hit"]] == first["token"]
         assert first["text"] == "".join(first["tokens"])
-        # Every token of the window carries its own projection, so the
-        # strip colours the whole window and not just the winner.
         assert len(first["values"]) == len(first["tokens"])
         assert first["values"][first["hit"]] == first["value"]
-        assert len(first["tokens"]) <= 3        # the hit and one either side
+        assert len(first["tokens"]) <= 3
 
     def test_the_header_says_what_the_corpus_was_like(self):
         out = find_top_examples(StubModel(), self.RECORDS, {"k": 2}, direction=_direction([1]))
@@ -64,7 +59,6 @@ class TestExamples:
         out = find_top_examples(StubModel(), self.RECORDS,
                               {"k": 2, "neuron": {"layer": 1, "index": 1}, "point": "resid_post"})
         assert out["neuron"] == 1 and out["items"]
-        # …and it is one or the other, never both or neither.
         with pytest.raises(ValueError, match="one of them, not both"):
             find_top_examples(StubModel(), self.RECORDS, {"neuron": {"layer": 1, "index": 0}},
                             direction=_direction([1]))
@@ -86,8 +80,6 @@ E2B = "mlx-community/gemma-4-e2b-it-bf16"
     reason="set MECHBENCH_MODEL_TESTS=1 with gemma-4-e2b cached",
 )
 def test_on_gemma_a_probe_finds_the_words_it_was_fit_on():
-    """A probe fit to separate colour words from animal words, pointed at
-    a corpus, brings back colour words."""
     from mechbench_compute import Model
     from mechbench_compute import directions as dirs
 
@@ -107,7 +99,7 @@ def test_on_gemma_a_probe_finds_the_words_it_was_fit_on():
     probe = fit_probe({"kind": "collection", "item_kind": "activations/vector",
                                       "items": rows}, axis="kind", seed=0, holdout=0.34)
     [axis] = [it for it in probe["items"]]
-    if axis["derivation"]["positive"] == "animal":      # point it at colours either way
+    if axis["derivation"]["positive"] == "animal":
         axis = {**axis, "vector": [-x for x in axis["vector"]]}
     corpus = [{"id": "c0", "text": "The otter swam past a red buoy and a heron stood in the green reeds."},
               {"id": "c1", "text": "A badger crossed the yellow field where the blue van was parked."}]

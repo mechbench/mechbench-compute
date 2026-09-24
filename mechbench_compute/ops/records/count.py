@@ -110,15 +110,11 @@ def run(ctx, inputs, params):
 
 
 def count(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    """`records/count` over a whole collection: the monoid's partial of
-    every record, finalized, so the flat and the chunked table are one
-    computation."""
     m = MONOID()
     return m.finalize(m.partial(read_items(records), params), params)
 
 
 def estimate_wilson(k: int, n: int, level: float) -> tuple[float, float]:
-    """The Wilson score interval on k successes in n trials."""
     z = NormalDist().inv_cdf(0.5 + level / 2)
     p = k / n
     d = 1 + z * z / n
@@ -129,7 +125,6 @@ def estimate_wilson(k: int, n: int, level: float) -> tuple[float, float]:
 
 
 def _matches(value: Any, equals: Any) -> bool:
-    # A bool is an int in Python; `1` is not `true` in a record.
     if isinstance(equals, bool) or isinstance(value, bool):
         return isinstance(value, bool) and isinstance(equals, bool) and value is equals
     return value == equals
@@ -150,9 +145,6 @@ def _read_level(params: Mapping[str, Any]) -> float:
 
 
 class CountShare(Monoid):
-    """Per group, the successes and the trials; and the records skipped.
-    Sums, so any partition of the records merges to the same counts."""
-
     def identity(self):
         return ({}, 0)
 

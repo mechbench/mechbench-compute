@@ -1,20 +1,3 @@
-"""Verification smoke test for Gemma 4 E2B.
-
-Loads the E2B variant via Model.load() and confirms:
-  1. Arch.from_mlx_model derives the expected E2B architecture facts.
-  2. Model.run produces sensible top-1 tokens on factual-recall prompts.
-  3. The forward path doesn't crash on E2B's narrower residual stream
-     (1536 vs 2560), reduced KV-head count (1 vs 2), or different
-     layer count (35 vs 42).
-
-There is no numerical comparison against mlx_vlm.generate: Model.run
-reuses mlx-vlm's components verbatim, so if the top-1 tokens are right
-the forward path is right. Bit-exactness is _smoke_bitexact's job.
-
-Run from project root with the venv active:
-    python -m mechbench_compute._smoke_e2b
-"""
-
 from __future__ import annotations
 
 import sys
@@ -27,11 +10,6 @@ from . import Model
 
 E2B_MODEL_ID = "mlx-community/gemma-4-e2b-it-bf16"
 
-# Same prompts as _smoke.py for E4B, except we don't pin specific top-1
-# tokens — E2B is a smaller model and may not match E4B exactly. We require
-# the predictions to be plausible (high-probability completions of the
-# template) rather than identical to E4B's. The Eiffel Tower → Paris
-# completion is the strongest factual-recall test.
 PROMPTS_REQUIRE_TOP1 = [
     ("Complete this sentence with one word: The Eiffel Tower is in", "Paris"),
     ("Complete this sentence with one word: The capital of Japan is", "Tokyo"),
@@ -43,7 +21,6 @@ PROMPTS_FREE = [
     "Complete this sentence with one word: Monday, Tuesday,",
 ]
 
-# Expected E2B architecture, as read from the HF config.
 EXPECTED_E2B = dict(
     n_layers=35,
     d_model=1536,
@@ -51,7 +28,7 @@ EXPECTED_E2B = dict(
     n_kv_heads=1,
     vocab_size=262144,
     global_layers=(4, 9, 14, 19, 24, 29, 34),
-    first_kv_shared_layer=15,  # 35 - 20 = 15
+    first_kv_shared_layer=15,
     last_fresh_kv_global=14,
 )
 
@@ -128,8 +105,6 @@ def main() -> int:
               "E2B's architecture (35 layers, n_kv_heads=1, d_model=1536).")
         return 1
 
-    # Quick capture sanity check: capture residuals at one global layer
-    # and confirm shape + dtype match expectations for E2B.
     print("Capture sanity check on blocks.14.resid_post (E2B's L23-equivalent):")
     ids = model.tokenize(PROMPTS_REQUIRE_TOP1[0][0])
     result = model.run(ids, capture=["blocks.14.resid_post"])

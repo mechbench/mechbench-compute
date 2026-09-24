@@ -1,25 +1,3 @@
-"""What weights this machine is holding, and what deleting them buys back.
-
-Lives here, beside `hub.py`, because the runner and the web UI both want
-the answer and neither should be reading the HuggingFace cache layout
-itself. It is also one of the two modules that must load on a machine
-with no compute backend at all — see the note in `__init__.py` — so it
-imports nothing from MLX.
-
-## Why not just sum the revisions
-
-The cache shares blobs between revisions of the same repository: two
-revisions of a 24 GB model that differ in one tensor occupy a little
-over 24 GB, not 48. So a revision's *apparent* size is not what deleting
-it returns, and summing revisions overstates a repository badly.
-
-Both numbers are reported, because both get asked for:
-
-* `size_bytes` — what this revision contains, shared blobs included.
-* `reclaimable_bytes` — what actually comes back if it is deleted, which
-  is only the blobs no other revision refers to.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -29,17 +7,10 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class RevisionInfo:
-    """One cached commit of one repository."""
-
     commit: str
-    #: Everything this revision contains, counting blobs it shares.
     size_bytes: int
-    #: What deleting it would actually free — blobs nothing else refers to.
     reclaimable_bytes: int
     last_modified: datetime | None
-    #: Ref names pointing here: `("main",)` for the current upstream tip
-    #: as this machine last saw it. Empty means nothing points here,
-    #: which is the definition of superseded.
     refs: tuple[str, ...]
     path: Path
 
@@ -49,26 +20,17 @@ class RevisionInfo:
 
     @property
     def superseded(self) -> bool:
-        """Held only because it was downloaded once.
-
-        Note that a *pinned* revision looks exactly like this: pins live
-        in protocols, which this layer cannot see. Deleting is therefore
-        always a decision for the caller, never something to infer.
-        """
         return not self.refs
 
 
 @dataclass(frozen=True)
 class RepoInventory:
     repo_id: str
-    #: True, deduplicated size of the repository on disk.
     disk_bytes: int
     revisions: tuple[RevisionInfo, ...]
 
     @property
     def main_commit(self) -> str | None:
-        """What `main` resolves to locally — which is not necessarily what
-        it resolves to upstream today."""
         for rev in self.revisions:
             if "main" in rev.refs:
                 return rev.commit
@@ -84,11 +46,6 @@ class RepoInventory:
 
 
 def scan() -> list[RepoInventory]:
-    """Every model repository in the local cache, largest first.
-
-    A machine that has never downloaded a model has no cache DIRECTORY,
-    and huggingface_hub raises CacheNotFound rather than reporting the
-    empty truth. That is the empty case, not an error."""
     from huggingface_hub import scan_cache_dir
     from huggingface_hub.errors import CacheNotFound
 
@@ -137,12 +94,6 @@ def find(repo_id: str) -> RepoInventory | None:
 
 
 def delete_revisions(commits: list[str]) -> int:
-    """Delete cached revisions by commit. Returns the bytes freed.
-
-    Deliberately takes explicit commits rather than a policy: a revision
-    that nothing points at may still be the one a protocol pins, and
-    this layer cannot see protocols. Choosing is the caller's job.
-    """
     if not commits:
         return 0
     from huggingface_hub import scan_cache_dir
@@ -152,9 +103,6 @@ def delete_revisions(commits: list[str]) -> int:
         info = scan_cache_dir()
         known = {rev.commit_hash for repo in info.repos for rev in repo.revisions}
     except CacheNotFound:
-        # A machine with no cache directory knows no commits, so every
-        # commit asked for gets the refusal below rather than a
-        # traceback. Same empty case `scan()` handles.
         info = None
         known = set()
     unknown = [c for c in commits if c not in known]
@@ -170,10 +118,9 @@ def delete_revisions(commits: list[str]) -> int:
 
 
 def _freed_by(info: object, commits: list[str]) -> int:
-    """What the hub says deleting these would return, without deleting."""
     try:
         return int(info.delete_revisions(*commits).expected_freed_size)  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001 — a size estimate is not worth an exception
+    except Exception:  # noqa: BLE001
         return 0
 
 
@@ -186,7 +133,6 @@ def _as_utc(value: float | datetime | None) -> datetime | None:
 
 
 def format_bytes(n: int) -> str:
-    """`24.1 GB` — sized for a table, not for accounting."""
     step = 1000.0
     value = float(n)
     for unit in ("B", "KB", "MB", "GB", "TB"):

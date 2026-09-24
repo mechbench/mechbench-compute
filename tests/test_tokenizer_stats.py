@@ -1,7 +1,3 @@
-"""Tokenizer diagnostics against a fake word-piece
-tokenizer: the depth inventory in an envelope, fragmentation, scripts,
-and the naturalism gate."""
-
 from __future__ import annotations
 
 import pytest
@@ -13,15 +9,11 @@ from mechbench_compute.ops.text.tokenize import measure_tokenizer
 
 
 class FakeTokenizer:
-    """Every 3 characters is a token (so 'cat' is 1, 'horse' is 2), a
-    space is its own token, and a prefix is tokenized independently of
-    what follows — a stable boundary."""
-
     def encode(self, text: str, add_special_tokens: bool = False):
         out = []
         for word in text.split(" "):
             if out:
-                out.append(32)  # the space token
+                out.append(32)
             for i in range(0, len(word), 3):
                 piece = word[i:i + 3]
                 if piece:
@@ -37,7 +29,6 @@ class TestDepthInventory:
         out = measure_tokenizer(FakeTokenizer(), "fake/tok", {"vocabulary": ["cat", "horse", "elephant"]},
                                  {"prefix": '{ "animal": "'})
         assert out["kind"] == "text/tokenization" and out["n_items"] == 3
-        # 3 chars/token: cat=1, horse=2, elephant=3
         assert {r["depth"]: r["count"] for r in out["rows"]} == {1: 1, 2: 1, 3: 1}
         assert out["mean_depth"] == 2.0 and out["max_depth"] == 3
         assert out["single_token_fraction"] == pytest.approx(1 / 3, abs=1e-4)
@@ -63,7 +54,6 @@ class TestFragmentationAndScripts:
     def test_tokens_per_word_and_fragmented_fraction(self):
         out = measure_tokenizer(FakeTokenizer(), "t", {"vocabulary": ["cat dog", "elephant"]},
                                  {"top_fragmented": 1})
-        # "cat dog" = 1 + space + 1 = 3 tokens / 2 words; "elephant" = 3 / 1
         assert out["mean_tokens_per_word"] == pytest.approx((1.5 + 3.0) / 2)
         assert out["fragmented_fraction"] == 1.0
         assert out["most_fragmented"][0]["item"] == "elephant"
@@ -71,7 +61,7 @@ class TestFragmentationAndScripts:
     def test_script_composition(self):
         out = measure_tokenizer(FakeTokenizer(), "t", {"vocabulary": ["abc", "日本", "12"]},
                                  {})
-        sc = out["script_composition"]  # shares are rounded to 4 places
+        sc = out["script_composition"]
         assert sc["latin"] == pytest.approx(3 / 7, abs=1e-4)
         assert sc["cjk"] == pytest.approx(2 / 7, abs=1e-4)
         assert sc["digit"] == pytest.approx(2 / 7, abs=1e-4)
@@ -95,7 +85,6 @@ class TestGate:
     def test_keep_items_carries_the_pieces(self):
         out = measure_tokenizer(FakeTokenizer(), "t", {"vocabulary": ["horse"]},
                                  {"keep_items": True})
-        # "hor" = 104+111+114 = 329, "se" = 115+101 = 216, each +1000
         assert out["items"][0]["pieces"] == ["<1329>", "<1216>"]
 
 

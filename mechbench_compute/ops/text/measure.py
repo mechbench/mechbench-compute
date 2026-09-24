@@ -204,10 +204,6 @@ def _split_words(text: str, lowercase: bool, min_length: int, word: Any = None) 
 
 
 def _read_vocabulary(name: str, items: Any) -> list[str]:
-    """A list measure's vocabulary: a list of outcomes, or the outcomes of
-    a target map (`weights` keys, or `uniform`). Pure, so no transform: a
-    rung's narrower vocabulary is listed, and an outcome outside it but in
-    the full map is still a real outcome, not an unknown one."""
     if isinstance(items, (list, tuple)):
         return [str(x) for x in items]
     if isinstance(items, Mapping):
@@ -237,11 +233,6 @@ def _read_exclude(name: str, exclude: Any, lowercase: bool) -> frozenset[str]:
 
 def measure_texts(inputs: Mapping[str, Any],
                   params: Mapping[str, Any]) -> Any:
-    """`text/measure` over the texts on `records` or `documents`: each
-    measure in `params["measures"]` applied to every text, returned as
-    annotated records, one corpus summary record, or one record per item
-    or word, by `mode`. The measure types and their fields are the `OP`
-    declaration's table."""
     import math as _math
     import re
 
@@ -259,9 +250,6 @@ def measure_texts(inputs: Mapping[str, Any],
         raise ValueError(
             "text/measure mode must be 'annotate', 'corpus' or 'items', not "
             f"{mode!r}")
-    # `keep`: an annotated row carries the whole item —
-    # text, trace, metadata — not just id + coords + measures, so a
-    # capture downstream can replay the story it was labelled on.
     keep = bool(params.get("keep", False))
 
     freq_input = inputs.get("frequencies")
@@ -330,9 +318,6 @@ def measure_texts(inputs: Mapping[str, Any],
                              {"words": n_words, "lowercase": bool(m.get("lowercase", True)),
                               "word": re.compile(m["word"]) if m.get("word") else None}))
         elif kind == "capture":
-            # One value, under the name asked for: a `list` measure can
-            # read the same thing, but only as the first item of a list,
-            # with five columns of list statistics beside it.
             if not m.get("pattern"):
                 raise ValueError(
                     f"text/measure measure {name!r}: a capture needs a `pattern`")
@@ -357,10 +342,6 @@ def measure_texts(inputs: Mapping[str, Any],
                 "pattern": re.compile(
                     m["pattern"], re.IGNORECASE | re.DOTALL if fold else re.DOTALL),
                 "group": int(m.get("group", 1)),
-                # A vocabulary both constrains and CANONICALISES: a text
-                # that says "Ana" captures the `ana` the vocabulary
-                # spells, which is what the value is compared against
-                # downstream. A match outside it is no match.
                 "vocab": ({(k.casefold() if fold else k): k
                            for k in _read_vocabulary(name, vocab)}
                           if vocab is not None else None),
@@ -384,12 +365,9 @@ def measure_texts(inputs: Mapping[str, Any],
 
     out = []
     corpus_items: dict[str, set[str]] = {}
-    # What the corpus said, item by item: the vocabulary labels
-    # an answer, it does not decide whether the answer counts.
     said: dict[str, dict[str, dict]] = {}
     captured: dict[str, list[Any]] = {}
     corpus_words: list[str] = []
-    # Per lexical measure, word -> [occurrences, texts using it].
     used: dict[str, dict[str, list[int]]] = {}
     for r in recs:
         value = read_field(r, field)
@@ -485,7 +463,7 @@ def measure_texts(inputs: Mapping[str, Any],
                     tally["first"] += int(pos == 0)
                     if key not in keys[:pos]:
                         tally["lists"] += 1
-            else:  # corpus_frequency
+            else:
                 words = _split_words(text, cfg["lowercase"], cfg["min_length"])
                 vals = [cfg["table"][w] for w in words if w in cfg["table"]]
                 cov = (len(vals) / len(words)) if words else 0.0
@@ -494,7 +472,7 @@ def measure_texts(inputs: Mapping[str, Any],
                 elif cfg["stat"] == "mean":
                     row[name] = (round(sum(vals) / len(vals), 4)
                                  if vals else None)
-                else:  # mean_log10
+                else:
                     row[name] = (round(sum(_math.log10(v) for v in vals)
                                        / len(vals), 4) if vals else None)
                 row[f"{name}_coverage"] = round(cov, 4)
@@ -554,8 +532,6 @@ def measure_texts(inputs: Mapping[str, Any],
             if numbers:
                 summary[f"{name}_mean"] = round(sum(numbers) / len(numbers), 4)
             else:
-                # What the texts said, commonest first — the tally a
-                # captured label is usually wanted for.
                 counts: dict[str, int] = {}
                 for v in values:
                     counts[str(v)] = counts.get(str(v), 0) + 1

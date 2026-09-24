@@ -1,17 +1,3 @@
-"""JSON over HTTPS, on the standard library.
-
-Deliberately small and dependency-free: `urllib.request` with certifi's
-CA bundle, a timeout, and one place that turns a status code into the
-error the retry loop understands. The whole surface a provider adapter
-needs is `post_json` / `get_json`, so swapping in a pooled client later
-is a one-file change.
-
-Secrets go in headers and NOWHERE else: never in a URL, never in a log
-line, never in an exception message. `_redact` runs over every error
-body before it becomes an exception, because provider errors quote the
-request back at you often enough to matter.
-"""
-
 from __future__ import annotations
 
 import http.client
@@ -81,12 +67,6 @@ def request_json(method: str, url: str, *, headers: Mapping[str, str],
     except TimeoutError:
         raise TransientError(f"{method} {_host(url)}: timed out after {timeout:g}s") from None
     except (http.client.HTTPException, OSError) as e:
-        # Not every transient network failure is a URLError. A server
-        # that hangs up mid-response raises `RemoteDisconnected`
-        # (an OSError), a truncated body raises `IncompleteRead` (an
-        # HTTPException), and neither passes through urllib's wrapper —
-        # so both must be caught here, or they escape the retry loop and
-        # fail a job that should merely have paused.
         raise TransientError(
             f"{method} {_host(url)}: {type(e).__name__}: {e}") from None
 

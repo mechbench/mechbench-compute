@@ -51,17 +51,12 @@ def run(ctx, inputs, params):
 
 def fill_templates(records: list[dict[str, Any]],
                    params: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Instantiate named string templates against each record's values.
-    `{axis-name}` placeholders substitute; everything else is verbatim."""
     templates: Mapping[str, str] = params.get("templates") or {}
     out = []
     for rec in records:
         fields = {}
         for fname, tmpl in templates.items():
             s = str(tmpl)
-            # Fixpoint substitution (bounded): a level's text may itself
-            # contain placeholders, so passes repeat while substitutions
-            # still fire.
             for _ in range(4):
                 before = s
                 for axis, value in rec.get("values", {}).items():

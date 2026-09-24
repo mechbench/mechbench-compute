@@ -83,13 +83,8 @@ def run(ctx, inputs, params):
 
 def _bootstrap_mean(values: Sequence[float], level: float, resamples: int,
                     seed: int) -> tuple[float, float]:
-    """A percentile bootstrap interval on the mean: the records
-    resampled with replacement `resamples` times under `seed`. A
-    single value's interval is the value itself."""
     import numpy as np
 
-    # Sorted first: the draw is then a function of the multiset, not of
-    # the order the records arrived in — the law every pure block keeps.
     v = np.sort(np.asarray(values, dtype=np.float64))
     if v.size < 2:
         return float(v[0]), float(v[0])
@@ -101,10 +96,6 @@ def _bootstrap_mean(values: Sequence[float], level: float, resamples: int,
 
 
 def summarize_groups(groups: Mapping[tuple, Sequence[float]], params: Mapping[str, Any]) -> dict[str, Any]:
-    """The `records/summarize` table from values grouped by the `by`
-    key — shared by the flat block and its monoid, so the two are the
-    same rows by construction. With `interval`, every row carries the
-    bootstrap `lo`/`hi` of its mean."""
     from statistics import median
 
     by = params.get("by") or []
@@ -143,18 +134,6 @@ def summarize_groups(groups: Mapping[tuple, Sequence[float]], params: Mapping[st
 
 
 def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    """Group records by coords and summarize a numeric field into
-    MetricTable-shaped rows. by: [coord names] ([] = one overall
-    group); value: field name; stats fixed: n/median/mean/min/max +
-    share_negative (useful for deltas), and with `interval` the
-    bootstrap `lo`/`hi` of the mean.
-
-    `on_missing` says what a record without the value field means:
-    `error` (default) refuses by name, because a mean over the records
-    that happened to have the field is the kind of number nobody
-    notices is wrong; `skip` omits them and REPORTS the count, which is
-    what a judged corpus needs — an unreadable verdict is not a zero,
-    and the rows that were dropped must be visible."""
     recs = expand_cells(read_items(records))
     by = params.get("by") or []
     value_field = params["value"]
@@ -184,10 +163,6 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class GroupStats(Monoid):
-    """The exact monoid form of `group-stats`: per group, the multiset
-    of values (sorted); finalize reproduces the block's rows with
-    `fsum` means. Bit-identical to the flat block by construction."""
-
     def identity(self):
         return {}
 

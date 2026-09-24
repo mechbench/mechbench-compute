@@ -1,21 +1,3 @@
-"""Prices as data.
-
-A cost that a run reports must be reproducible from what the run
-recorded, so prices are a versioned table with an `as_of` date, matched
-by longest model prefix, and every provenance record carries the table
-version that priced it. When a price changes, old runs keep costing
-what they cost.
-
-USD per MILLION tokens. `cache_read` / `cache_write` are the
-prompt-caching rates where a provider offers them (Anthropic's 0.1x
-read / 1.25x write, OpenAI's 0.5x read); absent, they fall back to the
-input rate.
-
-Unknown models price at 0 and are FLAGGED (`priced: false` in the call
-record) rather than guessed: a made-up number in a budget is worse
-than a visible hole, and the budget still counts tokens.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -38,9 +20,6 @@ class Price:
         return self.input if self.cache_write is None else self.cache_write
 
 
-#: (provider, model prefix) -> Price. Longest matching prefix wins, so
-#: "claude-opus-5" and "claude-opus-5-1-20260115" price the same until
-#: a more specific row says otherwise.
 PRICES: dict[str, dict[str, Price]] = {
     "anthropic": {
         "claude-opus-5": Price(15.0, 75.0, 1.5, 18.75),
@@ -48,9 +27,8 @@ PRICES: dict[str, dict[str, Price]] = {
         "claude-haiku-4-5": Price(1.0, 5.0, 0.1, 1.25),
         "claude-fable-5": Price(3.0, 15.0, 0.3, 3.75),
     },
-    # GPT-6 Astra charges 2x input and 1.5x output for a whole request
-    # over 272K input tokens; the table holds the standard rate.
     "openai": {
+        # external: OpenAI — GPT-6 Astra charges 2x input and 1.5x output on a request over 272K input tokens; this is the standard rate
         "gpt-6-astra": Price(10.0, 50.0, 1.0),
         "gpt-5": Price(1.25, 10.0, 0.125),
         "gpt-4.1": Price(2.0, 8.0, 0.5),
@@ -61,8 +39,7 @@ PRICES: dict[str, dict[str, Price]] = {
         "gemini-2.5-pro": Price(1.25, 10.0, 0.31),
         "gemini-2.5-flash": Price(0.30, 2.50, 0.075),
     },
-    # xAI doubles every rate from 200K tokens; the table holds the
-    # standard rate.
+    # external: xAI — every rate doubles from 200K tokens; these are the standard rates
     "xai": {
         "grok-4.7": Price(2.0, 6.0, 0.5),
         "grok-4.6": Price(2.0, 6.0, 0.5),
@@ -70,8 +47,7 @@ PRICES: dict[str, dict[str, Price]] = {
         "grok-4": Price(3.0, 15.0, 0.75),
         "grok-3": Price(3.0, 15.0),
     },
-    # DeepSeek charges half off-peak; the table holds the peak rate, so
-    # a budget never assumes the discount.
+    # external: DeepSeek — half price off-peak; these are the peak rates
     "deepseek": {
         "deepseek-flash": Price(0.30, 1.20, 0.006),
         "deepseek-v4-flash": Price(0.30, 1.20, 0.006),
@@ -88,7 +64,6 @@ PRICES: dict[str, dict[str, Price]] = {
 
 
 def price_for(provider: str, model: str) -> Price | None:
-    """Longest-prefix match within a provider; None when unknown."""
     table = PRICES.get(provider)
     if not table:
         return None
@@ -100,9 +75,6 @@ def price_for(provider: str, model: str) -> Price | None:
 
 
 def cost_usd(provider: str, model: str, usage: Mapping[str, int]) -> tuple[float, bool]:
-    """(cost, priced). `usage` carries input_tokens, output_tokens and
-    optionally cache_read_tokens / cache_write_tokens — cached input is
-    priced at its own rate and NOT double-counted as plain input."""
     price = price_for(provider, model)
     if price is None:
         return 0.0, False
@@ -117,7 +89,5 @@ def cost_usd(provider: str, model: str, usage: Mapping[str, int]) -> tuple[float
 
 def worst_case_usd(provider: str, model: str, *, input_tokens: int,
                    max_tokens: int) -> tuple[float, bool]:
-    """What this call could cost if the model writes to its limit —
-    the number a budget check refuses on, BEFORE the call is made."""
     return cost_usd(provider, model, {"input_tokens": input_tokens,
                                       "output_tokens": max_tokens})

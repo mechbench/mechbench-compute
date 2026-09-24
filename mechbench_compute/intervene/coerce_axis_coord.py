@@ -6,10 +6,6 @@ from typing import Any
 
 
 def coerce_axis_coord(value: Any) -> Any:
-    """What a swept value reads as on the result: a scalar as itself, a
-    one-element list as its element (so `layers: [[0],[1]]` gives 0 and
-    1), anything else as a compact label — a coordinate is grouped on,
-    so it must be a value a group key can hold."""
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     if isinstance(value, (list, tuple)):

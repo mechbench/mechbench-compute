@@ -1,10 +1,3 @@
-"""`adapter/measure`: what training wrote, read from the adapter.
-
-The numbers are checked against the delta formed in full — the point of
-the r×r route is that it is exact, so "close to the honest computation"
-is the test, not a golden file.
-"""
-
 from __future__ import annotations
 
 import os
@@ -20,7 +13,6 @@ from mechbench_compute.ops.adapter.measure import compute_delta_spectrum
 
 
 def _bytes(flat):
-    """`{name: mx.array}` as safetensors bytes."""
     fd, path = tempfile.mkstemp(suffix=".safetensors")
     os.close(fd)
     try:
@@ -41,11 +33,6 @@ def _flat(pairs):
 
 
 def _adapter(pairs, *, rank=4, alpha=8.0, base="acme/tiny", drop=()):
-    """An adapter object as `adapter/train` emits one: safetensors bytes
-    keyed by module, plus the shape it was trained at. `drop` leaves keys
-    out — the tensors are built here rather than round-tripped through a
-    file, because `mx.load` is lazy and rewriting the file its arrays are
-    backed by aborts the process."""
     flat = {k: v for k, v in _flat(pairs).items() if k not in set(drop)}
     return {"kind": "adapter/lora", "format": "safetensors", "data": _bytes(flat),
             "base_model": base,
@@ -75,7 +62,6 @@ class TestTheSpectrumIsExact:
         assert np.allclose(sv, s_full[:len(sv)], atol=1e-10)
         assert np.isclose(np.sqrt((sv ** 2).sum()),
                           np.linalg.norm(full, "fro"), atol=1e-10)
-        # Left singular vectors up to sign.
         for k in range(len(sv)):
             assert np.isclose(abs(float(u[:, k] @ u_full[:, k])), 1.0, atol=1e-8)
 
@@ -89,7 +75,6 @@ class TestTheSpectrumIsExact:
         assert W.compute_effective_rank(sv) == pytest.approx(1.0, abs=1e-9)
 
     def test_an_even_write_has_effective_rank_r(self):
-        # Four orthogonal directions of equal size: the spectrum is flat.
         a = np.eye(4, 5)
         b = np.eye(6, 4)
         sv, _u = compute_delta_spectrum(a, b, 1.0)
@@ -113,7 +98,7 @@ class TestTheReadout:
         assert first["shape"] == [6, 5]
         assert first["rank"] == 4
         assert first["spectral"] <= first["frobenius"] + 1e-9
-        assert "vector" not in first          # not unless asked for
+        assert "vector" not in first
 
     def test_the_header_says_what_was_measured(self):
         out = _measure(_adapter(_random_pairs()), layers=[1])
@@ -122,8 +107,6 @@ class TestTheReadout:
         assert out["measured"]["modules"] == 2
         assert out["lora"]["rank"] == 4 and out["lora"]["scale"] == 2.0
         assert out["base_model"] == "acme/tiny"
-        # …and the shares are shares of what was measured, not of the
-        # adapter, which is why the header says which layers those were.
         assert sum(it["mass_share"] for it in out["items"]) == pytest.approx(1.0)
 
     def test_layers_and_modules_select(self):
@@ -162,9 +145,6 @@ class TestTheReadout:
 
 
 class TestComparingTwoAdapters:
-    """The alignment question in weight space: two adapters measured
-    into one collection, compared at a module by `geometry/compare`."""
-
     def _union_of_two(self, *, same: bool, vectors: bool = True):
         pairs = _random_pairs(seed=1, layers=(0,))
         other = pairs if same else _random_pairs(seed=2, layers=(0,))
@@ -175,7 +155,7 @@ class TestComparingTwoAdapters:
     def test_a_union_of_two_measurements_is_still_a_delta_collection(self):
         union = self._union_of_two(same=False)
         assert union["item_kind"] == "adapter/delta"
-        assert len(union["items"]) == 4       # two modules, two adapters
+        assert len(union["items"]) == 4
 
     def test_two_adapters_compare_module_by_module(self):
         out = ops.run_standalone("geometry/compare", 
@@ -186,8 +166,6 @@ class TestComparingTwoAdapters:
             "module=layers.0.self_attn.q_proj",
             "module=layers.0.self_attn.v_proj"]
         for g in groups:
-            # One item per adapter in each module's group, and the
-            # matrix is the pair of them.
             assert g["labels"] == ["a", "b"]
             assert g["matrix"][0][0] == pytest.approx(1.0)
             assert abs(g["matrix"][0][1]) <= 1.0
@@ -213,11 +191,6 @@ class TestComparingTwoAdapters:
 
 
 class TestAZeroDelta:
-    """A module training never wrote to: `B` is still the zero it was
-    initialised at, so ΔW is exactly zero. The eight adapters on the
-    bench all carry twenty of these — the v_proj deltas of a KV-shared
-    tail, trained but never reached."""
-
     def _with_a_zero(self):
         pairs = _random_pairs(seed=4, layers=(0,))
         key = (0, "self_attn", "v_proj")

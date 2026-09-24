@@ -1,32 +1,3 @@
-"""Canonical hook-aware forward pass for Llama 3 / 3.1 / 3.2.
-
-Counterpart to `_forward_qwen.py` for the Llama 3 family loaded
-via mlx-lm. Mirrors:
-
-  - mlx_lm/models/llama.py LlamaModel.__call__ (the layer loop +
-    per-layer mask routing for hybrid attention)
-  - mlx_lm/models/llama.py TransformerBlock.__call__
-  - mlx_lm/models/llama.py Attention.__call__
-
-Key differences from Qwen 2:
-
-  - **Unbiased Q/K/V projections** by default (Qwen has bias).
-    Llama 3's `args.attention_bias` is configurable but typically
-    False; the manual-attention path doesn't care either way.
-  - **Per-layer hybrid attention** via `args.layer_types`. Some
-    Llama 3 variants are pure full-attention (e.g. Llama 3.1 8B);
-    others may have sliding-window layers (Llama 3.2 1B / 3B
-    inherit the hybrid pattern from upstream). `LlamaModel`
-    constructs both `fa_mask` and `swa_mask` per forward and
-    routes per-layer.
-  - **Tied or untied unembed** depending on `args.tie_word_embeddings`.
-
-The TransformerBlock structure is identical to Qwen 2's:
-input_layernorm → attention → +residual; post_attention_layernorm
-→ MLP → +residual. The forward is essentially `_forward_qwen.py`
-with per-layer mask routing added.
-"""
-
 from __future__ import annotations
 
 import mlx.core as mx
@@ -69,11 +40,6 @@ def _attention_with_internals(
     cache: ActivationCache,
     layer_idx: int,
 ) -> mx.array:
-    """Manually computed Llama 3 attention exposing weights and per-head
-    output. Mirrors mlx_lm/models/llama.py Attention.__call__ structurally;
-    matches Qwen 2's manual path because the attention math is identical
-    (the only Qwen-vs-Llama-3 difference is q/k/v_proj bias, which the
-    Linear layer handles internally)."""
     attn = layer.self_attn
     B, L, _ = x_normed.shape
 
@@ -129,6 +95,7 @@ def _attention_with_internals(
     return attn.o_proj(output)
 
 
+# external: mlx-lm — this mirrors models/llama.py (LlamaModel, TransformerBlock, Attention __call__)
 def run_forward_llama(
     model,
     input_ids: mx.array,
@@ -138,8 +105,6 @@ def run_forward_llama(
     arch: _arch.Arch | None = None,
     kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
-    """Run a single hook-aware forward pass through a Llama 3 model
-    loaded via mlx-lm."""
     hooks = dict(hooks or {})
     capture_set = set(capture or [])
     manual_attn_layer_set = attn_internal_layers(
@@ -147,15 +112,12 @@ def run_forward_llama(
     )
 
     cache = ActivationCache(offset=kv_offset(kv_cache))
-    tm = model.model  # LlamaModel
+    tm = model.model
 
     h = tm.embed_tokens(input_ids)
     if kv_cache is None:
         kv_cache = make_prompt_cache(model)
 
-    # Per-layer hybrid attention masks (Llama 3.2 may use sliding window;
-    # 3.1 8B is full-attention only, in which case swa_idx is None and
-    # swa_mask isn't constructed).
     fa_mask = create_attention_mask(h, kv_cache[tm.fa_idx])
     swa_mask = None
     if tm.swa_idx is not None:
@@ -197,9 +159,6 @@ def run_forward_llama(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
-    # The final RMSNorm's per-position scale: captured only when
-    # asked, so DLA's apply_ln can make per-component
-    # contributions sum to the model's true final logits.
     if "final_norm.scale" in capture_set or "final_norm.scale" in hooks:
         f32 = h.astype(mx.float32)
         eps = float(getattr(tm.norm, "eps", 1e-6))

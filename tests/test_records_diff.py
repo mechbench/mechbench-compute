@@ -1,5 +1,3 @@
-"""`records/diff`: two collections matched by key and compared."""
-
 from __future__ import annotations
 
 import pytest
@@ -96,8 +94,6 @@ def test_moving_fields_are_excluded_listed_and_counted():
 
 
 def test_the_regeneration_case():
-    """Same seed, a larger allowance: what ended on its own is identical,
-    what was cut runs on from where it stopped."""
     a = corpus(story("flash", 0, "done.", ended="end"),
                story("flash", 1, "cut mid", ended="max_tokens"))
     b = corpus(story("flash", 0, "done.", ended="end"),
@@ -110,11 +106,9 @@ def test_the_regeneration_case():
     assert d["holds"] and d["disallowed"] == 0
     assert out["items"][0]["allowed"] is True
 
-    # A story that ended on its own and came back longer breaks it.
     b2 = corpus(story("flash", 0, "done. And more.", ended="end"), b["items"][1])
     d2 = diff_collections(a, b2, {"fields": ["text"], "allow": rule})["diff"]
     assert not d2["holds"] and d2["disallowed"] == 1
-    # So does a cut story whose new text is not a continuation.
     b3 = corpus(b["items"][0], story("flash", 1, "something else", ended="end"))
     assert not diff_collections(a, b3, {"fields": ["text"], "allow": rule})["diff"]["holds"]
 

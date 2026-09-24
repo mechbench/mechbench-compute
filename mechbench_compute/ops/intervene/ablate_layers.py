@@ -80,23 +80,12 @@ with a `prefill`), where `logits/read` reads.
 
 
 def run(ctx, inputs, params):
-    """Zero one layer — or one sublayer — at a time and measure the
-    change in the target's log probability.
-
-    The coarsest causal readout there is, and usually the first one
-    worth running: it says WHERE in the stack the prediction is being
-    built before any finer instrument is pointed at it.
-    """
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return ablate_layers(
         model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
 
 
-#: The points `intervene/ablate-layers` can zero at a layer, by the point's
-#: name. On a non-MatFormer model `gate_out` has no hook and the run
-#: refuses with the arch's own error.
 _ABLATE_AT: dict[str, Callable[[int], Any]] = {
     "attn_out": Ablate.attention,
     "mlp_out": Ablate.mlp,
@@ -105,9 +94,6 @@ _ABLATE_AT: dict[str, Callable[[int], Any]] = {
 
 
 def _resolve_ablation_points(spec: Any) -> list[str]:
-    """The `point` param of `intervene/ablate-layers`: one name or a list of
-    them, each a sub-layer output; the default is both, the whole
-    layer's contribution."""
     if spec is None:
         return ["attn_out", "mlp_out"]
     names = [spec] if isinstance(spec, str) else [str(p) for p in spec]
@@ -127,10 +113,6 @@ def ablate_layers(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Per-layer ablation sweep: for each condition, zero the named
-    `point`(s) of each layer in turn and measure Δ log p of the target —
-    the first `tracked` token, or the baseline's top-1 when none is
-    named."""
     points = _resolve_ablation_points(params.get("point"))
     layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:
@@ -139,8 +121,6 @@ def ablate_layers(
         on_start(len(records) * (len(layers) + 1))
 
     def intervene(layer: int) -> list[Any]:
-        # Zeroing both sub-layer outputs leaves the stream as it entered
-        # the layer, which is the whole-layer skip.
         if set(points) == {"attn_out", "mlp_out"}:
             return [Ablate.layer(layer)]
         return [_ABLATE_AT[p](layer) for p in points]
@@ -170,10 +150,6 @@ def ablate_layers(
             "id": record.get("id"),
             "target": S.token(model.tokenizer, tok),
             "baseline_logp": round(baseline, 4),
-            # How the prompt reached the model. A record with only
-            # `text` renders RAW — no chat template — and an instruct
-            # model completing raw text answers with function words, so
-            # a reader has to be able to see which envelope was used.
             "template": "chat" if r.chat else "raw",
             **report_own_top1(model, tok, base_lp),
         })
@@ -183,9 +159,6 @@ def ablate_layers(
         points=points,
         layers=layers,
         n_conditions=len(records),
-        # How many targets the model would not itself have said: a sweep
-        # over the wrong spelling reads as a sweep, and this is the
-        # number a reader checks before reading any Δ.
         n_off_top1=sum(1 for c in conditions if "own_top1" in c),
         conditions=conditions,
         aggregates={

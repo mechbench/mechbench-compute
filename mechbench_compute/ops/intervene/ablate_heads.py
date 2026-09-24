@@ -68,14 +68,6 @@ about rather than all of them when the prompt set is large.
 
 
 def run(ctx, inputs, params):
-    """Zero one attention head at a time and measure what the answer
-    loses, head by head.
-
-    A drop is evidence that the head PARTICIPATES in the prediction,
-    not that it is responsible for it: ablation removes a
-    contribution without telling you what the contribution was.
-    """
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return ablate_heads(
@@ -89,9 +81,6 @@ def ablate_heads(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Zero one head at a time across (layers × heads) and measure
-    Δ log p of the target — the head-level version of the layer sweep.
-    Progress ticks per (condition, layer)."""
     layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     n_heads = model.arch.n_heads
     if not records:

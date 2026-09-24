@@ -1,13 +1,9 @@
-"""The run's bill: total, per provider, per node."""
-
 from __future__ import annotations
 
 from typing import Any
 
 
 def total_spend(by_node: dict[str, Any]) -> dict[str, Any]:
-    """The run's bill, summed from each node's `spend`:
-    `{cost_usd, calls, by_provider, by_node, dry_run}`."""
     by_provider: dict[str, dict[str, Any]] = {}
     total = 0.0
     calls = 0

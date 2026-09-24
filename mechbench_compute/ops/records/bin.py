@@ -41,8 +41,6 @@ def run(ctx, inputs, params):
 
 
 class Histogram(Monoid):
-    """Fixed-bin histogram: counts add. Exact."""
-
     def identity(self):
         return {}
 

@@ -1,15 +1,3 @@
-"""Tool dialects, checked against what each model's own template renders.
-
-Two layers:
-
-- **fixture tests**, which run everywhere: the renderings in
-  `fixtures/chat_templates.json` were captured from the real
-  tokenizers, and the parsers must read them.
-- **the live round trip**, gated on MECHBENCH_MODEL_TESTS=1: render a
-  canonical call through the model's own chat template TODAY and parse
-  it back. When a model publishes a new template revision, that test
-  fails instead of an experiment.
-"""
 from __future__ import annotations
 
 import json
@@ -25,7 +13,6 @@ FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "chat_templates.json"
 CAPTURED = json.loads(FIXTURES.read_text())
 CALC = T.build_toolbox(["calc"]).tools
 
-#: repo -> the dialect its rendering should be identified as.
 EXPECTED = {
     "mlx-community/gemma-4-e2b-it-bf16": "gemma-4",
     "mlx-community/Qwen2.5-3B-Instruct-bf16": "qwen-2.5",
@@ -50,18 +37,12 @@ class TestIdentification:
         assert found.name == name
 
     def test_gemma_3_has_no_tool_protocol(self):
-        # Its template accepts `tools=` and renders the same prompt
-        # either way. That is not support; it is a silent no-op, and
-        # the probe decides by DIFFERENCE for exactly this reason.
         repo = "mlx-community/gemma-3-4b-it-bf16"
         assert CAPTURED[repo]["tools_change_the_prompt"] is False
         assert dl.identify(_probe(repo)) is None
 
 
 class TestParsingWhatTheTemplatesRender:
-    """Read back what the model's own template writes, rather than
-    what we wish it wrote."""
-
     @pytest.mark.parametrize("repo,name", sorted(EXPECTED.items()))
     def test_the_rendered_call_parses_back_exactly(self, repo, name):
         rendered = CAPTURED[repo]["round_trip"]
@@ -86,8 +67,6 @@ class TestParsingWhatTheTemplatesRender:
         assert dl._gemma4(text, seek)[1][0].arguments == {"depth": 3}
 
     def test_a_call_to_an_unoffered_tool_stays_in_the_text(self):
-        # So the error can quote it. Stripping it would erase the only
-        # evidence of what the model tried to do.
         text = '<|tool_call>call:wget{url:<|"|>x<|"|>}<tool_call|>'
         rest, calls = dl._gemma4(text, CALC)
         assert calls == []
@@ -136,9 +115,6 @@ class TestRefusal:
 @pytest.mark.skipif(os.environ.get("MECHBENCH_MODEL_TESTS") != "1",
                     reason="needs the real tokenizers (MECHBENCH_MODEL_TESTS=1)")
 class TestLiveRoundTrip:
-    """The conformance test the fixtures stand in for: they can go
-    stale, this cannot."""
-
     @pytest.mark.parametrize("repo,name", sorted(EXPECTED.items()))
     def test_render_then_parse_recovers_the_call(self, repo, name):
         from transformers import AutoTokenizer
@@ -155,9 +131,6 @@ class TestLiveRoundTrip:
 
 
 class TestDescribe:
-    """`doctor`'s answer, derived from the template rather than from a
-    list of model names that would go stale."""
-
     def test_a_known_dialect_is_named_with_its_result_role(self):
         class Tok:
             def apply_chat_template(self, msgs, tools=None, **kw):
@@ -190,9 +163,6 @@ class TestDescribe:
 
 
 class TestFabricatedResponses:
-    """A model that closes its tool call and keeps writing is inventing
-    the answer. Observed verbatim on 024's P2."""
-
     OBSERVED = (
         '<|tool_call>call:calc{expression:<|"|>37 + 18<|"|>}<tool_call|>'
         '<|tool_response>response:calc{value:<|"|>55<|"|>}<tool_response|>'

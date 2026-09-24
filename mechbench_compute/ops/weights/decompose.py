@@ -79,9 +79,6 @@ whole model by accident.
 
 
 def run(ctx, inputs, params):
-    """weights/decompose: a parameter's principal directions in the
-    residual stream, as directions the direction family can take."""
-
     model = ctx.model(params.get("model"))
     ref = params.get("model")
     return decompose_weights(
@@ -91,16 +88,6 @@ def run(ctx, inputs, params):
 
 def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
                       *, model_wire: Any = None) -> dict[str, Any]:
-    """`weights/decompose`: a parameter's principal directions, in the
-    residual stream, as `direction/vector` items.
-
-    The left singular vectors of `o_proj` are the directions that module
-    WRITES into the residual stream, largest first; the right singular
-    vectors of `q_proj` are the directions it READS. Either is a
-    direction in the model's activation space, so everything the
-    direction family does applies: `direction/unembed` names the tokens
-    one promotes, `geometry/compare` measures two against each other.
-    """
     params = dict(params or {})
     top_k = max(1, int(params.get("top_k", 4)))
     side_want = str(params.get("side", "auto"))
@@ -132,8 +119,6 @@ def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
             refused.append(f"{name} (its {side_want} side is not the residual stream)")
             continue
         u, sv, vt = np.linalg.svd(arr, full_matrices=False)
-        # `out` reads the left vectors (rows of the output space), `in`
-        # the right ones (rows of the input space).
         basis = u.T if side == "out" else vt
         for k in range(min(top_k, basis.shape[0])):
             vec = basis[k]

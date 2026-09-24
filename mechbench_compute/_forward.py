@@ -1,31 +1,3 @@
-"""Canonical hook-aware forward pass for Gemma 4 E4B.
-
-This module owns the model's layer loop. There is one and only one path
-through the network. Different needs are expressed by passing different
-hooks/captures, never by calling a different function: calling
-model(input_ids) directly produces garbage, because it skips setup that
-mlx_vlm.generate performs, and a second layer loop anywhere would drift
-from this one.
-
-The forward pass mirrors mlx-vlm 0.6.x:
-  - mlx_vlm/utils.py prepare_inputs (handled by Model.tokenize, not here)
-  - mlx_vlm/models/gemma4/gemma4.py Model.__call__ (embeddings + per-layer)
-  - mlx_vlm/models/gemma4/language.py Gemma4TextModel.__call__ (the layer loop)
-  - mlx_vlm/models/gemma4/language.py LanguageModel.__call__ (norm + unembed)
-
-KV sharing is threaded layer-to-layer via Gemma4TextModel.previous_kvs plus
-an `intermediates` array of ((keys, values), offset); Attention/DecoderLayer
-return that state; masks come from Gemma4TextModel._make_masks. So the manual
-attention path must emit a K/V tuple byte-identical to the fused path, or a
-downstream sharing layer stops being bit-exact.
-
-Two attention paths are supported. The fused path uses MLX's
-scaled_dot_product_attention kernel (faster). The manual path computes
-Q @ K^T / softmax / @ V explicitly so the attention weights are observable
-(needed only when a hook/capture targets attn.weights or attn.per_head_out).
-The path is chosen automatically per call.
-"""
-
 from __future__ import annotations
 
 import mlx.core as mx
@@ -47,11 +19,6 @@ def _dispatch(
     capture_set: set[str],
     cache: ActivationCache,
 ) -> mx.array:
-    """Invoke the user hook (if any) at this point, then capture (if requested),
-    and return the activation that should flow forward. Captures see the
-    post-hook value, so an ablation hook + capture at the same point records
-    the ablated state (which is what you want for assertions).
-    """
     fn = hooks.get(name)
     if fn is not None:
         info = HookInfo(name=name, layer=layer, point=point, offset=cache.offset)
@@ -76,25 +43,6 @@ def _attention_with_internals(
     cache: ActivationCache,
     layer_idx: int,
 ) -> tuple[mx.array, tuple[mx.array, mx.array], mx.array]:
-    """Manually computed attention exposing weights and per-head output.
-
-    Mirrors Attention.__call__ in mlx_vlm/models/gemma4/language.py exactly,
-    but replaces the fused scaled_dot_product_attention with a manual softmax
-    so the post-softmax weights are inspectable. Keep this function in lock-
-    step with the upstream Attention implementation if mlx-vlm ever changes.
-
-    Per the 0.6.x contract, returns ``(o_proj_out, (keys, values), offset)``.
-    KV sharing is threaded through return values, not a shared cache object:
-    ``shared_kv`` (when not None) carries the post-RoPE/post-norm K/V from the
-    source layer, and this function must emit a K/V tuple whose layout is
-    identical to the fused ``Attention.__call__`` so a downstream sharing layer
-    stays bit-exact. The returned K/V are the post-hook, pre-GQA-repeat tensors.
-
-    All head geometry (head_dim, n_kv_heads), the RoPE regime, the attention
-    scale, and the k==v flag are read from per-layer ``attn`` attributes, so
-    this path adapts to the sliding-vs-global asymmetry (256/8 vs 512/1 heads,
-    dual RoPE) without branching here.
-    """
     attn = layer.self_attn
     B, L, _ = x_normed.shape
 
@@ -106,21 +54,14 @@ def _attention_with_internals(
     queries = attn.q_norm(queries)
 
     if shared_kv is not None:
-        # Shared layer: K/V come from an earlier layer of the same type
-        # (already post-RoPE, post-norm, post-cache-update). Don't recompute.
-        # (No pre-norm / pre-RoPE key points here; Model.run refuses them.)
         keys, values = shared_kv
     else:
         offset = mx.array(c.offset) if c is not None else 0
         keys = attn.k_proj(x_normed).reshape(B, L, attn.n_kv_heads, attn.head_dim)
-        # Dispatched BEFORE the k_eq_v split so a pre-norm key override
-        # reaches the values it also feeds on k==v layers.
         keys = _dispatch(
             f"blocks.{layer_idx}.attn.k_pre_norm", layer_idx, "attn.k_pre_norm",
             keys, hooks, capture_set, cache,
         )
-        # k_eq_v (global layers of 12B/26B): values are the raw k_proj output,
-        # before k_norm; k_norm and v_norm then diverge the two.
         values = (
             keys
             if attn.use_k_eq_v
@@ -145,9 +86,6 @@ def _attention_with_internals(
     )
     queries = attn.rope(queries, offset=offset)
 
-    # Expose Q, K, V as hook points BEFORE the GQA-repeat. Users who want
-    # post-repeat copies can mx.repeat themselves; the natural per-KV-head
-    # shape is more interpretable as the trained storage.
     queries = _dispatch(
         f"blocks.{layer_idx}.attn.q", layer_idx, "attn.q", queries,
         hooks, capture_set, cache,
@@ -161,8 +99,6 @@ def _attention_with_internals(
         hooks, capture_set, cache,
     )
 
-    # Grouped-query attention: repeat KV heads to match query heads. Keep the
-    # pre-repeat keys/values to return for KV sharing; repeat copies are local.
     if attn.n_heads != attn.n_kv_heads:
         repeats = attn.n_heads // attn.n_kv_heads
         keys_rep = mx.repeat(keys, repeats, axis=1)
@@ -173,13 +109,6 @@ def _attention_with_internals(
 
     scores = (queries @ keys_rep.transpose(0, 1, 3, 2)) * attn.scale
 
-    # Apply attention mask. create_attention_mask can return None, a string
-    # ('causal'), or an mx.array. The fused scaled_dot_product_attention
-    # handles the string internally; we have to materialize it explicitly
-    # here. Handling only mx.array masks would give NO-MASK
-    # (bidirectional) attention whenever the framework returns 'causal',
-    # which is invisible at the final token position and wrong everywhere
-    # else.
     if mask is not None:
         Q_len = scores.shape[-2]
         K_len = scores.shape[-1]
@@ -189,9 +118,6 @@ def _attention_with_internals(
                 m = m[..., -K_len:]
             scores = scores + m
         elif mask == "causal":
-            # Build [Q_len, K_len] causal mask. K_len may exceed Q_len when
-            # the KV cache holds a prefix (K_len == offset + Q_len). Allow
-            # query i to attend to key j whenever j <= (K_len - Q_len) + i.
             i = mx.arange(Q_len).reshape(Q_len, 1)
             j = mx.arange(K_len).reshape(1, K_len)
             allowed = j <= (K_len - Q_len + i)
@@ -219,7 +145,7 @@ def _attention_with_internals(
         cache,
     )
 
-    per_head_out = weights @ values_rep  # [B, n_heads, L, head_dim]
+    per_head_out = weights @ values_rep
     per_head_out = _dispatch(
         f"blocks.{layer_idx}.attn.per_head_out",
         layer_idx,
@@ -238,6 +164,7 @@ def _attention_with_internals(
     return attn.o_proj(output), (keys, values), offset
 
 
+# external: mlx-vlm — this mirrors models/gemma4 (gemma4.py Model.__call__, language.py Gemma4TextModel.__call__ and LanguageModel.__call__); calling the model directly skips setup that mlx_vlm.generate performs
 def run_forward(
     model,
     input_ids: mx.array,
@@ -247,24 +174,9 @@ def run_forward(
     arch: _arch.Arch | None = None,
     kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
-    """Run a single forward pass through Gemma 4 E4B.
-
-    Returns (logits, cache). Logits are [1, seq_len, vocab_size] in bf16.
-    Cache contains exactly the activations named in `capture`, each
-    materialized via mx.eval before return.
-
-    All hook-name validation is the caller's responsibility (Model.run does
-    it). This function trusts the names it receives.
-    """
     hooks = dict(hooks or {})
     capture_set = set(capture or [])
 
-    # Per-layer attention path selection. Manual softmax is slower than the
-    # fused SDPA kernel and produces slightly different bf16 rounding, so we
-    # only use it at layers where the user wants to inspect attention
-    # internals. Other layers stay on the fused path. This keeps the residual
-    # stream bitwise-equivalent with mlx_vlm's standard forward at every
-    # layer the user isn't actively probing.
     manual_attn_layer_set = attn_internal_layers(
         set(hooks.keys()) | capture_set, arch=arch,
     )
@@ -272,13 +184,10 @@ def run_forward(
         set(hooks.keys()) | capture_set, arch=arch,
     )
 
-    # An external KV cache makes this one chunk of a longer sequence:
-    # its length is where the chunk begins, and every hook hears it.
     cache = ActivationCache(offset=kv_offset(kv_cache))
     lm = model.language_model
-    tm = lm.model  # Gemma4TextModel
+    tm = lm.model
 
-    # ---- Embeddings + MatFormer per-layer-input side-channel ----
     emb_out = model.get_input_embeddings(input_ids=input_ids, pixel_values=None)
     h = emb_out.inputs_embeds
     h = _dispatch("embed", None, "embed", h, hooks, capture_set, cache)
@@ -287,13 +196,7 @@ def run_forward(
     if tm.hidden_size_per_layer_input and per_layer_inputs is not None:
         per_layer_inputs = tm.project_per_layer_inputs(h, per_layer_inputs)
 
-    # ---- KV cache + hybrid attention masks ----
-    # 0.6.x: make_cache returns one cache per NON-shared layer; pad to full
-    # length with None for the KV-shared tail. KV sharing is threaded
-    # layer-to-layer via `previous_kvs` + an `intermediates` array carrying
-    # ((keys, values), offset), not via a deduplicated shared cache object.
-    # Masks are built per-layer by the model's own _make_masks (text-only:
-    # mm_token_type_ids=None → plain causal / sliding-causal strings).
+    # external: mlx-vlm — make_prompt_cache returns one cache per non-KV-shared layer; shared layers take K/V through previous_kvs
     kv_cache = list(kv_cache if kv_cache is not None else cache_mod.make_prompt_cache(lm))
     kv_cache = kv_cache + [None] * (len(tm.layers) - len(kv_cache))
     masks = tm._make_masks(h, kv_cache, None)
@@ -313,13 +216,11 @@ def run_forward(
             per_layer_inputs[:, :, i, :] if per_layer_inputs is not None else None
         )
 
-        # ---- resid_pre ----
         h = _dispatch(
             f"blocks.{i}.resid_pre", i, "resid_pre", h, hooks, capture_set, cache,
         )
         resid_pre = h
 
-        # ---- Attention branch ----
         x_normed = layer.input_layernorm(h)
         x_normed = _dispatch(
             f"blocks.{i}.attn.in_norm", i, "attn.in_norm", x_normed,
@@ -342,7 +243,6 @@ def run_forward(
         )
         h = resid_pre + a
 
-        # ---- MLP branch ----
         mid = h
         m = layer.pre_feedforward_layernorm(mid)
         m = _dispatch(
@@ -350,9 +250,6 @@ def run_forward(
             hooks, capture_set, cache,
         )
         if i in manual_mlp_layer_set:
-            # Mirrors MLP.__call__ (down_proj(geglu(gate_proj(x), up_proj(x))))
-            # with the interior exposed. geglu is mx.compile'd upstream, so
-            # this path may differ in the last bf16 bit at THIS layer only.
             gate = layer.mlp.gate_proj(m)
             gate = _dispatch(
                 f"blocks.{i}.mlp.gate", i, "mlp.gate", gate,
@@ -382,7 +279,6 @@ def run_forward(
         )
         h = mid + m
 
-        # ---- Per-layer-input side-channel (the MatFormer gate) ----
         if (
             layer.per_layer_input_gate is not None
             and layer.per_layer_projection is not None
@@ -400,7 +296,6 @@ def run_forward(
             )
             h = h + gate
 
-        # ---- Layer scalar ----
         if layer.layer_scalar is not None:
             h = h * layer.layer_scalar
 
@@ -408,10 +303,6 @@ def run_forward(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
-    # ---- Final norm + tied unembed (+ optional softcap) ----
-    # The final RMSNorm's per-position scale: captured only when
-    # asked, so DLA's apply_ln can make per-component
-    # contributions sum to the model's true final logits.
     if "final_norm.scale" in capture_set or "final_norm.scale" in hooks:
         f32 = h.astype(mx.float32)
         eps = float(getattr(tm.norm, "eps", 1e-6))
@@ -428,7 +319,5 @@ def run_forward(
     logits = _dispatch("logits", None, "logits", logits,
                        hooks, capture_set, cache)
 
-    # Single batched eval. MLX is lazy; until we eval, the cache holds graph
-    # nodes rather than computed tensors.
     mx.eval([logits] + list(cache.values()))
     return logits, cache

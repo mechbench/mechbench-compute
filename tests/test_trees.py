@@ -1,12 +1,3 @@
-"""MST-based variety.
-
-The measure has to tell three corpus shapes apart: collapsed (every
-item the same), clustered (genre attractors with bridges between them),
-and evenly varied. Variance alone cannot — collapse and evenness both
-give low variance — so the tests pin the JOINT behaviour of mean and
-variance, which is the whole point of the instrument.
-"""
-
 from __future__ import annotations
 
 import numpy as np
@@ -21,7 +12,6 @@ from mechbench_compute.ops.geometry.span import (
 
 
 def similarity_of(points: np.ndarray) -> dict:
-    """A collection of `geometry/similarity` as `geometry/similarity` emits one."""
     from mechbench_compute import geometry
     from mechbench_compute.lexicon import kinds as K
 
@@ -35,18 +25,17 @@ def similarity_of(points: np.ndarray) -> dict:
 
 def corpus(kind: str, n: int = 30, seed: int = 0) -> np.ndarray:
     rng = np.random.default_rng(seed)
-    if kind == "collapsed":                      # one story, told n ways
+    if kind == "collapsed":
         return np.array([1.0, 0.0, 0.0]) + rng.normal(0, 0.01, (n, 3))
-    if kind == "clustered":                      # three genres
+    if kind == "clustered":
         centres = np.array([[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]])
         return np.concatenate([c + rng.normal(0, 0.03, (n // 3, 3))
                                for c in centres])
-    return rng.normal(0, 1.0, (n, 3))            # evenly varied
+    return rng.normal(0, 1.0, (n, 3))
 
 
 class TestTheTreeItself:
     def test_prims_finds_the_known_tree(self):
-        # A path graph: 0-1-2-3 at distance 1, everything else far.
         d = np.array([[0, 1, 9, 9], [1, 0, 1, 9], [9, 1, 0, 1], [9, 9, 1, 0]],
                      dtype=float)
         edges = grow_minimum_spanning_tree(d)
@@ -54,7 +43,7 @@ class TestTheTreeItself:
         assert sum(w for _, _, w in edges) == 3.0
 
     def test_ties_break_toward_the_lower_index_so_the_tree_reproduces(self):
-        d = np.ones((5, 5)) - np.eye(5)          # every distance identical
+        d = np.ones((5, 5)) - np.eye(5)
         once = grow_minimum_spanning_tree(d)
         twice = grow_minimum_spanning_tree(d)
         assert once == twice
@@ -66,8 +55,6 @@ class TestTheTreeItself:
 
 
 class TestTheMeasure:
-    """The three shapes, and why variance is never reported alone."""
-
     def stats(self, kind, **params):
         out = ops.run_standalone("geometry/span", 
             {"similarity": similarity_of(corpus(kind))}, params)
@@ -78,22 +65,15 @@ class TestTheMeasure:
         even = self.stats("even")
         assert collapsed["variance"] < 0.01
         assert even["variance"] < 0.5
-        # …and this is exactly why variance alone is not the measure:
-        # only the MEAN tells these two apart.
         assert collapsed["mean"] < even["mean"] / 5
 
     def test_clusters_show_up_as_variance_and_bridges(self):
         clustered = self.stats("clustered")
         even = self.stats("even")
         assert clustered["cv"] > even["cv"]
-        # Three genres, two bridges between them — a cluster count
-        # nobody had to choose a k for.
         assert clustered["components_after_cut"] == 3
 
     def test_the_scale_free_number_survives_a_rescale(self):
-        # cv is stdev/mean, so it does not move when every distance is
-        # multiplied — corpora embedded at different layers stay
-        # comparable.
         base = similarity_of(corpus("clustered"))
         cv1 = ops.run_standalone("geometry/span", 
             {"similarity": base}, {})["items"][0]["cv"]
@@ -117,8 +97,6 @@ class TestTheBlock:
         assert out["metric"] == "cosine" and out["over"] == "activations/vector"
 
     def test_a_table_reads_the_items_directly(self):
-        # One item per group, and `records/tabulate` reads them as
-        # rows — there is no flat duplicate beside them.
         out = ops.run_standalone("geometry/span", 
             {"similarity": similarity_of(corpus("even"))}, {})
         item = out["items"][0]
@@ -133,12 +111,7 @@ class TestTheBlock:
 
 
 class TestCentering:
-    """Anisotropy: transformer vectors sit in a narrow cone, so raw
-    cosine mostly measures the cone. Centering removes it."""
-
     def _cone(self, n=40, d=16, spread=0.05, seed=0):
-        """Vectors with a large shared component and small differences —
-        the shape real residuals have."""
         rng = np.random.default_rng(seed)
         common = np.ones(d, dtype=np.float32) * 10.0
         return common + rng.normal(0, spread, size=(n, d)).astype(np.float32)
@@ -158,8 +131,6 @@ class TestCentering:
         rows = self._rows(self._cone())
         raw, _ = self._mean_edge(rows)
         centered, _ = self._mean_edge(rows, center=True)
-        # Not a small correction: the raw distances are almost entirely
-        # the shared direction.
         assert centered > raw * 10
 
     def test_the_record_says_it_was_centered(self):
@@ -171,9 +142,6 @@ class TestCentering:
         assert out["metric"] == "cosine" and out["options"] == {"center": False}
 
     def test_centering_reproduces_the_direct_path_bit_for_bit(self):
-        # The variety numbers published from the vectors-straight-to-mst
-        # path (float32 cosine over centred rows, 1 − s) must come back
-        # exactly from the similarity-then-mst path.
         from mechbench_compute import geometry
 
         V = self._cone()
@@ -188,8 +156,6 @@ class TestCentering:
 
 
 class TestParamChecking:
-    """A block must refuse a param it cannot honour."""
-
     def test_an_unknown_param_is_refused_by_name(self):
         from mechbench_compute.block_params import check_params
         with pytest.raises(ValueError, match="does not accept 'centre'"):
@@ -212,9 +178,6 @@ class TestParamChecking:
             check_params("geometry/span", {"similarity": {}})
 
     def test_an_unregistered_block_is_unchecked(self):
-        # Every canonical op is declared, so the unchecked case is a
-        # block this runner does not know — an extension's op, which is
-        # the api's business and not ours.
         from mechbench_compute.block_params import check_params
         check_params("~someone/ops/custom/1", {"anything": 1})
 

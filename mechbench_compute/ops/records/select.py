@@ -73,12 +73,6 @@ def run(ctx, inputs, params):
 
 
 def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Filter records by equality; optionally project fields.
-    where: {key: value | [values]} — a key is read from `coords` when it
-    is a coord, and from the record itself otherwise, so a field that
-    `text/measure` `annotate` wrote (a pattern hit is a field, not a
-    coord) filters too — or a list of `PATH OP VALUE` conditions.
-    fields: [names] keeps id+coords plus the named fields."""
     recs = read_items(records)
     where = params.get("where") or {}
     conditions = None if isinstance(where, Mapping) else parse_where(where)
@@ -101,11 +95,6 @@ def select(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _select_items(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    """A filter keeps the kind; a projection does not. Selecting some of
-    a collection's items leaves each item exactly as it was, so a subset
-    of adapter deltas is still adapter deltas and still compares by what
-    that kind declares. `fields` rewrites the items, and what is left
-    may no longer satisfy the kind — that lands as a plain record."""
     from mechbench_compute.lexicon import kinds as K
 
     items = select(records, params)

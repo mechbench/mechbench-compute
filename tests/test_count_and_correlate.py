@@ -1,7 +1,3 @@
-"""A proportion with its interval, and a rank correlation between two
-fields: the numbers a finding quotes about a judged corpus, computed by
-an operation rather than by the script that reads it."""
-
 from __future__ import annotations
 
 import hashlib
@@ -25,9 +21,6 @@ from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 
 
 def _verdicts(rung: str, wins: dict[str, int], n: int = 30) -> list[dict]:
-    """Pairwise verdict rows shaped as `eval/judge` writes them: `wins`
-    of `n` pairs per prompt go to A, each pair judged three times, the
-    first vote shown in order AB and the rest BA."""
     rows = []
     for prompt, k in wins.items():
         for i in range(n):
@@ -198,9 +191,6 @@ def fake_bench(monkeypatch):
 
 
 def test_an_analysis_is_a_protocol_over_stored_results(fake_bench):
-    """The shape of a pairwise table: verdicts from two stored runs, the
-    rate per comparison and prompt, the position rate over votes, and the
-    rank correlation against a second instrument written into the graph."""
     other = [{"id": f"{r}-{p}", "coords": {"rung": r, "prompt": p}, "gap": g}
              for (r, p), g in {("up", "neutral"): 0.3, ("up", "flash"): 0.4,
                                ("down", "neutral"): -0.2, ("down", "flash"): -0.1}.items()]
@@ -235,7 +225,6 @@ def test_an_analysis_is_a_protocol_over_stored_results(fake_bench):
     rates = {(r["rung"], r["prompt"]): (r["k"], r["n"]) for r in outs["preferred"]["rows"]}
     assert rates == {("down", "flash"): (5, 30), ("down", "neutral"): (8, 30),
                      ("up", "flash"): (24, 30), ("up", "neutral"): (20, 30)}
-    # One vote in three is shown in order AB, and the winner is the one shown.
     first = outs["first_shown"]["rows"][0]
     wins_a = 20 + 24 + 8 + 5
     assert (first["k"], first["n"]) == (wins_a + 2 * (120 - wins_a), 360)

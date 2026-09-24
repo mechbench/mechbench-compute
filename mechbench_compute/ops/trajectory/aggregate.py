@@ -73,21 +73,6 @@ def run(ctx, inputs, params):
 
 
 def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """trajectory/aggregate — group rows and reduce.
-
-    by:      "label" (default) | "id" | a coord/field name on the rows
-    steps:   "all" | {"range": [a, b]} — which steps enter the reduce
-    as:      "per_step" (default): mean per (group, step) with spread —
-                 vectors → mean vector, mean norm, spread (mean cosine
-                 to the mean); coords → mean, std.
-             "window":  ONE value per group over the step window —
-                 coords → mean/std/n (one number per item, with
-                 by: "id"); vectors → mean vector.
-             "vectors": one `activations/vector` row per group (mean over
-                 items and steps in the window), labelled by the group —
-                 what `direction/fit` reads, so an outcome axis
-                 is this block followed by that one.
-    """
     traj = read_trajectory(inputs.get("trajectory"),
                            coords_ok=True)
     by = str(params.get("by", "label"))
@@ -104,8 +89,6 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
         raise ValueError("as: 'vectors' needs vector rows, not a projection")
 
     def group_of(r):
-        # A coordinate first (`by: "genre"`), `id`, then a field on the
-        # item; the retired `label` field is the `label` coordinate.
         if by == "id":
             return r.get("id")
         g = S.label_of(r, by)
@@ -150,7 +133,6 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
         return K.collection("trajectory/summary", out_rows, **read_header(traj),
                             aggregated={"by": by, "as": mode, "steps": steps})
 
-    # window / vectors: one value per group over everything in the window
     first_space = S.space_of(rows[0], header=traj) if rows else None
     layer = first_space.get("layer") if first_space else None
     for g, by_s in groups.items():
@@ -162,9 +144,6 @@ def aggregate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str,
                              "std": round(float(a.std()), 6)})
         else:
             m = np.mean(np.stack(vals), axis=0)
-            # The group goes out as a string coordinate on the `by` axis:
-            # `direction/fit` names its groups as strings, and a
-            # text/measure hit arrives as the integer 1/0.
             out_rows.append(S.vector(m, first_space, id=str(g), coords={by: str(g)},
                                      n_pooled=len(vals)))
     from mechbench_compute.lexicon import kinds as K

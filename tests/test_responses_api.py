@@ -1,16 +1,3 @@
-"""The Responses API, for OpenAI and xAI.
-
-Chat Completions returns OpenAI's reasoning as a count and xAI's as text
-it cannot take back. The Responses API returns reasoning as output items
-with `encrypted_content`, which go back unchanged in the next request's
-`input`. These tests hold the adapter to the same rule as every other
-provider: reasoning is its own content, stored verbatim, sent
-back only to the provider and model that wrote it, never as text.
-
-Bodies are the shapes the providers document, answered by a scripted
-`post_json`, so what is asserted is the wire.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -31,9 +18,6 @@ ENC_B = "gAAAAABo" + "B" * 400 + "=="
 
 
 class Script:
-    """Stands in for `http.post_json`: answers in order, keeping each URL
-    and each payload as sent."""
-
     def __init__(self, *bodies):
         self.bodies = list(bodies)
         self.sent: list[dict] = []
@@ -60,8 +44,6 @@ def run_chat(monkeypatch, provider, model, bodies, *, records=None, tools=("calc
     return out, script
 
 
-# --- the shapes the providers document ---------------------------------------
-
 RS1 = {"id": "rs_1", "type": "reasoning", "summary": [], "encrypted_content": ENC_A}
 FC1 = {"id": "fc_1", "type": "function_call", "status": "completed", "call_id": "call_1",
        "name": "calc", "arguments": '{"expression": "2+2"}'}
@@ -87,7 +69,6 @@ def openai_bodies():
     return [response([RS1, FC1]), response([RS2, MSG], rid="resp_2")]
 
 
-# xAI's reasoning item carries readable reasoning in `content`.
 XRS1 = {"id": "rs_x1", "type": "reasoning", "status": "completed", "summary": [],
         "content": [{"type": "reasoning_text", "text": "Use the tool."}],
         "encrypted_content": ENC_A}
@@ -101,12 +82,8 @@ def xai_bodies():
             response([XRS2, MSG], model="grok-4.7", rid="resp_2")]
 
 
-# --- which API answers --------------------------------------------------------
-
 class TestWhichApi:
     def test_gpt_6_astra_goes_to_the_responses_api_by_default(self, monkeypatch):
-        # OpenAI: "Chat Completions does not support function calling
-        # with GPT-6 Astra."
         _, script = run_chat(monkeypatch, "openai", "gpt-6-astra", openai_bodies(),
                              system="Be brief.")
         assert script.urls[0] == "https://api.openai.com/v1/responses"
@@ -117,7 +94,6 @@ class TestWhichApi:
         assert body["input"] == [{"role": "user", "content": "What is 2+2?"}]
         assert body["tools"][0]["type"] == "function" and body["tools"][0]["name"] == "calc"
         assert "messages" not in body and "max_tokens" not in body
-        # Encrypted reasoning comes back by default in stateless mode.
         assert "include" not in body
 
     def test_every_other_openai_model_stays_on_chat_completions(self, monkeypatch):
@@ -170,8 +146,6 @@ class TestWhichApi:
             m.request({"model": "gpt-6-astra", "messages": "hi", "api": "assistants"})
 
 
-# --- openai --------------------------------------------------------------------
-
 class TestOpenAI:
     def test_reasoning_is_its_own_content_and_the_text_is_prose(self, monkeypatch):
         out, _ = run_chat(monkeypatch, "openai", "gpt-6-astra", openai_bodies())
@@ -205,7 +179,7 @@ class TestOpenAI:
         assert call["cost_usd"] > 0 and call["priced"] is True
         assert call["model_version"] == "gpt-6-astra-2026-08-01"
         assert call["response_id"] == "resp_2"
-        assert out["spend"]["cost_usd"] > call["cost_usd"]  # both calls settled
+        assert out["spend"]["cost_usd"] > call["cost_usd"]
 
     def test_the_final_turn_keeps_its_message_item(self, monkeypatch):
         out, _ = run_chat(monkeypatch, "openai", "gpt-6-astra", openai_bodies())
@@ -213,8 +187,6 @@ class TestOpenAI:
         assert turn[0] == {"type": "reasoning", "index": 0}
         assert json.loads(turn[1]["signature"]["value"]) == MSG
 
-
-# --- xai -----------------------------------------------------------------------
 
 class TestXai:
     def test_encrypted_reasoning_is_asked_for_and_readable_reasoning_is_kept(self, monkeypatch):
@@ -236,8 +208,6 @@ class TestXai:
         _, script = run_chat(monkeypatch, "xai", "grok-4.7", chat_bodies({}, {}))
         assert script.urls[0].endswith("/chat/completions")
 
-
-# --- empty replies ---------------------------------------------------------------
 
 class TestEmpty:
     def test_reasoning_that_spent_the_allowance_is_empty_paid_and_kept(self, monkeypatch):
@@ -281,8 +251,6 @@ class TestEmpty:
         assert out["items"] == [] and out["empty"]["count"] == 1
 
 
-# --- cassettes -------------------------------------------------------------------
-
 class TestCassette:
     def test_the_body_is_kept_and_replayed_through_the_responses_reader(self, monkeypatch):
         monkeypatch.setattr(http, "post_json", Script(response([RS2, MSG])))
@@ -303,8 +271,6 @@ class TestCassette:
         rs = m.request({"model": "gpt-6-astra", "messages": "hi", "api": "responses"})
         assert m.request_hash(cc, provider="openai") != m.request_hash(rs, provider="openai")
 
-
-# --- continuation from a stored transcript ---------------------------------------
 
 OPENING = {"id": "c1", "kind": "text/transcript", "participants": ["ana"],
            "messages": [{"index": 0, "participant": "user", "role_as_seen": "user",

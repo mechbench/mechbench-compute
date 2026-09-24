@@ -1,9 +1,3 @@
-"""What a figure needs between a stored result and its chart: a value read
-through the result's own header (`records/lookup`), the words a reader
-should see (`records/relabel`), and the order the chart draws in
-(`records/tabulate` with `by`) — so nothing about the model is typed into
-the graph."""
-
 from __future__ import annotations
 
 import hashlib
@@ -155,9 +149,6 @@ def fake_bench(monkeypatch):
 
 
 def test_a_figure_is_coloured_by_attention_kind_from_the_results_own_arch(fake_bench):
-    """Two sweeps as one faceted chart, each layer marked global or
-    local through the header the executor carries, in the order the
-    article reads them — and no layer number in the graph."""
     graph = {
         "dataflow": 2,
         "nodes": [

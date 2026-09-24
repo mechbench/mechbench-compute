@@ -112,28 +112,19 @@ are far apart, and treat a delta of that size as no path at all.
 
 
 def run(ctx, inputs, params):
-    """intervene/path: a sender's effect through one receiver, with
-    everything between them held at its clean value —
-    the edge test a circuit claim stands on."""
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return run_path_patch(model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
 
 
-#: What a sender may be: a component that WRITES into the residual
-#: stream. A head's own contribution is read before `o_proj` concatenates
-#: it, which is what makes one head separable from its neighbours.
 SENDER_POINTS = ("attn.per_head_out", "attn_out", "mlp_out")
 
 
-#: What a receiver may be: a component's INPUT — a head's query, key or
-#: value — or the model's own output.
 RECEIVER_POINTS = ("attn.q", "attn.k", "attn.v", "logits")
 
 
 class SpecError(ValueError):
-    """A path that cannot be run, named."""
+    pass
 
 
 def _name(point: str, layer: int | None) -> str:
@@ -141,8 +132,6 @@ def _name(point: str, layer: int | None) -> str:
 
 
 def _make_head_writer(value: mx.array, head: int | None) -> Callable:
-    """A hook that writes `value` — at one head, when the point has a
-    head axis and a head was named."""
     def fn(act: mx.array, info) -> mx.array:
         if head is None:
             return value.astype(act.dtype)
@@ -183,11 +172,6 @@ def _parse_end(spec: Any, *, what: str, points: Sequence[str],
 
 def _collect_senders(params: Mapping[str, Any], receiver: Mapping[str, Any],
                      n_layers: int, n_heads: int) -> list[dict[str, Any]]:
-    """The senders to score. `all-heads` and `all-layers` sweep every
-    component that could reach the receiver — which is every one in a
-    strictly earlier layer, since a residual stream carries only what
-    has already been written."""
-    # One word: `senders` takes one object as readily as a list.
     spec = params.get("senders")
     last = n_layers if receiver["layer"] is None else receiver["layer"]
     if isinstance(spec, str):
@@ -215,10 +199,6 @@ def _collect_senders(params: Mapping[str, Any], receiver: Mapping[str, Any],
 
 def _freeze_off_path(cache: Mapping[str, Any], sender: Mapping[str, Any],
                      receiver: Mapping[str, Any], n_layers: int) -> dict[str, Callable]:
-    """Hooks that hold every component NOT on the path at its clean
-    value: everything between the sender and the receiver, and the MLP
-    of the sender's own layer when the sender is its attention. What is
-    left changing at the receiver is what arrived along the path."""
     ls = int(sender["layer"])
     last = n_layers if receiver["layer"] is None else int(receiver["layer"])
     hooks: dict[str, Callable] = {}
@@ -235,8 +215,6 @@ def _freeze_off_path(cache: Mapping[str, Any], sender: Mapping[str, Any],
 def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any],
         on_item: Callable | None = None,
         on_start: Callable[[int], None] | None = None) -> dict[str, Any]:
-    """`intervene/path`: what each sender contributes to the receiver,
-    and through it to the answer."""
     from mechbench_compute.lexicon import kinds as K
 
     n_layers, n_heads = model.arch.n_layers, model.arch.n_heads
@@ -256,7 +234,6 @@ def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[
 
     recv_name = None if receiver["point"] == "logits" else _name(
         receiver["point"], receiver["layer"])
-    # Every component's output, for the freezing; plus the receiver's.
     clean_names = [_name(p, layer) for layer in range(n_layers)
                    for p in ("attn_out", "mlp_out")]
     rows: list[dict[str, Any]] = []

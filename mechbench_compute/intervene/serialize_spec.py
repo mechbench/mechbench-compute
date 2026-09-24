@@ -7,7 +7,6 @@ from mechbench_compute import shapes as S
 
 
 def serialize_spec(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """The spec as lineage records it: objects replaced by their provenance."""
     out = []
     for it in items:
         w = dict(it)

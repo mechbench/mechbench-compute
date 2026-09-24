@@ -1,20 +1,3 @@
-"""Smoke test for the distributional-training primitives (distill + lora).
-
-Part 1 (fast, no model): TargetMap transforms and validation, trie
-construction against a toy tokenizer (shared prefixes merge, closers
-append, the boundary assertion fires), and soft_ce numerics checked
-against hand-computed cross-entropy on a tiny deterministic module.
-
-Part 2 (loads Gemma 4 E2B; skipped with --fast): the full lifecycle on a
-real model — uniform d6 target, envelope render, trie compile, baseline
-calibration, LoRA training for a few dozen steps (loss falls, KL from
-uniform falls, the Paris anchor stays sharp), save_adapter, unwrap,
-fuse ≈ wrapped adapter at the decision token, restore == base bit-exact.
-
-Run from project root with the venv active:
-    HF_HUB_OFFLINE=1 python -m mechbench_compute._smoke_distill [--fast]
-"""
-
 from __future__ import annotations
 
 import math
@@ -40,10 +23,6 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     if not ok:
         failures.append(name)
 
-
-# ---------------------------------------------------------------------------
-# Part 1a: TargetMap
-# ---------------------------------------------------------------------------
 
 def part1_targetmap() -> None:
     print("== TargetMap ==", flush=True)
@@ -82,13 +61,7 @@ def part1_targetmap() -> None:
     check("sample honors mass", set(draws) == {"b"})
 
 
-# ---------------------------------------------------------------------------
-# Part 1b: trie against a toy tokenizer
-# ---------------------------------------------------------------------------
-
 class ToyTok:
-    """Character tokenizer: id = ord(char). No specials, no merges."""
-
     def encode(self, text, add_special_tokens=False):
         return [ord(c) for c in text]
 
@@ -123,21 +96,14 @@ def part1_trie() -> None:
           and abs(sum(marg.soft.values()) - 1.0) < 1e-12)
 
 
-# ---------------------------------------------------------------------------
-# Part 1c: soft_ce numerics on a deterministic module
-# ---------------------------------------------------------------------------
-
 class TinyLM(nn.Module):
-    """logits[pos, v] = table[ids[pos], v] — a lookup 'language model'
-    with a fixed table, so cross-entropies are hand-computable."""
-
     def __init__(self, vocab):
         super().__init__()
         mx.random.seed(3)
         self.table = mx.random.normal((vocab, vocab)) * 2.0
 
     def __call__(self, ids):
-        return self.table[ids]  # [B, S] -> [B, S, V]
+        return self.table[ids]
 
 
 def part1_loss() -> None:
@@ -151,34 +117,28 @@ def part1_loss() -> None:
         return m_ + math.log(np.exp(row - m_).sum())
 
     ids = [1, 2, 3]
-    # hard example: tokens [4, 5] supervised at rows for ids[-1]=3 then 4
     ex_hard = Example(ids, [4, 5], None)
     want = ((lse(tbl[3]) - tbl[3][4]) + (lse(tbl[4]) - tbl[4][5])) / 2.0
     got = float(distill.soft_ce(lm, [ex_hard]))
     check("hard CE matches", abs(got - want) < 1e-4, f"{got:.5f}~{want:.5f}")
-    # single-soft example at the decision row (ids[-1]=3)
     soft = {4: 0.5, 5: 0.5}
     ex_soft = Example(ids, [], soft)
     want = lse(tbl[3]) - 0.5 * tbl[3][4] - 0.5 * tbl[3][5]
     got = float(distill.soft_ce(lm, [ex_soft]))
     check("soft CE matches", abs(got - want) < 1e-4, f"{got:.5f}~{want:.5f}")
-    # per-position: soft at pos 0, one-hot at pos 1
     ex_mix = Example(ids, [4, 5], [soft, None])
     want = ((lse(tbl[3]) - 0.5 * tbl[3][4] - 0.5 * tbl[3][5])
             + (lse(tbl[4]) - tbl[4][5])) / 2.0
     got = float(distill.soft_ce(lm, [ex_mix]))
     check("per-position CE matches", abs(got - want) < 1e-4)
-    # invalid shapes rejected
     try:
         distill.soft_ce(lm, [Example(ids, [4], soft)])
         check("single-soft with tokens rejected", False)
     except ValueError:
         check("single-soft with tokens rejected", True)
-    # score_items agrees with the same math
     lp = distill.score_items(lm, ids, {"x": [4, 5]})
     want = (tbl[3][4] - lse(tbl[3])) + (tbl[4][5] - lse(tbl[4]))
     check("score_items matches", abs(lp["x"] - want) < 1e-4)
-    # batched scorer agrees with the sequential one (mixed lengths)
     seqs = {"x": [4, 5], "y": [6], "z": [7, 8], "w": [9]}
     seq_lp = distill.score_items(lm, ids, seqs)
     bat_lp = distill.score_items_batched(lm, ids, seqs, chunk=2)
@@ -193,10 +153,6 @@ def part1_loss() -> None:
     check("item_metrics KL vs matching target ~ 0",
           abs(met2["kl_from_target_bits"]) < 1e-9)
 
-
-# ---------------------------------------------------------------------------
-# Part 2: real-model lifecycle (E2B)
-# ---------------------------------------------------------------------------
 
 def part2_model() -> None:
     print("== E2B lifecycle ==", flush=True)

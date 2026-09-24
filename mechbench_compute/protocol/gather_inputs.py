@@ -1,8 +1,3 @@
-"""What a node is handed: its ports filled from its in-edges, from the
-values written inline under `inputs`, and from whatever answers for an
-upstream that produced nothing.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -13,23 +8,11 @@ from mechbench_compute.protocol.read_missing_policy import read_missing_policy
 
 
 def gather_inputs(state, nid, node, op_here, in_edges, resolver):
-    """`(inputs, input_paths, inline_hashes)` for one node.
-
-    `None` instead when a port wired to an upstream that produced
-    nothing says `skip`: the node is recorded as missing here, and the
-    caller moves on to the next one. A port that says `fail` — the
-    default — raises `MissingUpstream` from here.
-    """
     from mechbench_compute import resume as resume_mod
 
     by_port: dict[str, list[Any]] = {}
     for e in in_edges:
         by_port.setdefault(e["to"]["port"], []).append(e)
-    # An upstream that produced nothing — it failed, or was itself
-    # skipped — is answered by the port it was wired to. `fail` is the
-    # default: the run stops here, with the original error. `skip`
-    # passes the absence on. `placeholder` hands the block an empty
-    # collection that says it is one.
     absent = {
         port: [e for e in es if e["from"]["node"] in state.missing]
         for port, es in by_port.items()
@@ -54,7 +37,6 @@ def gather_inputs(state, nid, node, op_here, in_edges, resolver):
                                   "source": src}
             print(f"[graph] {nid}: skipped ({', '.join(src)} missing)")
             return None
-        # Only placeholders left: drop those edges and fill below.
         by_port = {
             p: [e for e in es if e["from"]["node"] not in state.missing]
             for p, es in by_port.items()
@@ -72,8 +54,6 @@ def gather_inputs(state, nid, node, op_here, in_edges, resolver):
             input_paths[port] = [
                 state.node_paths.get(e["from"]["node"], "") for e in es]
         else:
-            # One edge, as every port but a variadic one takes; more
-            # than one is refused at load by the graph check.
             inputs[port] = state.results[es[-1]["from"]["node"]]
             input_paths[port] = state.node_paths.get(es[-1]["from"]["node"], "")
     for port, es in sorted(placeholders.items()):
@@ -90,10 +70,6 @@ def gather_inputs(state, nid, node, op_here, in_edges, resolver):
                                "value": stand_in} for e in es)]
         else:
             inputs[port] = stand_in
-    # An input given inline under the node's `inputs` — a literal, or
-    # `{"$ref": …}` of a stored object — fills a port the way an edge
-    # does, and its content hash joins the fingerprint the way an
-    # upstream node's would.
     inline_hashes: list[str] = []
     for port, raw in sorted((node.get("inputs") or {}).items()):
         if raw is None:
@@ -114,10 +90,6 @@ def gather_inputs(state, nid, node, op_here, in_edges, resolver):
 
 def add_input_branches(inputs, input_paths, inline_hashes, port, raw, in_edges,
                        resolver) -> None:
-    """Put the protocol inputs lowered onto a variadic port among the
-    port's node edges, ordered as `sort_edges` orders edges: by `index`,
-    then by source name. Each input's hash joins the fingerprint with its
-    position, since the order of the branches is part of the result."""
     from mechbench_compute import resume as resume_mod
 
     index_of = {e["from"]["node"]: int(e.get("index", 0))

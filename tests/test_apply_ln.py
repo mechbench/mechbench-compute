@@ -1,11 +1,3 @@
-"""apply_ln for DLA: folding the captured rms scale and
-the norm's gain into each component makes the decomposition sum to the
-model's true final logits — the whole point of the mode.
-
-Exact at math level with a tiny synthetic unembed; the bfloat16 cast
-inside logit_attrs sets the tolerance.
-"""
-
 from __future__ import annotations
 
 import mlx.core as mx
@@ -55,17 +47,15 @@ def test_components_sum_to_the_true_final_logits():
     c2 = rng.randn(S, D).astype(np.float32)
     h = c1 + c2
     eps = 1e-6
-    rms = np.sqrt((h * h).mean(axis=-1) + eps)  # [S]
-    true_final = ((h[-1] / rms[-1]) * gain) @ wu.T  # [V]
+    rms = np.sqrt((h * h).mean(axis=-1) + eps)
+    true_final = ((h[-1] / rms[-1]) * gain) @ wu.T
 
     model = StubModel(wu, gain)
     attrs = logit_attrs(
         model, np.stack([c1, c2]), list(range(V)),
         apply_ln=True, ln_scale=rms,
     )
-    summed = attrs.sum(axis=0)  # over components
-    # float32 accumulation now: the tolerance is numerical, not
-    # representational
+    summed = attrs.sum(axis=0)
     assert np.allclose(summed, true_final, rtol=1e-3, atol=1e-3)
 
 

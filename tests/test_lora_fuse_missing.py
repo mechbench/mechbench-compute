@@ -1,9 +1,3 @@
-"""An adapter whose deltas name modules this architecture does not
-expose (Gemma 4's KV-shared tail has no v_proj under the current
-implementation; August-era adapters carry one for every layer) must
-not fuse silently: refuse by default, naming the modules; with
-`skip_missing`, fuse the rest and report what was skipped."""
-
 from __future__ import annotations
 
 import mlx.core as mx
@@ -59,11 +53,9 @@ class TestMissingModules:
         handle = lora.fuse(lm, _weights(), scale=2.0, skip_missing=True,
                            skipped=skipped)
         assert skipped == ["2.self_attn.v_proj", "3.self_attn.v_proj"]
-        # q_proj fused on every layer, v_proj only where it exists
         assert sorted(handle) == [(0, "self_attn", "q_proj"), (0, "self_attn", "v_proj"),
                                   (1, "self_attn", "q_proj"), (1, "self_attn", "v_proj"),
                                   (2, "self_attn", "q_proj"), (3, "self_attn", "q_proj")]
-        # W += scale * (B @ A) = 2 * 2 = 4 everywhere on a fused module
         assert float(lm.model.layers[3].self_attn.q_proj.weight[0, 0]) == 4.0
         lora.restore(lm, handle)
         assert float(lm.model.layers[3].self_attn.q_proj.weight[0, 0]) == 0.0

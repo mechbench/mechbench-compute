@@ -70,18 +70,11 @@ to exactly that depth.
 
 
 def run(ctx, inputs, params):
-    """text/tokenize — the bound model's tokenizer over items, a
-    vocabulary or records: depth inventory, fragmentation, scripts,
-    the naturalism gate."""
-
     model = ctx.model(params.get("model"))
     return measure_model_tokenizer(model, inputs, params)
 
 
 def _read_strings(inputs: Mapping[str, Any]) -> list[str]:
-    """The strings to measure, from the `vocabulary` port — a word list
-    (`words`), a frequency table or training target (`weights` keys),
-    or a bare list of strings — else each record's text on `records`."""
     items = None
     obj = inputs.get("vocabulary")
     if isinstance(obj, Mapping):
@@ -131,13 +124,9 @@ def _classify_char(ch: str) -> str:
 
 def measure_tokenizer(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
                       params: Mapping[str, Any]) -> dict[str, Any]:
-    """The measurement, over a tokenizer object; the block wrapper in
-    protocol.py supplies the bound model's tokenizer."""
     items = _read_strings(inputs)
     prefix = str(params.get("prefix", "") or "")
     prefix_ids = encode(tokenizer, prefix) if prefix else []
-    # A string param reads "" (or "none") as no gate, and a numeric
-    # string as the expected depth.
     expect = params.get("expect_depth")
     if isinstance(expect, str):
         expect = None if expect.strip().lower() in ("", "none") else expect
@@ -151,9 +140,6 @@ def measure_tokenizer(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
             try:
                 seq = suffix_tokens(tokenizer, prefix, prefix_ids, it)
             except ValueError:
-                # The item changed the prefix's own tokenization: the
-                # envelope boundary is unstable for it. Count it, and
-                # measure it raw so the histogram still has a row.
                 boundary_failures.append(it)
                 seq = encode(tokenizer, it)
         else:
@@ -203,7 +189,6 @@ def measure_tokenizer(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
         "mean_tokens_per_word": round(sum(tpw) / len(tpw), 4) if tpw else None,
         "fragmented_fraction": round(
             sum(1 for p in per if p["words"] and p["depth"] > p["words"]) / n, 4),
-        # The trie inventory, as rows a table renderer draws.
         "rows": [{"depth": d, "count": c, "share": round(c / n, 4)}
                  for d, c in sorted(hist.items())],
         "script_composition": {k: round(v / total_chars, 4)
@@ -223,8 +208,6 @@ def measure_tokenizer(tokenizer, tokenizer_id: str, inputs: Mapping[str, Any],
 
 
 def measure_model_tokenizer(model, inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """The executor's entry: the bound model's tokenizer, named by the
-    binding so the record says which vocabulary it measured."""
     tid = (getattr(model, "model_id", None) or getattr(model, "id", None)
            or str(params.get("model") or ""))
     return measure_tokenizer(model.tokenizer, str(tid), inputs, params)

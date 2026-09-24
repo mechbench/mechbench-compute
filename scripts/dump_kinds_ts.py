@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Write the kind alias table for a TypeScript consumer.
-
-The lexicon (`mechbench_compute/lexicon/kinds.py`) is the one declaration
-of every kind and of every retired spelling. The UI reads stored objects
-written across releases, so it needs the same table; this script writes
-it as a TypeScript module the UI commits verbatim.
-
-Usage:
-    python scripts/dump_kinds_ts.py > ../mechbench-models/src/kinds.generated.ts
-"""
 
 from __future__ import annotations
 

@@ -88,8 +88,6 @@ def _measure_adapter(adapter: Any, params: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def read_adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str], dict[str, np.ndarray]]:
-    """`{(layer, container, projection): {"a": A, "b": B}}` from an
-    adapter object's safetensors bytes."""
     import mlx.core as mx
 
     from mechbench_compute.lora import KEY_RE, load_adapter
@@ -100,7 +98,6 @@ def read_adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str],
             "this adapter object carries no `data`: an adapter is read from "
             "its safetensors bytes, and this one has none")
     if isinstance(data, str):
-        # A JSON round-trip base64s the bytes; CBOR keeps them binary.
         import base64
 
         data = base64.b64decode(data)
@@ -110,15 +107,13 @@ def read_adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str],
     try:
         with open(path, "wb") as f:
             f.write(data)
-        # Converted INSIDE the try: `mx.load` is lazy and its arrays are
-        # backed by the file, so touching one after the unlink aborts the
-        # process rather than raising.
         for key, w in load_adapter(path).items():
             m = KEY_RE.match(key)
             if m is None:
                 raise ValueError(f"unrecognized adapter key {key!r}")
             i, container, proj, ab = (int(m.group(1)), m.group(2),
                                       m.group(3), m.group(4))
+            # external: MLX — mx.load is lazy and file-backed; reading an array after the unlink aborts the process
             pairs.setdefault((i, container, proj), {})[ab] = np.array(
                 w.astype(mx.float32), dtype=np.float64)
     finally:
@@ -134,10 +129,8 @@ def read_adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str],
 
 def compute_delta_spectrum(a: np.ndarray, b: np.ndarray,
                            scale: float) -> tuple[np.ndarray, np.ndarray]:
-    """`(singular values, left singular vectors)` of `scale · B · A`,
-    exactly, without forming it. See the module docstring."""
-    qb, rb = np.linalg.qr(b)            # (out, r), (r, r)
-    _qa, ra = np.linalg.qr(a.T)         # (in, r), (r, r)
+    qb, rb = np.linalg.qr(b)
+    _qa, ra = np.linalg.qr(a.T)
     u, s, _vt = np.linalg.svd(rb @ ra.T)
     return np.abs(float(scale)) * s, qb @ u
 
@@ -155,12 +148,6 @@ def _is_wanted(layer: int, container: str, proj: str, *,
 
 def measure_adapter(payload: Mapping[str, Any],
                     params: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """`adapter/measure`: one `adapter/delta` item per (layer, module).
-
-    Pure: the adapter's own bytes and nothing else. The header carries
-    what the adapter says about itself, so a reader of the result knows
-    which training wrote these numbers.
-    """
     params = dict(params or {})
     cfg = dict(payload.get("lora") or {})
     rank = int(cfg.get("rank", 8))
@@ -186,16 +173,11 @@ def measure_adapter(payload: Mapping[str, Any],
         ab = chosen[key]
         sv, u = compute_delta_spectrum(ab["a"], ab["b"], scale)
         measured.append((key, sv, u))
-    # The share is of what was MEASURED, and the header says so — a node
-    # that read three layers must not imply those are the whole adapter.
     energy = np.array([float((sv ** 2).sum()) for _k, sv, _u in measured])
     total = float(energy.sum())
 
     items: list[dict[str, Any]] = []
     for ((layer, container, proj), sv, u), e in zip(measured, energy):
-        # The module is the one in the model's own tree, layer included:
-        # two layers' `q_proj` are two modules, and a comparison groups
-        # on THIS, not on the projection they share.
         module = f"layers.{layer}.{container}.{proj}"
         coords: dict[str, Any] = {"layer": int(layer), "module": module,
                                   "projection": proj, "container": container}
@@ -214,10 +196,6 @@ def measure_adapter(payload: Mapping[str, Any],
             "shape": [int(u.shape[0]), int(pairs[(layer, container, proj)]["a"].shape[1])],
         }
         if want_vectors and item["frobenius"] > 0:
-            # A module training never wrote to has no principal
-            # direction, and a zero vector is not one: it is left off,
-            # and a comparison that needs it refuses by name rather than
-            # returning the cosine of nothing.
             direction = u[:, 0]
             direction = direction / float(np.linalg.norm(direction))
             item["vector"] = [float(x) for x in direction]

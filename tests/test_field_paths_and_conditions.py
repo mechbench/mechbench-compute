@@ -1,8 +1,3 @@
-"""Fields read by dot path, conditions in the API's item-query grammar, a
-field subtracted from another of the same record, and the words a corpus
-uses counted by how many texts use them: what an analysis over stored
-generation results reads, without a script that unwraps it first."""
-
 from __future__ import annotations
 
 import pytest
@@ -21,8 +16,6 @@ from mechbench_compute.ops.text.measure import measure_texts
 
 
 def _reply(i: int, prompt: str, output: int, reasoning: int | None, stop: str | None = None) -> dict:
-    """A provider reply shaped as a stored `text/generate` item: the prompt
-    only in `metadata.coords`, the counts nested in `metadata.call`."""
     usage = {"input_tokens": 22, "output_tokens": output}
     if reasoning is not None:
         usage["reasoning_tokens"] = reasoning
@@ -78,7 +71,6 @@ class TestWhere:
     def test_a_missing_path_is_null(self):
         assert self._keep("metadata.call.usage.reasoning_tokens=null") == ["flash-s0", "neutral-s3"]
         assert self._keep("metadata.call.usage.reasoning_tokens!=null") == ["flash-s1", "flash-s2", "neutral-s4"]
-        # Ordering never holds against null: no count is not a count of zero.
         assert self._keep("metadata.call.usage.reasoning_tokens>0") == ["flash-s1", "neutral-s4"]
 
     def test_every_condition_must_hold(self):
@@ -273,8 +265,6 @@ def test_measure_reads_the_text_from_the_field_named():
 
 
 def test_a_condition_value_is_bound_from_a_param_through_the_executor(monkeypatch):
-    """The allowance a truncation check compares against is a param of the
-    protocol, read by a condition's value."""
     import hashlib
 
     from mechbench_schema import dump_canonical

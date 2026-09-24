@@ -51,8 +51,6 @@ def run(ctx, inputs, params):
 
 def orthogonalize(d: Mapping[str, Any],
                   against: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Remove from `d` its components along each of `against`
-    (Gram–Schmidt against an orthonormalized basis of them)."""
     v = coerce_array(d)
     basis: list[np.ndarray] = []
     for a in against:
@@ -68,4 +66,3 @@ def orthogonalize(d: Mapping[str, Any],
     if float(np.linalg.norm(v)) < 1e-8:
         raise ValueError("direction lies entirely in the span of `against`")
     return make(v, read_space(d), method="orthogonalize", extra={"against": len(basis)})
-

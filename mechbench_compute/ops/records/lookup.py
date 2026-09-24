@@ -87,8 +87,6 @@ def run(ctx, inputs, params):
 
 
 def lookup(records: Any, header: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    """`records/lookup`: each record's `field` read through the list or
-    map at `in` in `header`, written as the coordinate `as`."""
     field = str(params["field"])
     path = str(params["in"])
     by = str(params.get("by", "index"))
@@ -125,7 +123,6 @@ def lookup(records: Any, header: Any, params: Mapping[str, Any]) -> dict[str, An
 
 
 def _read_header_path(header: Any, path: str) -> list[Any] | Mapping[str, Any]:
-    """The list or map at `path` in a result's header."""
     if not isinstance(header, Mapping):
         raise ValueError(
             "records/lookup reads a header, and its input is a bare list; "
@@ -142,7 +139,6 @@ def _read_header_path(header: Any, path: str) -> list[Any] | Mapping[str, Any]:
 
 
 def _read_entry(table: list[Any] | Mapping[str, Any], value: Any) -> tuple[bool, Any]:
-    """(found, element): a list read at an integer place, a map at a key."""
     if isinstance(table, Mapping):
         key = value if isinstance(value, str) else None if value is None else str(value)
         return (key in table, table.get(key)) if key is not None else (False, None)

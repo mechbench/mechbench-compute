@@ -69,9 +69,6 @@ def run(ctx, inputs, params):
 
 def tabulate_records(records: Any,
                      params: Mapping[str, Any]) -> dict[str, Any]:
-    """Present a record stream as a metric table: coords flatten into
-    leading columns, remaining scalar fields follow. The generic
-    records -> table presenter (delta tables, group stats, ...)."""
     recs = sort_records(read_items(records), params)
     coord_keys: list[str] = []
     value_keys: list[str] = []
@@ -104,8 +101,6 @@ def tabulate_records(records: Any,
 
 
 def sort_records(recs: list[Any], params: Mapping[str, Any]) -> list[Any]:
-    """The records ordered by `by` and `order`, stably; as they came when
-    `by` is not given."""
     by = params.get("by")
     fields = [by] if isinstance(by, str) else list(by or [])
     order = params.get("order") or {}
@@ -116,7 +111,6 @@ def sort_records(recs: list[Any], params: Mapping[str, Any]) -> list[Any]:
         raise ValueError(f"records/tabulate order names {unknown}, which `by` does not")
     descending = bool(params.get("descending", False))
     recs = list(recs)
-    # A stable sort by the last field first leaves the first field deciding.
     for field in reversed(fields):
         listed = order.get(field)
         if listed is not None:
@@ -128,14 +122,11 @@ def sort_records(recs: list[Any], params: Mapping[str, Any]) -> list[Any]:
 
 
 def _read_place_key(value: Any) -> str:
-    """A value as `order` lists it, compared by its JSON so that `1` and
-    `1.0` meet and `true` stays apart from `1`."""
     return json.dumps(float(value) if isinstance(value, int) and not isinstance(value, bool)
                       else value, sort_keys=True)
 
 
 def _sort_naturally(recs: list[Any], field: str, descending: bool) -> list[Any]:
-    """By the field's value, rows without it last whichever the direction."""
     present = [r for r in recs if read_field(r, field) is not None]
     missing = [r for r in recs if read_field(r, field) is None]
     kinds = {"number" if isinstance(v, (int, float)) and not isinstance(v, bool)

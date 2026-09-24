@@ -1,19 +1,3 @@
-"""A generated item records its model as the WIRE FORM, never the
-resolved object.
-
-The resolved ModelRef carries `adapter_payloads` — the fetched
-adapter's safetensors bytes. Writing the object itself into
-`metadata.model`, `generation_spans[0].model` or `trace.tokenizer` puts
-the whole adapter in every item: tens of megabytes per story against the
-kilobytes a base-model story weighs, and a result the API cannot receive
-without being OOM-killed.
-
-Two things are pinned here, and the second is the one that will catch a
-regression in a different block: the recorded model is the wire form,
-and the item is canonical-CBOR-encodable at a size that has nothing to
-do with the adapter.
-"""
-
 from __future__ import annotations
 
 import mechbench_schema as ms
@@ -26,8 +10,6 @@ from tests.test_resume import _Calls, _fake_generate_substrate
 
 BASE = "fake/base@rev"
 LABEL = "someone/proj/adapters/big"
-#: Comfortably larger than any sane item, so a leak is unmistakable and
-#: the size bound below cannot pass by accident.
 ADAPTER_BYTES = b"\x00" * 300_000
 
 
@@ -58,9 +40,6 @@ def adapted_run(monkeypatch):
     calls = _Calls()
     _fake_generate_substrate(monkeypatch, calls)
     ref = _resolved_ref()
-    # The executor resolves the param through model_ref.resolve, which
-    # fetches the adapter from the bench; stand that in with the resolved
-    # object so the test sees exactly what a real run's params hold.
     monkeypatch.setattr(model_ref_mod, "resolve", lambda mval, **kw: ref)
     monkeypatch.setattr(ProtocolExecutor, "_record_model",
                         lambda self, *a, **k: None, raising=False)
@@ -68,8 +47,6 @@ def adapted_run(monkeypatch):
 
 
 def _collection(out):
-    """`run()` returns an Emitted envelope whose payload keys each
-    TERMINAL node's result under `outputs`; `gen` is the only node."""
     payload = out.payload if hasattr(out, "payload") else out
     return payload["outputs"]["gen"]
 
@@ -98,8 +75,6 @@ class TestTheRecordedModel:
             assert it["trace"]["tokenizer"] == BASE
 
     def test_a_base_model_string_still_passes_through(self, monkeypatch):
-        """The base arm never had the bug; make sure the fix does not
-        change what it records."""
         calls = _Calls()
         _fake_generate_substrate(monkeypatch, calls)
         graph = {"dataflow": 2, "nodes": [{
@@ -116,13 +91,10 @@ class TestTheRecordedModel:
 
 
 class TestTheItemIsSmallAndEncodable:
-    """The invariant that outlives this particular field: a result item
-    must canonical-encode, and its size must not depend on the adapter."""
-
     @pytest.mark.parametrize("fidelity", ["text", "trace"])
     def test_canonical_cbor_encodes_and_is_tiny(self, adapted_run, fidelity):
         for it in _items(fidelity, adapted_run):
-            encoded = ms.dump_canonical(it)  # raised on the ModelRef before
+            encoded = ms.dump_canonical(it)
             assert len(encoded) < 4_096, (
                 f"{len(encoded):,} bytes for one item — something is "
                 f"embedding the adapter ({len(ADAPTER_BYTES):,} bytes)")

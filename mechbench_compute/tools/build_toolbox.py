@@ -4,8 +4,6 @@ from typing import Any
 
 from mechbench_compute.tools.toolbox import Toolbox
 
-#: Ready-made definitions for the first tools, so a protocol can offer
-#: them by name instead of restating a schema.
 BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
     "calc": {
         "name": "calc",
@@ -28,9 +26,6 @@ BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
 
 
 def build_toolbox(value: Any, *, block_runner=None, session=None) -> Toolbox:
-    """A toolbox from a params list: tool objects, or the NAME of a
-    built-in ("calc"), so the common case is one word. `session` binds
-    a sandbox session for any `{"sandbox": …}` handlers."""
     tools: list[Any] = []
     for entry in value or ():
         if isinstance(entry, str):

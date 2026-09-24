@@ -12,10 +12,6 @@ from mechbench_compute.trajectory.read_trajectory import read_trajectory
 
 
 def project(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """trajectory/project — every row's scalar coordinate
-    along a direction. The direction's layer is recorded, not enforced:
-    projecting a layers-axis trajectory onto a single-layer direction is
-    the funnel read against one axis, which is a legitimate question."""
     from mechbench_compute import directions as dirs
 
     traj = read_trajectory(inputs.get("trajectory"))

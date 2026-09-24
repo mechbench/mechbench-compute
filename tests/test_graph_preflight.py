@@ -1,13 +1,3 @@
-"""A graph that cannot run says so before it runs anything.
-
-Resolving blocks node by node, in execution order, means a protocol
-whose last node is misspelled computes everything upstream of it first —
-hours of work to arrive at a refusal that was decidable at load. So
-every node's operation is checked once, up front, and every bad one is
-reported: a protocol carried forward from retired spellings usually has
-more than one.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -18,8 +8,6 @@ CROSS = {"factors": [{"name": "x", "levels": [{"key": "a"}, {"key": "b"}]}]}
 
 
 def _spec(*blocks: str):
-    """A chain of `records/*` nodes, the first a factor cross, wired in
-    order — so anything that DOES run leaves a trace in `results`."""
     nodes, edges = [], []
     for i, block in enumerate(blocks):
         nodes.append({"id": f"n{i}", "block": block,
@@ -50,10 +38,10 @@ class TestPreflight:
         with pytest.raises(ValueError) as e:
             ProtocolExecutor().run(_spec("records/cross", "records/stats"))
         msg = str(e.value)
-        assert "n1" in msg                       # which node
-        assert "records/stats" in msg            # what it said
-        assert "records/summarize" in msg        # what to write
-        assert "0.82.0" in msg                   # and when it stopped working
+        assert "n1" in msg
+        assert "records/stats" in msg
+        assert "records/summarize" in msg
+        assert "0.82.0" in msg
 
     def test_every_bad_node_is_reported_not_just_the_first(self):
         with pytest.raises(ValueError) as e:
@@ -75,13 +63,7 @@ class TestPreflight:
 
 
 class TestParamsAndPorts:
-    """A param no block accepts, an edge onto a port that does not
-    exist, and a required port with nothing on it are all decidable at
-    load: params are static and the wiring is the graph."""
-
     def test_the_failure_that_motivated_this(self, monkeypatch):
-        # The 014 trace: an August graph whose LAST node passed
-        # `template` to a block that lost the param. It ran for a day.
         ran = []
         from mechbench_compute.ops.records import cross
 
@@ -115,8 +97,8 @@ class TestParamsAndPorts:
             ProtocolExecutor().run(spec)
         msg = str(e.value)
         assert "2 problems" in msg
-        assert "records/summarize" in msg      # the unresolvable block
-        assert "facters" in msg                 # the misspelled param
+        assert "records/summarize" in msg
+        assert "facters" in msg
 
     def test_an_edge_onto_a_port_that_does_not_exist(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
@@ -138,8 +120,6 @@ class TestParamsAndPorts:
             ProtocolExecutor().run(spec)
 
     def test_an_optional_port_left_empty_is_fine(self):
-        # `records/select` takes one port; `text/measure`'s second is
-        # optional, and a graph that leaves it alone is runnable.
         out = ProtocolExecutor().run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None, extra={
                 "graph": {"dataflow": 2, "nodes": [
@@ -152,8 +132,6 @@ class TestParamsAndPorts:
         assert out.payload["nodes_executed"] == ["design", "pick"]
 
     def test_a_wildcard_op_with_no_edges_says_so(self):
-        # `records/union` names its ports freely; what it needs is that
-        # there be some.
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
             "graph": {"dataflow": 2, "nodes": [
                 {"id": "merged", "block": "records/union", "params": {}},

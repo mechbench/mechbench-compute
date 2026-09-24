@@ -1,17 +1,3 @@
-"""Smoke test for declarative-intervention composition.
-
-Individual interventions are covered by the experiments that use them.
-What only this checks is the composition mechanic: two interventions on
-the same hook point chain in order.
-
-  Composition: Ablate.head + Capture.per_head_out at the same layer
-    -> captured tensor's ablated head slice is all zeros, other heads
-       still carry signal
-
-Run from project root with the venv active:
-    python -m mechbench_compute._smoke_interventions
-"""
-
 from __future__ import annotations
 
 import sys

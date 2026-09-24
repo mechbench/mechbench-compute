@@ -1,23 +1,3 @@
-"""The provider registry and the rate-limit model.
-
-Everything that differs between providers, in one versioned table:
-which adapter speaks to them, where they live, what they can do (the
-capability matrix), what they charge (`pricing.py`), and
-what they will let an account do per minute. `REGISTRY_VERSION` is
-recorded in manifests beside the price-table version, so a run's
-throttling and its bill are both explainable from what it recorded.
-
-The default limits are the published FREE-ish tier floors, deliberately
-conservative: they are a starting point the limiter CORRECTS from the
-provider's own response headers within a few calls. A seeded number
-that is too low costs a little throughput; one that is too high costs
-429s and a jittery run.
-
-Rate limits are currencies, not one number: requests, input tokens,
-output tokens and concurrent calls are metered separately by every
-provider here, and a job can be starved on any one of them.
-"""
-
 from __future__ import annotations
 
 import threading
@@ -34,10 +14,6 @@ REGISTRY_VERSION = "2026-09-23"
 
 @dataclass(frozen=True)
 class Limits:
-    """Per key scope, per minute unless named otherwise. None = unknown
-    (which means unlimited HERE — the provider's own 429 is still the
-    authority, and the limiter learns from it)."""
-
     requests: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -55,11 +31,10 @@ class Limits:
 @dataclass(frozen=True)
 class ProviderSpec:
     name: str
-    adapter: str                     # anthropic | gemini | openai_compatible | mock
+    adapter: str
     base_url: str
     capabilities: Capabilities
     limits: Limits
-    #: Model prefix -> overrides, longest prefix wins.
     models: Mapping[str, Limits] = None  # type: ignore[assignment]
 
     def limits_for(self, model: str) -> Limits:
@@ -115,18 +90,14 @@ def build() -> dict[str, ProviderSpec]:
             name="fireworks", adapter="openai_compatible",
             base_url=HOSTS["fireworks"][0], capabilities=_capabilities("fireworks"),
             limits=Limits(requests=600, concurrency=32)),
+        # external: DeepSeek — publishes a concurrency limit per model and no per-minute quota
         "deepseek": ProviderSpec(
             name="deepseek", adapter="openai_compatible",
             base_url=HOSTS["deepseek"][0], capabilities=_capabilities("deepseek"),
-            # DeepSeek publishes a concurrency limit per model and no
-            # per-minute quota; this seeds well under the smaller one.
             limits=Limits(concurrency=16)),
         "openai-compatible": ProviderSpec(
             name="openai-compatible", adapter="openai_compatible", base_url="",
             capabilities=_capabilities("openai-compatible"),
-            # A server someone runs themselves: no published quota to
-            # seed. Concurrency is the one real constraint, and it is
-            # the machine's, not an account's.
             limits=Limits(concurrency=8)),
         "mock": ProviderSpec(
             name="mock", adapter="mock", base_url="",
@@ -157,19 +128,12 @@ def limits_for(provider: str, model: str = "") -> Limits:
     return spec_for(provider).limits_for(model)
 
 
-# --- the reference limiter --------------------------------------------------------
-
-
 @dataclass
 class Bucket:
     capacity: float
     per_second: float
     tokens: float
     updated: float
-    #: FIFO tickets. Without them, N threads contending for one bucket
-    #: race on every wake and a thread can lose indefinitely, stalling
-    #: a run against a currency that never frees up for it. Queueing is
-    #: what prevents that; head-of-line waiting is its price.
     next_ticket: int = 0
     serving: int = 0
 
@@ -180,10 +144,6 @@ class Bucket:
             self.updated = now
 
     def wait_for(self, amount: float) -> float:
-        """Seconds until `amount` is available (0 when it already is).
-        A request larger than the whole bucket waits for a full bucket
-        and then goes: refusing it forever would be worse than being
-        briefly over."""
         need = min(amount, self.capacity) - self.tokens
         if need <= 0:
             return 0.0
@@ -191,22 +151,6 @@ class Bucket:
 
 
 class TokenBucketLimiter:
-    """An in-process limiter: one bucket per (provider, model, scope,
-    currency), seeded from the registry and corrected by what the
-    provider's headers say.
-
-    Concurrency is a bucket that does not refill — `acquire` takes a
-    slot and `release` gives it back — so the cap holds across the
-    executor's thread pool.
-
-    A 429 is not a throughput problem but a STOP: `penalize` holds the
-    whole scope until the header's reset, and no bucket arithmetic can
-    talk its way past that hold.
-
-    The runner's shared implementation replaces this across jobs and
-    processes; the interface is the same four methods.
-    """
-
     def __init__(self, *, sleep=None, clock=None, limits=None,
                  max_waits: int = 64, slot_timeout: float = 30.0) -> None:
         import time
@@ -217,31 +161,19 @@ class TokenBucketLimiter:
         self._buckets: dict[tuple, Bucket] = {}
         self._holds: dict[tuple, float] = {}
         self._lock = threading.RLock()
-        # Concurrency is a standing count: a slot frees when another
-        # call RELEASES it, not when time passes, so waiting for one is
-        # a condition wait rather than a sleep.
         self._slots = threading.Condition(self._lock)
         self._max_waits = max_waits
         self._slot_timeout = slot_timeout
         self.waited_seconds = 0.0
 
-    # --- Limiter -------------------------------------------------------------
-
     def acquire(self, provider: str, model: str, scope: str, currency: str,
                 amount: float) -> float:
-        """Wait for `amount` of `currency`, IN LINE.
-
-        Every caller takes a ticket and only the head of the line may
-        consume, so a thread cannot be overtaken forever by luckier
-        ones. Head-of-line blocking is the cost: a large request holds
-        up smaller ones behind it, which is the honest ordering.
-        """
         waited = 0.0
         with self._lock:
             now = self._clock()
             bucket = self._bucket(provider, model, scope, currency, now)
             if bucket is None:
-                return waited                  # no known limit: go
+                return waited
             ticket = bucket.next_ticket
             bucket.next_ticket += 1
             try:
@@ -259,8 +191,6 @@ class TokenBucketLimiter:
                             bucket.tokens -= want
                             return waited
                         if bucket.per_second <= 0:
-                            # Standing count (concurrency): a slot frees
-                            # when someone releases, not when time passes.
                             start = self._clock()
                             self._slots.wait(timeout=self._slot_timeout)
                             waited += max(0.0, self._clock() - start)
@@ -268,7 +198,6 @@ class TokenBucketLimiter:
                                 self.waited_seconds + waited, 6)
                             continue
                         delay = bucket.wait_for(want)
-                    # Sleep without giving up our place in line.
                     self._lock.release()
                     try:
                         self._sleep(delay)
@@ -277,7 +206,6 @@ class TokenBucketLimiter:
                     waited += delay
                     self.waited_seconds = round(self.waited_seconds + delay, 6)
             finally:
-                # Whether we took tokens or gave up, the line moves on.
                 bucket.serving = ticket + 1
                 self._slots.notify_all()
         from mechbench_compute.providers.errors import ProviderUnavailable
@@ -290,10 +218,6 @@ class TokenBucketLimiter:
 
     def observe(self, provider: str, model: str, scope: str,
                 limits: RateLimits) -> None:
-        """What the account actually has left. `remaining` corrects the
-        bucket downward (never upward — a stale header must not hand
-        out tokens the account no longer has), and an exhausted
-        currency with a reset becomes a hold until that reset."""
         with self._lock:
             now = self._clock()
             pairs = (
@@ -311,23 +235,10 @@ class TokenBucketLimiter:
                 if bucket is not None:
                     bucket.refill(now)
                     if limit is not None and float(limit) > bucket.capacity:
-                        # The account is BIGGER than the registry's
-                        # conservative seed, and the seed must rise to
-                        # meet it: a seed that can only fall is a
-                        # permanent underestimate, and a run stalls
-                        # against a ceiling the account does not have.
                         bucket.capacity = float(limit)
                         bucket.per_second = float(limit) / 60.0
                         bucket.tokens = max(bucket.tokens, 0.0)
                     if remaining is not None:
-                        # The PROVIDER is the authority on its own
-                        # quota, so its number wins over our local
-                        # simulation — clamped to capacity, and never
-                        # over a hold (a 429 outranks everything).
-                        # Correcting downward only would bound a stale
-                        # header's over-credit to one window, at the
-                        # price of making a low seed permanent; a
-                        # bounded over-credit is the cheaper mistake.
                         bucket.tokens = max(0.0, min(float(remaining),
                                                      bucket.capacity))
                 if remaining is not None and remaining <= 0 and reset:
@@ -339,14 +250,10 @@ class TokenBucketLimiter:
                  retry_after: float) -> None:
         with self._lock:
             now = self._clock()
-            # A 429 without a reset header still means stop; one second
-            # is the smallest honest pause.
             self._hold(provider, scope, now + max(float(retry_after or 0.0), 1.0))
 
     def release(self, provider: str, model: str, scope: str, currency: str,
                 amount: float) -> None:
-        """Give back a concurrency slot, or the output tokens a call
-        reserved and did not use."""
         with self._lock:
             key = (provider, self._model_key(provider, model), scope, currency)
             bucket = self._buckets.get(key)
@@ -354,17 +261,12 @@ class TokenBucketLimiter:
                 bucket.tokens = min(bucket.capacity, bucket.tokens + float(amount))
                 self._slots.notify_all()
 
-    # --- internals ------------------------------------------------------------
-
     def _hold(self, provider: str, scope: str, until: float) -> None:
         key = (provider, scope)
         self._holds[key] = max(self._holds.get(key, 0.0), until)
 
     @staticmethod
     def _model_key(provider: str, model: str) -> str:
-        # Limits are per model family, and the registry keys them by
-        # prefix; the bucket key uses the model string as given, which
-        # is the finest grain a provider ever meters at.
         return model or "*"
 
     def _bucket(self, provider: str, model: str, scope: str, currency: str,
@@ -376,7 +278,6 @@ class TokenBucketLimiter:
         limit = self._limits_for(provider, model).for_currency(currency)
         if limit is None:
             return None
-        # Concurrency is a standing count, not a per-minute flow.
         per_second = 0.0 if currency == "concurrency" else float(limit) / 60.0
         bucket = Bucket(capacity=float(limit), per_second=per_second,
                         tokens=float(limit), updated=now)

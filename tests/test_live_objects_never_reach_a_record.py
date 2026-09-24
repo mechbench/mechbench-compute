@@ -1,15 +1,3 @@
-"""Three guards against a live object leaking into a record, and against
-the leak being hidden.
-
-The generate block embedded a resolved ModelRef — adapter bytes included
-— in every item, and it went unnoticed for weeks because three places
-each hid it: the node fingerprint fell back to `repr()` when canonical
-encoding raised; the executor emitted a result before hashing it, so the
-un-encodable result surfaced as a network error; and the runner's spool
-suppressed the encode error per item. These tests pin the first two
-(the third lives in mechbench-runner).
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -44,9 +32,6 @@ class TestTheFingerprintIsOverWireForms:
         assert live == wire
 
     def test_the_adapter_bytes_do_not_influence_the_fingerprint(self):
-        """Two refs to the same declared adapter fingerprint alike even
-        if their fetched payloads differ — the fingerprint is over what
-        the run DECLARED, the payload's own hash lives with the fetch."""
         a = _resolved()
         b = model_ref_mod.ModelRef(
             base_kind="hf", base=BASE, adapter_labels=(LABEL,),
@@ -56,7 +41,7 @@ class TestTheFingerprintIsOverWireForms:
         assert fp(a) == fp(b)
 
     def test_an_unserializable_param_raises_and_names_itself(self):
-        class Live:  # not a dataclass, no to_wire: nothing can encode it
+        class Live:
             pass
 
         with pytest.raises(TypeError) as caught:
@@ -68,9 +53,6 @@ class TestTheFingerprintIsOverWireForms:
 
 
 class TestTheExecutorHashesBeforeItEmits:
-    """A result that cannot be canonical-encoded must fail HERE, by
-    name, before any bytes go anywhere — never as a transport error."""
-
     def test_a_live_object_in_a_result_never_reaches_emit(self, monkeypatch):
         from mechbench_compute import bench, protocol
 
@@ -80,7 +62,6 @@ class TestTheExecutorHashesBeforeItEmits:
         class Live:
             pass
 
-        # Make the block return something un-encodable.
         from mechbench_compute.ops.text import generate
 
         real = generate.run

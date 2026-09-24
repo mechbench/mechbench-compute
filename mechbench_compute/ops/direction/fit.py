@@ -76,9 +76,6 @@ def run(ctx, inputs, params):
 def fit_mean_difference(vectors: Mapping[str, Any], *, layer: int, positive: str,
                         negative: str, axis: str = DEFAULT_AXIS, point: str | None = None,
                         source: str | None = None) -> dict[str, Any]:
-    """Difference of means: centroid(`positive`) − centroid(`negative`)
-    at `layer`, the groups being the items' values on the `axis`
-    coordinate."""
     rows = select_layer_items(vectors, layer)
     pos = np.array([r["vector"] for r in rows if str(S.label_of(r, axis)) == str(positive)],
                    dtype=np.float32)
@@ -92,4 +89,3 @@ def fit_mean_difference(vectors: Mapping[str, Any], *, layer: int, positive: str
                 labels={"axis": axis, "positive": positive, "negative": negative},
                 extra={"n_positive": len(pos), "n_negative": len(neg),
                        **build_model_provenance(vectors, rows)})
-

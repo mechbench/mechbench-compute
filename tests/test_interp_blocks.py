@@ -1,12 +1,3 @@
-"""The interp primitives (mechbench-experiments port), on a stub model.
-
-The stub's residuals are ONE-HOT in the token id (scaled by layer+1),
-so every geometric assertion is exact: identical tokens → cosine 1,
-different tokens → cosine 0. Ablation is simulated by damping the
-favored token's logit by (layer+1), so deltas are computable in the
-test with the same softmax arithmetic.
-"""
-
 from __future__ import annotations
 
 import math
@@ -33,7 +24,7 @@ from mechbench_compute.ops.logits.scan import scan_positions
 N_LAYERS = 4
 D_MODEL = 8
 VOCAB = 12
-FAV = 7  # the token the stub's baseline favors
+FAV = 7
 
 
 class StubArch:
@@ -43,10 +34,6 @@ class StubArch:
 
 
 class StubTokenizer:
-    """Word-per-token: each word maps to id 1 + (len(word) % 7), after a
-    BOS of 0. The chat template is the identity, so a condition and a
-    raw record tokenize alike and the arithmetic below holds for both."""
-
     all_special_ids = (0,)
 
     def encode(self, text, add_special_tokens=True):
@@ -60,15 +47,11 @@ class StubTokenizer:
 
 
 class StubModel:
-    """Word-per-token: each word maps to id 1 + (len(word) % 7)."""
-
     arch = StubArch()
     tokenizer = StubTokenizer()
 
     def __init__(self):
         self.runs = 0
-        #: When set, a patch at position 1 answers as if the second
-        #: token were this id — the stub's model of causal tracing.
         self.clean_second: int | None = None
 
     def tokenize(self, prompt: str, chat_template: bool = True):
@@ -79,8 +62,6 @@ class StubModel:
         self.runs += 1
         arr = np.array(ids)[0]
         seq = len(arr)
-        # ablation penalty: sum of (layer+1) across ablated layers,
-        # detected from the intervention objects' own fields
         penalty = 0.0
         patched_positions = []
         for iv in interventions or []:
@@ -156,7 +137,6 @@ class TestAblateLayers:
         for layer in range(N_LAYERS):
             assert deltas[layer] == pytest.approx(
                 _expected_delta(layer), abs=1e-3)
-        # deeper stub layers are damped harder — the sweep must say so
         assert deltas[3] < deltas[0] < 0
 
     def test_progress_covers_every_forward(self):
@@ -166,7 +146,7 @@ class TestAblateLayers:
             model, [{"id": "a", "user": "x y"}, {"id": "b", "user": "p q"}],
             {"layers": [1, 2]},
             on_item=lambda: ticks.append(1), on_start=lambda n: ticks.append(n))
-        assert ticks[0] == 2 * 3  # (baseline + 2 layers) per condition
+        assert ticks[0] == 2 * 3
         assert sum(t for t in ticks[1:]) == 6
         assert model.runs == 6
 
@@ -199,9 +179,6 @@ class TestAblateLayers:
         assert out["points"] == ["attn_out", "mlp_out"]
 
     def test_a_sweep_at_a_prefilled_decision_point_reads_where_a_decision_read_does(self):
-        """One rendering, two ops, one number: the sweep's baseline log-prob
-        for a prefilled condition is the last-position log-prob of the same
-        rendering — what `logits/read` reports for that condition."""
         from mechbench_compute.distill import render
         from mechbench_compute.interp import read_last_logp
 
@@ -218,14 +195,6 @@ class TestAblateLayers:
 
 
 class TestRenderingIsOnTheResult:
-    """A result says how its prompts reached the model.
-
-    A record with only `text` renders RAW, with no chat template, and
-    an instruct model completing raw text answers with function words.
-    The only trace of that in the numbers is a target token reading
-    " the", so the condition says `template: "raw"` in as many words.
-    """
-
     def test_ablation_records_raw_and_chat(self):
         model = StubModel()
         out = ablate_layers(
@@ -245,20 +214,14 @@ class TestRenderingIsOnTheResult:
 
 
 class TestOwnTop1BesideATarget:
-    """A tracked target that is not the model's answer is reported
-    beside the model's answer."""
-
     def test_a_target_the_model_would_not_say_is_flagged(self):
         model = StubModel()
-        # The stub's top-1 for "aa bbb" is id 3; track "q" (id 2) instead.
         out = ablate_layers(
             model, [{"id": "c", "user": "aa bbb", "tracked": {"x": "q"}}],
             {"layers": [0]})
         c = out["conditions"][0]
         assert "own_top1" in c and c["own_top1"]["id"] != c["target"]["id"]
         assert "logp" in c["own_top1"]
-        # …and the header counts them, so a sweep over the wrong spelling
-        # announces itself at the top.
         assert out["n_off_top1"] == 1
 
     def test_the_models_own_answer_is_not_flagged_against_itself(self):
@@ -275,10 +238,8 @@ class TestResidualVectors:
             model, [{"id": "c", "user": "aa bbb", "label": "en"}],
             {"layers": [1], "position": "final"})
         row = out["items"][0]
-        # A top-level `label` field becomes the `label` coordinate.
         assert row["coords"] == {"label": "en"} and "label" not in row
         assert row["space"] == {"model": None, "layer": 1, "point": "resid_post", "head": None, "d": D_MODEL}
-        # final token of "aa bbb" is id 1+(3%7)=4; layer 1 scale = 2
         assert row["token"] == {"id": 4, "text": "t4"}
         v = np.array(row["vector"])
         assert v[4] == pytest.approx(2.0)
@@ -286,7 +247,6 @@ class TestResidualVectors:
         assert row["norm"] == pytest.approx(2.0)
 
     def test_every_item_carries_the_records_coords(self):
-        # A grouping is a coordinate; the grouping ops name it by `axis`.
         model = StubModel()
         out = capture_residual_vectors(
             model, [{"id": "c", "user": "a", "coords": {"language": "fr"}}],
@@ -301,15 +261,12 @@ class TestResidualVectors:
 
 
 class TestCaptureTokens:
-    """One vector per token, each carrying its own surprisal."""
-
     def test_a_row_per_position_per_layer(self):
         model = StubModel()
         out = capture_tokens(
             model, [{"id": "c", "user": "aa bbb"}],
             {"layers": [0, 1], "positions": "all"})
         items = out["items"]
-        # "aa bbb" renders to 3 tokens (a leading 0), × 2 layers.
         assert len(items) == 6
         assert sorted({i["coords"]["position"] for i in items}) == [0, 1, 2]
         assert sorted({i["space"]["layer"] for i in items}) == [0, 1]
@@ -319,8 +276,6 @@ class TestCaptureTokens:
         out = capture_tokens(
             model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
         by_pos = {i["coords"]["position"]: i["coords"] for i in out["items"]}
-        # A join by (record, position) afterwards is where an off-by-one
-        # would creep in; the coordinate is carried, not matched later.
         assert "surprisal" not in by_pos[0]
         assert isinstance(by_pos[1]["surprisal"], float)
 
@@ -342,9 +297,6 @@ class TestCaptureTokens:
                                   {"layers": "all", "storage": "json"})
 
     def test_above_the_ceiling_auto_writes_shards(self, monkeypatch):
-        # The rows go to shards beside the object: the result
-        # is the header, its items empty, and read back through
-        # items_of they are the same rows the json form would carry.
         from mechbench_compute import tensors
         from mechbench_compute.lexicon import kinds as K
 
@@ -363,21 +315,12 @@ class TestCaptureTokens:
             assert np.allclose(a["vector"], b["vector"])
 
     def test_one_forward_pass_per_record(self):
-        # The logits come from the capture's own run. A second pass would
-        # be slower and could disagree with the vectors it labels.
         model = StubModel()
         capture_tokens(model, [{"id": "c", "user": "aa bbb"}], {"layers": [0]})
         assert model.runs == 1
 
 
 class TestPooledPositions:
-    """Pooling over the sequence.
-
-    The stub puts `layer + 1` at dimension `token_id % D_MODEL` for
-    each position, so "aa bbb" at layer 1 is three one-hot rows of 2.0
-    at dims 0, 3 and 4 — which makes every pooled value checkable by
-    hand rather than by re-running the implementation."""
-
     RECORD = {"id": "c", "user": "aa bbb", "label": "en"}
 
     def _vec(self, **params):
@@ -400,8 +343,6 @@ class TestPooledPositions:
         assert out["items"][0]["n_pooled"] == 2
 
     def test_pooling_the_last_position_reproduces_the_single_read(self):
-        # The compatibility anchor: pooling one position must equal the
-        # unpooled read, or the two paths have drifted apart.
         _, pooled = self._vec(pool={"reduce": "mean", "over": {"range": [-1, None]}})
         _, single = self._vec(position="last")
         assert pooled.tolist() == single.tolist()
@@ -420,8 +361,6 @@ class TestPooledPositions:
         assert out["items"][0]["n_pooled"] == 2
 
     def test_no_pool_is_untouched(self):
-        # Adding the parameter must not change a single number in a
-        # record made without it — published geometry depends on this.
         out, v = self._vec(position="last")
         assert out["position"] == "last"
         assert "pool" not in out
@@ -430,14 +369,11 @@ class TestPooledPositions:
         assert np.count_nonzero(v) == 1
 
     def test_a_window_past_the_end_falls_back_to_the_last_position(self):
-        # Zeros would look like a vector and mean nothing.
         out, v = self._vec(pool={"reduce": "mean", "over": {"after": 99}})
         assert out["items"][0]["n_pooled"] == 1
         assert v[4] == pytest.approx(2.0)
 
     def test_pooling_needs_no_resolvable_position(self):
-        # `subject` would raise without a `subject` field; pooling
-        # never resolves a single position, so it must not.
         out = capture_residual_vectors(
             StubModel(), [{"id": "c", "user": "aa bbb"}],
             {"layers": [1], "position": "subject", "pool": {"reduce": "mean", "over": "all"}})
@@ -469,15 +405,14 @@ class TestResidualDivergence:
 
     def test_a_one_word_swap_diverges_exactly_there(self):
         model = StubModel()
-        # 'over'(4) vs 'under'(5) -> ids differ at position 1 only
         out = measure_residual_divergence(
             model, [{"id": "p", "a": "go over it", "b": "go under it"}],
             {"layers": [0]})
         div = out["items"][0]["measures"]["divergence"][0]
-        assert div[0] == pytest.approx(0.0, abs=1e-4)  # BOS
-        assert div[1] == pytest.approx(0.0, abs=1e-4)  # 'go'
-        assert div[2] == pytest.approx(1.0, abs=1e-4)  # the swapped word
-        assert div[3] == pytest.approx(0.0, abs=1e-4)  # 'it'
+        assert div[0] == pytest.approx(0.0, abs=1e-4)
+        assert div[1] == pytest.approx(0.0, abs=1e-4)
+        assert div[2] == pytest.approx(1.0, abs=1e-4)
+        assert div[3] == pytest.approx(0.0, abs=1e-4)
 
     def test_unequal_lengths_report_instead_of_lying(self):
         model = StubModel()
@@ -489,7 +424,6 @@ class TestResidualDivergence:
 
 class TestVectorSimilarity:
     def _vectors_record(self):
-        # two tight clusters along different axes
         rows = []
         for i, label in enumerate(["cat", "cat", "dog", "dog"]):
             v = [0.0] * 4
@@ -511,7 +445,7 @@ class TestVectorSimilarity:
         assert layer["layer"] == 5 and layer["group"] == "layer=5"
         m = np.array(layer["matrix"])
         assert m.shape == (4, 4)
-        assert m[0, 1] > m[0, 2]  # same-label closer than cross-label
+        assert m[0, 1] > m[0, 2]
         assert layer["separation"]["gap"] > 0
         assert layer["nn_purity"] == pytest.approx(1.0)
 
@@ -539,14 +473,12 @@ class TestGateComponent:
             {"point": "gate_out", "layers": [1]})
         assert out["points"] == ["gate_out"]
         row = next(r for r in out["items"] if r.get("layer") == 1)
-        assert row["delta_logp"] < 0  # the stub penalizes any named zero-hook
+        assert row["delta_logp"] < 0
 
 
 class TestLensPositions:
     def test_the_target_surfaces_where_its_token_sits(self, monkeypatch):
         model = StubModel()
-        # give the stub the unembedding the lens needs: identity over
-        # the one-hot residual dims
         def project(resid):
             arr = np.array(resid.astype(mx.float32))
             out = np.zeros((*arr.shape[:-1], VOCAB), dtype=np.float32)
@@ -560,11 +492,10 @@ class TestLensPositions:
         row = out["items"][0]
         assert out["item_kind"] == "logits/lens"
         assert row["axes"] == ["layer", "position"] and row["target"]["id"] == 4
-        # 'bbb' -> id 4; it sits at position 2 (BOS, aa, bbb, aa)
         ranks = np.array(row["measures"]["rank"])
         lps = np.array(row["measures"]["logprob"])
-        assert ranks[0, 2] == 0  # top readout exactly where the token is
-        assert ranks[0, 1] > 0  # and not where it is not
+        assert ranks[0, 2] == 0
+        assert ranks[0, 1] > 0
         assert lps[0, 2] > lps[0, 1]
 
 
@@ -579,7 +510,7 @@ class TestPatchTrace:
         pair = out["items"][0]
         assert pair["metric"] == "logprob"
         rec = np.array(pair["measures"]["recovery"])
-        assert rec[0, 1] > 1.0  # log-space recovery is loud
+        assert rec[0, 1] > 1.0
         assert abs(rec[0, 0]) < 1e-3
 
     def test_unknown_metric_refuses(self):
@@ -590,19 +521,15 @@ class TestPatchTrace:
 
     def test_recovery_lands_exactly_on_the_differing_position(self):
         model = StubModel()
-        # prompts whose difference sits exactly at position 1 (after
-        # BOS), where the stub's flip logic looks
         clean, corrupt = "over the hill", "under the hill"
         model.clean_second = 1 + (len("over") % 7)
         out = patch_trace(
             model, [{"id": "p", "clean": clean, "corrupt": corrupt}],
             {"layers": [0, 1], "metric": "prob"})
         pair = out["items"][0]
-        rec = np.array(pair["measures"]["recovery"])  # [layer][pos]
-        assert rec.shape[1] == 4  # BOS + 3 words
-        # patching the differing position recovers the clean answer fully
+        rec = np.array(pair["measures"]["recovery"])
+        assert rec.shape[1] == 4
         assert rec[0, 1] > 0.5
-        # patching agreeing positions recovers nothing
         assert abs(rec[0, 0]) < 1e-3
         assert abs(rec[0, 3]) < 1e-3
         assert pair["value_a"] > pair["value_b"]
@@ -631,10 +558,10 @@ class TestAttentionPatterns:
         row = out["items"][0]
         assert row["axes"] == ["layer", "head", "query", "key"]
         heads = row["measures"]["weight"][0]
-        assert len(heads) == 2  # stub n_heads
+        assert len(heads) == 2
         m = np.array(heads[0])
         assert m.shape == (4, 4)
-        assert np.allclose(m.sum(axis=1), 1.0, atol=1e-3)  # causal rows sum to 1
+        assert np.allclose(m.sum(axis=1), 1.0, atol=1e-3)
 
     def test_all_layers_refuses_loudly(self):
         with pytest.raises(ValueError, match="explicit layers"):
@@ -654,11 +581,9 @@ class TestAblateHeads:
         out = ablate_heads(
             model, [{"id": "c", "user": "a"}], {"layers": [0, 2]})
         assert out["kind"] == "intervene/heads" and out["axes"] == ["layer", "head"]
-        m = np.array(out["measures"]["mean_delta"])  # [2 layers][2 heads]
+        m = np.array(out["measures"]["mean_delta"])
         assert out["conditions"][0]["target"]["text"] == "t2"
         assert m.shape == (2, 2)
-        # stub penalty = (layer+1) + head/10: deeper layer and higher
-        # head both hurt more
         assert m[1, 0] < m[0, 0] < 0
         assert m[0, 1] < m[0, 0]
         assert out["n_heads"] == 2
@@ -670,17 +595,14 @@ class TestSubjectPosition:
 
         class Tok(StubTokenizer):
             def decode(self, ids):
-                # word-length-keyed vocabulary: id 5 -> 'casa', id 2 -> 'a'
                 names = {5: "casa", 2: "a"}
                 return " ".join(names.get(int(i), f"t{int(i)}") for i in ids)
 
         model.tokenizer = Tok()
-        # prompt 'casa xx a': ids [0, 1+(4%7)=5, 1+(2%7)=3, 1+(1%7)=2]
         out = capture_residual_vectors(
             model, [{"id": "c", "user": "casa xx a", "subject": "casa"}],
             {"layers": [0], "position": "subject"})
         v = np.array(out["items"][0]["vector"])
-        # position of 'casa' (pos 1, token id 5) — not the stray 'a' at pos 3
         assert v[5] == pytest.approx(1.0)
 
 
@@ -701,7 +623,6 @@ class TestLogitAttribution:
             model, [{"id": "c", "user": "a b", "target": "word"}], {})
         assert out["item_kind"] == "logits/attribution"
         row = out["items"][0]
-        # embedding + one component per layer
         assert row["axes"] == ["component"]
         assert len(row["measures"]["contribution"]) == N_LAYERS + 1
         assert out["components"][0] == "embed"
@@ -746,7 +667,7 @@ class TestSteerInject:
         assert out["direction"]["norm"] == pytest.approx(
             float(np.linalg.norm([0, 2, 0, -2] + [0] * (D_MODEL - 4))),
             abs=1e-3)
-        assert seen[0] == []  # alpha 0 runs clean
+        assert seen[0] == []
         add = seen[1][0]
         assert getattr(add, "alpha", None) == 4.0
         assert getattr(add, "layer_idx", None) == 2
@@ -816,7 +737,6 @@ class TestSubjectCase:
 class TestQKSources:
     def test_queries_emit_per_head_rows(self):
         model = StubModel()
-        # give the stub per-head q/k caches: one-hot in head index
         orig = model.run
 
         def with_qk(ids, interventions=None):
@@ -842,7 +762,7 @@ class TestQKSources:
         assert heads == [0, 1]
         assert out["items"][0]["space"]["point"] == "attn.q"
         v0 = np.array(out["items"][0]["vector"])
-        assert v0[0] == pytest.approx(2.0)  # head 0, layer 1 scale
+        assert v0[0] == pytest.approx(2.0)
 
     def test_similarity_groups_by_layer_and_head(self):
         rows = []
@@ -887,14 +807,10 @@ class TestSteerTracks:
         row = out["items"][0]
         assert set(row["tracked"]) == {"city", "money"}
         assert isinstance(row["tracked"]["city"]["logp"], float)
-        assert row["tracked"]["city"]["token"]["text"] == "t5"  # "word" -> 1 + 4 % 7
+        assert row["tracked"]["city"]["token"]["text"] == "t5"
 
 
 class TestEmptyDocuments:
-    """A model can answer with output tokens and no text — an adapter
-    dropping content blocks it does not map. Embedding such a record is
-    impossible, and skipping it must change n visibly."""
-
     def test_a_document_is_embedded_by_its_text(self):
         from mechbench_compute.distill import render
 

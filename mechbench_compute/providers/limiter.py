@@ -1,22 +1,3 @@
-"""Rate limits as a first-class currency.
-
-The transport does not sleep on its own guesses. It asks a `Limiter`
-for permission in a named CURRENCY — requests, input tokens, output
-tokens, concurrent calls — and it REPORTS what the provider said in
-the response headers, so the limiter's model of the account comes from
-the account, not from a config file. On a 429 the wait is the header's
-reset, never a guess.
-
-Waiting is visible: `acquire` returns the seconds it waited and the
-transport reports them as progress detail ("throttled: 12 s"). A job
-that is slow because someone else's quota is full should say so.
-
-`NullLimiter` is the default (single-job laptop runs), and the tests
-use a recording one — the whole interface is four methods so the
-runner's limiter (shared across jobs, persistent across restarts) can
-implement it without importing anything from here.
-"""
-
 from __future__ import annotations
 
 import re
@@ -30,31 +11,26 @@ CURRENCIES = ("requests", "input_tokens", "output_tokens", "concurrency")
 class Limiter(Protocol):
     def acquire(self, provider: str, model: str, scope: str, currency: str,
                 amount: float) -> float:
-        """Block until `amount` of `currency` is available. Returns the
-        seconds waited (0.0 when it was free)."""
+        ...
 
     def observe(self, provider: str, model: str, scope: str,
                 limits: RateLimits) -> None:
-        """What the provider's headers said after a call."""
+        ...
 
     def penalize(self, provider: str, model: str, scope: str,
                  retry_after: float) -> None:
-        """A 429 arrived: hold everything on this scope for this long."""
+        ...
 
     def release(self, provider: str, model: str, scope: str,
                 currency: str, amount: float) -> None:
-        """Give back concurrency (or an unspent token estimate)."""
+        ...
 
 
 @dataclass(frozen=True)
 class RateLimits:
-    """What one response told us about the account's remaining quota.
-    Every field is optional — providers report different subsets, and
-    a missing field means "unknown", never "zero"."""
-
     requests_limit: int | None = None
     requests_remaining: int | None = None
-    requests_reset: float | None = None       # seconds from now
+    requests_reset: float | None = None
     input_tokens_limit: int | None = None
     input_tokens_remaining: int | None = None
     output_tokens_limit: int | None = None
@@ -67,9 +43,6 @@ class RateLimits:
 
     @staticmethod
     def from_headers(headers: Mapping[str, str]) -> RateLimits:
-        """Anthropic (`anthropic-ratelimit-*`), OpenAI-compatible
-        (`x-ratelimit-*`) and plain `retry-after` in one reader: the
-        header names differ, the meaning does not."""
         h = {str(k).lower(): str(v) for k, v in headers.items()}
 
         def _int(*names: str) -> int | None:
@@ -112,9 +85,6 @@ _DUR = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\s*$", re.IGNORECASE)
 
 
 def _duration(value: str) -> float | None:
-    """`"20"` (seconds), `"1.5s"`, `"350ms"`, `"2m"`, or an RFC-3339
-    reset timestamp -> seconds from now. Unparseable -> None, which
-    reads as "unknown" everywhere it lands."""
     m = _DUR.match(value)
     if m:
         n = float(m.group(1))
@@ -123,17 +93,13 @@ def _duration(value: str) -> float | None:
     try:
         from datetime import UTC, datetime
 
-        when = datetime.fromisoformat(value)   # 3.11+ parses a "Z" suffix
+        when = datetime.fromisoformat(value)
         return max(0.0, (when - datetime.now(UTC)).total_seconds())
     except (ValueError, TypeError):
         return None
 
 
 def scope_for(provider: str, credential: Mapping[str, Any] | None) -> str:
-    """The limiter's key scope: WHICH ACCOUNT this is, without being
-    able to say which key. Two keys for one provider must not share a
-    bucket, and nothing the limiter persists may contain a secret, so
-    the scope is a short hash of the credential."""
     import hashlib
 
     token = ""
@@ -145,9 +111,6 @@ def scope_for(provider: str, credential: Mapping[str, Any] | None) -> str:
 
 
 class NullLimiter:
-    """No limits known, nothing to wait for. Records observations so a
-    caller can still surface them."""
-
     def __init__(self) -> None:
         self.last: RateLimits | None = None
 
@@ -166,8 +129,6 @@ class NullLimiter:
 
 @dataclass
 class RecordingLimiter(NullLimiter):
-    """A test limiter: no waiting, full trace of what was asked for."""
-
     acquired: list[tuple] = field(default_factory=list)
     penalties: list[tuple] = field(default_factory=list)
     observations: list[RateLimits] = field(default_factory=list)

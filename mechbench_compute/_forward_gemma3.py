@@ -1,35 +1,3 @@
-"""Canonical hook-aware forward pass for Gemma 3.
-
-Counterpart to `_forward.py` (Gemma 4) for the Gemma 3 family
-(model_type='gemma3'). Mirrors:
-
-  - mlx_vlm/models/gemma3/language.py Gemma3Model.__call__ (the layer loop)
-  - mlx_vlm/models/gemma3/language.py TransformerBlock.__call__ (per-layer)
-  - mlx_vlm/models/gemma3/language.py Attention.__call__
-  - mlx_vlm/models/gemma3/language.py LanguageModel.__call__ (norm + lm_head)
-
-Key differences from Gemma 4:
-
-  - **No MatFormer side-channel** — no per-layer-input gate, no
-    layer.per_layer_projection / post_per_layer_input_norm. The
-    `gate_out` hook point is silently absent; capturing it on a
-    Gemma 3 model produces a cache without that key.
-  - **No KV-sharing** — every attention layer computes fresh K/V.
-    No `is_kv_shared_layer` branch.
-  - **No layer_scalar** — Gemma 3 doesn't apply a per-layer scalar
-    after the residual updates.
-  - **Final norm + lm_head** — the LanguageModel applies a separate
-    `lm_head` Linear (whose weights are tied to embed_tokens at
-    load time via `sanitize`), not `embed_tokens.as_linear`.
-  - **No `final_logit_softcapping`** — Gemma 3 doesn't apply it.
-  - **clip_residual wrapping** — no-op for bf16, so we omit it
-    here. The mlx-vlm version is float16-defensive.
-  - **Embed scaling** — `h *= sqrt(hidden_size)` after embed,
-    where Gemma 4 handles this inside `get_input_embeddings`.
-  - **Attention details** — Q/K reshape happens BEFORE q_norm;
-    no v_norm; RoPE applied to Q/K after norms.
-"""
-
 from __future__ import annotations
 
 import mlx.core as mx
@@ -72,13 +40,6 @@ def _attention_with_internals(
     cache: ActivationCache,
     layer_idx: int,
 ) -> mx.array:
-    """Manually computed Gemma 3 attention exposing weights and per-head output.
-
-    Mirrors Attention.__call__ in mlx_vlm/models/gemma3/language.py,
-    but replaces scaled_dot_product_attention with a manual softmax so
-    weights are inspectable. Keep in lockstep with upstream if mlx-vlm
-    ever updates Gemma 3.
-    """
     attn = layer.self_attn
     B, L, _ = x_normed.shape
 
@@ -137,6 +98,7 @@ def _attention_with_internals(
     return attn.o_proj(output)
 
 
+# external: mlx-vlm — this mirrors models/gemma3/language.py (Gemma3Model, TransformerBlock, Attention, LanguageModel __call__)
 def run_forward_gemma3(
     model,
     input_ids: mx.array,
@@ -146,18 +108,15 @@ def run_forward_gemma3(
     arch: _arch.Arch | None = None,
     kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
-    """Run a single hook-aware forward pass through a Gemma 3 model."""
     hooks = dict(hooks or {})
     capture_set = set(capture or [])
     manual_attn_layer_set = attn_internal_layers(
         set(hooks.keys()) | capture_set, arch=arch,
     )
 
-    # An external KV cache makes this one chunk of a longer sequence:
-    # its length is where the chunk begins, and every hook hears it.
     cache = ActivationCache(offset=kv_offset(kv_cache))
     lm = model.language_model
-    tm = lm.model  # Gemma3Model
+    tm = lm.model
 
     h = tm.embed_tokens(input_ids)
     h = h * mx.array(tm.config.hidden_size ** 0.5, mx.bfloat16).astype(h.dtype)
@@ -166,9 +125,6 @@ def run_forward_gemma3(
         kv_cache = cache_mod.make_prompt_cache(lm)
 
     pattern = tm.sliding_window_pattern
-    # Mask construction matches mlx-vlm's gemma3 forward: globals get the
-    # cache slot belonging to the first global layer (pattern - 1); slidings
-    # use cache[0] with the window size.
     global_mask = create_attention_mask(
         h, kv_cache[pattern - 1] if pattern - 1 < len(kv_cache) else None
     )
@@ -215,9 +171,6 @@ def run_forward_gemma3(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
-    # The final RMSNorm's per-position scale: captured only when
-    # asked, so DLA's apply_ln can make per-component
-    # contributions sum to the model's true final logits.
     if "final_norm.scale" in capture_set or "final_norm.scale" in hooks:
         f32 = h.astype(mx.float32)
         eps = float(getattr(tm.norm, "eps", 1e-6))

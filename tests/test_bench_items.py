@@ -1,9 +1,3 @@
-"""`bench.items`: a collection's items read on the server.
-
-The call is the command line's `object items` and MCP's
-`object(verb="items")`; these check it asks the API for the same thing.
-"""
-
 from __future__ import annotations
 
 import urllib.parse

@@ -1,8 +1,3 @@
-"""Trajectories: capture along either axis, replay from a
-trace, projection, comparison and aggregation — against a stub model
-whose residuals are a known function of (layer, token), so every
-number is checkable by hand."""
-
 from __future__ import annotations
 
 import mlx.core as mx
@@ -43,9 +38,6 @@ class StubTokenizer:
 
 
 class StubModel:
-    """resid_post[layer][pos] = one-hot(token % D) * (layer + 1); the
-    token at a position is 1 + len(word) % 7 when tokenized from text."""
-
     arch = StubArch()
     tokenizer = StubTokenizer()
     model_id = "stub/model"
@@ -73,7 +65,6 @@ class StubModel:
         return r
 
     def project_to_logits(self, residual):
-        # identity unembedding onto a D-token vocabulary
         return residual
 
 
@@ -93,7 +84,6 @@ class TestCaptureLayersAxis:
         assert [r["space"]["layer"] for r in out["items"]] == [0, 1, 2, 3]
         assert out["items"][2]["space"] == {"model": "stub/model", "layer": 2,
                                             "point": "resid_post", "head": None, "d": D}
-        # final token of "hi there" is 1 + 5 % 7 = 6; layer L scales by L+1
         assert out["items"][2]["vector"] == onehot(6, 3.0)
         assert out["items"][2]["position"] == 2
         assert out["items"][2]["norm"] == 3.0
@@ -105,7 +95,7 @@ class TestCaptureLayersAxis:
                                  {"axis": "layers", "layers": [1], "vocab_top": 2})
         vocab = out["items"][0]["vocab"]
         top = vocab["top"]
-        assert top[0]["token"]["text"] == "t3"  # "hi" -> 1 + 2 % 7 = 3, one-hot at 3
+        assert top[0]["token"]["text"] == "t3"
         assert 0 < top[0]["p"] <= 1 and top[0]["logp"] <= 0
         assert len(top) == 2 and vocab["entropy_bits"] >= 0
 
@@ -130,8 +120,7 @@ class TestCapturePositionsAxis:
         out = capture(m, [rec], {"axis": "positions", "layer": 0,
                                             "positions": "generated"})
         assert out["replay"] == "trace"
-        assert m.seen_ids == [[0, 9, 9, 5, 6, 7]]  # the trace, verbatim
-        # only the generated span: positions 3, 4, 5 -> steps 0, 1, 2
+        assert m.seen_ids == [[0, 9, 9, 5, 6, 7]]
         assert [r["position"] for r in out["items"]] == [3, 4, 5]
         assert [r["step"] for r in out["items"]] == [0, 1, 2]
         assert out["items"][0]["vector"] == onehot(5, 1.0)
@@ -151,8 +140,6 @@ class TestCapturePositionsAxis:
         assert [r["position"] for r in out["items"]] == [1, 2, 3]
 
     def test_a_measurement_groups_once_it_is_a_coordinate(self):
-        # `text/measure` writes a hit as a field; `records/rename` moves it
-        # into coords, and from there every item carries it.
         from mechbench_compute.ops.records.rename import rename
 
         m = StubModel()
@@ -168,7 +155,6 @@ class TestCapturePositionsAxis:
                                {"axis": "positions"})
 
     def test_reduce_mean_over_a_step_window(self):
-        # positions 1..3 of "a bb ccc dddd": tokens 2,3,4 at layer 0 (scale 1)
         m = StubModel()
         pool = {"reduce": "mean", "over": {"range": [1, 4]}}
         out = capture(m, [{"id": "a", "text": "a bb ccc dddd"}],
@@ -177,7 +163,7 @@ class TestCapturePositionsAxis:
         assert out["pool"] == pool and len(out["items"]) == 1
         row = out["items"][0]
         assert row["n_pooled"] == 3 and row["pool"] == pool
-        v = row["vector"]  # rounded to 5 places on the wire
+        v = row["vector"]
         third = pytest.approx(1 / 3, abs=1e-4)
         assert v[2] == third and v[3] == third and v[4] == third
         assert v[1] == 0.0
@@ -192,21 +178,16 @@ class TestCapturePositionsAxis:
         assert out["item_kind"] == "activations/coordinate" and out["projected"]
         assert out["items"][0]["direction"]["method"] == "test"
         assert out["items"][0]["direction"]["space"]["layer"] == 0
-        # layer 1 scales by 2; token 3 sits at position 2 ("bb" -> 1 + 2 % 7 = 3)
         assert [r["coord"] for r in out["items"]] == [0.0, 0.0, 2.0, 0.0]
         assert [r["step"] for r in out["items"]] == [0, 1, 2, 3]
         assert all("vector" not in r for r in out["items"])
 
     def test_the_cap_counts_what_is_emitted_not_what_is_read(self):
-        # 014's shape: many records × many steps. As vectors this is over
-        # the cap; with `project` it is coordinates, and with `reduce` it
-        # is one vector per record — both must be allowed through.
         from mechbench_compute import interp
         records = [{"id": f"s{i}", "text": "a bb ccc dddd"} for i in range(60)]
         big = {"axis": "positions", "layer": 0, "positions": "all", "max_steps": 4}
         monkey = interp.MAX_VECTOR_FLOATS
         try:
-            # vectors 60×4×8 = 1920 over; reduce 60×8 = 480 under; project 0.
             interp.MAX_VECTOR_FLOATS = 1000
             with pytest.raises(ValueError, match="exceeds the"):
                 capture(StubModel(), records, big)
@@ -216,7 +197,7 @@ class TestCapturePositionsAxis:
             assert out["projected"] and len(out["items"]) == 240
             out2 = capture(StubModel(), records,
                                       {**big, "pool": {"reduce": "mean", "over": "all"}})
-            assert len(out2["items"]) == 60  # one pooled vector each
+            assert len(out2["items"]) == 60
         finally:
             interp.MAX_VECTOR_FLOATS = monkey
 
@@ -299,10 +280,9 @@ class TestAggregate:
                                     "steps": {"range": [0, 2]}})
         assert out["item_kind"] == "activations/vector" and out["layers"] == [0]
         by = {r["coords"]["label"]: r for r in out["items"]}
-        assert by["lh"]["vector"] == onehot(1, 3.0)  # mean of 1,3,3,5
+        assert by["lh"]["vector"] == onehot(1, 3.0)
         assert by["lh"]["n_pooled"] == 4
         assert by["lh"]["space"]["layer"] == 0
-        # the direction algebra reads it unchanged
         d = fit_mean_difference(out, layer=0, positive="lh", negative="other")
         assert d["derivation"]["method"] == "diff_of_means"
         v = np.asarray(d["vector"])
@@ -344,8 +324,6 @@ class TestWiring:
         assert len(select(recs, {"where": {"p": "flash"}})) == 2
 
     def test_union_of_vector_records_stays_a_vector_record(self):
-        # base and adapted captures come from two model nodes; their
-        # union must still be what direction/fit reads.
         def vec(label_rows):
             return {"kind": "residual_vectors", "point": "post", "source": "resid",
                     "position": "final", "layers": [12], "d_model": D,
@@ -354,8 +332,7 @@ class TestWiring:
         adapted = vec([{"id": "flash", "layer": 12, "vector": onehot(2, 1.0)}])
         out = union({"base": base, "adapted": adapted}, {})
         assert out["item_kind"] == "activations/vector" and "layers" not in out
-        # Every item carries its own space; the port is the batch coordinate.
-        assert [r["coords"]["batch"] for r in out["items"]] == ["adapted", "base"]  # port order
+        assert [r["coords"]["batch"] for r in out["items"]] == ["adapted", "base"]
         assert all(r["space"]["layer"] == 12 and "label" not in r for r in out["items"])
         d = fit_mean_difference(out, layer=12, axis="batch", positive="base", negative="adapted")
         v = np.asarray(d["vector"])
@@ -375,7 +352,7 @@ class TestWiring:
                                 "patterns": [r"the old lighthouse"]}]}
         rows = measure_texts({"documents": items}, params)
         assert rows[0]["opening"] == 1
-        assert rows[0]["trace"] == {"token_ids": [1, 2, 3]}  # kept for capture
+        assert rows[0]["trace"] == {"token_ids": [1, 2, 3]}
         assert rows[0]["text"].startswith("The old")
 
 
@@ -385,7 +362,7 @@ class TestPoolClause:
         spec = POS.pool_spec({"pool": {"reduce": "mean", "over": {"range": [1, 3]}}})
         mat = np.array([[0.0], [1.0], [3.0], [10.0]])
         v, n = POS.pooled(mat, POS.resolve(spec["over"], 4), spec["reduce"])
-        assert n == 2 and v[0] == 2.0  # positions 1 and 2
+        assert n == 2 and v[0] == 2.0
 
     def test_the_retired_string_form_is_refused_with_the_new_one(self):
         from mechbench_compute import positions as POS

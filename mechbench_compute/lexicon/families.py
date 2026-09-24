@@ -1,13 +1,3 @@
-"""The families: the namespaces the operations and the kinds are grouped
-in, described for the reader choosing where to look.
-
-A family names the thing its members read or produce, not a technique
-(docs/LEXICON.md §2). Every operation and every kind belongs to exactly
-one; the eleven families with operations have kinds too, and four
-platform families have kinds only. The prose here is what the family
-page on the documentation site says above its members.
-"""
-
 from __future__ import annotations
 
 from mechbench_compute.lexicon._base import Family

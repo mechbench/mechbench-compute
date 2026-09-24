@@ -1,10 +1,3 @@
-"""The provider transport: canonical requests, metering, limits,
-adapters, and the two ways a test never spends.
-
-Nothing here touches the network. The adapters are exercised against a
-captured `post_json`, which is where the wire mapping actually lives.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -47,8 +40,6 @@ class TestCanonicalRequest:
         assert m.request_hash(req(max_tokens=65)) != m.request_hash(req())
 
     def test_absent_optional_fields_are_omitted_not_null(self):
-        # So adding a field later cannot change the hash of a request
-        # that never set it.
         assert "temperature" not in m.canonical(req())
         assert m.canonical(req(temperature=0.0))["temperature"] == 0.0
 
@@ -104,11 +95,10 @@ class TestMockDeterminism:
 class TestBudget:
     def test_a_call_that_could_cross_the_cap_is_refused_before_it_is_made(self):
         t = MockTransport(name="anthropic", capabilities=capabilities("anthropic"))
-        # max_tokens 4000 of opus output is $0.30 — over a $0.10 cap.
         b = Budget(cap_usd=0.10)
         with pytest.raises(BudgetExceeded, match=r"worst case"):
             t.chat(req(max_tokens=4000), budget=b)
-        assert t.calls == []            # nothing left the machine
+        assert t.calls == []
         assert b.spent_usd == 0.0 and b.reserved_usd == 0.0
 
     def test_spend_settles_to_the_real_usage(self):
@@ -166,7 +156,7 @@ class TestRetriesAndLimits:
                           sleep=slept.append)
         lim = RecordingLimiter()
         out = t.chat(req(), limiter=lim)
-        assert slept == [2.5, 1.0]                 # header's reset, then backoff
+        assert slept == [2.5, 1.0]
         assert out.call.attempts == 3
         assert out.call.throttled_seconds == pytest.approx(3.5)
         assert lim.penalties[0][3] == 2.5
@@ -237,8 +227,8 @@ class TestCassettes:
         t = make_transport("anthropic", dry_run=True)
         assert t.name == "anthropic"
         with pytest.raises(CapabilityUnsupported):
-            t.chat(req(logprobs=5))          # the real refusal, for free
-        assert t.chat(req()).call.cost_usd > 0    # the real price table
+            t.chat(req(logprobs=5))
+        assert t.chat(req()).call.cost_usd > 0
 
 
 def _canned(text: str):
@@ -248,12 +238,7 @@ def _canned(text: str):
                            model_version="canned", response_id="r1")
 
 
-# --- the wire mappings, without a network ---------------------------------------
-
-
 class _Capture:
-    """Stands in for providers.http.post_json."""
-
     def __init__(self, body):
         self.body = body
         self.sent: dict = {}
@@ -306,7 +291,6 @@ class TestAnthropicMapping:
             "type": "tool_use", "id": "c1", "name": "grep", "input": {"q": "x"}}
         assert p["messages"][2]["content"][0]["type"] == "tool_result"
         assert p["thinking"] == {"type": "enabled"}
-        # Provenance: who answered, what it used, what it cost.
         assert out.call.model_version == "claude-opus-5-20260101"
         assert out.call.usage["cache_read_tokens"] == 40
         assert out.call.provider_options == {"thinking": {"type": "enabled"}}
@@ -322,8 +306,6 @@ class TestAnthropicMapping:
 
     def test_a_reasoning_only_completion_names_the_budget_and_both_remedies(
             self, monkeypatch):
-        # The shape the API sends when thinking display is omitted: the
-        # block arrives with an empty string, so no prose exists at all.
         _, out = self._run(monkeypatch, {
             "id": "msg_3", "model": "claude-opus-5",
             "content": [{"type": "thinking", "thinking": "",
@@ -412,10 +394,8 @@ class TestGeminiMapping:
                                 "max_tokens": 100}))
         p = cap.sent["payload"]
         assert cap.sent["headers"] == {"x-goog-api-key": "key-1"}
-        assert "key-1" not in cap.sent["url"]        # never in a URL
+        assert "key-1" not in cap.sent["url"]
         assert [c["role"] for c in p["contents"]] == ["user", "model", "user"]
-        # A tool result is keyed by the function's NAME here, resolved
-        # from the call it answers.
         assert p["contents"][2]["parts"][0]["functionResponse"]["name"] == "grep"
         assert p["systemInstruction"]["parts"][0]["text"] == "be brief"
         assert p["tools"][0]["functionDeclarations"][0]["name"] == "grep"
@@ -438,10 +418,6 @@ class TestFactory:
 
 
 class TestSchemaConformance:
-    """What compute emits per call must be what mechbench-schema says a
-    call is: the shared package is the contract, and a
-    consumer that renders a transcript reads it from there."""
-
     def test_a_call_record_validates_as_the_schema_kind(self):
         from mechbench_schema import CallProvenance
 
@@ -464,11 +440,6 @@ class TestSchemaConformance:
 
 
 class TestTransientNetworkFailures:
-    """Every way a connection can die mid-call must reach the retry
-    loop as a TransientError. A `RemoteDisconnected` is an OSError and
-    not a URLError, so anything that catches only URLError lets it
-    escape the loop and fail the job instead of pausing it."""
-
     @pytest.mark.parametrize("boom", [
         __import__("http.client", fromlist=["client"]).RemoteDisconnected(
             "Remote end closed connection without response"),
@@ -492,9 +463,6 @@ class TestTransientNetworkFailures:
         assert getattr(caught.value, "retryable", False) is True
 
     def test_a_retryable_failure_is_retried_then_interrupts(self):
-        # The point of the mapping: the transport pauses and comes back,
-        # and a sustained outage interrupts (resumable) rather than
-        # failing the job at 49%.
         from mechbench_compute.providers.errors import ProviderUnavailable
         from mechbench_compute.providers.mock import MockTransport, transient
 

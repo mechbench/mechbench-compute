@@ -1,6 +1,3 @@
-"""Path patching: a sender's effect through one receiver,
-everything between them held clean."""
-
 from __future__ import annotations
 
 import os
@@ -72,11 +69,8 @@ class TestWhatItRefuses:
         cache = {f"blocks.{i}.{p}": i for i in range(6) for p in ("attn_out", "mlp_out")}
         hooks = _freeze_off_path(cache, {"point": "attn.per_head_out", "layer": 1, "head": 0},
                               {"point": "attn.q", "layer": 4, "head": 0}, 6)
-        # The sender's own MLP (it is not on the path), then both
-        # branches of every layer strictly between.
         assert sorted(hooks) == ["blocks.1.mlp_out", "blocks.2.attn_out", "blocks.2.mlp_out",
                                  "blocks.3.attn_out", "blocks.3.mlp_out"]
-        # An MLP sender does not freeze itself.
         hooks = _freeze_off_path(cache, {"point": "mlp_out", "layer": 1, "head": None},
                               {"point": "logits", "layer": None}, 3)
         assert sorted(hooks) == ["blocks.2.attn_out", "blocks.2.mlp_out"]
@@ -95,23 +89,12 @@ class TestOnGemma:
     RECEIVER = {"point": "attn.q", "layer": 20, "head": 2}
 
     def test_a_pair_that_does_not_differ_moves_nothing(self, model):
-        """The decisive check on the freezing: when the corrupt prompt IS
-        the clean one, every patch writes the value that was already
-        there, so nothing should move — however many components were
-        frozen along the way. Two of the three land on exactly 0.0; the
-        third is 0.125, which on a logit of ~16 is two bf16 ulps and the
-        floor of what this arithmetic can say. A freeze of the wrong
-        layer moves the answer by whole logits, which is what this
-        catches."""
         same = {**PAIR, "b": PAIR["a"]}
         out = run(model, [same], {"receiver": self.RECEIVER,
                                         "senders": self.SENDERS, "metric": "logit"})
         assert max(abs(r["delta"]) for r in out["items"]) < 0.2
 
     def test_a_direct_path_to_the_answer_is_one_component_and_not_the_rest(self, model):
-        """What path patching is for: with every other component frozen
-        clean, almost nothing reaches the answer directly — the median
-        sender moves it by exactly zero — and one does."""
         out = run(model, [PAIR], {"receiver": {"point": "logits"},
                                         "senders": "all-layers", "metric": "logit"})
         deltas = np.array([abs(r["delta"]) for r in out["items"]])
@@ -133,9 +116,6 @@ class TestOnGemma:
         assert out["target"]["text"] == " Paris"
 
     def test_a_direct_path_to_the_logits_is_the_plain_patch(self, model):
-        """With nothing between the sender and the end, path patching and
-        ordinary patching are the same intervention — which is what says
-        the freezing is the only difference between them."""
         from mechbench_compute import intervene as iv
 
         last = model.arch.n_layers - 1
@@ -144,8 +124,6 @@ class TestOnGemma:
                                         "metric": "logit"})
         [row] = out["items"]
 
-        # The same thing by hand: capture the corrupt mlp_out, patch it
-        # into the clean run, read the target's logit.
         from mechbench_compute.interp import render_text
         from mechbench_compute.interventions import Capture
         import mlx.core as mx
@@ -153,7 +131,7 @@ class TestOnGemma:
         ids_a = render_text(model, PAIR, PAIR["a"])
         ids_b = render_text(model, PAIR, PAIR["b"])
         corrupt = model.run(ids_b, interventions=[Capture.at([name])]).cache[name]
-        tok = int(mx.argmax(model.run(ids_a).logits[0, -1]))  # unused; the pair tracks its own
+        tok = int(mx.argmax(model.run(ids_a).logits[0, -1]))
         target = out["target"]["id"]
         clean_logit = float(np.array(model.run(ids_a).logits[0, -1].astype(mx.float32))[target])
         patched = model.run(ids_a, hooks={name: lambda act, info: corrupt.astype(act.dtype)})

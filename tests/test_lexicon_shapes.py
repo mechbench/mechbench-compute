@@ -1,26 +1,3 @@
-"""A parameter's type is a declaration an editor can be built from.
-
-The protocol composer renders every node's editor from the lexicon: a
-number field for an `int`, a menu for a closed set, a form for an
-object. What it cannot render from the declaration it can only show as
-raw JSON, and before these declarations it did that for twenty-six of
-the fifty-eight operations — `trajectory/capture` among them, whose
-`pool` is two fields and whose `axis` is one of two words.
-
-So this proves, for every parameter of every operation:
-
-* its `type` is in the grammar (`lexicon._base.parse_type`);
-* every `object` in it is declared — by the param's own `fields`, or by
-  the shared `value` it names. An open structure says so in its type,
-  as `json`;
-* every closed set (`choices`) is one the code itself spells out, so the
-  menu an editor offers is the set the executor accepts — no more,
-  which would pass a value the run refuses, and no fewer, which would
-  forbid one it takes;
-* every example conforms to the declared types, which is the check that
-  the declarations describe what protocols really write.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -100,7 +77,6 @@ def test_value_and_choices_are_well_formed(where: str, p: Param) -> None:
 
 
 def _compared(test: ast.expr) -> tuple[str, str] | None:
-    """`kind == "noise"` as `("kind", "noise")`."""
     if (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name)
             and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq)
             and isinstance(test.comparators[0], ast.Constant)
@@ -110,9 +86,6 @@ def _compared(test: ast.expr) -> tuple[str, str] | None:
 
 
 def _refusing_dispatch(body: list[ast.stmt]) -> Iterator[frozenset[str]]:
-    """The sets a dispatch on one name refuses the rest of: an
-    `if x == "a" … elif x == "b" … else: raise`, or a run of
-    `if x == "a": return …` statements followed by a `raise`."""
     for i, stmt in enumerate(body):
         if not isinstance(stmt, ast.If):
             continue
@@ -137,9 +110,6 @@ def _refusing_dispatch(body: list[ast.stmt]) -> Iterator[frozenset[str]]:
 
 
 def _string_sets() -> set[frozenset[str]]:
-    """Every closed set of strings the code spells out: a tuple, list or
-    set literal of string constants, a dict literal's keys, or the
-    branches of a dispatch that refuses anything else."""
     out: set[frozenset[str]] = set()
     for path in SRC.rglob("*.py"):
         if "lexicon" in path.parts:
@@ -160,17 +130,6 @@ def _string_sets() -> set[frozenset[str]]:
 
 
 def test_every_closed_set_is_the_codes_own() -> None:
-    """A declared set must appear in the executor, verbatim as a set —
-    the refusal (`if mode not in ("annotate", "corpus")`), or the
-    constant it reads (`AXES`, `REDUCES`, `LEVELS`). Found by scanning
-    the source rather than listed by hand, so a new closed param proves
-    itself without anyone updating this file; a set the code never
-    enforces fails here, which is the prompt to add the refusal.
-
-    One field may take the union of two closed sets the code keeps apart:
-    an intervention item's `op` is an activation op or a weight op,
-    checked by different code. A union counts only of sets of three or
-    more, so a small declared set still has to be spelled out whole."""
     sets = _string_sets()
 
     def enforced(c: frozenset[str]) -> bool:
@@ -189,12 +148,7 @@ def test_every_closed_set_is_the_codes_own() -> None:
         + "\n".join(f"  {w}: {c}" for w, c in missing))
 
 
-# --- examples conform to the declared types ---------------------------------------
-
-
 def _binding(v: Any) -> bool:
-    """A value that resolves at run time: `{"$param": …}`, `{"$ref": …}`.
-    A string that begins with `$` is a string."""
     return isinstance(v, dict) and len(v) == 1 and next(iter(v)) in ("$param", "$ref")
 
 
@@ -225,7 +179,6 @@ def _selector(v: Any) -> bool:
 
 
 def _conforms(v: Any, alts: tuple[TypeNode, ...], p: Param, where: str) -> list[str]:
-    """Why `v` is not a `p.type`, or [] when it is (one alternative fits)."""
     if _binding(v):
         return []
     reasons: list[str] = []
@@ -307,10 +260,6 @@ def test_shapes_reach_the_published_dict() -> None:
 
 @pytest.mark.parametrize("op", [op for op in OPS if op.output and op.output.otherwise], ids=lambda op: op.name)
 def test_what_an_op_emits_instead_is_declared_against_the_node(op: Op) -> None:
-    """An `otherwise` names a declared kind and a condition on the node a
-    composer can read — a param it has, with a value that param takes,
-    or a port it has — and the emitted record's prose says so, so the
-    page and the declaration cannot disagree."""
     from mechbench_compute.lexicon.kinds import BY_KIND
 
     assert op.output is not None
@@ -318,9 +267,6 @@ def test_what_an_op_emits_instead_is_declared_against_the_node(op: Op) -> None:
         assert o.kind in BY_KIND, f"{op.name}: {o.kind} is not a declared kind"
         assert (o.param is None) != (o.port is None), f"{op.name}: name a param or a port, not both"
         if o.param is not None:
-            # A dotted path names a field of a structured param
-            # (`readout.type`), the way `$param` paths and the dataflow
-            # checker's `_declared_at` already walk them.
             fields = list(op.params)
             p = None
             for key in o.param.split("."):

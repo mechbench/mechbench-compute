@@ -59,17 +59,12 @@ million values.
 
 
 def run(ctx, inputs, params):
-    """activations/capture-attention — post-softmax attention weights per
-    head at the named layers."""
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return capture_attention_patterns(
         model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
 
 
-#: Attention matrices are quadratic in sequence length; refuse a
-#: capture that would emit more than this many floats.
 MAX_ATTN_FLOATS = 2_000_000
 
 
@@ -80,9 +75,6 @@ def capture_attention_patterns(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Post-softmax attention weights per head at chosen layers. Layers
-    must be named explicitly — every layer of every head of a long
-    prompt is a picture nobody asked for."""
     spec = params.get("layers")
     if spec in (None, "all"):
         raise ValueError(
@@ -114,7 +106,7 @@ def capture_attention_patterns(
         weight = []
         for layer in layers:
             w = result.cache[f"blocks.{layer}.attn.weights"]
-            arr = np.array(w.astype(mx.float32))[0]  # [heads, L, S]
+            arr = np.array(w.astype(mx.float32))[0]
             weight.append([[[round(float(x), 4) for x in r] for r in h] for h in arr])
         rows.append(S.grid(
             record.get("id"), ["layer", "head", "query", "key"], {"weight": weight},

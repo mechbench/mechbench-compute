@@ -44,8 +44,7 @@ items' field of that name takes in turn, several axes form a cartesian
 product, and every axis becomes a coordinate on the rows it produced. By
 default a strength‑0 **control** is added, one run, so every record has a
 baseline to compare against. The output has one row per record per sweep
-cell. A `records/map` over a corpus of integers is no longer how a layer
-sweep is written.
+cell.
 
 ### Spec items
 
@@ -324,11 +323,6 @@ one item can zero every layer's `o_proj`.
 
 
 def run(ctx, inputs, params):
-    """intervene/apply: the declarative points × operations grammar
-    with a decision or capture readout.
-    Items are (record, sweep cell); spooled items are reused in
-    canonical order under a matching fingerprint."""
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     reuse = dict(ctx.resume_items or {})
@@ -342,15 +336,12 @@ def run(ctx, inputs, params):
     out = run_intervene(model, records, params, inputs=inputs,
                             on_item=_on_item, on_start=ctx.on_start)
     if reuse:
-        # Reproducible: a spooled row IS the row this loop produced.
         out["items"] = [reuse.get(f"{r['id']}:{r.get('cell') or r.get('factor')}", r)
                         for r in out["items"]]
     return out
 
 
 def _parse_hook_name(name: str) -> tuple[int | None, str]:
-    """`blocks.14.resid_post` → (14, "resid_post"); a whole-model point
-    → (None, name)."""
     parts = name.split(".")
     if parts[0] == "blocks" and len(parts) >= 3 and parts[1].isdigit():
         return int(parts[1]), ".".join(parts[2:])
@@ -359,17 +350,6 @@ def _parse_hook_name(name: str) -> tuple[int | None, str]:
 
 def _walk_cells(records: Sequence[Mapping[str, Any]], cells: Sequence[Cell],
                 weight_items: Sequence[Mapping[str, Any]], model):
-    """(record, cell) pairs, with any weight edits in scope.
-
-    Without weight items the loop is record outer, cell inner. With
-    them the strength goes outside, because a weight
-    edit is applied once for every record that runs under it — and the
-    edit is undone before the next strength, and before the generator
-    returns, whatever happens in between. A run that left a model edited
-    would poison every later node in the job, which is the failure this
-    `finally` exists for. `sweep_cells` orders strength outermost, so
-    the cells sharing one are contiguous and each edit is made once.
-    """
     if not weight_items:
         for record in records:
             for cell in cells:
@@ -420,11 +400,6 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
 
     mid = S.model_id_of(model)
     rows: list[dict[str, Any]] = []
-    # A weight edit is applied once per sweep factor, not once per
-    # record: the tensor is the same for every record that runs under it,
-    # and an SVD per record would be absurd. So the factor is the outer
-    # loop when there are weight items, and the record loop is the same
-    # body either way.
     for record, cell in _walk_cells(records, cells, weight_items, model):
             ids = render(model, record).array
             flat = [int(t) for t in np.array(ids).reshape(-1)]
@@ -432,9 +407,6 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
             tracked = collect_tracked_ids(model, record, tracked=params.get("tracked"))
             factor = cell.factor
             key = f"{record.get('id')}:{cell.key}"
-            # The cell's axes ride on every row it produces: `factor`,
-            # and a coordinate per other swept axis, so a layer sweep
-            # groups on `layer`.
             coords = {**record.get("coords", {}), **cell.coords}
             named = {"cell": cell.label} if cell.label else {}
             if factor == 0.0:
@@ -457,17 +429,9 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
                 L = len(flat)
                 pidx = POS.one(readout.get("position", "last"), L, tokens=tokens,
                                record=record, prompt_len=L)
-                # A capture under intervention IS a capture: one
-                # `activations/vector` per hook point, the shape
-                # `activations/capture` emits, so whatever reads a
-                # capture — `geometry/compare`, `direction/regress`,
-                # another intervention's `source` — reads this one too.
-                # `factor` rides on each vector, since a sweep's rows
-                # differ only by it.
                 for p in points:
                     t = res.cache[p]
                     v = t[0, pidx] if t.ndim == 3 else t[0]
-                    # bf16 has no numpy buffer protocol: cast first.
                     arr = np.array(v.astype(mx.float32)).reshape(-1)[:4096]
                     cl, cp = _parse_hook_name(p)
                     row = S.vector(
@@ -482,9 +446,6 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
             rows.append(row)
             if on_item:
                 on_item(key, row)
-    # The weight edits ride in the header beside the activation spec, so
-    # a reader of the result knows the model was not the one on the
-    # shelf.
     weights_wire = [dict(it) for it in weight_items] or None
     what = []
     if specs:

@@ -73,17 +73,6 @@ def run(ctx, inputs, params):
 
 
 def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    """`records/contrast`: the difference between two conditions'
-    means of a field — `a` minus `b` on the coordinate `on`
-    — with a bootstrap interval, one row per combination of the other
-    `by` coordinates.
-
-    `paired` names the field the two conditions share (a prompt's `id`,
-    usually): the bootstrap then resamples PAIRS, so a record's own
-    noise cancels the way it does in the data, and only records present
-    on both sides count. Without it the two sides are resampled
-    independently. `share_positive` is the fraction of resamples whose
-    difference is above zero — how often the sign held."""
     import numpy as np
 
     recs = read_items(records)

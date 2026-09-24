@@ -9,9 +9,6 @@ from mechbench_compute.directions.is_direction import is_direction
 
 
 def coerce_array(d: Mapping[str, Any]) -> np.ndarray:
-    """A direction's vector. A collection carrying exactly one direction
-    IS that direction — `direction/classify` emits a probe per layer,
-    and selecting one from it wires straight into an intervention."""
     from mechbench_compute.lexicon import kinds as K
 
     if isinstance(d, Mapping) and K.item_kind_of(d) is not None:

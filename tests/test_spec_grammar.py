@@ -1,8 +1,3 @@
-"""The spec item's grammar beyond point-and-op: the complement of a
-set, an attention edge, and a patch that reads one layer into another.
-The hooks are driven directly on tensors of the right shape, so what
-each field does to which axis is visible."""
-
 from __future__ import annotations
 
 import mlx.core as mx
@@ -31,13 +26,11 @@ class TestTheComplement:
         assert spec.layers == [0, 2, 3, 5]
 
     def test_heads_invert_against_the_tensors_own_axis(self):
-        # [batch, heads, positions, width]: every head BUT 1 is zeroed.
         act = mx.ones((1, 4, 3, 2))
         _, fn = _hook({"point": "attn.per_head_out", "heads": [1], "positions": "all",
                        "op": "zero", "except": True})
         kept = np.array(fn(act, _info("attn.per_head_out")))[0, :, 0, 0]
         assert list(kept) == [0.0, 1.0, 0.0, 0.0]
-        # …and without `except`, exactly head 1.
         _, plain = _hook({"point": "attn.per_head_out", "heads": [1], "positions": "all", "op": "zero"})
         assert list(np.array(plain(act, _info("attn.per_head_out")))[0, :, 0, 0]) == [1.0, 0.0, 1.0, 1.0]
 
@@ -61,10 +54,8 @@ class TestAnAttentionEdge:
         _, fn = _hook({"point": "attn.weights", "op": "zero",
                        "pattern": {"from": {"tokens": ["b"]}, "to": "last"}})
         out = np.array(fn(self.WEIGHTS, _info("attn.weights")))[0, 0]
-        # The last row lost its 'b' column and was rescaled to sum to 1…
         assert out[2, 1] == 0.0 and abs(out[2].sum() - 1.0) < 1e-6
         assert abs(out[2, 0] - 0.5) < 1e-6
-        # …and the rows that lost nothing are untouched.
         assert list(out[0]) == [0.25, 0.25, 0.25]
 
     def test_renormalize_false_leaves_the_row_short(self):
@@ -87,7 +78,6 @@ class TestAnAttentionEdge:
                        "pattern": {"from": [0], "to": "all"}})
         out = np.array(fn(act, _info("attn.scores")))[0, 0]
         assert np.isneginf(out[:, 0]).all() and (out[:, 1] == 0.0).all()
-        # …so the softmax over that row gives the cut position no mass.
         p = np.array(mx.softmax(mx.array(out), axis=-1))
         assert p[0, 0] == 0.0 and abs(p[0].sum() - 1.0) < 1e-6
 
@@ -109,7 +99,6 @@ class TestAPatchFromAnotherLayer:
                 "source": self._source(), "from": {"layer": 8}}
         _, fn = _hook(item, layer=2)
         assert list(np.array(fn(act, _info("resid_post", 2)))[0, 2]) == [8.0] * 4
-        # …and without `from`, from the layer it writes to.
         _, plain = _hook({k: v for k, v in item.items() if k != "from"}, layer=2)
         assert list(np.array(plain(act, _info("resid_post", 2)))[0, 2]) == [2.0] * 4
 

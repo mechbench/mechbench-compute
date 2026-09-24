@@ -1,12 +1,3 @@
-"""register_all follows the declarations, including when they change.
-
-A registry that refuses a changed manifest at a registered version
-(`MANIFEST_PINNED`) must not be passed over: printing "pinned" and
-moving on leaves the published contract describing fields the kinds no
-longer have. The refusal names the registered version, which makes it
-an instruction: register the next one.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -15,10 +6,7 @@ from mechbench_compute import bench, platform_kinds
 
 
 class _Registry:
-    """A registry holding one version per path, as the API does."""
-
     def __init__(self, held: dict[str, tuple[int, str]] | None = None):
-        # path -> (version, content marker)
         self.held = dict(held or {})
         self.calls: list[tuple[str, str]] = []
 
@@ -48,7 +36,6 @@ class _Registry:
 
 @pytest.fixture
 def one_manifest(monkeypatch):
-    """Just the first declared manifest, so the test reads as one kind."""
     first = platform_kinds.manifests()[0]
     monkeypatch.setattr(platform_kinds, "manifests", lambda: [first])
     return first
@@ -66,13 +53,11 @@ class TestRegisterAll:
         reg = _Registry({one_manifest.path: (1, "declared")})
         monkeypatch.setattr(bench, "register_kind", reg.register)
         platform_kinds.register_all()
-        assert reg.calls == [(one_manifest.path, "1")]  # idempotent; no second PUT
+        assert reg.calls == [(one_manifest.path, "1")]
 
     def test_a_changed_kind_is_registered_as_the_next_version(
         self, monkeypatch, one_manifest
     ):
-        # The registry holds version 1 with content that is not the
-        # declaration's — the eight kinds of phase 2b.
         reg = _Registry({one_manifest.path: (1, "stale")})
         monkeypatch.setattr(bench, "register_kind", reg.register)
         platform_kinds.register_all()
@@ -82,8 +67,6 @@ class TestRegisterAll:
     def test_it_follows_a_registry_that_is_already_ahead(
         self, monkeypatch, one_manifest
     ):
-        # The number counts changes on THAT registry: a registry at 4
-        # goes to 5, whatever any other registry holds.
         reg = _Registry({one_manifest.path: (4, "stale")})
         monkeypatch.setattr(bench, "register_kind", reg.register)
         platform_kinds.register_all()

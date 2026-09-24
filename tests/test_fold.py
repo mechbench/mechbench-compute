@@ -1,7 +1,3 @@
-"""`records/fold`: a body run step after step, each step
-reading the state the last one wrote — and a conversation composed from
-it saying what `text/converse` says."""
-
 from __future__ import annotations
 
 import pytest
@@ -24,8 +20,6 @@ def node(nid, block, params, inputs=None):
 COUNTERS = {"kind": "collection", "item_kind": "records/record",
             "items": [{"id": "a", "n": 0, "coords": {"g": "x"}}, {"id": "b", "n": 10, "coords": {"g": "y"}}]}
 
-#: A body that adds `$by` to every item's `n`: records/fill writes a
-#: templated field, records/rename moves it — the state grows by a step.
 STEP_BODY = {"nodes": [
     node("bump", "records/fill", {"templates": {"m": "{n}"}}),
 ], "edges": [{"from": {"input": "state"}, "to": {"node": "bump", "port": "records"}}]}
@@ -33,8 +27,6 @@ STEP_BODY = {"nodes": [
 
 class TestTheFold:
     def test_the_state_threads_through_the_steps(self):
-        # A body that stamps the step index onto every item: after three
-        # steps the last stamp is 2, and the items are the same records.
         body = {"dataflow": 2, "nodes": [node("stamp", "records/fill", {"templates": {"stamp": {"$param": "step"}}})],
                 "edges": [{"from": {"input": "state"}, "to": {"node": "stamp", "port": "records"}}]}
         out = _run({"dataflow": 2, "nodes": [
@@ -49,11 +41,9 @@ class TestTheFold:
         out = _run({"dataflow": 2, "nodes": [
             node("f", "records/fold", {"body": body, "over": [{"who": "ana"}, {"who": "bo"}], "steps": 3},
                  {"state": COUNTERS})], "edges": []})["f"]
-        assert out["items"][0]["last"] == "ana"             # step 2 cycles back to ana
+        assert out["items"][0]["last"] == "ana"
 
     def test_until_stops_when_every_item_says_so(self):
-        # Items say stop once their `done` field is set; a body that sets
-        # it on step 1 ends a five-step fold after two steps.
         body = {"nodes": [node("mark", "records/fill", {"templates": {"done": {"$param": "flag"}}})],
                 "edges": [{"from": {"input": "state"}, "to": {"node": "mark", "port": "records"}}]}
         out = _run({"dataflow": 2, "nodes": [
@@ -71,10 +61,6 @@ class TestTheFold:
 
 
 class TestAConversationIsAFold:
-    """render → chat → extend as a fold body, transcripts as the state,
-    participants as `over`: the four-turn round robin `text/converse`
-    runs, turn for turn, on the mock provider."""
-
     MODEL = {"provider": "mock", "model": "mock-large"}
 
     def _fold_graph(self, turns, extra_extend=None):
@@ -98,10 +84,6 @@ class TestAConversationIsAFold:
                   "steps": turns, "output": "next", "until": {"field": "stopped"}},
                  {"state": start})], "edges": []}
 
-    #: What a single conversation op said (mock provider, four turns of
-    #: round robin). Its answer is kept here as data, so the
-    #: composition that computes the same conversation has to reproduce
-    #: it word for word rather than merely run.
     CONVERSE_SAID = [
             {
                     "participant": "user",
@@ -134,8 +116,6 @@ class TestAConversationIsAFold:
         assert t["participants"] == ["ana", "bo"] and t["turns"][-1]["role"] == "bo"
 
     def test_a_stop_phrase_written_by_extend_ends_the_fold(self):
-        # The mock's words are deterministic; whatever ana says first,
-        # naming it as the stop phrase ends the conversation at turn 1.
         first = self.CONVERSE_SAID[1]["text"].split()[0]
         fold = _run(self._fold_graph(6, {"stop_phrases": [first]}))["talk"]
         assert fold["folded"] == {"steps": 1, "stopped": "until", "body_nodes": ["view", "say", "next"]}
@@ -143,9 +123,6 @@ class TestAConversationIsAFold:
 
 
 class _Spool:
-    """The runner's spool, as tests/test_resume.py fakes it: items per
-    node, an interruption after N spooled items."""
-
     def __init__(self, interrupt_after=None):
         self.fingerprints, self.items, self.done = {}, {}, {}
         self.interrupt_after, self.count = interrupt_after, 0
@@ -188,14 +165,11 @@ class TestAFoldResumes:
         full = _Spool()
         reference = full.executor().run(spec())
         assert len(made) == 4
-        # Interrupt after two turns; the spool holds their states.
         made.clear()
         partial = _Spool(interrupt_after=2)
         with pytest.raises(KeyboardInterrupt):
             partial.executor().run(spec())
         assert len(made) == 2 and sorted(partial.items["talk"]) == ["step:0", "step:1"]
-        # Resumed: two more turns are bought, not four, and the transcript
-        # is the same one.
         made.clear()
         resumed = _Spool()
         out = resumed.executor().run(spec(), resume=partial.resume_map("talk"))
@@ -207,12 +181,6 @@ class TestAFoldResumes:
 
 
 class TestAPersonaSystemIsAGraph:
-    """The test of the principle: a conversation whose speaker
-    is chosen by what was just said, built from ops none of which knows
-    what a moderator, a judge or a hand-off is. The routing is a
-    `text/measure` capture the user wrote; the fold and the map carry
-    it; `text/render` and `text/extend` never learn whose turn it is."""
-
     MODEL = {"provider": "mock", "model": "mock-large"}
 
     def _start(self, *conversations):
@@ -224,7 +192,6 @@ class TestAPersonaSystemIsAGraph:
             for cid, first, text in conversations]}
 
     def _graph(self, start, steps=2, extend=None):
-        # render → chat → measure (who is named next) → extend.
         body = {"dataflow": 2, "nodes": [
             node("view", "text/render", {"participant": {"$param": "speaker"},
                                          "window": {"policy": "sliding", "words": 400}}),
@@ -243,8 +210,6 @@ class TestAPersonaSystemIsAGraph:
             {"from": {"input": "record"}, "to": {"node": "next", "port": "transcripts"}},
             {"from": {"node": "read"}, "to": {"node": "next", "port": "replies"}},
         ]}
-        # One turn per conversation, each with its OWN speaker — which
-        # is what a map binding a record field is for.
         turn = {"dataflow": 2, "nodes": [node("each", "records/map",
                                {"body": body, "bind": {"speaker": "next_speaker"},
                                 "collect": "first", "output": "next"})],
@@ -259,16 +224,11 @@ class TestAPersonaSystemIsAGraph:
         out = _run(self._graph(start))["talk"]
         assert out["folded"]["steps"] == 2
         by_id = {t["id"]: t for t in out["items"]}
-        # Each conversation's first turn was spoken by the participant
-        # its own `next_speaker` named.
         assert by_id["a"]["messages"][1]["participant"] == "ana"
         assert by_id["b"]["messages"][1]["participant"] == "bo"
         assert len(by_id["a"]["messages"]) == 3
 
     def test_the_speaker_of_the_next_turn_is_what_the_last_one_said(self):
-        # The mock's reply is a deterministic bag of words; whichever of
-        # the two names it happens to say last is who speaks next, and
-        # the transcript carries it.
         start = self._start(("a", "ana", "Ana goes first."))
         out = _run(self._graph(start, steps=1))["talk"]
         [t] = out["items"]
@@ -280,9 +240,7 @@ class TestAPersonaSystemIsAGraph:
         out = _run(self._graph(start, steps=1, extend={"channel": "judge"}))["talk"]
         [t] = out["items"]
         assert t["messages"][1]["channel"] == "judge"
-        # The room's text does not carry it…
         assert t["messages"][1]["text"] not in t["text"]
-        # …and a participant on `main` alone is never rendered it.
         from mechbench_compute import transcript as TR
         seen = render(t["messages"], participant="bo", participants=["ana", "bo"])
         assert all("judge" not in m["content"] for m in seen)

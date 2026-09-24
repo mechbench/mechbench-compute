@@ -10,9 +10,6 @@ from mechbench_compute.weights.read_direction import read_direction
 
 def project_out(w: Any, item: Mapping[str, Any], name: str,
                 strength: float) -> Any:
-    """Take a direction out of the side of this weight that faces the
-    residual stream: what the module writes (left) or what it reads
-    (right). `strength` 1.0 removes it entirely; 0.5 halves it."""
     import mlx.core as mx
 
     v = read_direction(item, name)
@@ -30,6 +27,5 @@ def project_out(w: Any, item: Mapping[str, Any], name: str,
             f"the direction is {len(v)} wide and {name}'s {side} side is "
             f"{dim}: a direction only removes from the space it lives in.")
     u = mx.array(v)[:, None] if side == "out" else mx.array(v)[None, :]
-    # W − s·(uuᵀ)W on the output side, W − s·W(vvᵀ) on the input side.
     return w - float(strength) * ((u @ (u.T @ w)) if side == "out"
                                   else ((w @ u.T) @ u))

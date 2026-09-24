@@ -1,13 +1,3 @@
-"""Smoke test for the bench client.
-
-Requires a running mechbench-api with MECHBENCH_API_URL and
-MECHBENCH_API_KEY set; SKIPs cleanly when they aren't (offline interp
-work must never depend on a server).
-
-Run: MECHBENCH_API_URL=... MECHBENCH_API_KEY=... \
-     python -m mechbench_compute._smoke_bench
-"""
-
 from __future__ import annotations
 
 import os

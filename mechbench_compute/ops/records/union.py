@@ -49,17 +49,6 @@ def run(ctx, inputs, params):
 
 
 def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """Concatenate record streams, structurally recording source
-    segments; each record gains a batch coordinate named after its
-    input port. Collections never mutate — growth is union.
-
-    A union of vector collections stays a vector collection: a base
-    capture and an adapted capture come from two model nodes, and
-    `direction/fit` reads ONE collection whose items
-    are grouped on a coordinate — the port name, on the `batch_axis`
-    coordinate, is that grouping. Every item carries its own `space`, so
-    the header carries no union of layers. Cross-model comparison is a
-    union followed by the direction algebra, no bespoke block."""
     from mechbench_compute import shapes as S
     from mechbench_compute.lexicon import kinds as K
 
@@ -67,11 +56,6 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
     ports = sorted(inputs.keys())
 
     def _as_collection(port: str, value: Any) -> Any:
-        # A single kinded object on a port — a direction from
-        # `direction/fit`, say — is a collection of one; it
-        # takes the port's name as its id when it carries none, so the
-        # union's items stay distinguishable by key. A table is not one
-        # thing but its rows, as every records op reads it.
         if isinstance(value, Mapping) and value.get("kind") == "records/table" \
                 and isinstance(value.get("rows"), list):
             return value
@@ -107,8 +91,6 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
                 item = dict(r)
                 item["space"] = S.space_of(r, header=rec)
                 item["coords"] = {**S.coords_of(r), batch_axis: port}
-                # A flat `layer`/`head`/`label` on an item is dropped:
-                # its `space` and `coords` carry them.
                 for k in ("layer", "head", "label"):
                     item.pop(k, None)
                 rows.append(item)
@@ -124,11 +106,6 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
         for r in recs:
             records.append({**r, "coords": {**r.get("coords", {}),
                                             batch_axis: port}})
-    # A union of ONE kind stays that kind. The items are unchanged but
-    # for a coordinate, so a collection of adapter deltas unioned with
-    # another is still a collection of adapter deltas — and the metrics
-    # its kind declares still apply to it. Mixed inputs fall back to the
-    # root, which is the only thing they have in common.
     return K.collection(_resolve_shared_kind(inputs, ports), records,
                         segments=segments)
 

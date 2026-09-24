@@ -91,23 +91,6 @@ conversation is three ops and a loop, not an operation of its own.
 
 
 def run(ctx, inputs, params):
-    """`records/fold`: run a body step after step, each step reading
-    the state the last one wrote.
-
-    `records/map` runs its body once per record with no memory
-    between runs; a conversation, a refinement, an agentic round
-    is the other shape — the body's output at step t is its input
-    at step t + 1. The state enters the body on its `state` input
-    (an edge from `{"input": "state"}`), and leaves by the body
-    output named `output`. `over` binds one object of `$param`s per
-    step, cycled; `until.field` stops the fold when every state item
-    has that field set.
-
-    Every step is an item keyed by its index and spooled with the
-    state it produced, so an interrupted fold resumes at the step it
-    reached — the resume machinery treats steps exactly as it treats
-    a chat node's items. The body sees one state and nothing else.
-    """
     from mechbench_compute import dataflow as dataflow_mod
     from mechbench_compute.lexicon import kinds as K
 
@@ -119,8 +102,6 @@ def run(ctx, inputs, params):
         raise ValueError(
             "records/fold needs a `body`: a graph, with `nodes` and "
             "`edges`, run once per step")
-    # The body is a graph of the run's own form, written without the
-    # marker a whole protocol carries.
     body = {**body, "dataflow": dataflow_mod.DATAFLOW}
     over = params.get("over")
     if over is not None and not (isinstance(over, list)

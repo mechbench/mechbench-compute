@@ -1,6 +1,3 @@
-"""The shared shapes (docs/LEXICON.md §4–§5): one constructor per value
-type and item, and readers that take the older spellings too."""
-
 from __future__ import annotations
 
 import math
@@ -27,20 +24,17 @@ class TestSpace:
     def test_same_space_compares_the_fields_that_matter(self):
         a = {"space": SP}
         S.same_space(a, {"space": dict(SP)})
-        S.same_space(a, {"space": {**SP, "model": None}})  # an unknown model is not a disagreement
+        S.same_space(a, {"space": {**SP, "model": None}})
         with pytest.raises(ValueError, match="layer"):
             S.same_space(a, {"space": {**SP, "layer": 4}})
         with pytest.raises(ValueError, match="model"):
             S.same_space(a, {"space": {**SP, "model": "other"}})
 
     def test_space_of_assembles_the_older_spelling(self):
-        # `layer` on the item, `point` / `d_model` / `model` on the header
         sp = S.space_of({"layer": 5, "vector": [0, 0, 0]}, header={"point": "post", "model": "hf/x"})
         assert sp == {"model": "hf/x", "layer": 5, "point": "resid_post", "head": None, "d": 3}
-        # a direction's flattened fields
         sp = S.space_of({"layer": 2, "point": "resid_pre", "d": 8, "derivation": {"model": "hf/y"}})
         assert sp["model"] == "hf/y" and sp["point"] == "resid_pre" and sp["d"] == 8
-        # a per-head source
         assert S.space_of({"layer": 1, "head": 3, "vector": [1.0]})["head"] == 3
 
 
@@ -63,7 +57,6 @@ class TestItems:
         assert "tracked" not in S.distribution(lp, Tok(), top_k=1)
 
     def test_ties_rank_by_token_id(self):
-        # Equal log-probabilities rank by token id, every time.
         lp = np.log(np.array([0.2, 0.2, 0.2, 0.2, 0.2]))
         for _ in range(5):
             d = S.distribution(lp, Tok(), top_k=3)
@@ -104,7 +97,6 @@ class TestReaders:
         d = S.distribution_of(steer)
         assert d["top"][0]["p"] == pytest.approx(math.exp(-0.1))
         assert d["tracked"]["yes"]["logp"] == -0.5 and d["tracked"]["track"]["logp"] == -2.0
-        # a current item comes back as it is
         cur = {"top": [{"token": {"id": 1, "text": "t1"}, "p": 0.5, "logp": -0.69}]}
         assert S.distribution_of(cur) == cur
 

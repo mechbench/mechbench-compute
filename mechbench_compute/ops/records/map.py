@@ -93,24 +93,6 @@ collect.
 
 
 def run(ctx, inputs, params):
-    """`records/map`: run a sub-protocol once per record.
-
-    Run sets fan out over whole runs and a node fans out over the items
-    inside it; this is the shape between them — a body, a graph,
-    applied to every record of a stream, each invocation an item keyed
-    by the record's id, so the spool and the resume machinery treat it
-    exactly as they treat a chat node's items.
-
-    `bind` maps a record's fields into the body's `{"$param"}`s, so
-    the body is written once and the stream supplies them. The run's
-    own params reach the body too — it is a sub-protocol, not a
-    foreign graph — with `bind` shadowing them, since the per-record
-    value is the specific one.
-
-    The isomorphism the chunking law wants is structural here: the body
-    sees ONE record at a time and nothing else, so map over chunks is
-    map over records by construction.
-    """
     from mechbench_compute import dataflow as dataflow_mod
     from mechbench_compute.lexicon import kinds as K
 
@@ -119,18 +101,11 @@ def run(ctx, inputs, params):
     if not isinstance(body, Mapping) or not body.get("nodes"):
         raise ValueError(
             "records/map needs a `body`: a graph, with `nodes` and "
-            "`edges`, run once per record. A stored protocol by "
-            "reference is task 000393's; an inline body works now.")
-    # The body is a graph of the run's own form, written without the
-    # marker a whole protocol carries.
+            "`edges`, written inline and run once per record.")
     body = {**body, "dataflow": dataflow_mod.DATAFLOW}
     bind = dict(params.get("bind") or {})
     over = params.get("over")
     if over is not None:
-        # A map over plain values: the values ARE the stream, so they
-        # become records here and everything below is the ordinary
-        # map. A layers sweep needs no corpus of integers stored on
-        # the bench to iterate.
         if records:
             raise ValueError(
                 "records/map takes `over` or a `records` port, not both: "
@@ -161,24 +136,11 @@ def run(ctx, inputs, params):
         on_download=ctx.executor._on_download,
         on_download_bytes=ctx.executor._on_download_bytes,
         limiter=ctx.executor._limiter, budget=ctx.executor._budget)
-    # The loaded model is shared, not reloaded per record: weights
-    # are gigabytes and the body may well run against them.
     child._model, child._model_id = ctx.executor._model, ctx.executor._model_id
 
     items: list[dict[str, Any]] = []
-    # A map's records are its sweep — a corpus of layer numbers knows
-    # nothing about any model — so the landmarks cannot come from the
-    # input the way they do for an ordinary records op. They are on
-    # the BODY's header, where the executor's model-block wrapper
-    # stamped them.
     out_arch: dict[str, Any] | None = None
-    # Under `stream` and `first` the items ARE the body's, so the
-    # collection is of the body's kind: a map over transcripts that
-    # produces transcripts emits transcripts, and the next node's
-    # port is satisfied by what it actually holds.
     out_kind: str | None = None
-    # What the body is handed one of: the stream's own kind, or a
-    # plain record when the values came from `over` or a bare list.
     wired = inputs.get("records")
     record_kind = (K.item_kind_of(wired) if isinstance(wired, Mapping) else None) or "records/record"
     for rec in records:
@@ -194,15 +156,9 @@ def run(ctx, inputs, params):
             raise ValueError(
                 f"record {key!r} has no {', '.join(missing_fields)} to "
                 f"bind into the body's params")
-        # The body reads its `{"$param"}`s from the record's bound
-        # fields, over the enclosing run's params reached by name.
         child_bound = {**(ctx.run_params or {}), **bound}
         out = child.run(ProtocolSpec(
             kind="pipeline", prompt="", model_id=None,
-            # The record itself, for a body that needs more of it
-            # than `bind` can name: an edge from `{"input":
-            # "record"}` carries it, the way a fold's body takes its
-            # `state`. Only a body that names the input reads it.
             extra={"graph": body, "params": child_bound,
                    "inputs": {"record": K.collection(record_kind, [rec])}}),
             secrets=ctx.secrets)
@@ -239,8 +195,6 @@ def run(ctx, inputs, params):
             items.append(item)
         if ctx.on_item:
             ctx.on_item(key, items[-1], False)
-    # The model may have been swapped by the body; take it back, so
-    # the parent's next node does not reload what is already resident.
     ctx.executor._model, ctx.executor._model_id = child._model, child._model_id
     return K.collection(
         out_kind or "records/record", items,

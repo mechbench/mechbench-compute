@@ -5,14 +5,6 @@ from typing import Any
 
 
 def expand_grid(item: Any) -> list[dict[str, Any]] | None:
-    """A grid's cells as rows, or None when the item is not one.
-
-    `intervene/patch`, `intervene/ablate-heads` and the lens read out
-    GRIDS — named measures indexed by `axes` — because that is the
-    shape a heat map is. A chart takes rows, so the cells become them:
-    one row per cell, the axes as fields (with `token` beside
-    `position` when the grid carries the tokens), each measure a column.
-    """
     if not isinstance(item, Mapping):
         return None
     axes = item.get("axes")

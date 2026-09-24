@@ -1,30 +1,3 @@
-"""The dataflow form, as the executor reads it (design in
-mechbench/docs/DATAFLOW.md).
-
-A protocol carries `dataflow: 2` and speaks in two references —
-`{"$param": name}` and `{"$ref": source}`. A reference is a value: it
-can be bound, passed along, and it sits only where a declaration admits
-it. An edge's source is a node's output or one of the protocol's inputs.
-A graph without the marker is refused by `check_form`, naming what it
-found, and nothing in it is read.
-
-Before anything runs:
-
-- `check_form` refuses a spec that is not in this form.
-- `lower` rewrites the graph into the shapes the executor runs: an edge
-  from a protocol input becomes that input's bound value on the port,
-  and `from: {node, output}` becomes `{node, port}`. Each value lands
-  where the executor reads it, so ordering, resume, missing-node
-  handling and fingerprints see one shape. On a variadic port the
-  inputs' values are a list of `INPUT_BRANCH` entries, which the
-  executor orders among the port's node edges.
-- `check_refs` refuses a `$ref` that sits where no declaration admits a
-  stored object, by node and place.
-
-Resolution itself stays in the executor (`Resolver`), which holds the
-bench client and the record of what resolved.
-"""
-
 from __future__ import annotations
 
 import re
@@ -34,21 +7,11 @@ from typing import Any
 from mechbench_compute import lexicon
 
 DATAFLOW = 2
-#: Under a run's result path, where every node that is not a declared
-#: output is stored: `results/<job>/nodes/<node id>`. An output may not
-#: take the name.
 INTERMEDIATES = "nodes"
 SOURCES = ("bench", "hf_dataset", "hf_adapter")
-#: Macros a graph must not contain: a `$`-keyed object is one of the
-#: two references or it is a mistake.
 LEGACY_MACROS = ("$fetch", "$hf_dataset", "$hf_adapter")
-#: Where a refusal of the undeclared form points.
 DATAFLOW_DOCS = "https://docs.mechbench.ai/dataflow/"
-#: What `find_undeclared` says of a graph whose only fault is the
-#: missing marker.
 NO_MARKER = 'no "dataflow": 2 marker'
-#: The keys of one entry `lower` puts on a variadic port for each input
-#: edge onto it: the input's name, the edge's `index`, and the bound value.
 INPUT_BRANCH = frozenset({"input", "index", "value"})
 _HOLE = re.compile(r"^\$[A-Za-z][A-Za-z0-9_-]*$")
 
@@ -66,7 +29,6 @@ def is_object_ref(v: Any) -> bool:
 
 
 def source_of(ref: Mapping[str, Any]) -> tuple[str, Any]:
-    """`(which, spec)` of a `{"$ref": source}`, refusing anything else."""
     source = ref["$ref"]
     which = [k for k in SOURCES if k in source]
     if len(which) != 1:
@@ -76,9 +38,6 @@ def source_of(ref: Mapping[str, Any]) -> tuple[str, Any]:
 
 
 def find_undeclared(graph: Any) -> str | None:
-    """What makes this graph not the declared form, in a phrase, or None
-    when it carries the marker. The first construct found is named, so
-    a refusal points at something the author can see."""
     if is_declared(graph):
         return None
     if not isinstance(graph, Mapping):
@@ -121,9 +80,6 @@ def find_undeclared(graph: Any) -> str | None:
 
 
 def check_form(extra: Mapping[str, Any]) -> None:
-    """Refuse a run spec that is not in the declared form: a graph
-    without the marker, or a run bound by `bindings` rather than
-    `params` and `inputs`."""
     found = find_undeclared(extra.get("graph") or {})
     if found is None and extra.get("bindings"):
         found = "a run bound by `bindings` rather than `params` and `inputs`"
@@ -135,19 +91,9 @@ def check_form(extra: Mapping[str, Any]) -> None:
 
 
 def lower(graph: Mapping[str, Any], bound_inputs: Mapping[str, Any]) -> dict[str, Any]:
-    """A declared graph in the executor's working shapes.
-
-    An edge from `{"input": name}` puts the run's bound value for that
-    input on the target port, as an inline input, so the node's input
-    hash — and with it its fingerprint — is formed from the value
-    itself, wherever it came from. A variadic port takes any number of
-    input edges beside its node edges: each input's value is one
-    `INPUT_BRANCH` entry in a list on the port.
-    """
     nodes = [dict(n, inputs=dict(n.get("inputs") or {})) for n in graph.get("nodes", [])]
     by_id = {n["id"]: n for n in nodes}
     edges = []
-    # Node id -> the variadic ports that input edges feed.
     variadic: dict[str, set[str]] = {}
     for e in graph.get("edges", []):
         src, dst = e["from"], e["to"]
@@ -199,15 +145,11 @@ def is_variadic_port(block: Any, port: str) -> bool:
 
 
 def is_input_branches(value: Any) -> bool:
-    """Whether a lowered port value is the list of `INPUT_BRANCH` entries
-    `lower` writes for input edges onto a variadic port."""
     return (isinstance(value, list) and bool(value)
             and all(isinstance(v, Mapping) and set(v) == INPUT_BRANCH for v in value))
 
 
 def _declared_at(op: Any, path: list[str]) -> Any:
-    """The lexicon's declaration at a path inside a node's params: fields
-    by name, a list's index skipped. None where nothing is declared."""
     fields = list(getattr(op, "params", ()) or ()) + list(lexicon.COMMON)
     found = None
     for key in path:
@@ -216,27 +158,17 @@ def _declared_at(op: Any, path: list[str]) -> Any:
         found = next((f for f in fields if f.name == key), None)
         if found is None:
             return None
-        # A shared value (`pool`, `point`) declares its fields as plain
-        # dicts, which cannot say `stored`; nothing inside one takes a
-        # stored object, so the walk ends there.
         fields = list(found.fields)
     return found
 
 
 def wants_reference(block: str, name: str) -> bool:
-    """Whether the op declares that top-level param as taking the
-    reference itself, unresolved."""
     op = lexicon.BY_NAME.get(block)
     decl = _declared_at(op, [name]) if op else None
     return bool(decl is not None and decl.reference)
 
 
 def map_bound_names(node: Mapping[str, Any]) -> frozenset[str]:
-    """The names a node with a body binds itself into that body: a
-    `records/map`'s `bind` keys, per record (`bind: {topic: "user"}`);
-    a `records/fold`'s `over` keys, per step, and `step`. A
-    `{"$param": name}` under `body` naming one of these is the node's,
-    not the run's."""
     try:
         block = lexicon.resolve(node["block"])
     except KeyError:
@@ -246,7 +178,6 @@ def map_bound_names(node: Mapping[str, Any]) -> frozenset[str]:
         bind = params.get("bind")
         names = set(bind) if isinstance(bind, Mapping) else set()
         if params.get("over") is not None:
-            # A map over plain values binds the name `as` gives it.
             names.add(str(params.get("as") or "value"))
         return frozenset(names)
     if block == "records/fold":
@@ -260,9 +191,6 @@ def map_bound_names(node: Mapping[str, Any]) -> frozenset[str]:
 
 
 def _inner_ref_site(params: Mapping[str, Any], path: list[str]):
-    """Where a `$ref` under a map's `body` actually sits: `"port"` on a
-    body node's inputs, `(inner_op, inner_path)` in a body node's
-    params, None when the path is not under a body."""
     if path[:2] != ["body", "nodes"] or len(path) < 4:
         return None
     body = params.get("body")
@@ -287,11 +215,6 @@ def _inner_ref_site(params: Mapping[str, Any], path: list[str]):
 
 
 def bound_along(block: str, params: Mapping[str, Any], path: Sequence[str]) -> frozenset[str]:
-    """The names bound by the node AND by every body node the path passes
-    through. A body may hold another node with a body — a `records/fold`
-    whose step is a `records/map`, which is how a per-item binding
-    reaches a turn — and a `{"$param"}` down there is bound by whichever
-    of them named it, not by the protocol."""
     names = set(map_bound_names({"block": block, "params": params}))
     cursor: Mapping[str, Any] = params
     i = 0
@@ -313,15 +236,6 @@ def bound_along(block: str, params: Mapping[str, Any], path: Sequence[str]) -> f
 
 def check_refs(nodes: Mapping[str, Mapping[str, Any]],
                bound_params: Mapping[str, Any]) -> None:
-    """Refuse a stored-object reference that sits where no declaration
-    admits one (principle 12: a node computes from its declared inputs).
-
-    A port always admits one: a port is where data arrives. Inside a
-    node's params a `$ref` — written there, or arriving through a param
-    the run bound to one — needs the position to declare `stored` (the
-    kind it takes by reference) or `reference` (it takes the address).
-    A map body's own bound names are bound per record, later.
-    """
     problems: list[str] = []
 
     def walk(v: Any, nid: str, op: Any, params: Mapping[str, Any],
@@ -336,10 +250,6 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
             v = bound_params[name]
         if is_object_ref(v):
             source_of(v)
-            # Under a map's `body` the $ref sits on one of the BODY's
-            # nodes, whose op — not the map's — says whether a stored
-            # object belongs there; on that node's inputs it is a port,
-            # and a port always does.
             site = _inner_ref_site(params, path)
             if site == "port":
                 return

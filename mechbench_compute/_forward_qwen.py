@@ -1,28 +1,3 @@
-"""Canonical hook-aware forward pass for Qwen 2 / Qwen 2.5.
-
-Counterpart to `_forward.py` (Gemma 4) and `_forward_gemma3.py`
-(Gemma 3) for Qwen 2.x dense models loaded via mlx-lm. Mirrors:
-
-  - mlx_lm/models/qwen2.py Qwen2Model.__call__ (the layer loop)
-  - mlx_lm/models/qwen2.py TransformerBlock.__call__
-  - mlx_lm/models/qwen2.py Attention.__call__
-
-Key differences from Gemma 3:
-
-  - **Q/K/V projections have bias** (Qwen 2.x specific).
-  - **No q_norm / k_norm** — RMSNorm is only applied at the
-    block boundaries (input_layernorm, post_attention_layernorm).
-  - **No hybrid attention pattern** — every layer is full
-    attention (no sliding-window). `arch.global_layers` is
-    `range(n_layers)`.
-  - **No KV-sharing**, no MatFormer side-channel.
-  - **Standard RoPE** (not mRoPE — that's Qwen 3.5).
-  - **Tied or untied unembed** depending on `args.tie_word_embeddings`;
-    `_load_qwen.py` carries that flag through.
-  - **Layer model**: `m.model.layers` (mlx-lm shape) rather than
-    `m.language_model.model.layers` (mlx-vlm shape).
-"""
-
 from __future__ import annotations
 
 import mlx.core as mx
@@ -65,12 +40,6 @@ def _attention_with_internals(
     cache: ActivationCache,
     layer_idx: int,
 ) -> mx.array:
-    """Manually computed Qwen 2 attention exposing weights and per-head output.
-
-    Mirrors Attention.__call__ in mlx_lm/models/qwen2.py, but replaces
-    scaled_dot_product_attention with a manual softmax so weights are
-    inspectable.
-    """
     attn = layer.self_attn
     B, L, _ = x_normed.shape
 
@@ -126,6 +95,7 @@ def _attention_with_internals(
     return attn.o_proj(output)
 
 
+# external: mlx-lm — this mirrors models/qwen2.py (Qwen2Model, TransformerBlock, Attention __call__)
 def run_forward_qwen(
     model,
     input_ids: mx.array,
@@ -135,8 +105,6 @@ def run_forward_qwen(
     arch: _arch.Arch | None = None,
     kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
-    """Run a single hook-aware forward pass through a Qwen 2.x model
-    loaded via mlx-lm."""
     hooks = dict(hooks or {})
     capture_set = set(capture or [])
     manual_attn_layer_set = attn_internal_layers(
@@ -144,7 +112,7 @@ def run_forward_qwen(
     )
 
     cache = ActivationCache(offset=kv_offset(kv_cache))
-    tm = model.model  # Qwen2Model
+    tm = model.model
 
     h = tm.embed_tokens(input_ids)
     if kv_cache is None:
@@ -184,9 +152,6 @@ def run_forward_qwen(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
-    # The final RMSNorm's per-position scale: captured only when
-    # asked, so DLA's apply_ln can make per-component
-    # contributions sum to the model's true final logits.
     if "final_norm.scale" in capture_set or "final_norm.scale" in hooks:
         f32 = h.astype(mx.float32)
         eps = float(getattr(tm.norm, "eps", 1e-6))

@@ -1,14 +1,3 @@
-"""ActivationCache: dict-like store of tensors captured during a forward pass.
-
-Values stay in bf16 (the model's native dtype). Cast to float32 right at
-the analysis boundary via cache.to_float32() — converting bf16 mx.array
-straight to numpy crashes with a PEP 3118 buffer-format error.
-
-The forward pass populates the cache with un-evaluated mx graph nodes, then
-calls mx.eval() on the whole batch in one shot. By the time the cache is
-returned to the user, every tensor is materialized.
-"""
-
 from __future__ import annotations
 
 from typing import Iterator
@@ -19,22 +8,8 @@ from .errors import CacheKeyError
 
 
 class ActivationCache:
-    """A dict-like collection of tensors keyed by hook-point name.
-
-    Standard dict access:
-        weights = cache['blocks.23.attn.weights']
-        if 'blocks.14.mlp_out' in cache: ...
-        for name, tensor in cache.items(): ...
-
-    Missing keys raise CacheKeyError with helpful suggestions, not the bare
-    KeyError you'd get from a vanilla dict.
-    """
-
     def __init__(self, data: dict[str, mx.array] | None = None, *, offset: int = 0):
         self._data: dict[str, mx.array] = dict(data or {})
-        #: The sequence position of this forward's first token: 0 for a
-        #: whole-prompt pass, the KV cache's length for a decoding step.
-        #: Every HookInfo the forward dispatches carries it.
         self.offset: int = int(offset)
 
     def __getitem__(self, key: str) -> mx.array:
@@ -67,11 +42,6 @@ class ActivationCache:
         return self._data.get(key, default)
 
     def to_float32(self) -> "ActivationCache":
-        """Return a new cache with every tensor cast to float32.
-
-        Use this right before going to numpy. MLX -> numpy on bf16 fails;
-        a float32 cast is the standard escape hatch.
-        """
         return ActivationCache(
             {k: v.astype(mx.float32) for k, v in self._data.items()}
         )
@@ -86,8 +56,6 @@ class ActivationCache:
 
 
 def kv_offset(kv_cache) -> int:
-    """How many tokens a KV cache already holds — the position the next
-    chunk begins at. 0 for no cache or an empty one."""
     if not kv_cache:
         return 0
     first = next((c for c in kv_cache if c is not None), None)

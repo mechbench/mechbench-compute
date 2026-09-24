@@ -1,5 +1,3 @@
-"""What a node produced, small enough to read beside the node."""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -9,14 +7,6 @@ from mechbench_compute import lexicon
 
 
 def summarize_node(value: Any, spend: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """What a node produced, in the terms a reader asks first: which kind,
-    and how many. `{kind, collection, items}` for a collection (however it
-    is spelled — a retired plural object, a bare list); `{kind,
-    collection: false}` for one object, with `rows` when it is a table of
-    them; `{}` for a value that carries no kind. `spend_usd` when the node
-    called a provider; `ended`, copied from a generation node's header,
-    so the manifest says whether any node's items were cut off without
-    fetching the node."""
     out: dict[str, Any] = {}
     if isinstance(value, list):
         out = {"kind": lexicon.COLLECTION, "collection": True, "items": len(value)}

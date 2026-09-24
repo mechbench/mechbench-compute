@@ -1,8 +1,3 @@
-"""`text/generate` continuing a record's prefill and stopping at a
-marker: the samples continue exactly the envelope a decision read and a
-training step condition on, and end where the answer does — on a fake
-substrate, so what reaches the sampler is the test's to inspect."""
-
 from __future__ import annotations
 
 import pytest
@@ -26,9 +21,6 @@ RECORD = {"id": "genre-p0", "system": "Pick a genre.", "user": "One, please.",
 
 @pytest.fixture
 def seen(monkeypatch):
-    """The fake sampler answers from a script keyed by sample index and
-    records the prompt it was given and the stop strings it was asked to
-    honour."""
     calls: list[dict] = []
     script = iter(['Steampunk"', "Science Fiction and more", "Hum"])
 
@@ -70,9 +62,7 @@ def test_the_prefill_begins_the_turn_and_the_answer_stops_at_its_marker(seen):
     assert items[0]["text"] == '{ "genre": "Steampunk'
     assert items[0]["metadata"]["sampling"]["ended"] == "stop"
     assert items[0]["metadata"]["sampling"]["prefill"] == '{ "genre": "'
-    # Never closed: it ran out of tokens, and says so.
     assert items[1]["metadata"]["sampling"]["ended"] == "max_tokens"
-    # Ended its turn before the marker.
     assert items[2]["text"] == '{ "genre": "Hum'
     assert items[2]["metadata"]["sampling"]["ended"] == "end"
 

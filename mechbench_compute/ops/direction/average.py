@@ -41,14 +41,6 @@ def run(ctx, inputs, params):
 
 
 def average(directions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """The equal-weight mean of several directions: the shared component.
-
-    Distinct from `add` only in intent and in what the derivation
-    records, since both normalize — but the question "what do these
-    adapters have in common?" is answered by the mean of their UNIT
-    directions, which weights each one equally however long it is.
-    """
     out = add(directions)
     out["derivation"]["method"] = "average"
     return out
-

@@ -6,8 +6,6 @@ import numpy as np
 
 
 def compute_effective_rank(sv: Sequence[float] | np.ndarray) -> float:
-    """exp(H(p)) over the normalised spectrum: 1 for a single
-    direction, r for r equal ones, 0 for a delta that is all zero."""
     s = np.asarray(sv, dtype=np.float64)
     total = float(s.sum())
     if total <= 0:

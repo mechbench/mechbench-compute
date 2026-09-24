@@ -105,10 +105,6 @@ layers or records.
 
 
 def run(ctx, inputs, params):
-    """activations/capture — residual vectors at (layers × position) per
-    condition, as `geometry/compare` and the direction family read
-    them."""
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return capture_residual_vectors(
@@ -122,10 +118,6 @@ def capture_residual_vectors(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Residual-stream vectors at (layers × position) per condition —
-    the substrate every geometry experiment reads. Labels ride along
-    (`label` field, or the coords key named by params.label_coord) so a
-    comparison groups without re-parsing ids."""
     point = hookpoints.residual(params.get("point"))
     source = str(params.get("source", "resid"))
     if source not in ("resid", "queries", "keys"):
@@ -136,8 +128,6 @@ def capture_residual_vectors(
     pool = POS.pool_spec(params)
     if not records:
         raise ValueError("residuals/vectors needs at least one condition")
-    # A document with no text cannot be embedded. Dropping one changes
-    # n, so it happens only when asked for and the ids are reported.
     skipped: list[str] = []
     if bool(params.get("skip_empty", False)):
         def _has_text(r):
@@ -149,8 +139,6 @@ def capture_residual_vectors(
         if not records:
             raise ValueError(
                 "residuals/vectors: every record was empty under skip_empty")
-    # Q/K live in per-head subspaces, so those sources emit one row per
-    # (layer, head) rather than one per layer.
     n_heads = (model.arch.n_heads if source == "queries"
                else model.arch.n_kv_heads if source == "keys" else 1)
     width = (model.arch.d_model if source == "resid"
@@ -179,9 +167,6 @@ def capture_residual_vectors(
         ids = r.array
         toks = r.tokens(model.tokenizer)
         result = model.run(ids, interventions=[cap])
-        # Pooling reads the selected positions, so no single position is
-        # resolved — and a record whose `position` would not resolve (no
-        # `subject`, say) is still poolable.
         sel = dict(tokens=toks, record=record, prompt_len=r.prompt_len)
         pos = None if pool else POS.one(position, len(r.ids), **sel)
         over = POS.resolve(pool["over"], len(r.ids), **sel) if pool else None
@@ -205,7 +190,7 @@ def capture_residual_vectors(
             else:
                 key = ("q" if source == "queries" else "k")
                 t = result.cache[f"blocks.{layer}.attn.{key}"]
-                arr = np.array(t.astype(mx.float32))[0]  # [heads, L, hd]
+                arr = np.array(t.astype(mx.float32))[0]
                 for head in range(arr.shape[0]):
                     if pool:
                         v, n_pooled = POS.pooled(arr[head], over, pool["reduce"])
@@ -223,8 +208,6 @@ def capture_residual_vectors(
         model=mid,
         point=point,
         source=source,
-        # A pooled record says so where a reader looks for the
-        # position, rather than reporting a position it never read.
         position="pooled" if pool else str(position),
         **({"pool": pool} if pool else {}),
         layers=layers,

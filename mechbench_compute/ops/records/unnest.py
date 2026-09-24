@@ -64,7 +64,6 @@ def run(ctx, inputs, params):
 
 
 def unnest(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    """`records/unnest`: one record per element of `field`, in order."""
     field = params["field"]
     index = str(params.get("index", "index"))
     as_field = str(params.get("as", "value"))

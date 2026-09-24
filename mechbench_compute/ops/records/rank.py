@@ -39,8 +39,6 @@ def run(ctx, inputs, params):
 
 
 class TopK(Monoid):
-    """Exact top-k by a value field: merge = top-k of the union."""
-
     def identity(self):
         return ()
 

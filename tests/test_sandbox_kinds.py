@@ -1,13 +1,8 @@
-"""The sandbox catalog: the kind schemas are the contract the composer
-and the UI trace browser share, so they are tested against the ACTUAL
-wire shapes compute emits — not against a hand-written example that can
-drift from the code.
-"""
 from __future__ import annotations
 
 import pytest
 
-jsonschema = pytest.importorskip("jsonschema")  # test-only, not a runtime dep
+jsonschema = pytest.importorskip("jsonschema")
 
 from mechbench_compute import sandbox
 from mechbench_compute import sandbox_kinds as sk
@@ -16,7 +11,6 @@ from mechbench_compute.sandbox_session import SandboxImage, SandboxSession
 
 
 def _valid(schema):
-    # The schemas themselves must be well-formed JSON Schema.
     jsonschema.Draft202012Validator.check_schema(schema)
 
 
@@ -28,9 +22,6 @@ class TestTheSchemasAreValid:
 
 
 class TestTheSchemasMatchTheCode:
-    """A schema that does not describe what compute emits is worse than
-    none — it lies to the composer. So validate real output."""
-
     def test_a_real_snapshot_validates(self):
         snap = fs.seeded({"a.txt": "hi\n", "sub/b.txt": "x" * (fs.INLINE_MAX + 5)})
         jsonschema.validate(snap.to_wire(), sk.FS_SNAPSHOT_SCHEMA)
@@ -43,8 +34,6 @@ class TestTheSchemasMatchTheCode:
         jsonschema.validate(snap.to_wire(), sk.FS_SNAPSHOT_SCHEMA)
 
     def test_real_sandbox_calls_validate(self):
-        # Every provenance record a session produces must fit the
-        # tool-call schema — the shape the trace browser reads.
         s = SandboxSession(SandboxImage.parse({"snapshot": {"a.txt": "one two\n"}}))
         s.write_file("r.txt", "x")
         s.read_file("a.txt")
@@ -62,7 +51,6 @@ class TestTheSchemasMatchTheCode:
                 "limits": {"memory_mb": 32, "wall_seconds": 5}, "strict": True,
                 "mounts": [{"path": "data", "object": "benji/corpus"}]}
         jsonschema.validate(wire, sk.SANDBOX_IMAGE_SCHEMA)
-        # …and it round-trips through the parser to the same tools.
         assert set(SandboxImage.parse(wire).tools) == {"bash", "list"}
 
     def test_the_limits_schema_matches_the_dataclass(self):
@@ -77,7 +65,6 @@ class TestTheToolCatalog:
         assert all(t["description"] and t["schema"] for t in cat)
 
     def test_it_omits_handlers(self):
-        # The picker shows capabilities; the node wires handlers.
         assert all("handler" not in t for t in sk.sandbox_tool_catalog())
 
 

@@ -7,15 +7,6 @@ from mechbench_compute.intervene.spec import Spec
 
 
 class SpecIntervention:
-    """An `Intervention` (as_hooks / as_captures) over a whole spec list
-    for one record's tokens.
-
-    `tokens` is the sequence the positions resolve against. A decoder
-    that runs the sequence in chunks — the prompt, then one token per
-    step — calls `on_token` with each token it produces, so a selector
-    like `{"tokens": ["lighthouse"]}` or `"generated"` sees the words
-    as they arrive."""
-
     def __init__(self, specs: Sequence[Spec], tokens: Sequence[str],
                  record: Mapping[str, Any] | None = None,
                  prompt_len: int | None = None, growing: bool = False) -> None:
@@ -42,5 +33,4 @@ class SpecIntervention:
         return []
 
     def on_token(self, token: str) -> None:
-        """The decoder produced one more token: the sequence grew."""
         self.tokens.append(token)

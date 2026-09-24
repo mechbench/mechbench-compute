@@ -1,36 +1,3 @@
-"""The chat-completions shape.
-
-One adapter serves OpenAI, xAI, Fireworks, Together, Groq, DeepSeek,
-Mistral, OpenRouter, and a llama.cpp or vLLM server on localhost —
-they all speak `/chat/completions`. What differs is the base URL, the
-model id, and which capabilities are real, so those are parameters,
-not subclasses.
-
-Mapping notes that matter:
-
-- The system prompt becomes a leading `system` message here (it is a
-  field in the canonical model, so the hash of a conversation does not
-  depend on which adapter answers it).
-- Tool calls ride on the assistant message as `tool_calls` with
-  JSON-STRING arguments; tool results are separate `role: "tool"`
-  messages. The canonical model keeps both as parts of the turn they
-  belong to, so this is where they split and rejoin.
-- Reasoning rides on the message beside `content`, in a field that
-  depends on the host: `reasoning_content` (DeepSeek, llama.cpp),
-  `reasoning` and `reasoning_details` (OpenRouter). Whichever fields
-  came back become one reasoning part holding them verbatim, and go
-  back on that assistant message, under the same names, when the
-  conversation continues with the same model — DeepSeek requires it on
-  a request with tools, and OpenRouter's `reasoning_details` carry
-  signed and encrypted entries that must return unmodified. A host that
-  returned none is never sent any. OpenAI's own reasoning models return
-  no reasoning here, only a count in `reasoning_tokens`: carrying their
-  reasoning needs the Responses API, which a request asks for with
-  `api: "responses"` and `openai_responses.py` maps.
-- `logprobs` is `top_logprobs`, capped at 20 on OpenAI (more on some
-  self-hosted servers) — the cap is a capability, declared per host.
-"""
-
 from __future__ import annotations
 
 import json
@@ -48,8 +15,6 @@ from mechbench_compute.providers.base import (
 )
 from mechbench_compute.providers.errors import AuthError
 
-#: provider name -> (base URL, capabilities). A host not listed here is
-#: reachable as `openai-compatible` with an explicit base_url.
 HOSTS: dict[str, tuple[str, Capabilities]] = {
     "openai": ("https://api.openai.com/v1", Capabilities(
         chat=True, complete=False, count_tokens=None, tools=True,
@@ -70,28 +35,14 @@ HOSTS: dict[str, tuple[str, Capabilities]] = {
 }
 
 
-#: The message-level fields a host returns reasoning in.
 REASONING_FIELDS = ("reasoning_content", "reasoning", "reasoning_details")
 
-#: The hosts whose documentation asks for returned reasoning to come
-#: back on later turns: DeepSeek refuses a request with tools that
-#: omits it, Fireworks requires it for interleaved thinking, and
-#: OpenRouter (the usual `openai-compatible` host) takes it to keep a
-#: model's reasoning across turns. xAI's and OpenAI's chat completions
-#: have no field to take it back in.
 REPLAYS_REASONING = frozenset({"deepseek", "fireworks", "openai-compatible"})
 
-#: The delimiters of reasoning written inline in `content`, as a
-#: server without a reasoning parser returns an R1-style model's turn.
 INLINE_THOUGHT = ("<think>", "</think>")
 
 
 def split_inline_thought(content: str) -> tuple[str | None, str]:
-    """`(reasoning, prose)` for content that carries its reasoning
-    inline. Only a turn that OPENS with reasoning counts: a leading
-    `<think>` block (unclosed, the whole turn is reasoning), or text
-    closed by a `</think>` with no opening tag, which is what a server
-    returns when the template put the opening tag in the prompt."""
     open_s, close_s = INLINE_THOUGHT
     head = content.lstrip()
     if head.startswith(open_s):
@@ -108,8 +59,6 @@ def split_inline_thought(content: str) -> tuple[str | None, str]:
 
 def read_reasoning(message: Mapping[str, Any], provider: str,
                    model: str) -> msg.ReasoningPart | None:
-    """The reasoning fields of a response message as one reasoning part,
-    or None when it carries none."""
     native = {k: message[k] for k in REASONING_FIELDS if message.get(k)}
     if not native:
         return None
@@ -129,9 +78,6 @@ def _messages(req: msg.ChatRequest, provider: str) -> list[dict[str, Any]]:
         out.append({"role": "system", "content": req.system})
     for m in req.messages:
         text = msg.join_text(m.content)
-        # Another model's reasoning is dropped, never turned into text:
-        # every host behind this adapter shares one provider name, and
-        # one host's fields mean nothing to another.
         reasoning = [p for p in m.content if isinstance(p, msg.ReasoningPart)
                      and p.native and provider in REPLAYS_REASONING
                      and msg.is_replayable(p.provider, p.model, provider=provider,
@@ -151,8 +97,6 @@ def _messages(req: msg.ChatRequest, provider: str) -> list[dict[str, Any]]:
                     for c in calls]
             out.append(entry)
             continue
-        # A user turn may carry tool results, which this API models as
-        # their own messages BEFORE the user's text.
         for r in results:
             out.append({"role": "tool", "tool_call_id": r.tool_call_id,
                         "content": r.content})
@@ -163,9 +107,6 @@ def _messages(req: msg.ChatRequest, provider: str) -> list[dict[str, Any]]:
 
 def read_empty(provider: str, message: Mapping[str, Any], *, stop_reason: str,
                usage: Usage, max_tokens: int, reasoned: bool = False) -> EmptyReply:
-    """Why a choice with no content and no tool calls came back that way:
-    a content filter or a refusal, the output allowance spent on
-    reasoning, or nothing the response says."""
     refusal = message.get("refusal")
     if stop_reason == "content_filter" or refusal:
         said = f": {str(refusal)[:200]}" if refusal else ""
@@ -191,8 +132,6 @@ def read_empty(provider: str, message: Mapping[str, Any], *, stop_reason: str,
 def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
                   provider: str,
                   headers: Mapping[str, str] | None = None) -> AdapterResponse:
-    """A chat-completions response body as canonical parts. Pure: a
-    cassette that kept the body maps it again through this on replay."""
     choice = (data.get("choices") or [{}])[0]
     m = choice.get("message") or {}
     parts: list[msg.Part] = []
@@ -201,8 +140,6 @@ def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
     if reasoning is None and content:
         inline, content = split_inline_thought(content)
         if inline is not None:
-            # Written into the reply rather than returned beside it:
-            # reasoning to read, with nothing a later turn sends back.
             reasoning = msg.ReasoningPart(text=inline, redacted=not inline,
                                           provider=provider, model=req.model)
     if reasoning is not None:
@@ -215,8 +152,6 @@ def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
         try:
             args = json.loads(raw) if isinstance(raw, str) else dict(raw)
         except json.JSONDecodeError:
-            # A model that emitted invalid JSON is a fact about the
-            # run, not a crash: keep it verbatim for the reader.
             args = {"$raw": raw}
         parts.append(msg.ToolCallPart(id=str(c.get("id", "")),
                                       name=str(fn.get("name", "")),
@@ -256,9 +191,6 @@ class OpenAICompatibleTransport(Transport):
                 f"{provider}: an openai-compatible endpoint needs a base_url "
                 "(the credential carries {token, base_url})")
         token = cred.get("token")
-        # A local server (llama.cpp, vLLM, Ollama) commonly has no key —
-        # that is legitimate, and refusing it would block the cheapest
-        # remote node there is.
         self._token = str(token) if token else ""
         self.name = provider
         self.capabilities = capabilities or caps
@@ -300,8 +232,6 @@ class OpenAICompatibleTransport(Transport):
 
     def _chat(self, req: msg.ChatRequest, *, on_token=None) -> AdapterResponse:
         if req.api == "responses":
-            # The same provider through its other door: same key, host,
-            # prices and limits; another wire shape.
             from mechbench_compute.providers import openai_responses
 
             resp = http.post_json(f"{self._base}/responses", headers=self._headers(),

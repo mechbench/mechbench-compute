@@ -1,17 +1,3 @@
-"""Guest conformance battery: every applet against every
-kind of input, asserting the robustness contract rather than outputs.
-
-The contract: the guest never traps, never raises out of the runtime,
-never panics (recovered or not), finishes inside a small budget, and
-a read-only command leaves the tree alone. What a command PRINTS is
-its business; that it comes back is ours. This is how coreutils got
-hard — not by reasoning about each utility, but by feeding every one
-of them everything. At a few milliseconds a run the whole matrix is
-seconds, so it runs against the pinned hash on every push.
-
-A new applet upstream fails `test_every_applet_is_covered` until it
-is given a template here or an exclusion with a reason.
-"""
 from __future__ import annotations
 
 import os
@@ -33,16 +19,12 @@ def guest(tmp_path_factory):
     if not BUILT.is_file():
         pytest.skip("mbshell.wasm not built on this machine — guests/mbshell/build.sh")
     os.environ["MECHBENCH_GUEST_CACHE"] = str(tmp_path_factory.mktemp("guests"))
-    guests.install_local("mbshell", BUILT)   # refuses a build off the pin
+    guests.install_local("mbshell", BUILT)
     return "mbshell"
 
 
-# ---------------------------------------------------------------- inputs
-
 _rng = random.Random(20260912)
 
-#: One tree with every kind of thing in it. `missing` is a path that
-#: is not there.
 BATTERY = fs.seeded({
     "text.txt": "one two three\nfour five\nsix\n",
     "empty.txt": "",
@@ -62,10 +44,7 @@ KINDS = {
     "deep": "deep", "many": "many", "missing": "missing",
 }
 
-# ------------------------------------------------------------- templates
 
-#: (label, template, mutates). A list is run directly — busybox's own
-#: dispatch — with X substituted; a string is `sh -c` with {x}.
 X = "{x}"
 TEMPLATES: list[tuple[str, list[str] | str, bool]] = [
     ("cat", ["cat", X], False),
@@ -117,7 +96,6 @@ TEMPLATES: list[tuple[str, list[str] | str, bool]] = [
     ("sed -i", ["sed", "-i", "s/e/E/", X], True),
 ]
 
-#: Applets that take no path. Run once each.
 SOLO: list[list[str]] = [
     ["pwd"], ["nproc"], ["whoami"], ["logname"], ["users"], ["who"], ["w"],
     ["uptime"], ["free"], ["ps"], ["ss"],
@@ -131,14 +109,12 @@ SOLO: list[list[str]] = [
     ["sh", "-c", "exit 127"], ["sh", "-c", "set -e; false"],
 ]
 
-#: Network applets: nothing to connect to, ever. Must fail, fast.
 NETWORK: list[list[str]] = [
     ["wget", "-O", "-", "http://127.0.0.1:9/"],
     ["nc", "-z", "127.0.0.1", "9"],
     ["dig", "localhost"],
 ]
 
-#: Left out on purpose, with the reason.
 EXCLUDED = {
     "top": "loops by design; with waits virtual it is a tight loop until the wall cap",
     "watch": "loops by design; same",
@@ -169,8 +145,6 @@ def _check(r: sandbox.Result, argv: list[str], kind: str, mutates: bool,
         assert r.changed.empty, f"{where}: a read-only command changed {r.changed.to_wire()}"
 
 
-# ----------------------------------------------------------------- tests
-
 @pytest.mark.parametrize("kind", list(KINDS))
 @pytest.mark.parametrize("label,template,mutates", TEMPLATES, ids=[t[0] for t in TEMPLATES])
 def test_applet_on_input(guest, label, template, mutates, kind):
@@ -193,9 +167,6 @@ def test_network_applet_fails_fast(guest, argv):
 
 
 def test_unbounded_recursion_is_a_named_limit(guest):
-    # A shell function that calls itself forever. The interpreter
-    # recurses on the wasm call stack, which wasmtime caps; the trap
-    # is named, never generic.
     r = sandbox.run(BATTERY, ["sh", "-c", "f() { f; }; f"], guest=guest,
                     limits=L(memory_mb=64, wall_seconds=10))
     assert r.limit == "stack", (r.exit_code, r.stderr[-300:])

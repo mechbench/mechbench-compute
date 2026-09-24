@@ -9,11 +9,6 @@ from mechbench_compute.intervene.spec import Spec
 
 
 class Compiled:
-    """A spec list parsed against a model: the activation items as
-    `Spec`s, the weight items as written, and the items as filled from
-    the ports — what lineage records. `at(cell)` re-parses the items
-    with a sweep cell's fields overridden."""
-
     def __init__(self, specs: list[Spec], weight_items: list[dict[str, Any]],
                  filled: list[dict[str, Any]], *,
                  activation_items: Sequence[Mapping[str, Any]] = (),
@@ -23,9 +18,6 @@ class Compiled:
         self.n_layers, self.seed = int(n_layers), int(seed)
 
     def at(self, cell: Cell) -> list[Spec]:
-        """The specs this cell runs: each item with the cell's fields
-        set — unless the item's `sweep_over` names a smaller set of axes
-        — and every strength multiplied by the cell's factor."""
         if not cell.overrides:
             return scale_specs(self.specs, cell.factor)
         out: list[Spec] = []

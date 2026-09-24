@@ -7,7 +7,6 @@ from mechbench_compute.weights.resolve_module import resolve_module
 
 
 def restore_parameters(lm: Any, handle: Sequence[tuple[str, Any]]) -> None:
-    """Undo `edit_parameters` by reinstalling the tensors it kept."""
     import mlx.core as mx
 
     for name, before in reversed(list(handle)):

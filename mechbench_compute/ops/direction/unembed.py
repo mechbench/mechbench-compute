@@ -50,18 +50,12 @@ reads.
 
 
 def run(ctx, inputs, params):
-    """direction/unembed: a direction through the unembedding — its top
-    tokens in both signs."""
-
     model = ctx.model(params.get("model"))
     d = inputs.get("direction")
     return unembed_direction(model, d, top_k=int(params.get("top_k", 10)))
 
 
 def unembed_direction(model, d: Mapping[str, Any], *, top_k: int = 10) -> dict[str, Any]:
-    """What a direction 'says' in token space: the distribution the
-    unembedding gives +d and −d (the final norm is scale-invariant, so a
-    unit direction is as good as any multiple)."""
     u = coerce_array(d)
     out: dict[str, Any] = {"kind": "direction/vocab", "space": read_space(d), "top_k": int(top_k)}
     for name, sign in (("positive", 1.0), ("negative", -1.0)):

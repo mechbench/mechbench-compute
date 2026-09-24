@@ -1,35 +1,11 @@
-"""Everything about a graph that is decidable before it runs."""
-
 from __future__ import annotations
 
 from mechbench_compute import dataflow, lexicon
 
-#: What a port may do when its upstream produced nothing.
 MISSING_POLICIES = ("fail", "skip", "placeholder")
 
 
 def check_graph(nodes, edges, order) -> None:
-    """Everything about a graph that is decidable before it runs, decided
-    before it runs.
-
-    Checked here rather than when execution reaches a node, so that a
-    graph that cannot run costs nothing upstream of its first mistake.
-    Three things are known here, for every node:
-
-    - its **operation** exists (a retired spelling names its
-      replacement);
-    - every **param** is one the op reads — names only, so nothing is
-      fetched and no binding has to be resolved;
-    - every **port** an edge or an `inputs` entry names exists, and
-      every required port is filled by one of them.
-
-    What a port is FILLED WITH is not knowable here — it is the upstream
-    node's output — so the kind check stays where it is, in the loop.
-
-    Every problem is reported, not the first: a protocol being carried
-    forward usually has several, and one refusal per run is the
-    expensive way to find them.
-    """
     from mechbench_compute.block_params import check_params
 
     problems: list[str] = []
@@ -41,7 +17,6 @@ def check_graph(nodes, edges, order) -> None:
             into.setdefault(to["node"], set()).add(to["port"])
             counts = edge_counts.setdefault(to["node"], {})
             counts[to["port"]] = counts.get(to["port"], 0) + 1
-    # Input edges lowered onto a variadic port are edges too.
     for nid, node in nodes.items():
         for port, raw in (node.get("inputs") or {}).items():
             if dataflow.is_input_branches(raw):
@@ -72,20 +47,13 @@ def check_graph(nodes, edges, order) -> None:
                 problems.append(
                     f"  {nid} ({name}): no input port {port_name!r}. "
                     f"Its ports: {known}.")
-        # How MANY edges reach each port. A port that takes one and is
-        # wired twice is refused here, so no result ever depends on the
-        # order the author wrote the edges in.
         for port_name, n in sorted(edge_counts.get(nid, {}).items()):
             decl = op.port(port_name)
             if decl is None:
-                continue          # already reported above
+                continue
             bad = decl.arity_error(n)
             if bad:
                 problems.append(f"  {nid} ({name}): port {port_name!r} {bad}.")
-        # What each port does when its upstream produces nothing: the
-        # policy must be one of the three, and `placeholder` needs a
-        # kind with an empty value — an empty collection is a real value,
-        # an empty `direction/vector` is not.
         for e in edges:
             if (e.get("to") or {}).get("node") != nid or not e.get("on_missing"):
                 continue

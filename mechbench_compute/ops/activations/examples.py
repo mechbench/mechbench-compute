@@ -87,9 +87,6 @@ came from rather than as a bare number.
 
 
 def run(ctx, inputs, params):
-    """activations/examples — the corpus windows that most excite a
-    direction or a neuron, the corpus never held."""
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return find_top_examples(model, records, params,
@@ -105,18 +102,6 @@ def find_top_examples(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """The corpus windows that most excite a direction or a neuron, with
-    the corpus never held.
-
-    The first thing anyone asks of a direction, a neuron or a feature is
-    "what turns it on" — and the answer is a handful of windows out of a
-    corpus of any size. Every record is run once, every token projected
-    onto the direction (or read off the neuron), and only the best `k`
-    windows are kept: memory is k × window, not the corpus. What the
-    whole corpus was like rides on the header as the moments of the
-    projection, so a window's value can be read against the field it
-    came from.
-    """
     from mechbench_compute import directions as dirs
 
     neuron = params.get("neuron")
@@ -158,7 +143,7 @@ def find_top_examples(
     for record in records:
         r = render(model, record)
         res = model.run(r.array, interventions=[Capture.at([name])])
-        act = res.cache[name][0].astype(mx.float32)     # [L, d] (or [L, heads, d])
+        act = res.cache[name][0].astype(mx.float32)
         if vec is not None:
             values = np.array(mx.sum(act * mx.array(vec), axis=-1))
         else:
@@ -178,14 +163,9 @@ def find_top_examples(
                     "token": toks[pos],
                     "text": "".join(toks[a:b]),
                     "tokens": list(toks[a:b]),
-                    # Every token of the window, not only the one that
-                    # won it: a token strip colours them all, and the
-                    # shape of the rise is the interesting part.
                     "values": [round(float(v), 5) for v in values[a:b]],
                     "hit": int(pos - a)}
 
-        # Only this record's best few can enter the running top, so the
-        # corpus is never sorted whole.
         if sign in ("high", "both"):
             for pos in np.argsort(-values)[:k]:
                 keep_high.append((float(values[pos]), window_at(int(pos), values[pos])))
@@ -210,7 +190,6 @@ def find_top_examples(
         model=S.model_id_of(model), point=point, layer=layer,
         **({"neuron": index} if index is not None else {}),
         window=half, sign=sign,
-        # What the corpus was like, so a window's value reads against it.
         over={"n_tokens": n_tokens, "mean": round(mean, 5),
               "sd": round(float(np.sqrt(var)), 5),
               "min": round(lo_all, 5), "max": round(hi_all, 5)},

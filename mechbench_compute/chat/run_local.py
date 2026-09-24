@@ -20,12 +20,6 @@ from mechbench_compute.providers import messages as pm
 
 def run_local(model, ref, records, params, *, inputs=None, on_item=None,
               on_start=None, resume_items=None) -> dict[str, Any]:
-    """The MLX path: the same block, the same output, sampled here.
-
-    Multi-turn conversations render through the tokenizer's own chat
-    template, so a local model sees the same turns the remote one did —
-    the comparison a protocol is usually built to make.
-    """
     import numpy as _np
 
     from mechbench_compute import dialects
@@ -35,23 +29,12 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     from mechbench_compute.generate import sample_completion_cached
     from mechbench_compute.seeds import item_seed
 
-    # The model's own chat template carries the tool protocol: it
-    # declares the tools, renders the call, and renders the result. Same
-    # tools, same handlers, same provenance as the remote path — only
-    # the transport differs.
     max_tool_rounds = int(params.get("max_tool_rounds", 3))
     image, tool_specs = resolve_sandbox_tools(params)
     block_runner = params.get("_block_runner")
     tok = model.tokenizer
-    # The model's own chat template decides how tools are declared,
-    # called and answered. If it has no protocol, this raises rather
-    # than inventing one: a model that cannot receive a declaration
-    # produces output indistinguishable from a model that chose not to
-    # call anything.
     dialect = (dialects.dialect_for(tok, model=str(getattr(ref, "base", ref)))
                if tool_specs else None)
-    # Reasoning a template marks with special tokens leaves the text;
-    # a model whose vocabulary has no such tokens is left untouched.
     delimiters = find_delimiters(tok)
     model_name = str(getattr(ref, "base", ref))
     refuse_remote_only(params)
@@ -64,18 +47,11 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     max_tokens = int(params.get("max_tokens", 1024))
     stop_strings = tuple(params.get("stop") or ())
     model_wire = ref.to_wire() if hasattr(ref, "to_wire") else ref
-    # An intervention makes the node a sweep: one set of replies per
-    # cell, its axes coordinates, weight edits scoped per strength.
-    # Without one there is a single cell.
     plan = intervene_mod.plan(model, params, inputs)
     cells: list = plan.cells if plan else [None]
     if on_start:
         on_start(len(recs) * n * len(cells))
     items: list[dict[str, Any]] = []
-    # Tool-call errors, reported and not merely counted. An individual
-    # failure does not fail the run unless asked to: `on_tool_error`
-    # mirrors group-stats' `on_missing` rather than inventing a second
-    # idiom for the same choice.
     on_tool_error = str(params.get("on_tool_error", "record"))
     if on_tool_error not in ("record", "fail"):
         raise ValueError(
@@ -104,9 +80,6 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                 for round_no in range(max_tool_rounds + 1):
                     ids = encode(tok, render_conversation(
                         tok, turn, tools=hf_tools, dialect=dialect))
-                    # Every round is its own sequence — a tool result
-                    # lengthens the prompt — so each gets a live
-                    # intervention over its own tokens.
                     if plan:
                         prompt_tokens = [tok.decode([int(t)]) for t in ids]
                         prefill = prefill_decision(
@@ -127,13 +100,6 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                     thoughts.extend(said)
                     if not box or round_no == max_tool_rounds:
                         break
-                    # The call markup leaves the text: it goes back into
-                    # the transcript as a structured `tool_calls` entry,
-                    # and a model handed its own call twice answers with
-                    # nothing.
-                    # Only calls to tools we offered are stripped and
-                    # executed; an unknown name stays in the text so the
-                    # error can quote it.
                     text, tool_calls = (dialect.parse(text, box.tools)
                                         if dialect else (text, []))
                     if not tool_calls:
@@ -146,15 +112,8 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                                    content=(*said, pm.TextPart(text), *tool_calls)),
                         pm.Message(role="tool", content=tuple(results)),
                     ])
-                # A response that was reaching for a tool and produced no
-                # call is a NEAR MISS, not a plain answer, and is counted
-                # as one: a correct call the parser does not recognize
-                # otherwise reads exactly like no call at all.
                 item_errors: list[dict[str, Any]] = []
                 if box:
-                    # A tool that ran and raised is an error too, and
-                    # belongs in the node's errors, not only in the
-                    # item's `tool_runs`.
                     for r in box.runs:
                         if r.error:
                             item_errors.append(dialects.ToolError(
@@ -195,12 +154,6 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
         fidelity="text",
         ended=count_endings(items),
         **(plan.header() if plan else {}),
-        # Reported even when zero: "no tool calls" and "no tool calls
-        # and nobody tried" are different facts about a run.
-        # Everything a reader needs to know about tool use, without
-        # re-deriving it from the items: how many responses called a
-        # tool at all (a statistic — answering directly is a legitimate
-        # outcome, not an error), and every error with its cause.
         **({"tools": {
             "dialect": dialect.name if dialect else None,
             "responses": len(items),

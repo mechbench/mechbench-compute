@@ -1,7 +1,3 @@
-"""Complete outcomes read exactly: multi-token outcomes
-scored whole, closed by their closer, into `tracked` by name — with the
-scorer replaced, so the arithmetic is the test's own, no model."""
-
 import math
 
 import pytest
@@ -11,8 +7,6 @@ from mechbench_compute.ops.eval.expect import check_expectations
 
 
 class WordTok:
-    """One token per character, so a sequence's length is its text's."""
-
     def encode(self, text, add_special_tokens=False):
         return [ord(c) for c in text]
 
@@ -22,8 +16,6 @@ PROMPT = 'Pick: "'
 
 @pytest.fixture
 def scored(monkeypatch):
-    """A scorer that gives each outcome the log-prob its test says, and
-    records the token sequences it was asked about."""
     asked: dict[str, list[int]] = {}
     logps: dict[str, float] = {}
 
@@ -45,7 +37,6 @@ def test_outcomes_are_scored_with_their_closer(scored):
     assert asked["Mystery"] == tok.encode('Mystery"')
     assert entries["Mystery"] == {"text": "Mystery", "tokens": 8, "p": 0.3, "logp": round(math.log(0.3), 4)}
     assert mass == pytest.approx(0.4)
-    # 0.3 : 0.1 renormalized is 0.75 : 0.25.
     assert entropy == pytest.approx(-(0.75 * math.log2(0.75) + 0.25 * math.log2(0.25)))
 
 
@@ -67,7 +58,6 @@ def test_items_can_be_a_target_spec_narrowed_by_its_transforms(scored):
     logps.update({"a": math.log(0.5), "b": math.log(0.25)})
     entries, _, _ = distill.score_complete(None, tok, PROMPT, tok.encode(PROMPT), {"items": freqs})
     assert list(entries) == ["a", "b"]
-    # A fetched target_map object arrives as its payload, {kind, weights}.
     fetched = {"weights": {"kind": "target_map", "weights": freqs["weights"]},
                "transform": freqs["transform"]}
     entries, _, _ = distill.score_complete(None, tok, PROMPT, tok.encode(PROMPT), {"items": fetched})
@@ -82,8 +72,6 @@ def test_items_must_name_outcomes():
 
 
 def test_a_complete_read_is_judged_against_its_target_like_a_token_read(scored):
-    """The point of putting complete outcomes in `tracked`: `eval/expect`
-    needs nothing new to judge a many-token vocabulary."""
     _, logps = scored
     tok = WordTok()
     target = {"Mystery": 2.0, "Humor": 1.0, "Science Fiction": 1.0}

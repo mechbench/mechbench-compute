@@ -32,12 +32,4 @@ def run(ctx, inputs, params):
 
 
 def normalize(d: Mapping[str, Any]) -> dict[str, Any]:
-    """A direction rescaled to unit length, keeping its space and model.
-
-    Directions are stored unit already, so this is for the case where one
-    arrived otherwise — hand-built, or read from an external source —
-    and for making the normalization an explicit, recorded step rather
-    than an implicit one.
-    """
     return make(coerce_array(d), read_space(d), method="normalize")
-

@@ -7,9 +7,6 @@ from typing import Any
 
 @dataclass
 class ToolRun:
-    """What happened when a tool ran — the provenance of a capability
-    exercised, recorded beside the model call that asked for it."""
-
     tool: str
     arguments: Mapping[str, Any]
     handler: Mapping[str, Any]

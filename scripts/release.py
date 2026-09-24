@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""The release gate (task 000300), compute edition.
-
-Same contract as the runner's: no upload until the suite is green, the
-wheel builds, and the wheel installs into a FRESH venv with every
-dependency resolved from the real index — then a smoke that exercises
-the fresh-machine asymmetries a dev environment hides. The very first
-dry run of the runner's gate caught `inventory.scan()` crashing on a
-machine with no HF cache directory; that check is now a permanent
-resident here.
-
-Usage:
-    python scripts/release.py              # gate, then upload
-    python scripts/release.py --dry-run    # gate only
-"""
 
 from __future__ import annotations
 
@@ -41,10 +27,6 @@ def die(step: str, proc: subprocess.CompletedProcess | None = None) -> None:
     sys.exit(1)
 
 
-#: Both headings are required, and an empty list says `_None._` — see
-#: mechbench/docs/RELEASE_NOTES.md. "There were none" and "nobody
-#: thought about it" must not look the same, which is the whole point
-#: of gating on it rather than trusting it.
 REQUIRED_HEADINGS = (
     "### Changes that raise",
     "### Changes that alter results without raising",
@@ -52,7 +34,6 @@ REQUIRED_HEADINGS = (
 
 
 def check_changelog(version: str) -> str | None:
-    """The version's entry, or a sentence saying what is wrong with it."""
     path = REPO / "CHANGELOG.md"
     if not path.exists():
         return "CHANGELOG.md is missing"
@@ -72,25 +53,6 @@ def check_changelog(version: str) -> str | None:
 
 
 def rollout_budget() -> None:
-    """`scripts/bench_rollout.py` on the release machine: a decision read
-    with rollout must not have got slower per forward. A matrix of 312
-    reads once took 36 minutes where it had taken 4, and nothing in the
-    numbers said so — the count of forwards was the same; only the
-    clock knew.
-
-    **Opt-in since 0.100.0** (`--with-model-budget`, task 000552). Benji:
-    "we support many different models, and it's not practical to run a
-    performance test of all those different models upon every release …
-    we have been cutting many releases per day". It loaded ~10 GB of
-    weights for one model, and skipped itself whenever the runner was
-    busy or that model was not cached.
-
-    Note what 000506 turned out to be: the runner running as a launchd
-    `Background` process, on the efficiency cores. That is an environment
-    regression, and no release-time run on the release machine would have
-    told it from a busy afternoon. Timing belongs where the work happens
-    — per-node durations from real jobs — and the code invariants belong
-    in the suite (`tests/test_rollout_work.py`)."""
     status = run(["mechbench", "status"], timeout=30)
     if status.returncode == 0 and "executing" in (status.stdout or ""):
         print("  skipped: the runner is executing a job; the number would be the machine's")

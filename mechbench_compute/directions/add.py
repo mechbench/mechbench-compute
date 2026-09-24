@@ -11,13 +11,6 @@ from mechbench_compute.directions.read_space import read_space
 
 def add(directions: Sequence[Mapping[str, Any]],
         weights: Sequence[float] | None = None) -> dict[str, Any]:
-    """Weighted sum of directions in one space, re-normalized.
-
-    The composition primitive: steering along "formal" and "terse" at
-    once is their sum, and `weights` sets the mix. Every input must share
-    a space — adding across spaces is meaningless, and `same_space`
-    refuses it rather than returning a plausible vector.
-    """
     if not directions:
         raise ValueError("add needs at least one direction")
     ws = [1.0] * len(directions) if weights is None else [float(w) for w in weights]

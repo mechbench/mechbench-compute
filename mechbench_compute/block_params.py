@@ -1,40 +1,3 @@
-"""What params and inputs a block accepts — so asking for something it
-cannot do fails loudly.
-
-A param a block does not read is REFUSED, never ignored. Ignoring one
-means a protocol asks for a measurement, the platform reports success,
-and the number is a different measurement — which nothing downstream
-can tell apart from the one that was asked for.
-
-**Every canonical op is declared**, in `mechbench_compute.lexicon`, and
-`tests/test_block_params.py` fails when a new op arrives undeclared.
-The tables here are derived from that lexicon: the lexicon is where a
-parameter's type, default and meaning live, beside its name, and this
-module is the runtime check that reads the names.
-
-The forward-compatibility argument cuts toward strictness. A NEW
-protocol running against an OLD block is exactly the dangerous case,
-and "this runner's `vectors/mst` does not accept `center`" is strictly
-better than a quiet wrong number.
-
-**Both directions are bugs.** An incomplete declaration falsely refuses
-a param the block does read. An over-declaration accepts one it never
-reads, which is the same silent-wrong-number failure: a protocol sets
-it and nothing uses it. The test asserts the declaration
-EQUALS what the code reads, following `params` across modules and into
-packages to find out.
-
-**Inputs are checked the same way.** An op declares its ports — name,
-kind, whether a collection, whether required — and `check_inputs`
-refuses an edge onto a port the op does not have, a required port with
-nothing on it, and a value whose kind does not satisfy the port's. The
-same test proves the declared ports equal the ones the code reads.
-
-A block absent from `ACCEPTED` is still unchecked at runtime — an
-extension's op is nobody's business but its own — but no canonical op
-may be absent, and the test enforces that.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -45,38 +8,25 @@ from mechbench_compute.lexicon import BY_NAME
 from mechbench_compute.lexicon import COMMON as _COMMON_PARAMS
 from mechbench_compute.lexicon import kinds as K
 
-#: Accepted by every block: the wiring, not the operation. Documented
-#: in `lexicon.common`.
 COMMON: frozenset[str] = frozenset(p.name for p in _COMMON_PARAMS)
 
-#: op name -> the params it reads, beyond COMMON.
 ACCEPTED: dict[str, frozenset[str]] = {
     name: op.param_names for name, op in BY_NAME.items()
 }
 
-#: op name -> the ports it reads.
 PORTS: dict[str, frozenset[str]] = {
     name: op.port_names for name, op in BY_NAME.items()
 }
 
 
 def check_params(block: str, params: Mapping[str, object]) -> None:
-    """Raise if `block` was handed a param it does not read.
-
-    `block` may be spelled any way `lexicon.resolve` accepts. The message
-    names the parameter AND the block, because the useful question when
-    this fires is 'does this runner's copy of that block know about
-    it?' — usually the answer is that the runner is old.
-    """
     try:
         block = lexicon.resolve(block, warn=False)
     except KeyError:
-        return  # not canonical: an extension's op checks its own params
+        return
     accepted = ACCEPTED.get(block)
     if accepted is None:
         return
-    # Underscore keys are the executor's own injections (a block
-    # runner, a resume handle), never something a protocol declared.
     unknown = sorted(k for k in set(params) - accepted - COMMON
                      if not k.startswith("_"))
     if not unknown:
@@ -99,17 +49,7 @@ def check_params(block: str, params: Mapping[str, object]) -> None:
 
 
 def _kind_of(value: Any) -> tuple[str | None, bool]:
-    """(bare kind name, is-a-collection) of a value arriving on a port,
-    however it is spelled: a `collection`, a legacy plural object, a
-    singular kinded object, or a bare list (a collection of
-    `records/record`, by convention). `(None, …)` for a value that
-    carries no kind at all — an older stored object, or a literal — which
-    is accepted as it is, since there is no name to refuse it by."""
     if isinstance(value, list):
-        # A list of kinded objects (directions fetched one by one) is a
-        # collection of that kind; a list of plain objects is records; a
-        # list of strings, or of references not yet resolved, says
-        # nothing about its kind.
         first = value[0] if value else None
         if isinstance(first, Mapping) and isinstance(first.get("kind"), str):
             try:
@@ -128,25 +68,11 @@ def _kind_of(value: Any) -> tuple[str | None, bool]:
     try:
         name, plural = K.resolve_kind(k, warn=False)
     except KeyError:
-        # A kind the registry does not know — an extension's, or one
-        # this runner has no declaration for — is no name to refuse by.
         return None, False
     return name, plural
 
 
 def check_inputs(block: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
-    """Refuse what the op cannot take on its ports, and return the inputs
-    with a bare list wrapped as the collection it stands for.
-
-    Three refusals, each naming the op, the port and the kind: a port the
-    op does not declare; a required port with nothing on it; a value
-    whose kind does not satisfy the port's (by `extends`). A value
-    carrying no kind — a stored object without one, an inline literal
-    object — passes: there is no name to refuse it by, and the block
-    reads it as it is.
-
-    An op that is not canonical is not second-guessed.
-    """
     try:
         block = lexicon.resolve(block, warn=False)
     except KeyError:
@@ -166,11 +92,6 @@ def check_inputs(block: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
         if port.variadic and isinstance(value, list) and all(
                 isinstance(v, Mapping) and "value" in v and ("node" in v or "input" in v)
                 for v in value):
-            # A variadic port's value is the EDGES, not the items: each
-            # entry is `{node, value}`, or `{input, value}` for an edge
-            # from a protocol input, and what is checked is what each
-            # edge carries. Nothing is wrapped — the list is the port's
-            # shape.
             for entry in value:
                 actual, _plural = _kind_of(entry["value"])
                 if actual is not None and not any(

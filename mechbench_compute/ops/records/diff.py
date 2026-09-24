@@ -11,12 +11,6 @@ from mechbench_compute.blocks.build_collection import build_collection
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
-#: Fields whose values move on every run whatever the computation did:
-#: when it happened, how long the call took, the ids a provider or the
-#: platform minted, the rate-limit counters, where a job's results sit,
-#: and the compute version with its `+src` stamp. Each is a dotted path
-#: matched against the end of a field's path, and one naming a mapping
-#: excludes everything under it.
 MOVING = (
     "created_at", "updated_at", "started_at", "finished_at", "timestamp",
     "latency_ms", "throttled_seconds", "attempts",
@@ -144,9 +138,6 @@ def run(ctx, inputs, params):
 
 def diff_collections(a: Any, b: Any, params: Mapping[str, Any], *,
                      provenance: tuple[Any, Any] | None = None) -> dict[str, Any]:
-    """`records/diff`: two collections compared record by record, matched
-    by key. `provenance`, the two sides' envelopes' provenance when the
-    caller fetched them, is compared as the header is."""
     key = params.get("key") or "id"
     key = [key] if isinstance(key, str) else list(key)
     selected = list(params.get("fields") or [])
@@ -304,8 +295,6 @@ def _is_same(x: Any, y: Any) -> bool:
 
 
 def _is_same_kind(path: str, x: Any, y: Any) -> bool:
-    """A kind named by its retired spelling and by its current name is one
-    kind (`~canonical/kinds/text` is `text/document`)."""
     if path.rsplit(".", 1)[-1] not in ("kind", "item_kind"):
         return False
     if not (isinstance(x, str) and isinstance(y, str)):

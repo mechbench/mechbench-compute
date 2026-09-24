@@ -44,8 +44,6 @@ def run(ctx, inputs, params):
 
 
 def project_rows(vectors: Mapping[str, Any], d: Mapping[str, Any]) -> dict[str, Any]:
-    """Each item of a vector collection at the direction's layer,
-    projected onto the direction: the scalar coordinate along it."""
     layer = S.layer_of(d)
     rows = select_layer_items(vectors, layer)
     u = coerce_array(d)
@@ -60,4 +58,3 @@ def project_rows(vectors: Mapping[str, Any], d: Mapping[str, Any]) -> dict[str, 
     from mechbench_compute.lexicon import kinds as K
 
     return K.collection("activations/coordinate", out, projected=True)
-

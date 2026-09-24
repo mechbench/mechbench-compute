@@ -15,10 +15,6 @@ from mechbench_compute.intervene.serialize_spec import serialize_spec
 
 
 class Plan:
-    """What a text op runs under an intervention: the compiled specs,
-    the sweep's cells, and a way to make one record's live intervention
-    per cell. None of it when the node has no intervention."""
-
     def __init__(self, compiled: Compiled, cells: list[Cell],
                  sweep: Mapping[str, Any] | None = None) -> None:
         self.compiled, self.cells = compiled, cells
@@ -38,23 +34,17 @@ class Plan:
 
     def live(self, cell: Cell, tokens: Sequence[str],
              record: Mapping[str, Any] | None = None) -> list[SpecIntervention]:
-        """The interventions for one record in one cell: none in the
-        control, else the cell's specs, over a token list this record's
-        decoder grows."""
         if cell.factor == 0.0 or not self.specs:
             return []
         return [SpecIntervention(self.compiled.at(cell), tokens, record, growing=True)]
 
     def header(self) -> dict[str, Any]:
-        """What the result records: the items as run, the weight edits,
-        the sweep as run."""
         return {"spec": serialize_spec(self.compiled.filled),
                 "weights": [dict(it) for it in self.weight_items] or None,
                 "sweep": sweep_as_run(self._sweep, self.cells)}
 
 
 def plan(model, params: Mapping[str, Any], inputs: Mapping[str, Any] | None) -> Plan | None:
-    """A text op's intervention, planned: None when the node names none."""
     items = read_spec_items(params.get("spec"), inputs)
     if not items:
         return None

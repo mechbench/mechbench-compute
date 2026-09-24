@@ -1,12 +1,3 @@
-"""Sequential adapter fusing.
-
-What is worth asserting is the SEQUENCING, with the fuse math faked:
-stacks fuse left to right, restore runs strictly in reverse, and the
-scale override touches only the last (node-level) position. The real
-`W += scale*(B@A)` arithmetic is lora.fuse's business and exercised
-where adapters are actually trained.
-"""
-
 import pytest
 
 from mechbench_compute import lora
@@ -26,8 +17,6 @@ def recorded(monkeypatch):
     monkeypatch.setattr(
         lora,
         "fuse",
-        # `**kw`: fuse also takes skip_missing / skipped; the
-        # stack's sequencing is what is under test, not those.
         lambda lm, weights, scale, **kw: calls["fused"].append((weights, scale)) or f"h{len(calls['fused'])}",
     )
     monkeypatch.setattr(
@@ -40,7 +29,7 @@ class TestFuseStack:
     def test_left_to_right_with_each_payloads_own_scale(self, recorded):
         handles = lora.fuse_adapter_stack("lm", [PAYLOAD_A, PAYLOAD_B])
         assert [w for w, _ in recorded["fused"]] == [b"a", b"b"]
-        assert [s for _, s in recorded["fused"]] == [2.0, 1.0]  # 16/8, 4/4
+        assert [s for _, s in recorded["fused"]] == [2.0, 1.0]
         assert handles == ["h1", "h2"]
 
     def test_override_scale_touches_only_the_last(self, recorded):
@@ -57,6 +46,4 @@ class TestRestoreStack:
     def test_strictly_reverse_order(self, recorded):
         handles = lora.fuse_adapter_stack("lm", [PAYLOAD_A, PAYLOAD_B])
         lora.restore_adapter_stack("lm", handles)
-        # h2 captured the post-a1 weights; h1 the originals. Any other
-        # order reinstalls the wrong past.
         assert recorded["restored"] == ["h2", "h1"]

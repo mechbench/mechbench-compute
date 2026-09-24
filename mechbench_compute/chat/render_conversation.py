@@ -10,23 +10,6 @@ from mechbench_compute.providers import messages as pm
 def render_conversation(tokenizer, req: pm.ChatRequest, *,
                         tools: Sequence[Mapping[str, Any]] = (),
                         dialect=None) -> str:
-    """A canonical conversation through a local chat template.
-
-    The system prompt merges into the FIRST user turn: several of these
-    instruction-tuned templates accept no system role at all.
-
-    Tool parts go through the template rather than into prose: a call as
-    a real `tool_calls` entry, a result as a real tool turn, so the
-    model reads both in the format it was trained on — and `tools` is
-    declared the same way, by the template.
-
-    Reasoning is never prose here either. A turn's reasoning reaches the
-    template as `reasoning_content`, the field the templates that mark
-    reasoning read, and only when this same model wrote it; the template
-    decides whether an earlier turn's reasoning is shown (Gemma 4 shows
-    it only on a turn that called a tool). Earlier turns are rendered as
-    they were, so the prompt only ever grows.
-    """
     from mechbench_compute import dialects as _dl
 
     turns: list[dict[str, Any]] = []
@@ -35,10 +18,6 @@ def render_conversation(tokenizer, req: pm.ChatRequest, *,
         calls = [p for p in m.content if isinstance(p, pm.ToolCallPart)]
         results = [p for p in m.content if isinstance(p, pm.ToolResultPart)]
         if results:
-            # One turn per result, under the role this model expects:
-            # Llama reads them as `ipython`, Qwen and Gemma as `tool`.
-            # The wrong role means the model reads its own tool output
-            # as though a user had said it.
             for r in results:
                 turns.append(_dl.result_message(
                     dialect, names.get(getattr(r, "tool_call_id", ""), ""),

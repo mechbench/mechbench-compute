@@ -1,29 +1,3 @@
-"""No file is over the size budget (docs/OPS_LAYOUT.md).
-
-The layout's whole claim is that an agent can read one file and know one
-thing. A 3,000-line module breaks that claim silently: nothing fails, the
-file just stops being readable, and the next person to need one operation
-out of it reads all of it. Nothing else in the suite notices, so this
-does.
-
-It is a RATCHET rather than a line in the sand. The files below are
-over the budget, each listed at the length it had when it was listed,
-and that list is the only thing the gate is lenient about:
-
-  - a file NOT listed must be at or under the budget — a new one over it
-    fails, and so does an existing one that grows past it;
-  - a LISTED file may shrink, never grow past the count recorded here;
-  - a listed file that drops under the budget comes OFF the list, so the
-    leniency is spent rather than inherited.
-
-So the list only ever gets shorter, and the numbers in it only ever get
-smaller. When it is empty the gate is the plain rule the layout doc
-states.
-
-Adding a line to a listed file is not a crime — it is a prompt to take
-the same number of lines out of it, or to split it.
-"""
-
 from __future__ import annotations
 
 import pathlib
@@ -32,25 +6,15 @@ import pytest
 
 PKG = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
 
-#: A file an agent can read in one sitting.
 BUDGET = 600
 
-#: The files over the budget, at the length each had when it was listed.
-#: Each is a debt, not a dispensation — see the module docstring.
 OVER_BUDGET: dict[str, int] = {
-    "lexicon/kinds.py": 1101,
-    "bench.py": 982,
-    "distill.py": 881,
-    "plot.py": 817,
-    "finetune.py": 677,
-    "lexicon/_base.py": 638,
-    "sandbox.py": 638,
-    "geometry.py": 613,
+    "lexicon/kinds.py": 1026,
+    "bench.py": 822,
 }
 
 
 def sources() -> dict[str, int]:
-    """Every module of the package, by how many lines it is."""
     return {str(p.relative_to(PKG)): len(p.read_text().splitlines())
             for p in sorted(PKG.rglob("*.py"))
             if "__pycache__" not in p.parts}

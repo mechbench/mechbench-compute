@@ -37,8 +37,7 @@ def run(ctx, inputs, params):
 
 
 class CalcRefused(ValueError):
-    """`calc` met something that is not arithmetic. A refusal, not a
-    type error: the expression parsed fine, it just is not allowed."""
+    pass
 
 
 _ALLOWED_NODES = (
@@ -49,11 +48,6 @@ _ALLOWED_NODES = (
 
 
 def calculate(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`tools/calc` — arithmetic, and ONLY arithmetic.
-
-    Parsed, walked, and refused if it contains anything but numbers and
-    operators: a tool a model can steer must not be an eval.
-    """
     args = dict(inputs.get("arguments") or {})
     expression = str(args.get("expression") or params.get("expression") or "")
     if not expression:

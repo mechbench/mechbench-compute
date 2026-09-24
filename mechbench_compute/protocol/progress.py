@@ -1,16 +1,3 @@
-"""What a watcher is told while the graph runs.
-
-One unit per node, except that a node which announces an item count
-expands the denominator to it and ticks per item — the board's bar moves
-per condition or per story rather than per node.
-
-Alongside the flat scalar there is STRUCTURE: which node the run is in
-and how far through it. A denominator that grows mid-run reads as a bug
-to anyone watching; "node 3/5, 12/40" only ever counts up. The node view
-is passed as a third argument only when the callback accepts one, so a
-two-argument callback keeps working.
-"""
-
 from __future__ import annotations
 
 import inspect
@@ -18,8 +5,6 @@ from typing import Any
 
 
 class Progress:
-    """Progress: see this module's docstring."""
-
     def __init__(self, on_progress, node_count: int, on_spool_item=None) -> None:
         self.on_progress = on_progress
         self.on_spool_item = on_spool_item
@@ -32,7 +17,7 @@ class Progress:
             self.wants_node = (
                 on_progress is not None
                 and len(inspect.signature(on_progress).parameters) >= 3)
-        except (TypeError, ValueError):   # builtins, odd callables
+        except (TypeError, ValueError):
             self.wants_node = False
 
     def report(self) -> None:
@@ -61,16 +46,7 @@ class Progress:
         self.report()
 
     def open_items(self, nid: str):
-        """One node's item callback. Bound to the node rather than
-        reading a shared "current node", because two nodes can be in
-        flight at once and an item spooled under the wrong node's id is
-        a resumed job reusing another node's work."""
-
         def on_item(key=None, item=None, reused=False):
-            # Blocks that know nothing of resume call this bare; an
-            # item-resumable block names the item so the runner can
-            # spool it. A reused item counts as progress and is not
-            # spooled again.
             self.node_view["done"] += 1
             self.bump(1)
             if (self.on_spool_item is not None and key is not None

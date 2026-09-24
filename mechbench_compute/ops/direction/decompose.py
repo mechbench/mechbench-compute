@@ -71,7 +71,6 @@ At least two items are needed.
 
 def run(ctx, inputs, params):
     vectors = inputs.get("vectors")
-    # `label` is the retired spelling of `value` on the `label` axis.
     value = params.get("value", params.get("label"))
     return fit_component(vectors, layer=int(params["layer"]),
                          component=int(params.get("component", 0)),
@@ -82,10 +81,6 @@ def run(ctx, inputs, params):
 def fit_component(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
                   axis: str = DEFAULT_AXIS, value: Any = None, point: str | None = None,
                   source: str | None = None) -> dict[str, Any]:
-    """A principal component of the (centered) items at `layer`,
-    optionally only those whose `axis` coordinate is `value`. Sign is
-    fixed so the largest-magnitude coordinate is positive (a component
-    has no intrinsic sign)."""
     rows = select_layer_items(vectors, layer)
     if value is not None:
         rows = [r for r in rows if str(S.label_of(r, axis)) == str(value)]
@@ -105,4 +100,3 @@ def fit_component(vectors: Mapping[str, Any], *, layer: int, component: int = 0,
                 labels=({"axis": axis, "value": value} if value is not None else None),
                 extra={"component": int(component), "explained": round(explained, 4),
                        "n_items": len(x), **build_model_provenance(vectors, rows)})
-

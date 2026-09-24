@@ -1,34 +1,3 @@
-"""Fine-tuning as an operation: the soft-cross-entropy training loop,
-as the primitives the Finetune block orchestrates.
-
-Three item shapes feed one loop:
-
-- **Target items** (depth 1): per training prompt,
-  a TargetMap compiled into a TargetTrie against the rendered prompt;
-  the trie's root marginal is the soft target and its sequences
-  supply continuation rows.
-- **Sequence items** (depth N, over a deep trie): per
-  step, a freshly sampled depth-N sequence drawn per-slot from the
-  target map(s), teacher-forced — plus (optionally) the first-slot
-  marginal soft row. Which positions receive loss is configurable
-  (``positions``): the position-0 cap is ``"skip_first"`` — the first
-  token is conditioned on, never trained.
-- **Anchor items**: one-hot known-answer rows (capability
-  preservation pressure).
-- **The loop**: batched sampling from fixed groups and per-step item
-  FACTORIES (fresh sequences every step), soft_ce loss, Adam, per-step
-  callback.
-
-Target specs are declarative — raw weights plus a TRANSFORM CHAIN
-(sqrt/pow/temper/temper_to_entropy/mix_uniform/top_k), so a protocol
-can carry one empirical-frequency object and express any point on the
-target-shape dial as data.
-
-The loop mutates ``lm`` in place via apply_lora; callers own saving
-the adapter (lora.save_adapter) and disposing of the mutated model
-(the runner reloads a clean base afterward).
-"""
-
 from __future__ import annotations
 
 import math
@@ -42,23 +11,14 @@ from mlx import nn
 
 from .distill import Example, TargetMap, TargetTrie, encode, soft_ce, suffix_tokens
 
-# ---------------------------------------------------------------------------
-# Target specs
-
 
 def entropy_bits(target: TargetMap) -> float:
-    """Shannon entropy (bits) of the normalized map."""
     weights = target.normalize().to_dict()
     return float(-sum(p * math.log2(p) for p in weights.values() if p > 0))
 
 
 def temper_to_entropy(target: TargetMap, bits: float,
                       tolerance: float = 1e-4) -> TargetMap:
-    """Solve the temperature T (bisection) so that ``target.temper(T)``
-    has per-slot entropy ``bits``. Entropy is monotone increasing in T
-    (T→0 sharpens toward the argmax, T→∞ flattens toward uniform), so
-    the solve is exact up to ``tolerance``. ``bits`` must lie strictly
-    between the map's min entropy (~0) and log2(support size)."""
     n = len(list(target.keys()))
     h_max = math.log2(n)
     if not 0.0 < bits < h_max:
@@ -67,7 +27,7 @@ def temper_to_entropy(target: TargetMap, bits: float,
             f"{h_max:.3f})")
     lo, hi = 1e-4, 1e4
     for _ in range(200):
-        mid = math.sqrt(lo * hi)  # geometric: T spans orders of magnitude
+        mid = math.sqrt(lo * hi)
         h = entropy_bits(target.temper(mid))
         if abs(h - bits) <= tolerance:
             return target.temper(mid)
@@ -91,29 +51,10 @@ _TRANSFORMS: dict[str, Callable[[TargetMap, Mapping[str, Any]], TargetMap]] = {
 
 
 def target_map_from_spec(spec: Mapping[str, Any]) -> TargetMap:
-    """Build a TargetMap from a data spec.
-
-    Base (one of):
-      {"uniform": [items...]}          equal weights over the items
-      {"weights": {item: weight}}      arbitrary weights (e.g. raw
-                                       corpus frequencies, or a fetched
-                                       target_map object payload)
-
-    Optional ``"transform"``: a LIST of steps applied in order, each
-    {"op": name, ...args} with ops sqrt | pow(exponent) |
-    temper(temperature) | temper_to_entropy(bits[, tolerance]) |
-    mix_uniform(epsilon) | top_k(k) | normalize. The result is always
-    normalized. This makes the target-shape dial declarative: carry
-    ONE raw-frequency object and express identity / sqrt / uniform /
-    tempered-inverse as transform chains.
-    """
     if "uniform" in spec:
         target = TargetMap.uniform([str(x) for x in spec["uniform"]])
     else:
         weights = spec.get("weights")
-        # A fetched `target_map` object arrives as its payload, `{kind,
-        # weights}` — the form the lexicon's own example writes
-        # (`"weights": {"$ref": …}`), so unwrap one level.
         if isinstance(weights, Mapping) and isinstance(weights.get("weights"), Mapping):
             weights = weights["weights"]
         if not weights:
@@ -128,15 +69,10 @@ def target_map_from_spec(spec: Mapping[str, Any]) -> TargetMap:
     return target.normalize()
 
 
-# ---------------------------------------------------------------------------
-# Item builders (depth 1)
-
-
 def compile_tries(
     tokenizer, target: TargetMap, rendered_prompts: Sequence[str],
     closer: str = " }",
 ) -> list[TargetTrie]:
-    """The target compiled against each rendered prompt, in order."""
     return [target.tokenize(tokenizer, rendered, closer=closer)
             for rendered in rendered_prompts]
 
@@ -145,9 +81,6 @@ def build_target_items(
     tokenizer, target: TargetMap, rendered_prompts: Sequence[str],
     closer: str = " }", *, tries: Sequence[TargetTrie] | None = None,
 ) -> tuple[list[Example], list[Example]]:
-    """Compile the target against each rendered prompt: (marginal
-    soft-target items, one-hot continuation items). Pass ``tries`` from
-    ``compile_tries`` to reuse a compilation."""
     marginals: list[Example] = []
     continuations: list[Example] = []
     if tries is None:
@@ -165,17 +98,6 @@ def build_target_items(
 def build_path_factory(
     tries: Sequence[TargetTrie],
 ) -> Callable[[np.random.Generator], list[Example]]:
-    """Whole-trie items (``batch.path``): each draw picks a
-    prompt, samples an outcome by its target mass, and trains a soft row
-    at every token of its path — the closer included — each row the
-    trie's next-token distribution at that node.
-
-    The depth-1 items train the first token and one second token per
-    item, drawn uniformly over items, which is exact only for outcomes
-    of at most two tokens. Sampling paths by mass instead trains every node in
-    proportion to the mass that reaches it: in expectation, the
-    chain-rule decomposition of KL(target ‖ model) over complete
-    outcomes, however long they are and however many share a prefix."""
     tries = list(tries)
     if not tries:
         raise ValueError("path items need at least one training prompt")
@@ -190,7 +112,6 @@ def build_path_factory(
 def build_anchor_items(
     tokenizer, anchors: Sequence[tuple[str, str]],
 ) -> list[Example]:
-    """One-hot anchors from (rendered_prompt, answer_continuation)."""
     items = []
     for rendered, answer in anchors:
         ids = encode(tokenizer, rendered)
@@ -199,21 +120,8 @@ def build_anchor_items(
     return items
 
 
-# ---------------------------------------------------------------------------
-# Sequence items (depth N, over a deep trie)
-
-
 def position_runs(depth: int,
                   positions: str | Sequence[int]) -> list[tuple[int, int]]:
-    """Resolve a positions spec into contiguous [start, end) trained
-    runs over slots 0..depth-1.
-
-    ``"all"`` trains every slot; ``"skip_first"`` (the position-0
-    cap) trains slots 1..depth-1; an explicit list of slot indices
-    trains exactly those. Untrained slots are still CONDITIONED ON —
-    each run becomes its own teacher-forced Example whose prompt
-    includes every earlier slot's sampled token — so the sampled
-    sequence stays coherent while loss lands only where asked."""
     if positions == "all":
         trained = set(range(depth))
     elif positions == "skip_first":
@@ -240,9 +148,6 @@ def position_runs(depth: int,
 def resolve_slot_targets(
     target_spec: Mapping[str, Any], depth: int,
 ) -> list[TargetMap]:
-    """One TargetMap per slot. ``per_slot`` (a list of specs, length ==
-    depth) gives each slot its own distribution; otherwise the
-    top-level spec is shared by every slot (the iid recipe)."""
     per_slot = target_spec.get("per_slot")
     if per_slot is not None:
         if len(per_slot) != depth:
@@ -254,9 +159,6 @@ def resolve_slot_targets(
 
 def draw_slots(targets: Sequence[TargetMap], rng: np.random.Generator,
                replace: bool = True) -> list[str]:
-    """One outcome per slot, slot by slot. With ``replace=False`` a slot
-    draws only from the outcomes not yet drawn, their weights
-    renormalized (weighted successive sampling), so no outcome repeats."""
     drawn: list[str] = []
     for i, target in enumerate(targets):
         if replace:
@@ -273,8 +175,6 @@ def draw_slots(targets: Sequence[TargetMap], rng: np.random.Generator,
 
 
 def check_enough_to_draw(targets: Sequence[TargetMap]) -> None:
-    """Without replacement, slot ``i`` must hold more than ``i`` outcomes,
-    or a draw can run out before the sequence is full."""
     for i, target in enumerate(targets):
         if len(target) <= i:
             raise ValueError(
@@ -287,10 +187,6 @@ def naturalism_gate(
     base_ids: Sequence[list[int]], *, join: str, closer: str,
     samples: int = 40, seed: int = 11, replace: bool = True,
 ) -> None:
-    """The phase-0 gate from the deep-trie trainers, as a block
-    invariant: every sampled sequence must tokenize to exactly one
-    token per slot (plus the closer), so slot i ↔ token i and per-slot
-    targets/caps mean what they say. Hard error on violation."""
     rng = np.random.default_rng(seed)
     depth = len(targets)
     for pi, (rendered, ids) in enumerate(zip(rendered_prompts, base_ids)):
@@ -313,10 +209,6 @@ def build_sequence_factory(
     *, join: str = "", closer: str = "",
     positions: str | Sequence[int] = "all", replace: bool = True,
 ) -> Callable[[np.random.Generator], list[Example]]:
-    """A per-step item factory: each draw picks a prompt, samples one
-    depth-N sequence per-slot from the targets, and returns the
-    teacher-forced Example(s) for the trained position runs. Fresh
-    sampling every step, rather than a fixed pool. ``replace=False`` draws the slots without replacement."""
     depth = len(targets)
     runs = position_runs(depth, positions)
     base_ids = [encode(tokenizer, r) for r in rendered_prompts]
@@ -326,9 +218,6 @@ def build_sequence_factory(
         item = join.join(draw_slots(targets, rng, replace))
         seq = suffix_tokens(tokenizer, rendered_prompts[pi],
                             list(base_ids[pi]), item + closer)
-        # Under the gate: seq[:depth] are the slot tokens, the tail is
-        # the closer — trained with the final run so the model still
-        # learns to stop.
         out: list[Example] = []
         for ri, (a, b) in enumerate(runs):
             end = len(seq) if ri == len(runs) - 1 else b
@@ -342,8 +231,6 @@ def build_sequence_factory(
 def build_marginal_items(
     tokenizer, target: TargetMap, rendered_prompts: Sequence[str],
 ) -> list[Example]:
-    """First-slot marginal soft rows — the position-0 pressure term of
-    the deep-trie recipe, split out so the cap can DROP it."""
     items: list[Example] = []
     for rendered in rendered_prompts:
         ids = encode(tokenizer, rendered)
@@ -355,22 +242,7 @@ def build_marginal_items(
     return items
 
 
-# ---------------------------------------------------------------------------
-# Item slots (depth N of whole outcomes)
-
-
 class SlotTrie:
-    """One slot's outcomes as token paths: each outcome's own tokens, then
-    the slot's terminator (the join's tokens when another slot follows,
-    the closer after the last). The terminator is what ends an outcome,
-    so "Mystery" and "Mystery Thriller" part at the token after
-    " Mystery": the join, or " Thr".
-
-    ``node_target`` leaves out outcomes already drawn: their mass comes
-    off every node on their path, and a child that only drawn outcomes
-    passed through is gone. Counts decide that, not subtraction, so no
-    ghost child survives on a float residue."""
-
     def __init__(self, weights: Mapping[str, float],
                  paths: Mapping[str, list[int]]):
         total = float(sum(weights.values()))
@@ -380,7 +252,6 @@ class SlotTrie:
         self._w = np.array([self.weights[k] for k in self.keys],
                            dtype=np.float64)
         self._index = {k: i for i, k in enumerate(self.keys)}
-        # prefix -> {next token: [mass, outcomes through it]}
         self._nodes: dict[tuple[int, ...], dict[int, list[float]]] = {}
         for item, seq in self.paths.items():
             for j, t in enumerate(seq):
@@ -390,8 +261,6 @@ class SlotTrie:
 
     def node_target(self, prefix: Sequence[int] = (),
                     excluded: Sequence[str] = ()) -> dict[int, float]:
-        """The normalized next-token distribution after ``prefix``, with
-        the ``excluded`` outcomes' mass removed."""
         prefix = tuple(prefix)
         node = {t: [m, n] for t, (m, n) in self._nodes[prefix].items()}
         for item in excluded:
@@ -409,7 +278,6 @@ class SlotTrie:
 
     def sample(self, rng: np.random.Generator,
                excluded: Sequence[str] = ()) -> str:
-        """An outcome by mass, from those not ``excluded``."""
         w = self._w
         gone = [self._index[k] for k in excluded if k in self._index]
         if gone:
@@ -434,21 +302,6 @@ def compile_item_slots(
     tokenizer, targets: Sequence[TargetMap], rendered: str, *,
     join: str, closer: str, gate: bool = True,
 ) -> list[SlotTrie]:
-    """One ``SlotTrie`` per slot for one rendered prompt.
-
-    An outcome tokenizes differently first in the list (straight after
-    the prefill) than after the join (`"Science"` against `" Science"`),
-    so the first slot's paths are tokenized after the prompt and later
-    slots' after an outcome and the join. The join's own tokens are what
-    every later path shares at its start (`","` for `", "`, the space
-    going with the next word); they become the terminator of the slot
-    before.
-
-    The gate (``gate=True``) checks every outcome where it can stand: first
-    and followed by the join, last and followed by the closer, and (at
-    depth 3 or more) in the middle. Its tokens there must be exactly its
-    path's, or training would teach the model a tokenization it never
-    produces. A violation is a hard error naming the outcomes."""
     depth = len(targets)
     if depth < 2:
         raise ValueError("item slots need depth 2 or more")
@@ -468,10 +321,6 @@ def compile_item_slots(
         later_items.extend(k for k in target if k not in later_items)
     first_body = {k: suffix_tokens(tokenizer, rendered, ids, k)
                   for k in first_items}
-    # Later paths are tokenized after a first outcome and the join. The
-    # outcome that stands there must keep its own tokens when the join
-    # follows; one that merges with the join is passed over here, and the
-    # gate below names it.
     joined: dict[str, list[int]] = {}
     for lead in first_items:
         ctx = rendered + lead
@@ -542,12 +391,6 @@ def build_item_path_factory(
     tokenizer, targets: Sequence[TargetMap], rendered_prompts: Sequence[str],
     *, join: str, closer: str, replace: bool = True, gate: bool = True,
 ) -> Callable[[np.random.Generator], list[Example]]:
-    """Item-slot paths (``unit: "item"``): each draw picks a prompt and
-    draws an outcome for every slot — without replacement when
-    ``replace=False`` — and returns one Example with a soft row at every
-    token: at slot ``i``, that slot's next-token distribution over the
-    outcomes still available. So the model is trained toward the
-    no-duplicates conditional itself, not only shown samples of it."""
     if not replace:
         check_enough_to_draw(targets)
     compiled = [compile_item_slots(tokenizer, targets, r, join=join,
@@ -575,9 +418,6 @@ def build_item_path_factory(
 
 def batch_for(depth: int, unit: str,
               batch: Mapping[str, int] | None) -> dict[str, int]:
-    """The per-step batch for a target's shape, with its default, refusing
-    an item kind the shape does not build. A kind nobody builds would be
-    silently skipped, and the protocol would train on less than it says."""
     if depth <= 1:
         default = {"target": 3, "anchor": 1, "continuation": 2}
         kinds = {"target", "continuation", "path", "anchor"}
@@ -599,10 +439,6 @@ def batch_for(depth: int, unit: str,
     return chosen
 
 
-# ---------------------------------------------------------------------------
-# The loop
-
-
 def train_soft_ce(
     lm,
     groups: Mapping[str, list[Example]],
@@ -618,18 +454,6 @@ def train_soft_ce(
     on_checkpoint: Callable[[dict], None] | None = None,
     resume_state: Mapping | None = None,
 ) -> float:
-    """The Regime D loop: per step, sample ``batch_sizes[g]`` items
-    from each non-empty fixed group and DRAW ``batch_sizes[g]`` fresh
-    item-lists from each factory group, take a soft-CE Adam step.
-    Returns the final loss. ``on_step(step, loss)`` fires every step.
-
-    Resume: every ``checkpoint_every`` steps
-    ``on_checkpoint(state)`` receives the full continuation state
-    (weights, optimizer, step, sampling RNG); ``resume_state``
-    restores one and continues from the step after it. The
-    continuation is bit-identical to the uninterrupted loop: the
-    generator object whose state is restored is the same one the
-    factories draw from."""
     from mechbench_compute.resume import (
         capture_training_state,
         restore_training_state,

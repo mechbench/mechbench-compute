@@ -1,42 +1,3 @@
-"""The Responses API shape, for OpenAI and xAI.
-
-Chat Completions returns an OpenAI reasoning model's reasoning as a
-token count and an xAI model's as text it has no field to take back.
-The Responses API returns reasoning as output ITEMS — `{"type":
-"reasoning", "id", "summary", "encrypted_content", …}` — which the
-provider's documentation says to hand back unchanged in the next
-request's `input`, with every other output item, so the model keeps its
-reasoning across turns and through a tool loop.
-
-This module is that wire mapping; the transport, the credential, the
-host table, the prices and the limiter are the provider's own
-(`openai_compatible.py`), because it is the same provider answering
-through another door. A request reaches it by `api: "responses"`.
-
-Mapping notes that matter:
-
-- Requests are stateless: `store: false`, nothing kept server-side, the
-  whole history sent every time. In stateless mode OpenAI returns
-  `encrypted_content` on reasoning items by default; xAI returns it
-  when `include` asks (grok-4.7 always does), so xAI's requests ask.
-- Each reasoning item becomes a reasoning part holding the item
-  verbatim as `native`; its readable text is the item's `content`
-  (xAI's `reasoning_text`) or its `summary` (OpenAI's, when
-  `reasoning.summary` is asked for through `provider_options`).
-- Each `message` and `function_call` item becomes a text or tool-call
-  part whose `Signature` is the item itself, as JSON, so it goes back
-  as the same item, with its id and its `phase` (commentary or final
-  answer), which OpenAI asks integrations to preserve.
-- Everything goes back only to the provider AND model that wrote it.
-  To any other model, text goes as plain assistant text and a call as
-  a bare `function_call`; reasoning goes nowhere, and is never text.
-- The system prompt is `instructions`; tool results are
-  `function_call_output` items; `max_tokens` is `max_output_tokens`;
-  JSON mode is `text.format`. There is no `stop`, `seed` or top-level
-  `logprobs`, so a request that asks for them is refused (in
-  `Transport.check_supported`), never silently changed.
-"""
-
 from __future__ import annotations
 
 import json
@@ -48,29 +9,19 @@ from mechbench_compute.providers.base import AdapterResponse, EmptyReply, Usage
 
 API = "responses"
 
-#: Models whose default is the Responses API, by provider and model
-#: prefix. OpenAI's reasoning guide: "Chat Completions does not support
-#: function calling with GPT-6 Astra." Every other model keeps Chat
-#: Completions unless a request asks.
 RESPONSES_BY_DEFAULT: dict[str, tuple[str, ...]] = {
     "openai": ("gpt-6-astra",),
 }
 
-#: What each provider needs in `include` for reasoning to come back
-#: encrypted when nothing is stored. OpenAI returns it by default in
-#: stateless mode and keeps the value only "for compatibility".
 INCLUDE: dict[str, tuple[str, ...]] = {
     "xai": ("reasoning.encrypted_content",),
 }
 
 
 def default_api(provider: str, model: str) -> str | None:
-    """The API a request to `model` uses when it names none."""
     prefixes = RESPONSES_BY_DEFAULT.get(provider, ())
     return API if any(model.startswith(p) for p in prefixes) else None
 
-
-# --- requests ---------------------------------------------------------------
 
 def _item_json(item: Mapping[str, Any]) -> str:
     return json.dumps(item, ensure_ascii=False, separators=(",", ":"))
@@ -78,8 +29,6 @@ def _item_json(item: Mapping[str, Any]) -> str:
 
 def _own_item(sig: msg.Signature | None, kind: str, *, provider: str,
               model: str) -> dict[str, Any] | None:
-    """The output item a signature carries, when it is this provider and
-    model's own and of the kind expected; otherwise None."""
     if sig is None or not msg.is_replayable(sig.provider, sig.model,
                                             provider=provider, model=model):
         return None
@@ -99,8 +48,6 @@ def _assistant_items(m: msg.Message, provider: str, model: str) -> list[dict[str
     out: list[dict[str, Any]] = []
     for p in m.content:
         if isinstance(p, msg.ReasoningPart):
-            # Only a reasoning item this model wrote goes back, verbatim;
-            # a DeepSeek field or an Anthropic block never becomes one.
             if (p.native.get("type") == "reasoning"
                     and msg.is_replayable(p.provider, p.model, provider=provider,
                                           model=model)):
@@ -116,15 +63,12 @@ def _assistant_items(m: msg.Message, provider: str, model: str) -> list[dict[str
             if item is not None and item.get("call_id") == p.id and item.get("name") == p.name:
                 out.append(item)
             else:
-                # No item id: OpenAI refuses a `function_call` item that
-                # names its id without the reasoning item it came with.
                 out.append({"type": "function_call", "call_id": p.id, "name": p.name,
                             "arguments": json.dumps(dict(p.arguments), sort_keys=True)})
     return out
 
 
 def input_items(req: msg.ChatRequest, provider: str) -> list[dict[str, Any]]:
-    """The conversation as Responses API input items, in order."""
     out: list[dict[str, Any]] = []
     for m in req.messages:
         if m.role == "assistant":
@@ -166,11 +110,7 @@ def body(req: msg.ChatRequest, provider: str) -> dict[str, Any]:
     return out
 
 
-# --- responses --------------------------------------------------------------
-
 def read_reasoning(item: Mapping[str, Any], provider: str, model: str) -> msg.ReasoningPart:
-    """A reasoning item as a reasoning part: readable text when the item
-    has any, the item itself as `native`."""
     def texts(key: str) -> list[str]:
         return [str(c.get("text") or "") for c in item.get(key) or []
                 if isinstance(c, Mapping) and c.get("text")]
@@ -187,7 +127,6 @@ def _signature(item: Mapping[str, Any], provider: str, model: str) -> msg.Signat
 def read_empty(provider: str, *, status: str, reason: str, refusal: str,
                unmapped: Sequence[str], reasoned: bool, usage: Usage,
                max_tokens: int, error: Any = None) -> EmptyReply:
-    """Why a response with no prose and no function call came back so."""
     said = f"status {status}" + (f": {reason}" if reason else "")
     if reason == "content_filter" or refusal:
         told = f": {refusal[:200]}" if refusal else ""
@@ -216,8 +155,6 @@ def read_empty(provider: str, *, status: str, reason: str, refusal: str,
 
 def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *, provider: str,
                   headers: Mapping[str, str] | None = None) -> AdapterResponse:
-    """A Responses API body as canonical parts, in output order. Pure: a
-    cassette that kept the body maps it again through this on replay."""
     parts: list[msg.Part] = []
     refusal = ""
     unmapped: list[str] = []
@@ -243,7 +180,6 @@ def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *, provider: st
             try:
                 args = json.loads(raw) if isinstance(raw, str) else dict(raw)
             except json.JSONDecodeError:
-                # Invalid JSON from the model is a fact about the run.
                 args = {"$raw": raw}
             parts.append(msg.ToolCallPart(
                 id=str(item.get("call_id", "")), name=str(item.get("name", "")),

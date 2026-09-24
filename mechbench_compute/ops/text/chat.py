@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
-#: A tool a chat may call: a built-in by name, or a definition.
 _TOOL_FIELDS = (
     P("name", "string", "The tool's name, unique among the tools offered."),
     P("description", "string", "What the tool does, as the model is told.", ""),
@@ -24,7 +23,6 @@ _TOOL_FIELDS = (
 )
 
 
-#: One message of a conversation sent as-is.
 _MESSAGE_FIELDS = (
     P("role", "string", "Who said it. A system prompt goes in `system`, not here.",
       "user", choices=("user", "assistant")),
@@ -407,11 +405,6 @@ name.
 
 
 def run(ctx, inputs, params):
-    """text/chat: one block for local weights and remote
-    endpoints. The ModelRef decides which — an
-    endpoint ref goes to the provider transport, anything else to
-    MLX through the usual model-block path, so a chat node with a
-    LoRA adapter still fuses its stack."""
     from mechbench_compute import chat as chat_mod
     from mechbench_compute import model_ref as model_ref_mod
 
@@ -420,11 +413,8 @@ def run(ctx, inputs, params):
         ref = model_ref_mod.parse(ref)
     records = inputs.get("records") or []
     if params.get("tools"):
-        # Injected AFTER the fingerprint is computed, so a callable
-        # never reaches a node's identity or its emitted params.
         params = {**params, "_block_runner": ctx.executor._tool_block_runner(ctx.secrets)}
     if ref.is_endpoint:
-        # A remote model has no forward pass to intervene on.
         if params.get("spec") or inputs.get("intervention") is not None:
             raise ValueError(
                 "text/chat: an intervention needs local weights — a remote "

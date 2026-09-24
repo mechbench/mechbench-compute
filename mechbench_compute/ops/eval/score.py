@@ -42,10 +42,6 @@ releases.
 
 
 def run(ctx, inputs, params):
-    """eval/score — the HuggingFace `evaluate` metric layer: score
-    prediction/reference fields on a record stream with any hub metric
-    (accuracy, exact_match, f1, bleu, ...) instead of reimplementing
-    them."""
     import evaluate
 
     metric_name = params.get("metric")

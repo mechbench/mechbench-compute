@@ -138,10 +138,6 @@ resumability and per-call provenance; a local model is the cheap first test.
 
 
 def run(ctx, inputs, params):
-    """eval/judge: model-graded scoring.
-    A local judge is the cheap first test, so it loads here through
-    the same path as any other model block; an endpoint judge needs
-    only its credentials and its cap."""
     from mechbench_compute import model_ref as model_ref_mod
 
     spec = dict(params.get("judge") or {})
@@ -157,11 +153,8 @@ def run(ctx, inputs, params):
 
 
 class Scale:
-    """What the judge is being asked for, and how to read the answer."""
-
     def __init__(self, spec: Mapping[str, Any] | None) -> None:
         spec = dict(spec or {})
-        # `type` names the scale; `kind` is the retired spelling.
         self.kind = str(spec.get("type") or spec.get("kind") or "numeric")
         if self.kind not in SCALES:
             raise ValueError(f"unknown scale {self.kind!r} — one of {SCALES}")
@@ -186,8 +179,6 @@ class Scale:
                 '"rationale": "<one sentence>"}.')
 
     def read(self, text: str) -> dict[str, Any]:
-        """Parse one vote. Returns `{}` when nothing could be read —
-        the caller records that as unparsed rather than as a score."""
         payload = parse_json_object(text)
         if self.kind == "numeric":
             value = payload.get("score") if payload else None
@@ -198,9 +189,6 @@ class Scale:
                 score = float(value)  # type: ignore[arg-type]
             except (TypeError, ValueError):
                 return {}
-            # Out-of-range is clamped and FLAGGED: a judge that answers
-            # 9 on a 1–5 scale did not mean 5, and pretending otherwise
-            # would hide a broken rubric.
             clamped = min(max(score, self.low), self.high)
             out: dict[str, Any] = {"score": clamped,
                                    "rationale": read_rationale(payload, text)}
@@ -225,10 +213,6 @@ class Scale:
 
 
 def read_subject_coords(rec: Mapping[str, Any]) -> dict[str, Any]:
-    """A subject's coordinates, wherever they live. A generate node's
-    items carry them under `metadata`, a record set at the top level;
-    judging must not lose them either way, because slicing a judged
-    corpus by the condition that produced it is the whole point."""
     top = rec.get("coords")
     if isinstance(top, Mapping):
         return dict(top)
@@ -239,8 +223,6 @@ def read_subject_coords(rec: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def render_subject(rec: Mapping[str, Any], fields: Sequence[str]) -> str:
-    """What the judge is shown. Named fields only — a judge that can
-    see the condition labels is grading the labels."""
     parts = []
     for f in fields:
         value = rec.get(f)
@@ -255,9 +237,6 @@ def render_subject(rec: Mapping[str, Any], fields: Sequence[str]) -> str:
 def build_prompts(records: Sequence[Mapping[str, Any]], *, scale: Scale,
                   rubric: str, fields: Sequence[str], n_votes: int,
                   seed: Any, pairwise_fields: Sequence[str] = ()) -> list[dict[str, Any]]:
-    """One chat record per (subject, vote). The vote index rides in the
-    id so the chat block's own item keys stay unique and stable, which
-    is what makes a judged corpus resumable."""
     from mechbench_compute.seeds import item_seed
 
     out: list[dict[str, Any]] = []
@@ -271,9 +250,6 @@ def build_prompts(records: Sequence[Mapping[str, Any]], *, scale: Scale,
             }
             if scale.kind == "pairwise":
                 a_field, b_field = pairwise_fields
-                # The order flips per vote from a key-derived seed, and
-                # the vote records what it saw: position bias is real,
-                # and only visible if it was randomized on purpose.
                 flipped = bool(item_seed(seed, rid, k) % 2)
                 first, second = ((b_field, a_field) if flipped
                                  else (a_field, b_field))
@@ -290,7 +266,6 @@ def build_prompts(records: Sequence[Mapping[str, Any]], *, scale: Scale,
 
 def aggregate(subject: Mapping[str, Any], votes: Sequence[Mapping[str, Any]], *,
               scale: Scale) -> dict[str, Any]:
-    """One subject's verdict from its votes, with the spread kept."""
     parsed = [v for v in votes if v.get("parsed")]
     row: dict[str, Any] = {
         "id": subject.get("id"),
@@ -317,12 +292,7 @@ def aggregate(subject: Mapping[str, Any], votes: Sequence[Mapping[str, Any]], *,
         winner, top = max(counts.items(), key=lambda kv: (kv[1], kv[0]))
         row[key] = winner
         row["counts"] = counts
-        # How much the judge agreed with itself. A rubric that produces
-        # 0.5 here is the finding, not a number to average away.
         row["agreement"] = round(top / len(parsed), 4)
-    # A pairwise rationale talks about "A" and "B" as the judge saw
-    # them, so prefer one written under the unswapped order — otherwise
-    # its letters mean the opposite of the row's, and say so.
     spoke = next((v for v in parsed if v.get("order", "AB") == "AB"), parsed[0])
     row["rationale"] = str(spoke.get("rationale", ""))
     if scale.kind == "pairwise" and spoke.get("order") == "BA":
@@ -332,8 +302,6 @@ def aggregate(subject: Mapping[str, Any], votes: Sequence[Mapping[str, Any]], *,
 
 def summarize(rows: Sequence[Mapping[str, Any]], *, scale: Scale,
               votes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """The aggregate a publication cites, plus the diagnostics that say
-    whether to trust it."""
     scored = [r for r in rows
               if not r.get("unparsed") and not r.get("unjudged")]
     out: dict[str, Any] = {
@@ -343,8 +311,6 @@ def summarize(rows: Sequence[Mapping[str, Any]], *, scale: Scale,
     }
     unjudged = [r for r in rows if r.get("unjudged")]
     if unjudged:
-        # Named, not just counted: which subjects went ungraded is the
-        # question a reader of the number will ask next.
         out["n_unjudged"] = len(unjudged)
         out["unjudged"] = [str(r.get("id")) for r in unjudged][:50]
     if scale.kind == "numeric" and scored:
@@ -362,8 +328,6 @@ def summarize(rows: Sequence[Mapping[str, Any]], *, scale: Scale,
         out["mean_agreement"] = round(
             statistics.fmean([float(r.get("agreement", 0.0)) for r in scored]), 4)
     if scale.kind == "pairwise":
-        # The position-bias diagnostic: how often the FIRST-SHOWN
-        # option won, across every vote. 0.5 is the honest number.
         shown_first = [v for v in votes if v.get("parsed")]
         if shown_first:
             first_wins = sum(
@@ -377,8 +341,6 @@ def summarize(rows: Sequence[Mapping[str, Any]], *, scale: Scale,
 def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
         secrets=None, limiter=None, job_budget=None, model=None,
         on_item=None, on_start=None, resume_items=None) -> dict[str, Any]:
-    """Judge a record set. `model` is a loaded local model when the
-    judge runs on local weights; endpoints need nothing but credentials."""
     from mechbench_compute import model_ref as mr
 
     inputs = inputs or {}
@@ -388,9 +350,6 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
             "a judge node needs `judge: {model, system}` — who is grading is "
             "the first thing a reader will ask")
     scale = Scale(params.get("scale"))
-    # The judge reads `text` — `text_a`/`text_b` for a pairwise scale —
-    # and nothing else. A record that carries the text under another
-    # name goes through records/rename first: the graph shows the move.
     fields = ["text"]
     pairwise_fields = ["text_a", "text_b"]
     n_votes = max(1, int(params.get("n_votes", 1)))
@@ -405,12 +364,6 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
     from mechbench_compute.lexicon import kinds as K
 
     subjects = K.items_of(inputs.get("records") or [])
-    # A subject with nothing to read is not a hard subject; it is not a
-    # subject. Judging it would produce a winner over an empty string —
-    # a number that looks like every other number in the column. This is
-    # reachable: a `records/zip` with `on_missing: "placeholder"` keeps
-    # the key of a branch that failed, and the missing side arrives here
-    # as an absent field.
     want = list(pairwise_fields if scale.kind == "pairwise" else fields)
     on_missing = str(params.get("on_missing", "skip"))
     if on_missing not in ("error", "skip"):
@@ -437,11 +390,6 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
     chat_params = {
         "model": judge["model"],
         "max_tokens": int(judge.get("max_tokens", 512)),
-        # Sent only when the author asks for one. A judge's steadiness
-        # is bought with `n_votes` and reported as `agreement`, not
-        # assumed from a sampling parameter — and some models refuse
-        # `temperature` outright with an HTTP 400, so a silent default
-        # would make them unusable as judges.
         "temperature": judge.get("temperature"),
         "seed": seed,
         "budget_usd": params.get("budget_usd") or judge.get("budget_usd"),
@@ -449,8 +397,6 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         "concurrency": int(params.get("concurrency", 4)),
         "dry_run": bool(params.get("dry_run", False)),
         "name": params.get("name", "judgements"),
-        # An empty reply from the judge is a vote that could not be
-        # read, never a failed node: it is kept, marked, and counted.
         "on_empty": "keep",
     }
     if ref.is_endpoint:
@@ -476,17 +422,8 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         coords = (item.get("metadata") or {}).get("coords") or {}
         subject_id = str(coords.get("subject", ""))
         blank = read_empty(item)
-        # A vote is read from the reply's prose alone: its reasoning,
-        # kept apart in `reasoning`, may weigh a score it did not give.
         read = {} if blank else dict(scale.read(str(item.get("text", ""))))
         order = order_by_id.get(item["id"].rsplit("-s", 1)[0], "AB")
-        # The judge answers about what it SAW, and half the time it saw
-        # the sides swapped. Map the answer back to the record's own
-        # `text_a`/`text_b` before anything counts it, keeping the seen
-        # label beside it as `shown_winner`. Counting unmapped labels
-        # reads a steady judge as disagreeing with itself, and leaves
-        # `first_shown_win_rate` — the diagnostic for exactly this —
-        # measuring nothing.
         if scale.kind == "pairwise" and read.get("winner"):
             read["shown_winner"] = read["winner"]
             if order == "BA":
@@ -505,9 +442,6 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         by_subject.setdefault(subject_id, []).append(vote)
         all_votes.append(vote)
 
-    # Skipped subjects keep their row — unjudged and saying what was
-    # missing. A table with a gap in it is the finding; a table that
-    # quietly lost the row is a smaller corpus with no note of why.
     rows = [(aggregate(s, by_subject.get(str(s.get("id", "")), []), scale=scale)
              if id(s) not in empty else
              {"id": s.get("id"), "coords": read_subject_coords(s), "unjudged": True,

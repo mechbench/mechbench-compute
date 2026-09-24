@@ -22,11 +22,6 @@ class Condition:
 
 
 def parse_where(where: str | Iterable[str] | Mapping[str, Any] | None) -> list[Condition]:
-    """Conditions in the API's item-query grammar, `PATH OP VALUE`, OP one
-    of `= != < <= > >= ~`. The value is JSON when it parses as JSON and
-    text otherwise. A condition may also be a mapping `{path, op, value}`,
-    whose value is taken as given, so a protocol can bind it to a param. A
-    mapping in place of the list is read as equalities."""
     if where is None:
         return []
     if isinstance(where, Mapping):
@@ -91,11 +86,6 @@ def _match_equal(have: Any, c: Condition) -> bool:
 
 
 def match_where(record: Mapping[str, Any], conditions: Iterable[Condition]) -> bool:
-    """Whether a record passes every condition. A path the record does not
-    have reads null, so `x=null` finds records without it and `x!=null`
-    records with it. Ordering holds between two numbers or two texts, and
-    nothing else; `~` is text containing the value, case-insensitively, or
-    a list holding it."""
     for c in conditions:
         v = read_field(record, c.path)
         if c.op == "=":

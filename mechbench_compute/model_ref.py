@@ -1,30 +1,3 @@
-"""The model algebra's reference form.
-
-A ``$model`` may be more than an HF repo: the full grammar is a *base*
-plus an ordered *adapter stack*::
-
-    ModelRef  := { base: Base, adapters: [Adapter, ...] }
-    Base      := {"hf": "repo[@revision]"} | {"bench": "<label>"}
-    Adapter   := {"bench": "<label>"}
-
-A bare string ``"repo[@revision]"`` is valid and reads as
-``{base: {hf: ...}, adapters: []}``.
-
-Base and adapter sources are EXPLICIT. An HF repo and a bench label are
-both slash-paths, so telling them apart by shape would be a guess, and
-a guess here would load the wrong weights.
-
-The recursion flattens by construction: fine-tuning on {B, [a1]} yields
-a2 and the product is {B, [a1, a2]}; a merge collapses a stack into a
-checkpoint that stands as a fresh Base. This module therefore never
-sees a tree.
-
-A stack of any depth resolves — the executor fuses adapters in order
-(see lora.fuse_adapter_stack) — and a checkpoint base loads by the
-executor materializing the label's manifest into the local cache and
-loading the directory like any snapshot.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -34,18 +7,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ModelRef:
-    """A parsed reference. `adapter_payloads` holds fetched adapter
-    objects (safetensors bytes + lora config), aligned with
-    `adapter_labels`.
-
-    An ENDPOINT ref is the third base kind: a model
-    someone else runs, named by `{provider, model}` with optional
-    provider-native `provider_options`. It has no weights, no adapters
-    and no local existence — `_model_loaded` refuses it by name rather
-    than handing a provider id to the hub.
-    """
-
-    base_kind: str  # "hf" | "bench" | "endpoint"
+    base_kind: str
     base: str
     adapter_labels: tuple[str, ...] = ()
     adapter_payloads: tuple[Mapping[str, Any], ...] = field(default=(), compare=False)
@@ -57,10 +19,6 @@ class ModelRef:
         return self.base_kind == "endpoint"
 
     def to_wire(self) -> dict[str, Any]:
-        """The canonical structured form — what provenance fingerprints
-        and manifests record. Labels, never payloads: the fingerprint of
-        a run is what it DECLARED, and the adapters' own content hashes
-        are already recorded by the fetch path."""
         if self.is_endpoint:
             out: dict[str, Any] = {"provider": self.provider, "model": self.base}
             if self.provider_options:
@@ -72,7 +30,6 @@ class ModelRef:
         }
 
     def describe(self) -> str:
-        """`hf:repo@rev (+2 adapters)` — for telemetry and manifests."""
         if self.is_endpoint:
             return f"{self.provider}:{self.base}"
         tail = ""
@@ -83,8 +40,6 @@ class ModelRef:
 
 
 def parse(value: Any) -> ModelRef:
-    """String or structured form -> ModelRef. Raises ValueError with a
-    sentence, never a shrug — this runs at the top of a job."""
     if isinstance(value, str):
         if not value:
             raise ValueError("model reference is empty")
@@ -146,18 +101,10 @@ def resolve(
     value: Any,
     fetch: Callable[[str], Mapping[str, Any]],
 ) -> ModelRef:
-    """Parse and fetch the adapter payloads.
-
-    `fetch` is injected (bench.fetch in production) so tests never
-    touch the network.
-    """
     ref = parse(value)
     if ref.is_endpoint:
-        # Nothing to fetch: an endpoint's weights are not ours.
         return ref
     if len(ref.adapter_labels) > 8:
-        # Mirrors the wire schema's cap. Fuse cost is linear in depth;
-        # merging a stack into a checkpoint is the pressure valve.
         raise ValueError(
             f"adapter stack of depth {len(ref.adapter_labels)} — the cap "
             "is 8; merge earlier rounds into a checkpoint instead"

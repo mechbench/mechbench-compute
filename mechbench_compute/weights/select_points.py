@@ -8,11 +8,6 @@ from mechbench_compute.weights.compile_point_pattern import compile_point_patter
 
 
 def select_points(names: Iterable[str], points: Any) -> list[str]:
-    """The parameter names a node's `points` selects, in model order.
-
-    `"all"` is every parameter, which is a lot (540 tensors on a 4B
-    model) — useful for a stats sweep, never for values.
-    """
     have = list(names)
     if points in (None, "all"):
         return have

@@ -1,18 +1,3 @@
-"""What a node's declared inputs and params turn into.
-
-A graph names values it does not carry: a run binding, a stored object,
-a hub dataset or adapter, a model reference. The resolver is the one
-place those names become values, and the one place that records what
-each of them actually resolved to — every fetch's content hash, every
-model's snapshot commit — so a run's manifest names everything it
-loaded. Reproducibility is by record here; a pin is how a caller opts
-into strictness instead.
-
-A graph writes `{"$param": name}` for a run param and `{"$ref":
-source}` for a stored object, a hub dataset or a hub adapter. Nothing
-else is a reference: a string that begins with `$` is a string.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -22,18 +7,13 @@ from mechbench_compute import dataflow, lexicon
 
 
 class Resolver:
-    """Resolver: see this module's docstring."""
-
     def __init__(self, *, bound_params: Mapping[str, Any], secrets=None,
                  on_download=None, on_download_bytes=None) -> None:
         self.bound_params = bound_params
         self.secrets = secrets
         self.on_download = on_download
         self.on_download_bytes = on_download_bytes
-        #: What actually resolved, for the result manifest.
         self.resolved: dict[str, dict] = {"objects": {}, "models": {}}
-
-    # --- stored objects -----------------------------------------------------
 
     def fetch_object(self, ref, want=None):
         from pathlib import Path
@@ -50,9 +30,6 @@ class Resolver:
                 f"expected sha256 {want!r}")
         payload = fetched.get("payload", fetched) if isinstance(fetched, dict) else fetched
         if tensors_mod.is_tensor(payload):
-            # A tensor collection's rows are shards beside it: fetched
-            # into the cache, verified, and read one shard at a time.
-            # The same progress callbacks a checkpoint's fetch uses.
             if self.on_download is not None:
                 self.on_download(str(ref), None)
             payload = tensors_mod.materialize(
@@ -62,13 +39,6 @@ class Resolver:
         return payload
 
     def read_stored_inputs(self, node):
-        """The bench objects a node reads by reference, in the order it
-        names them: its lineage inputs beside its upstream nodes. A
-        frequency table fetched into a param is an input of the node
-        that trained on it. Read off the node itself rather than
-        collected as fetches happen, because remote nodes resolve
-        alongside their siblings and a fetch's timing says nothing
-        about whose it was."""
         found: list[str] = []
 
         def walk(v):
@@ -90,12 +60,7 @@ class Resolver:
         walk(node.get("params") or {})
         return found
 
-    # --- references ---------------------------------------------------------
-
     def resolve_value(self, v, keep_reference=False):
-        """A value with its references resolved: `{"$param": name}` to
-        the run's param, `{"$ref": source}` to what is stored there, or
-        to the address itself under `keep_reference`."""
         if dataflow.is_param_ref(v):
             name = v["$param"]
             if name not in self.bound_params:
@@ -104,7 +69,6 @@ class Resolver:
         if dataflow.is_object_ref(v):
             which, source = dataflow.source_of(v)
             if keep_reference:
-                # The op asked for the address, not what is at it.
                 return dict(v["$ref"])
             if which == "bench":
                 return self.fetch_object(source, v["$ref"].get("sha256"))
@@ -117,15 +81,7 @@ class Resolver:
             return [self.resolve_value(x) for x in v]
         return v
 
-    # --- the hub ------------------------------------------------------------
-
     def resolve_hf_dataset(self, spec):
-        """{"$ref": {"hf_dataset": {repo, split, config?, revision?,
-        limit?, columns?: {id?, coords?: [...]}}}} -> a record stream shaped
-        like our own: {id, coords, values} per row, columns as
-        values (Template substitutes them), declared coords
-        columns lifted into coords. Resolution recorded (repo,
-        requested revision, arrow fingerprint, rows)."""
         from datasets import load_dataset
 
         hf_token = (self.secrets or {}).get("hf", {}).get("token")
@@ -164,9 +120,6 @@ class Resolver:
         return lexicon.collection("records/record", records)
 
     def resolve_hf_adapter(self, spec):
-        """{"$ref": {"hf_adapter": {repo, revision?}}} -> an adapter object
-        payload imported from a hub PEFT LoRA repo. The resolved
-        snapshot commit is recorded."""
         from huggingface_hub import snapshot_download
 
         from mechbench_compute.peft import peft_import
@@ -188,8 +141,6 @@ class Resolver:
             "target_modules": payload["lora"]["target_modules"]}
         return payload
 
-    # --- models -------------------------------------------------------------
-
     def record_model(self, ref):
         if not isinstance(ref, str) or ref in self.resolved["models"]:
             return
@@ -202,14 +153,11 @@ class Resolver:
             self.resolved["models"][ref] = {
                 "repo": repo, "pinned": rev,
                 "commit": resolve_cached_revision(repo, rev)}
-        except Exception:  # noqa: BLE001 — recording is best-effort
+        except Exception:  # noqa: BLE001
             self.resolved["models"][ref] = {"repo": ref, "pinned": None,
                                             "commit": None}
 
     def fetch_recording(self, label):
-        """A model ref's adapter, fetched through the same recording
-        path a `$ref` takes, so a run's manifest names everything it
-        actually loaded."""
         from mechbench_compute import bench
 
         fetched, meta = bench.fetch(label, with_meta=True)
@@ -219,43 +167,27 @@ class Resolver:
         return (fetched.get("payload", fetched)
                 if isinstance(fetched, dict) else fetched)
 
-    # --- a node's params ----------------------------------------------------
-
     def resolve_params(self, params, block=None):
-        # A param whose op asked for the reference itself gets the
-        # address; every other is resolved to what is there.
         return {k: self.resolve_value(
                     v, block is not None and dataflow.wants_reference(block, k))
                 for k, v in (params or {}).items()}
 
     def resolve_node_params(self, node, block):
-        """One node's params, ready for its operation."""
         raw_params = node.get("params") or {}
         if (block in ("records/map", "records/fold")
                 and isinstance(raw_params.get("body"), Mapping)):
-            # A map's or a fold's body is the CHILD run's graph: its
-            # `{"$param": "topic"}` is bound per record by `bind`, its
-            # `{"$param": "participant"}` per step by `over`, not by this
-            # run. Resolving it here would refuse a param that is not
-            # this protocol's to bind.
             params = self.resolve_params(
                 {k: v for k, v in raw_params.items() if k != "body"}, block)
             params["body"] = raw_params["body"]
         else:
             params = self.resolve_params(raw_params, block)
         if "model" in params:
-            # A param may be a structured ModelRef. Normalize it HERE
-            # — adapters are fetched through the same recording path as
-            # a `$ref`, so a run's manifest names everything it actually
-            # loaded.
             mval = params.get("model")
             if isinstance(mval, dict) or hasattr(mval, "adapter_labels"):
                 from mechbench_compute import model_ref as model_ref_mod
 
                 ref = model_ref_mod.resolve(mval, fetch=self.fetch_recording)
                 params = {**params, "model": ref}
-                # An endpoint has no repo to pin; what a run records
-                # about it is the version that ANSWERED, per call.
                 if not ref.is_endpoint:
                     self.record_model(ref.base)
             else:

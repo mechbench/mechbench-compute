@@ -1,11 +1,3 @@
-"""The merge op, IO faked at module seams.
-
-The shard arithmetic is test_checkpoint's business; what is worth
-asserting here is the op's CONTRACT: destinations validated, files
-published under the right prefix, the manifest emitted with adapter
-lineage, and the pointer result naming a base the grammar can load.
-"""
-
 import json
 from pathlib import Path
 
@@ -17,8 +9,6 @@ from mechbench_compute.ops.adapter import merge as merge_op
 
 
 def RUN(executor, inputs, params, **lent):
-    """The merge operation as the executor would call it: what the tests
-    once passed the method as keywords is the context now."""
     return merge_op.run(ops.Context(executor=executor, **lent), inputs, params)
 from mechbench_compute import bench, model_ref
 from mechbench_compute import protocol as protocol_mod
@@ -60,8 +50,6 @@ def _adapter_payload():
 
 @pytest.fixture()
 def executor():
-    # The block only touches self._materialize_checkpoint on bench
-    # bases; a bare object with the real methods bound is enough.
     class E:
         _materialize_checkpoint = protocol_mod.ProtocolExecutor._materialize_checkpoint
     return E()
@@ -99,7 +87,7 @@ class TestBenchDestination:
         (label, payload, kwargs) = emits[0]
         assert label.endswith("/manifest")
         assert payload["kind"] == "adapter/checkpoint"
-        assert kwargs["inputs"] == ["me/p/a1"]  # adapter lineage
+        assert kwargs["inputs"] == ["me/p/a1"]
 
     def test_a_bare_base_refuses(self, executor):
         bare = model_ref.parse("org/m@rev")
@@ -132,16 +120,12 @@ class TestRetryAsResume:
     def test_files_the_server_already_holds_are_skipped(
         self, executor, tmp_path, monkeypatch
     ):
-        """A failed upload's intact files stay on the server (torn ones
-        were deleted by the hash check); the retry asks first and skips
-        byte-identical matches — resume, not restart."""
         import hashlib
 
         snap = _tiny_snapshot(tmp_path)
         monkeypatch.setattr(
             "mechbench_compute.hub.ensure_model",
             lambda ref, **k: ("org/m", "rev", snap))
-        # pretend config.json survived the failed run
         config_sha = hashlib.sha256((snap / "config.json").read_bytes()).hexdigest()
         monkeypatch.setattr(
             bench, "list_prefix_hashes",
@@ -158,4 +142,3 @@ class TestRetryAsResume:
         uploaded = {p.rsplit("/", 1)[-1] for p in puts}
         assert "config.json" not in uploaded
         assert out["skipped_already_stored"] == 1
-

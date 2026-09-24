@@ -51,11 +51,6 @@ def run(ctx, inputs, params):
 
 
 def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """trajectory/compare — trajectories `a` and `b`,
-    paired by (id, step) (or by step alone with `pair_by: "step"`, for
-    two single-item trajectories under different prompts or models):
-    per-step cosine, angle in degrees, norm ratio; and the DIVERGENCE
-    step — the first at which cosine falls below `threshold`."""
     a = read_trajectory(inputs.get("a"), "a")
     b = read_trajectory(inputs.get("b"), "b")
     if a.get("axis") != b.get("axis"):
@@ -90,7 +85,6 @@ def compare(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, A
         })
     if not rows:
         raise ValueError("no rows paired — do the trajectories share ids/steps?")
-    # Per-step summary across ids, then the divergence step over it.
     by_step: dict[int, list[float]] = {}
     for r in rows:
         by_step.setdefault(r["step"], []).append(r["cosine"])

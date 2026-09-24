@@ -1,33 +1,3 @@
-"""Record and replay.
-
-A cassette is a bench object: `{request hash → the responses that came
-back}` for one provider, content-addressed and versioned like any
-other object. Record once against the real API; replay it forever in
-tests, in CI, and in a protocol dry run — same canonical requests, same
-answers, no spend and no network.
-
-Two details make it trustworthy rather than merely convenient:
-
-**The key is the canonical request**, which excludes credentials, base
-URLs and headers by construction (see `messages.canonical`). A cassette
-therefore cannot leak a key, and a request that drifted — a changed
-system prompt, a new tool — MISSES loudly instead of quietly replaying
-the answer to a different question.
-
-**A replay maps the provider's own response again.** An entry keeps
-the response body as the provider sent it (`raw`) beside the canonical
-parts, and a replay reads the body through the adapter's current
-mapping, so a correction to an adapter reaches recorded answers too.
-An entry with no body (the mock's, and any recorded before bodies were
-kept) replays its stored parts as they were.
-
-**Repeated identical requests replay in order.** Sampling the same
-prompt 20 times at temperature 1 is 20 different answers to one hash,
-so an entry holds a LIST; replay walks it and repeats the last one
-when it runs out (recording says how many it has, so a test that needs
-more can record more).
-"""
-
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -46,12 +16,9 @@ from mechbench_compute.providers.errors import CassetteMiss
 
 CASSETTE_KIND = "~canonical/kinds/provider/cassette"
 
-#: Headers never stored: authentication, cookies, and anything a
-#: provider echoes back that could carry account identity.
 _HEADER_DENY = ("authorization", "x-api-key", "api-key", "cookie",
                 "set-cookie", "openai-organization", "x-goog-api-key")
 
-#: Headers worth keeping: they are what the limiter learns from.
 _HEADER_ALLOW_PREFIX = ("anthropic-ratelimit-", "x-ratelimit-", "retry-after",
                         "x-request-id", "request-id")
 
@@ -104,7 +71,6 @@ class Cassette:
     provider: str
     label: str = ""
     entries: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
-    #: Replay cursor per key — state of THIS playthrough, not content.
     _cursor: dict[str, int] = field(default_factory=dict, repr=False)
 
     def add(self, request_hash: str, resp: AdapterResponse) -> None:
@@ -144,9 +110,6 @@ class Cassette:
 
 
 def _replay_capabilities(provider: str) -> Capabilities:
-    """A standalone replay's matrix: its provider's, so a replay accepts
-    what the recorded run could ask (the Responses API for OpenAI, say),
-    or a permissive one for a cassette that names no known provider."""
     from mechbench_compute.providers import capabilities
 
     try:
@@ -156,14 +119,6 @@ def _replay_capabilities(provider: str) -> Capabilities:
 
 
 class CassetteTransport(Transport):
-    """Wraps an adapter (or stands alone in `replay`).
-
-    It borrows the inner adapter's NAME and CAPABILITIES, because the
-    request hash is provider-scoped and a replayed run must ask exactly
-    what the recorded run asked. In `replay` there may be no inner
-    adapter at all — which is the point: a test suite with no keys.
-    """
-
     def __init__(self, cassette: Cassette, *, inner: Transport | None = None,
                  mode: str = "replay", secrets: Sequence[str] = (),
                  capabilities: Capabilities | None = None) -> None:

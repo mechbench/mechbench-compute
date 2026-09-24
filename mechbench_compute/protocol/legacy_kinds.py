@@ -1,10 +1,3 @@
-"""The two spec kinds that are not graphs.
-
-`layer_ablation` is run as itself; `decision_distribution` is a thin
-shim over the decision-read operation, so a spec written for it still
-answers. Every other spec is a `pipeline` spec, in protocol/pipeline.py.
-"""
-
 from __future__ import annotations
 
 from datetime import UTC
@@ -23,8 +16,6 @@ from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 
 
 class LegacyKinds:
-    """LegacyKinds: see this module's docstring."""
-
     def _run_layer_ablation(
         self, prompt: str, model_id: str
     ) -> LayerAblationPayload:
@@ -59,8 +50,6 @@ class LegacyKinds:
                 "residual-stream update and measure Δ log p of the "
                 "model's top-1 prediction."
             ),
-            # The resolved commit, not the reference: a payload has to say
-            # which weights produced it, and a moving ref does not.
             model=self.model_ref(model) or model_id,
             n_layers=N_LAYERS,
             global_layers=list(GLOBAL_LAYERS),
@@ -73,9 +62,6 @@ class LegacyKinds:
 
     def _legacy_decision_distribution(self, spec: ProtocolSpec,
                                       on_progress=None) -> Any:
-        """The decision_distribution kind, as a thin shim over the
-        decision-read block: same spec in, same payload shape out, one
-        implementation."""
         from datetime import datetime
 
         import mechbench_schema as ms
@@ -83,9 +69,6 @@ class LegacyKinds:
         from mechbench_compute import __version__ as core_version
 
         extra = spec.extra or {}
-        # The job spec names the protocol (id + version) that produced
-        # this run. Kept for anything that wants a STABLE identity for a
-        # node across compute releases — a memo label, for one.
         self._protocol_ref = (extra.get("protocolId"), extra.get("protocolVersion"))
         conditions = extra.get("conditions", [])
         result = self._run_op(

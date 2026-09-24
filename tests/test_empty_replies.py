@@ -1,11 +1,3 @@
-"""A reply with no prose and no tool call: each adapter says why, the
-call it paid for is charged, and `on_empty` decides what the node does
-with the item.
-
-Nothing here touches the network: the adapters run against a captured
-`post_json`, and the chat node against the mock provider.
-"""
-
 from __future__ import annotations
 
 import importlib
@@ -21,7 +13,6 @@ from mechbench_compute.providers import messages as m
 from mechbench_compute.providers.errors import ProviderError
 from mechbench_compute.providers.mock import MockTransport
 
-# The package re-exports the function under the module's own name.
 run_remote_mod = importlib.import_module("mechbench_compute.chat.run_remote")
 
 ENDPOINT = {"provider": "mock", "model": "mock-large"}
@@ -30,8 +21,6 @@ TOOLS = [{"name": "grep", "description": "search",
 
 
 class Capture:
-    """Stands in for providers.http.post_json."""
-
     def __init__(self, body):
         self.body = body
         self.sent: dict = {}
@@ -173,7 +162,6 @@ class TestGemini:
         assert out.empty.cause == "reasoning"
         assert ('{"gemini": {"generationConfig": {"thinkingConfig": '
                 '{"thinkingBudget": 0}}}}') in out.empty.message
-        # Thoughts are output the provider bills.
         assert out.call.usage["output_tokens"] == 95
         assert out.call.cost_usd > 0
 
@@ -228,7 +216,6 @@ def records(n=4):
 
 
 def scripted(monkeypatch, script):
-    """The node's transport answers from `script`, in order."""
     monkeypatch.setattr(run_remote_mod, "make_transport",
                         lambda *a, **k: MockTransport(script=list(script)))
 
@@ -252,7 +239,6 @@ class TestThePolicy:
         assert out["empty"] == {"count": 2,
                                 "by_cause": {"reasoning": 1, "filtered": 1},
                                 "ids": ["r1-s0", "r3-s0"], "policy": "keep"}
-        # Paid for, and in the node's bill.
         assert out["spend"]["calls"] == 4
 
     def test_skip_leaves_the_item_out_and_counts_it(self, monkeypatch):
@@ -266,8 +252,6 @@ class TestThePolicy:
         with pytest.raises(ProviderError, match="cause reasoning"):
             self.run(monkeypatch, "error",
                      on_item=lambda key, item, *rest: landed.append(key))
-        # The empty item was checkpointed before the node failed, and
-        # nothing after it was bought.
         assert landed == ["r0:0", "r1:0"]
 
     def test_an_unknown_policy_is_refused(self, monkeypatch):
@@ -323,7 +307,6 @@ class TestResume:
             chat_mod.run_remote(mr.parse(ENDPOINT), records(3),
                                 {"budget_usd": 1.0, "on_empty": "error"},
                                 resume_items=kept)
-        # r2 was never asked for.
         assert transport.calls == []
 
 
@@ -367,8 +350,6 @@ class TestTheJudge:
 
 
 def test_an_empty_story_kept_by_chat_is_unjudged_and_the_judge_completes():
-    """`text/chat` keeps an empty reply marked; the judge after it grades
-    what has text and counts the rest, instead of failing the graph."""
     graph = {"dataflow": 2, "nodes": [
         {"id": "stories", "block": "text/chat",
          "params": {"model": ENDPOINT, "budget_usd": 1.0, "on_empty": "keep",

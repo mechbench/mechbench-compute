@@ -1,27 +1,3 @@
-"""Resume levels, the process-identity fingerprint, and training state
-capture.
-
-A resumed job must be byte-identical to an uninterrupted one. That is
-a promise each block makes at one of four levels:
-
-  reproducible      every item is a pure function of (inputs, params,
-                    item key, key-derived seed) — a partial set from
-                    any attempt is reused as-is.
-  exchangeable      items are independent draws from one fixed process
-                    — a partial set may be topped up (not bit-identical;
-                    the object records attempt provenance).
-  state-restorable  items depend on all prior items but the full state
-                    can be captured — resume from a checkpoint.
-  restart           anything else, including `adaptive` blocks whose
-                    next item depends on history: recompute the node.
-
-The gate that matters more than the level is process identity: a
-partial is reused only if the node's fingerprint — block, wire
-params, upstream content hashes, compute version — matches the one
-recorded when the partial was made. Process identity is binary; there
-is no "close enough".
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -32,9 +8,6 @@ LEVELS: tuple[str, ...] = (
     "reproducible", "exchangeable", "state-restorable", "restart",
 )
 
-#: What each canonical block declares. Absent = `restart`. Item-level
-#: resume is declared separately from the level: a pure block can be
-#: reproducible and still not worth spooling item by item.
 BLOCK_RESUME: dict[str, dict[str, Any]] = {
     "text/generate": {"level": "reproducible", "items": True},
     "logits/read": {"level": "reproducible", "items": True},
@@ -57,31 +30,17 @@ _RANK = {"restart": 0, "exchangeable": 1, "state-restorable": 2, "reproducible":
 
 
 def _chat_level(params: Mapping[str, Any]) -> str:
-    """A chat node's promise depends on who answers.
-    Local weights with a seed are a pure function of the item key —
-    `reproducible`. A remote endpoint is someone else's sampler on
-    someone else's weights, and the dated model version can change
-    under us: `exchangeable`, so a partial is topped up rather than
-    trusted to be bit-identical."""
     model = (params or {}).get("model")
     provider = (model.get("provider") if isinstance(model, Mapping)
                 else getattr(model, "provider", ""))
     return "exchangeable" if provider else "reproducible"
 
 
-#: Blocks whose level is a function of their params rather than a
-#: constant. Same gate either way: process identity still decides
-#: whether a partial is eligible at all.
 def _judge_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = None) -> str:
     return _chat_level({"model": (params or {}).get("judge", {}).get("model")})
 
 
 def _body_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = None) -> str:
-    """A map's or a fold's promise is its body's weakest node's: a
-    body of local generate nodes is reproducible, one with a
-    remote chat is exchangeable, one with a node that offers nothing is
-    a restart. Its items — one per record, one per step — are spooled
-    either way."""
     body = (params or {}).get("body") or {}
     nodes = body.get("nodes") if isinstance(body, Mapping) else None
     if not nodes:
@@ -93,8 +52,6 @@ def _body_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = No
         if not isinstance(n, Mapping):
             continue
         block = _name(str(n.get("block", "")))
-        # A pure block is a function of its inputs: reproducible by
-        # construction, whatever the registry says of it.
         levels.append("reproducible" if block in ops.find_standalone()
                       else resume_level(block, n.get("params") or {}, n.get("inputs") or {}))
     return min(levels, key=lambda lv: _RANK.get(lv, 0)) if levels else "restart"
@@ -106,16 +63,12 @@ DYNAMIC_LEVEL = {"text/chat": _chat_level,
                  "records/fold": _body_level}
 
 BLOCK_RESUME["text/chat"] = {"level": "exchangeable", "items": True}
-# A judge is a chat node wearing a rubric: same promise, same items.
 BLOCK_RESUME["eval/judge"] = {"level": "exchangeable", "items": True}
-# A body's items are its records or its steps; the level is the body's.
 BLOCK_RESUME["records/map"] = {"level": "restart", "items": True}
 BLOCK_RESUME["records/fold"] = {"level": "restart", "items": True}
 
 
 def _name(block: str) -> str:
-    """The bare op name for any spelling; an unknown block stays as
-    written and falls through to `restart`."""
     from mechbench_compute import lexicon
 
     try:
@@ -126,9 +79,6 @@ def _name(block: str) -> str:
 
 def resume_level(block: str, params: Mapping[str, Any] | None = None,
                  inputs: Mapping[str, Any] | None = None) -> str:
-    """What a re-run of `block` may reuse. `params` and the node's
-    inline `inputs` decide it for the blocks whose promise depends on
-    who answers."""
     block = _name(block)
     fn = DYNAMIC_LEVEL.get(block)
     if fn is not None and params is not None:
@@ -141,10 +91,6 @@ def item_resumable(block: str) -> bool:
 
 
 def satisfies(offered: str, required: str) -> bool:
-    """Does a block at `offered` meet a consumer's `require_resume`?
-    `state-restorable` with full state capture is bit-identical, so it
-    ranks with `reproducible`; `restart` recomputes and therefore
-    satisfies any requirement (there is no partial to mistrust)."""
     if required not in _RANK or offered not in _RANK:
         raise ValueError(f"unknown resume level: {required!r} / {offered!r}")
     if offered == "restart":
@@ -153,11 +99,6 @@ def satisfies(offered: str, required: str) -> bool:
 
 
 def content_hash(value: Any) -> str:
-    """sha256 of the canonical CBOR of a value — the same bytes the
-    bench stores, so an upstream node's identity here equals its
-    identity there. A top-level key beginning with `_` is local state
-    (a tensor collection's shard directory), never stored and
-    never part of the identity."""
     from mechbench_schema import dump_canonical
 
     if isinstance(value, Mapping) and any(str(k).startswith("_") for k in value):
@@ -168,15 +109,8 @@ def content_hash(value: Any) -> str:
 def node_fingerprint(*, block: str, params: Mapping[str, Any],
                      input_hashes: list[str], core_version: str,
                      model: str = "") -> str:
-    """The process identity of one node execution. Two attempts with
-    the same fingerprint would compute the same items; partials cross
-    attempts only under an equal fingerprint."""
     from mechbench_schema import dump_canonical
 
-    # Params in their WIRE form. A resolved ModelRef rides
-    # through execution as an object carrying the adapter's bytes; a
-    # fingerprint is over what the run DECLARED — {base, adapters} —
-    # which is also the only form two attempts can be compared on.
     body = {
         "block": block,
         "params": {k: (v.to_wire() if hasattr(v, "to_wire") else v)
@@ -187,12 +121,7 @@ def node_fingerprint(*, block: str, params: Mapping[str, Any],
     }
     try:
         raw = dump_canonical(body)
-    except Exception as e:  # noqa: BLE001 — name the param, do not hide it
-        # There is no repr() fallback: it would make an adapted run's
-        # identity depend on a multi-megabyte Python repr of the
-        # adapter bytes, and would swallow the encoding failure. A
-        # param that cannot serialize is a bug in the block that
-        # accepted it, and the only honest fingerprint is none.
+    except Exception as e:  # noqa: BLE001
         bad = [k for k, v in body["params"].items()
                if not _encodes(v)]
         raise TypeError(
@@ -208,19 +137,11 @@ def _encodes(value: Any) -> bool:
     try:
         dump_canonical(value)
         return True
-    except Exception:  # noqa: BLE001 — that is the question being asked
+    except Exception:  # noqa: BLE001
         return False
 
 
-# --- training state ----------------------------------------------------------
-
-
 def _mx_key() -> Any | None:
-    """MLX's global RNG key, when the build exposes one. Nothing in
-    the training loop draws from it (no dropout; Adam is
-    deterministic) and the LoRA init it seeded is a trainable
-    parameter the checkpoint carries — so its absence costs no
-    bit-identity. It is captured when available for completeness."""
     import mlx.core as mx
     import numpy as np
 
@@ -241,15 +162,11 @@ def _set_mx_key(value: Any) -> bool:
     try:
         mx.random.state.key = mx.array(value)
         return True
-    except Exception:  # noqa: BLE001 — read-only state on this build
+    except Exception:  # noqa: BLE001
         return False
 
 
 def capture_training_state(lm, opt, step: int, rng) -> dict[str, Any]:
-    """Everything a step needs to continue exactly: trainable weights,
-    optimizer state, the step counter, the numpy generator that samples
-    sequences, and MLX's key when exposed. Arrays are numpy; the
-    caller serializes (safetensors for weights, CBOR for the rest)."""
     import mlx.core as mx
     import numpy as np
     from mlx.utils import tree_flatten
@@ -268,9 +185,6 @@ def capture_training_state(lm, opt, step: int, rng) -> dict[str, Any]:
 
 
 def restore_training_state(lm, opt, rng, state: Mapping[str, Any]) -> int:
-    """Inverse of `capture_training_state`; returns the step to resume
-    AFTER. `opt.init` runs first so the optimizer's tree exists to be
-    overwritten."""
     import mlx.core as mx
     from mlx.utils import tree_unflatten
 

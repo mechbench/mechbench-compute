@@ -1,10 +1,3 @@
-"""Installing anywhere, computing where a backend exists.
-
-`pip install mechbench-compute` resolves its own substrate — MLX on Apple
-Silicon, nothing yet elsewhere — so a machine without one has to explain
-itself rather than fail inside a dependency the user never named.
-"""
-
 from __future__ import annotations
 
 import importlib.util
@@ -23,7 +16,6 @@ def test_this_machine_reports_its_backend():
 
 
 def test_a_machine_with_no_backend_gets_an_explanation(monkeypatch):
-    # Simulate the platform we cannot run here: nothing importable.
     real_find_spec = importlib.util.find_spec
 
     def blind(name, *args, **kwargs):
@@ -39,8 +31,6 @@ def test_a_machine_with_no_backend_gets_an_explanation(monkeypatch):
         backends.require()
 
     message = str(exc.value)
-    # It has to say what is wrong, where, and what to do — a bare
-    # "No module named 'mlx'" is what this exists to replace.
     assert "no compute backend" in message
     assert backends.describe_platform() in message
     assert "macOS on Apple Silicon" in message
@@ -48,8 +38,6 @@ def test_a_machine_with_no_backend_gets_an_explanation(monkeypatch):
 
 
 def test_backend_detection_does_not_import_the_substrate(monkeypatch):
-    # available() runs at package import; loading MLX there would cost
-    # seconds on every `mechbench-runner status`.
     loaded = []
     real_import = __import__
 
@@ -60,20 +48,13 @@ def test_backend_detection_does_not_import_the_substrate(monkeypatch):
 
     monkeypatch.setattr("builtins.__import__", watched)
     for m in [k for k in sys.modules if k.startswith("mlx")]:
-        pass  # already-imported modules are fine; we watch for NEW imports
+        pass
     before = len(loaded)
     backends.available()
     assert len(loaded) == before
 
 
 class TestImportableWithoutABackend:
-    """The package loads anywhere.
-
-    `backends` and `inventory` report on a machine that cannot run
-    anything, so importing them must not raise there — `mechbench-runner
-    doctor` is exactly that machine's tool.
-    """
-
     @staticmethod
     def _without_mlx(monkeypatch):
         import importlib.util
@@ -99,7 +80,6 @@ class TestImportableWithoutABackend:
         from mechbench_compute import backends, inventory
 
         assert backends.active() is None
-        # The attribute hook must not shadow a real attribute.
         assert callable(inventory.scan)
 
     def test_touching_the_model_api_explains_itself(self, monkeypatch):

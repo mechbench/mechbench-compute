@@ -1,8 +1,3 @@
-"""Generation under an intervention: the spec is live at
-every forward pass — the prompt's prefill and each decoding step — with
-positions resolved over the whole sequence as it grows, a sweep giving
-one set of samples per factor, and factor 0 the plain path."""
-
 from __future__ import annotations
 
 import os
@@ -31,8 +26,6 @@ class _Model:
     arch = _Arch()
 
 
-# --- positions across chunks -------------------------------------------------
-
 def _hook(positions, tokens, prompt_len):
     spec = iv.Spec({"point": "resid_post", "layers": [2], "op": "scale", "strength": 0.0,
                     "positions": positions}, n_layers=4, seed=0)
@@ -51,9 +44,7 @@ def _zeroed(out, L):
 class TestPositionsResolveOverTheWholeSequence:
     def test_last_is_the_prompts_end_then_each_new_token(self):
         live, fn = _hook("last", ["a", "b", "c"], 3)
-        # The prefill: one chunk of three at offset 0; "last" is index 2.
         assert _zeroed(fn(_act(3), HookInfo("blocks.2.resid_post", 2, "resid_post", offset=0)), 3) == [2]
-        # A decoding step: a one-token chunk at offset 3; "last" is it.
         live.on_token("d")
         assert _zeroed(fn(_act(1), HookInfo("blocks.2.resid_post", 2, "resid_post", offset=3)), 1) == [0]
 
@@ -63,7 +54,6 @@ class TestPositionsResolveOverTheWholeSequence:
         live.on_token("d")
         assert _zeroed(fn(_act(1), HookInfo("blocks.2.resid_post", 2, "resid_post", offset=3)), 1) == [0]
         live.on_token("e")
-        # "d" sits at position 3, outside the chunk at offset 4: untouched.
         assert _zeroed(fn(_act(1), HookInfo("blocks.2.resid_post", 2, "resid_post", offset=4)), 1) == []
 
     def test_generated_is_nothing_in_the_prompt_and_everything_after(self):
@@ -73,7 +63,6 @@ class TestPositionsResolveOverTheWholeSequence:
         assert _zeroed(fn(_act(1), HookInfo("blocks.2.resid_post", 2, "resid_post", offset=3)), 1) == [0]
 
     def test_a_whole_sequence_pass_is_the_chunk_at_offset_zero(self):
-        # No offset on the info: the tensor is the whole sequence.
         _, fn = _hook({"range": [1, 3]}, ["a", "b", "c"], 3)
         assert _zeroed(fn(_act(3), HookInfo("blocks.2.resid_post", 2, "resid_post")), 3) == [1, 2]
 
@@ -85,15 +74,11 @@ class TestPositionsResolveOverTheWholeSequence:
             fn(_act(2), HookInfo("blocks.2.resid_post", 2, "resid_post"))
 
 
-# --- the block ---------------------------------------------------------------
-
 RECORD = {"id": "p0", "user": "Say something.", "coords": {"cond": "x"}}
 
 
 @pytest.fixture
 def seen(monkeypatch):
-    """A fake substrate that records, per call, whether the prefill and
-    the sampler were handed live interventions, and at what strength."""
     calls: list[dict] = []
 
     monkeypatch.setattr(ProtocolExecutor, "_model_loaded", lambda self, model_id: _Model())
@@ -142,21 +127,17 @@ class TestTheBlock:
 
     def test_a_spec_is_live_at_the_prefill_and_at_every_sample_per_factor(self, seen):
         out = _run({"spec": [ITEM], "sweep": {"strength": [1.0, 2.0]}})
-        # Factor 0 (the control) first, then 1 and 2: one prefill and
-        # two samples each; the control runs with no intervention.
         assert out["sweep"] == {"strength": [0.0, 1.0, 2.0]}
         by_factor = [seen[i:i + 3] for i in range(0, 9, 3)]
         assert [c["ivs"] for c in by_factor[0]] == [None, [], []] or all(not c["ivs"] for c in by_factor[0])
         for chunk in by_factor[1:]:
             assert [c["at"] for c in chunk] == ["prefill", "sample", "sample"]
             assert all(isinstance(c["ivs"][0], iv.SpecIntervention) for c in chunk)
-            # Each sample gets its OWN live intervention, so the token
-            # lists it grows do not leak between samples.
             assert chunk[1]["ivs"][0] is not chunk[2]["ivs"][0]
         ids = sorted(i["id"] for i in out["items"])
         assert ids == sorted(["p0-s0-f0", "p0-s1-f0", "p0-s0-f1", "p0-s1-f1", "p0-s0-f2", "p0-s1-f2"])
         assert sorted(i["coords"]["factor"] for i in out["items"]) == [0.0, 0.0, 1.0, 1.0, 2.0, 2.0]
-        assert out["spec"][0]["op"] == "scale" and "weights" not in out  # no edits: absent, as apply does
+        assert out["spec"][0]["op"] == "scale" and "weights" not in out
 
     def test_the_spec_may_arrive_as_an_object_on_the_port(self, seen):
         spec = {"kind": "intervene/spec", "items": [ITEM]}
@@ -169,8 +150,6 @@ class TestTheBlock:
         assert [s.strength for s in iv.scale_specs([spec], 2.0)] == [1.0]
         assert iv.scale_specs([spec], 1.0)[0] is spec
 
-
-# --- the real forward, chunked --------------------------------------------------
 
 E2B = "mlx-community/gemma-4-e2b-it-bf16"
 _real = pytest.mark.skipif(
@@ -187,15 +166,6 @@ def _last_logp(logits):
 
 @_real
 class TestTheHookedForwardRunsInChunks:
-    """A sequence run as the prompt then one token per step through the
-    hooked forward, with an external KV cache, is the SAME computation
-    mlx's own cached decode performs — bit for bit with no hook — and
-    under a hook whose positions span the chunks it reads the
-    distribution the whole-sequence hooked pass reads, up to the bf16
-    drift mlx itself has between a whole pass and a cached one. Without
-    this, an intervention 'at every decoding step' would be a different
-    model."""
-
     @pytest.fixture(scope="class")
     def model(self):
         from mechbench_compute import Model
@@ -237,16 +207,11 @@ class TestTheHookedForwardRunsInChunks:
         whole = _last_logp(model.run(ids, interventions=live).logits)
         chunked = self._hooked_chunked(model, ids, interventions=live)
         plain = self._native_chunked(model, ids)
-        # The hook changed the distribution, and both routes agree on
-        # what it became — within mlx's own whole-vs-cached drift
-        # (measured at TV ≈ 0.03 on this prompt with no hook at all).
         assert self._tv(chunked, plain) > 0.1
         assert self._tv(whole, chunked) < 0.06
         assert np.argmax(whole) == np.argmax(chunked)
 
     def test_a_hook_inside_attention_under_a_cache(self, model):
-        # The manual attention path handles the cache offset for RoPE and
-        # the K/V update; a hook at attn.q forces it.
         ids = model.tokenize("The old lighthouse keeper climbed the", chat_template=False)
         toks = [model.tokenizer.decode([int(t)]) for t in np.array(ids).reshape(-1)]
         layer = model.arch.last_fresh_kv_global
@@ -274,14 +239,10 @@ class TestTheHookedForwardRunsInChunks:
                                         prefill=prefill_decision(model, ids, interventions=live),
                                         interventions=live)
         assert same == plain
-        # And the intervention's token list grew with the sample.
         assert len(live[0].tokens) > len(toks)
 
 
 class TestChatUnderAnIntervention:
-    """`text/chat` on local weights takes an intervention too, and
-    sweeps its axes: the same grammar on the other text path."""
-
     def _run(self, params, monkeypatch):
         from mechbench_compute import chat as chat_mod
         from mechbench_compute import distill, generate
@@ -322,6 +283,5 @@ class TestChatUnderAnIntervention:
         assert [i["id"] for i in out["items"]] == ["q0-s0-control", "q0-s0-layer1", "q0-s0-layer2"]
         assert [i["coords"].get("layer") for i in out["items"]] == [None, 1, 2]
         assert [i["coords"]["factor"] for i in out["items"]] == [0.0, 1.0, 1.0]
-        # The control asked for nothing; each cell had its own live spec.
         assert [bool(s[1]) for s in seen] == [False, False, True, True, True, True]
         assert out["sweep"] == {"strength": [0.0, 1.0], "layers": [1, 2]}

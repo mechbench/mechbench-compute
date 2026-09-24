@@ -1,27 +1,3 @@
-"""The sandbox's catalog: kind paths, JSON-Schema contracts, and the
-tool catalog.
-
-Three shapes cross into the platform's catalog once a model can drive a
-workspace:
-
-- **fs-snapshot** — a content-addressed tree. A browsable object: the
-  UI's file browser renders its entries as a table.
-- **sandbox-image** — the standard-library base a protocol declares
-  and the composer edits: which tools, what limits, strict, mounts,
-  starting tree.
-- **sandbox-tool-call** — one entry in an item's `metadata.sandbox`:
-  what the model asked and what the filesystem did. Not a standalone
-  document — a record shape the transcript trace reads — so it is a
-  SCHEMA here, not a renderable kind.
-
-The schemas are the contract these consumers share; the fs-snapshot
-KindManifest (in `platform_kinds`) carries the renderer. The tool
-catalog is the descriptions the composer's tool picker offers.
-
-Renderer-bearing kinds are registered from compute's `platform_kinds`,
-by their `~canonical/kinds/...` path, so these declarations are the one
-source for them.
-"""
 from __future__ import annotations
 
 from typing import Any
@@ -29,15 +5,10 @@ from typing import Any
 from mechbench_compute import sandbox
 from mechbench_compute.sandbox_session import TOOL_DEFS, TOOL_NAMES
 
-#: Catalog paths: the registered identity of each kind. An object on
-#: the wire carries the bare name (`sandbox/snapshot`, in
-#: `snapshots.KIND`); the catalog stores it under this path.
 FS_SNAPSHOT_KIND = "~canonical/kinds/sandbox/snapshot"
 SANDBOX_IMAGE_KIND = "~canonical/kinds/sandbox/image"
 SANDBOX_TOOL_CALL_KIND = "~canonical/kinds/sandbox/call"
 
-#: The tree object (`snapshots.Snapshot.to_wire`). Blobs are references
-#: by default, so `data` is not part of the stored shape.
 FS_SNAPSHOT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["kind", "digest", "entries"],
@@ -76,8 +47,6 @@ FS_SNAPSHOT_SCHEMA: dict[str, Any] = {
     },
 }
 
-#: The limits sub-shape, shared by the image. Mirrors
-#: `sandbox.Limits.to_wire`.
 _LIMITS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -90,9 +59,6 @@ _LIMITS_SCHEMA: dict[str, Any] = {
     },
 }
 
-#: The standard-library image (`SandboxImage`). `tools` is the allowlist
-#: — the enforcement point, since one shell otherwise reaches every
-#: applet.
 SANDBOX_IMAGE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -111,9 +77,6 @@ SANDBOX_IMAGE_SCHEMA: dict[str, Any] = {
     },
 }
 
-#: One tool call's provenance — an entry in an item's `metadata.sandbox`
-#: (`SandboxCall.to_wire`). stdout/stderr ride along small; a node may
-#: store large ones as objects and reference them (stdout_ref).
 SANDBOX_TOOL_CALL_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["tool", "argv", "exit_code", "snapshot_in", "snapshot_out"],
@@ -140,18 +103,12 @@ SANDBOX_TOOL_CALL_SCHEMA: dict[str, Any] = {
 
 
 def sandbox_tool_catalog() -> list[dict[str, Any]]:
-    """The sandbox tool definitions, for the composer's tool picker:
-    name, description, schema — what a user sees when
-    choosing capabilities to give a model. Handlers are omitted; the
-    node wires those when it builds a session."""
     return [{"name": d["name"], "description": d["description"],
              "schema": dict(d["schema"])}
             for d in (TOOL_DEFS[n] for n in TOOL_NAMES)]
 
 
 def default_image_wire() -> dict[str, Any]:
-    """A ready-to-edit default image for the composer: the workhorse
-    plus the snapshot conveniences, default limits, non-strict."""
     from mechbench_compute.sandbox_session import DEFAULT_GUEST, DEFAULT_TOOLS
 
     return {"base": DEFAULT_GUEST, "tools": list(DEFAULT_TOOLS),

@@ -1,39 +1,3 @@
-"""What a name says, held where the layout applies (docs/NAMES.md).
-
-Two rules, and both are about the reader of a call site rather than the
-writer of a definition:
-
-**A leading underscore means "mine alone".** On a name another module of
-the package imports, reads as an attribute, or patches by string, it
-says something false, and the reader who believes it is the one who
-gets hurt. So a private that crosses a file fails here: give it a name
-without the underscore, or move it where it is private again.
-
-**A function's name starts with a verb.** It should say what it does,
-not what it returns, so that a call site reads as an action.
-`read_last_logp(logits)` is what happens; `last_logp(logits)` is a noun
-pretending to be a call. `is_`/`has_` predicates already read as a
-question and are counted apart.
-
-The verb rule is held where the layout is: an operation's file under
-`ops/`, and a helper file named for the one thing it holds
-(docs/OPS_LAYOUT.md). Those are the files whose whole claim is that the
-path and the name tell you what is inside. The older topic modules are
-not held to it here.
-
-Two judgement calls this gate makes, both about what counts as another
-file naming something:
-
-- **A package `__init__.py` importing a name back is a re-export, not a
-  second file.** Every file that reaches the name through the package
-  is already counted at the far end of the chain, so counting the
-  re-export too would make a helper nobody uses look as though it
-  crossed a file boundary.
-- **A test naming a private does not make the underscore false.**
-  Reaching into a module's privates is what a test (and a script) is
-  allowed to do; the name is still private to the package.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -46,11 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "mechbench_compute"
 
-#: The trees read for references to a package name.
 SOURCES = ("mechbench_compute", "tests", "scripts")
 
-#: First token of a function name. What the codebase already says well,
-#: and what a new name is expected to reach for.
 VERBS = {
     "ablate", "add", "aggregate", "apply", "assert", "attribute", "average",
     "bin", "bootstrap", "build", "bump", "cache", "calculate", "call", "cap",
@@ -79,25 +40,17 @@ VERBS = {
     "write", "yield", "zip",
 }
 
-#: Not verbs, but they already read as a question at a call site.
 PREDICATES = {"is", "has", "can", "should", "must", "needs", "wants", "are",
               "fuses", "satisfies", "matches", "holds"}
 
-#: The executor's entry point, the two declarations a file's shape is
-#: read from, and a script's entry point. `lexicon/` is the public
-#: declaration vocabulary, whose names are nouns on purpose — `Op`, `In`,
-#: `Output` are what a declaration is written in.
 KEEP_NAMES = {"run", "OP", "MONOID", "main"}
 KEEP_DIRS = ("lexicon/",)
 
-#: A call that can name a definition in a string.
 PATCHY = re.compile(r"setattr|getattr|patch|delattr|hasattr")
 
 
 def read_tree(path: Path) -> ast.Module:
     with warnings.catch_warnings():
-        # A file's own string literals may carry escapes the compiler
-        # warns about; this gate reads definitions, not literals.
         warnings.simplefilter("ignore", SyntaxWarning)
         warnings.simplefilter("ignore", DeprecationWarning)
         return ast.parse(path.read_text())
@@ -111,8 +64,6 @@ def normalize_name(name: str) -> str:
 
 
 def find_module(dotted: str) -> str | None:
-    """`mechbench_compute.interp.read_pair` -> `interp/read_pair.py`, and
-    a package -> its `__init__.py`."""
     if dotted == "mechbench_compute":
         return "__init__.py"
     if not dotted.startswith("mechbench_compute."):
@@ -126,9 +77,6 @@ def find_module(dotted: str) -> str | None:
 
 
 def read_bindings(tree: ast.AST) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
-    """What a file binds from the package, wherever the import sits —
-    some are lazy, inside a function. Returns (name -> (module, original
-    name)) and (name -> module) for a module bound as a whole."""
     imports: dict[str, tuple[str, str]] = {}
     modules: dict[str, str] = {}
     for n in ast.walk(tree):
@@ -140,9 +88,6 @@ def read_bindings(tree: ast.AST) -> tuple[dict[str, tuple[str, str]], dict[str, 
                 bound = a.asname or a.name
                 if find_module(f"{n.module}.{a.name}"):
                     modules[bound] = f"{n.module}.{a.name}"
-                # Both, and the name is tried first: a helper's module
-                # and the name a package imports back from it are spelled
-                # the same, and Python gives the package's own binding.
                 imports[bound] = (n.module, a.name)
         elif isinstance(n, ast.Import):
             for a in n.names:
@@ -153,7 +98,6 @@ def read_bindings(tree: ast.AST) -> tuple[dict[str, tuple[str, str]], dict[str, 
 
 
 def read_attr_chain(node: ast.Attribute) -> list[str] | None:
-    """`mechbench_compute.interp.read_pair.read_pair` -> the parts."""
     parts: list[str] = []
     cur: ast.expr = node
     while isinstance(cur, ast.Attribute):
@@ -170,10 +114,10 @@ def read_attr_chain(node: ast.Attribute) -> list[str] | None:
 class Def:
     file: str
     name: str
-    kind: str                                        # function | class | constant
+    kind: str
     line: int
-    refs: set[str] = field(default_factory=set)      # other package files that say it
-    outside: set[str] = field(default_factory=set)   # tests and scripts that say it
+    refs: set[str] = field(default_factory=set)
+    outside: set[str] = field(default_factory=set)
 
     @property
     def crosses(self) -> bool:
@@ -181,9 +125,6 @@ class Def:
 
 
 class Mod:
-    """One package module: what it defines, and what it takes from the
-    rest of the package (which is also how it re-exports)."""
-
     def __init__(self, rel: str) -> None:
         self.rel = rel
         self.tree = read_tree(PKG / rel)
@@ -202,9 +143,6 @@ class Mod:
 
 
 class Inventory:
-    """Every top-level definition in the package, and every other file
-    that says its name."""
-
     def __init__(self) -> None:
         self.mods: dict[str, Mod] = {}
         for path in sorted(PKG.rglob("*.py")):
@@ -220,8 +158,6 @@ class Inventory:
                 self.scan(path)
 
     def resolve(self, dotted: str, name: str, seen: tuple = ()) -> tuple[str, str] | None:
-        """Where the thing a module calls `name` is really defined —
-        through however many `__init__.py` re-exports it takes."""
         rel = find_module(dotted)
         if rel is None or rel not in self.mods:
             return None
@@ -234,9 +170,6 @@ class Inventory:
         return None
 
     def find_module_at(self, dotted: str, name: str) -> str | None:
-        """The module `dotted.name` names: a submodule, or a module that
-        module binds under that name — `judge.chat_mod` is
-        `mechbench_compute.chat`, and a reference has to see through it."""
         if find_module(f"{dotted}.{name}"):
             return f"{dotted}.{name}"
         rel = find_module(dotted)
@@ -259,7 +192,7 @@ class Inventory:
         home = (d.file.rsplit("/", 1)[0] + "/__init__.py"
                 if "/" in d.file else "__init__.py")
         if source == home:
-            return                                   # a re-export, not a second file
+            return
         if source.startswith(("tests/", "scripts/")):
             d.outside.add(source)
         else:
@@ -278,8 +211,6 @@ class Inventory:
                 parts = read_attr_chain(n)
                 if not parts or len(parts) < 2:
                     continue
-                # `alias.NAME`, and `alias.mid.NAME` where each step is a
-                # module — a submodule, or one a module binds.
                 base = modules.get(parts[0])
                 if base is None:
                     continue
@@ -290,9 +221,6 @@ class Inventory:
                 self.scan_patch(n, modules, source)
 
     def scan_patch(self, call: ast.Call, modules: dict[str, str], source: str) -> None:
-        """A definition named in a string: `patch("a.b.name")`, and
-        `monkeypatch.setattr(mod, "name", ...)`, where the module is the
-        argument before the string."""
         for arg in call.args:
             if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
                 continue
@@ -329,12 +257,6 @@ def classify_name(d: Def) -> str:
 
 
 def is_helper_file(inv: Inventory, rel: str) -> bool:
-    """A one-definition-per-file helper module, in the sense
-    docs/OPS_LAYOUT.md gives it: in a topic package, not an
-    `__init__.py`, named for what it holds, and holding that one thing —
-    or two, where a class and the function that builds it share a file
-    (`Plan` and `plan`). The bound is what tells a helper file apart
-    from a topic module that happens to carry its own name."""
     if rel.endswith("__init__.py") or "/" not in rel or rel.startswith("ops/"):
         return False
     stem = rel[:-3].rsplit("/", 1)[1]

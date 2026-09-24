@@ -38,9 +38,6 @@ def run(ctx, inputs, params):
 
 
 class FloatSum(Monoid):
-    """Exact sum of floats: the partial keeps the values as a multiset
-    (a sorted tuple); finalize uses `math.fsum`. Order-independent."""
-
     def identity(self):
         return ()
 

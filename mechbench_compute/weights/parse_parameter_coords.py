@@ -4,7 +4,6 @@ from typing import Any
 
 
 def parse_parameter_coords(name: str) -> dict[str, Any]:
-    """What a parameter's name says about where it is."""
     parts = name.split(".")
     coords: dict[str, Any] = {}
     if parts[0] == "layers" and len(parts) > 2 and parts[1].isdigit():

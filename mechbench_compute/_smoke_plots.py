@@ -1,15 +1,3 @@
-"""Smoke test for plot helpers.
-
-Synthetic-data only — no model load. Each helper is called with realistic
-inputs and asserted to (a) return an Axes, (b) not raise, (c) save to a
-PNG that the human can spot-check. The PNGs land in caches/_smoke_plots/.
-
-Run from project root (no venv strictly required since this is matplotlib +
-numpy + sklearn only — but use the venv for reproducibility):
-
-    python -m mechbench_compute._smoke_plots
-"""
-
 from __future__ import annotations
 
 import sys
@@ -17,7 +5,7 @@ from pathlib import Path
 
 import matplotlib
 
-matplotlib.use("Agg")  # headless, no GUI window
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -44,7 +32,6 @@ def _save(fig, name: str) -> Path:
 
 
 def test_bar_by_layer() -> Path:
-    # Synthetic: globals slightly more damaging than locals on average.
     rng = np.random.default_rng(0)
     values = rng.normal(-1, 1, N_LAYERS)
     for g in GLOBAL_LAYERS:
@@ -57,7 +44,6 @@ def test_bar_by_layer() -> Path:
 
 
 def test_lens_trajectory() -> Path:
-    # Synthetic: each prompt's rank starts high, crashes around layer 28.
     rng = np.random.default_rng(1)
     n_prompts = 15
     ranks = np.zeros((n_prompts, N_LAYERS))
@@ -86,8 +72,6 @@ def test_logprob_trajectory() -> Path:
 
 
 def test_position_heatmap() -> Path:
-    # Synthetic position-by-layer heatmap: target log-prob crystallizes at
-    # the final position in late layers.
     seq_len = 21
     arr = np.full((N_LAYERS, seq_len), -25.0)
     for i in range(N_LAYERS):
@@ -108,7 +92,6 @@ def test_position_heatmap() -> Path:
 
 
 def test_pca_scatter() -> Path:
-    # Synthetic 4-cluster data
     rng = np.random.default_rng(3)
     cats = ["capital", "element", "author", "landmark"]
     centers = rng.normal(0, 5, (4, 2560)).astype(np.float32)
@@ -126,7 +109,6 @@ def test_pca_scatter() -> Path:
 
 
 def test_similarity_heatmap() -> Path:
-    # Same synthetic clusters as PCA test
     rng = np.random.default_rng(3)
     cats = ["capital", "element", "author", "landmark"]
     centers = rng.normal(0, 5, (4, 2560)).astype(np.float32)
@@ -158,7 +140,7 @@ def main() -> int:
         try:
             path = fn()
             print(f"  [OK] {name:<22s} -> {path.name}")
-        except Exception as exc:  # broad: smoke is about non-crashing
+        except Exception as exc:
             print(f"  [FAIL] {name:<22s} -- {exc}")
             failed.append(name)
 

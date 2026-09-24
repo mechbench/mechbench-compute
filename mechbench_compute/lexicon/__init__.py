@@ -1,25 +1,3 @@
-"""The operation lexicon: every canonical op, described for the person
-who will use it.
-
-One declaration, three consumers. `check_params` refuses a parameter
-that is not declared here; `tests/test_block_params.py` proves the
-declaration equals what the code reads, in both directions; and the
-documentation site renders these entries as the operation reference.
-Because all three read the same source, a documented parameter the
-block does not read fails a test, and a parameter the block reads but
-nobody documented fails the same test.
-
-Naming (docs/LEXICON.md in the meta repo): an op is spelled bare,
-`records/select`, exactly two levels, no version segment. Its stored
-identity is `~canonical/ops/records/select`; `canonical_path` makes
-one from the other and `resolve` accepts either spelling and returns
-the bare name.
-
-Every operation's entry is declared whole in the operation's own file
-(docs/OPS_LAYOUT.md) and assembled here; the kinds, the value types and
-the families are declared in the sibling modules.
-"""
-
 from __future__ import annotations
 
 import re
@@ -63,8 +41,6 @@ from mechbench_compute.lexicon.kinds import (
     satisfies,
 )
 
-# Finding the operations imports their files, and each one imports the
-# vocabulary above from this package, so this import comes last.
 from mechbench_compute import ops as _ops  # noqa: E402
 
 OPS: tuple[Op, ...] = tuple(
@@ -73,11 +49,6 @@ OPS: tuple[Op, ...] = tuple(
 
 BY_NAME: dict[str, Op] = {op.name: op for op in OPS}
 
-#: Names that are no longer operations, old -> what replaced it.
-#:
-#: These DO NOT RESOLVE. The table is kept for one purpose: so a
-#: protocol that still spells one of them is refused with the name to
-#: write instead, rather than with "unknown block" and a shrug.
 RETIRED: dict[str, str] = {
     "factor-cross": "records/cross",
     "grid": "records/cross",
@@ -115,11 +86,7 @@ RETIRED: dict[str, str] = {
     "merge": "adapter/merge",
     "hf/push-adapter": "adapter/publish",
     "tools/bench-lookup": "tools/lookup",
-    # A cosine between directions is `geometry/compare` over a collection
-    # of them — `records/union` the directions first. The entry lands the
-    # protocol on the new op, whose port check then names the port to wire.
     "direction/similarity": "geometry/compare",
-    # Operations are verbs; the kinds keep the nouns.
     "records/template": "records/fill",
     "records/delta": "records/subtract",
     "records/stats": "records/summarize",
@@ -149,21 +116,16 @@ RETIRED: dict[str, str] = {
     "direction/vocab": "direction/unembed",
 }
 
-#: The release in which a retired spelling stopped resolving.
-#: `explain_unknown` names it, so a refusal says when, not just that.
 ALIASES_REMOVED_IN = "0.82.0"
 
 _VERSION_TAIL = re.compile(r"/\d+$")
 
 
 def canonical_path(name: str) -> str:
-    """The stored identity of a bare op name: `~canonical/ops/<name>`."""
     return name if name.startswith("~") else f"{ROOT}{name}"
 
 
 def is_canonical(block: str) -> bool:
-    """Whether a block string names (or aliases) a canonical op, as
-    opposed to a user's or an extension's."""
     try:
         resolve(block, warn=False)
     except KeyError:
@@ -172,19 +134,6 @@ def is_canonical(block: str) -> bool:
 
 
 def resolve(block: str, *, warn: bool = True) -> str:
-    """The bare name of the op a protocol's block string means.
-
-    Accepts the bare name and the stored path (`~canonical/ops/<name>`).
-    Returns the bare name.
-
-    A string that is neither — a user op `owner/project/ops/x`, a
-    retired name, or a typo — raises `KeyError` with the string, so the
-    executor can refuse it by name and an extension resolver can try
-    next. `explain_unknown` turns that into a sentence that names the
-    current spelling where there is one.
-
-    `warn` is accepted and ignored: nothing resolves with a warning.
-    """
     s = block.strip()
     if s.startswith(ROOT):
         s = s[len(ROOT):]
@@ -194,12 +143,6 @@ def resolve(block: str, *, warn: bool = True) -> str:
 
 
 def explain_unknown(block: str) -> str:
-    """Why this block string names no operation — as a sentence.
-
-    A retired spelling, a version segment (`…/1`), or something else
-    entirely; each gets the answer that helps, and the first two name
-    what to write instead.
-    """
     s = block.strip()
     if s.startswith(ROOT):
         s = s[len(ROOT):]

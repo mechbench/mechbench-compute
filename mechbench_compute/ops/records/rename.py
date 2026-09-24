@@ -48,8 +48,6 @@ def run(ctx, inputs, params):
 
 
 def _pop_path(rec: dict[str, Any], path: str) -> tuple[bool, Any]:
-    """Remove the value at a dotted path, copying each container on the
-    way so the input record is never mutated. (found, value)."""
     parts = path.split(".")
     cur = rec
     for p in parts[:-1]:
@@ -76,10 +74,6 @@ def _set_path(rec: dict[str, Any], path: str, value: Any) -> None:
 
 
 def rename(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """records/rename: move fields on every record, `fields: {old: new}`.
-    A name may be a dotted path (`coords.opening`, `metadata.coords`), so
-    a value moves into or out of a nested object. A record without the
-    old field is left as it is; everything not named is kept."""
     fields = params.get("fields")
     if not isinstance(fields, Mapping) or not fields:
         raise ValueError("records/rename needs `fields`: {\"old\": \"new\", …}")

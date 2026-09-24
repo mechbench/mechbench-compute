@@ -1,5 +1,3 @@
-"""The map/reduce isomorphism law, and leaf identity."""
-
 from __future__ import annotations
 
 import hashlib
@@ -44,7 +42,6 @@ class TestMonoidLaws:
         flat = ops.run_standalone("records/summarize", {"records": leaves}, params)
         chunks = [leaves[i:i + 37] for i in range(0, len(leaves), 37)]
         chunked = rd.reduce_chunks("records/summarize", chunks, params)
-        # rows compare as sets (the flat block's group order is insertion order)
         def key(r):
             return r["g"]
 
@@ -85,7 +82,7 @@ class TestHarness:
 
     def test_a_broken_monoid_is_caught(self, monkeypatch):
         class Bad(FloatSum):
-            def merge(self, a, b):  # drops a value: not a monoid
+            def merge(self, a, b):
                 return tuple(sorted((a + b)[:-1])) if len(a + b) > 3 else tuple(sorted(a + b))
 
         from mechbench_compute.ops.records import total
@@ -143,10 +140,6 @@ def _template_leaves(n=25, seed=8):
             for i in range(n)]
 
 
-#: Every pure block whose input IS a leaf stream, with the fixture the
-#: law runs on. A new block must land here (or in NOT_LEAF_STREAM) or
-#: `test_every_pure_block_is_classified` fails: the catalog stays
-#: covered by construction.
 CATALOG: dict[str, dict] = {
     "records/summarize": {
         "leaves": _leaves(120, seed=5), "params": {"by": ["g"], "value": "delta"}},
@@ -223,8 +216,6 @@ CATALOG["text/render"] = {
     "leaves": _transcript_leaves(), "port": "transcripts",
     "params": {"participant": "ana", "sees": {"own_thinking": {"last_turns": 1}}}}
 
-#: Pure blocks whose input is NOT a stream of leaf records — the law
-#: does not apply to them as written, and why.
 NOT_LEAF_STREAM: dict[str, str] = {
     "text/extend":
         "two streams aligned by conversation — transcripts and the replies "
@@ -253,9 +244,6 @@ NOT_LEAF_STREAM: dict[str, str] = {
        "residual_vectors / direction records, not a leaf stream"
        for n in ("fit", "classify", "regress", "decompose", "add", "average",
                  "orthogonalize", "normalize", "project")},
-    # Trajectory readouts read ONE trajectory record —
-    # rows are (item, step) points along an axis, not bench leaves —
-    # the same footing as the direction algebra above.
     **{f"trajectory/{n}":
        "one trajectory record; its rows are (item, step) points, not leaves"
        for n in ("project", "compare", "aggregate")},

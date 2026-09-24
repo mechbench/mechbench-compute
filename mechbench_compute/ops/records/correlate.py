@@ -80,15 +80,11 @@ def run(ctx, inputs, params):
 
 
 def correlate(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    """`records/correlate` over a whole collection: the monoid's partial
-    of every record, finalized, so the flat and the chunked table are one
-    computation."""
     m = MONOID()
     return m.finalize(m.partial(read_items(records), params), params)
 
 
 def rank_average(values: Sequence[float]) -> list[float]:
-    """Each value's rank from 0, tied values sharing their average rank."""
     order = sorted(range(len(values)), key=lambda i: values[i])
     ranks = [0.0] * len(values)
     i = 0
@@ -103,7 +99,6 @@ def rank_average(values: Sequence[float]) -> list[float]:
 
 
 def compute_spearman(xs: Sequence[float], ys: Sequence[float]) -> float | None:
-    """Spearman's rho, or None when it is undefined."""
     if len(xs) < 3:
         return None
     rx, ry = rank_average(xs), rank_average(ys)
@@ -114,8 +109,6 @@ def compute_spearman(xs: Sequence[float], ys: Sequence[float]) -> float | None:
 
 
 def estimate_fisher_interval(rho: float | None, n: int, level: float) -> tuple[float | None, float | None]:
-    """The Fisher z interval on Spearman's rho with the Bonett–Wright
-    standard error; (None, None) where it is undefined."""
     if rho is None or n < 4 or abs(rho) >= 1.0:
         return None, None
     z = NormalDist().inv_cdf(0.5 + level / 2)
@@ -126,11 +119,6 @@ def estimate_fisher_interval(rho: float | None, n: int, level: float) -> tuple[f
 
 
 class RankPoints(Monoid):
-    """Per group, the multiset of (x, y) points (sorted), and the records
-    skipped. Ranks need every point, so the partial keeps them all; the
-    sort makes the finalized rho a function of the multiset, not of the
-    order the records arrived in."""
-
     def identity(self):
         return ({}, 0)
 

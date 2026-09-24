@@ -6,8 +6,6 @@ from mechbench_compute.intervene.spec import Spec
 
 
 def scale_specs(specs: Sequence[Spec], factor: float) -> list[Spec]:
-    """The specs at one sweep factor: each strength multiplied. Factor 1
-    is the specs themselves."""
     if factor == 1.0:
         return list(specs)
     out = []

@@ -1,6 +1,3 @@
-"""The tensor store: rows in shards beside the object,
-read one shard at a time, fetched verified, uploaded once."""
-
 from __future__ import annotations
 
 import hashlib
@@ -104,7 +101,6 @@ class TestMoveBetweenMachines:
         assert len(fetches) == 3
         back = list(K.items_of(got))
         assert [it["coords"]["position"] for it in back] == list(range(10))
-        # Cached: a second materialize fetches nothing.
         again = tensors.materialize(emitted, "you/lab/big", fetch, tmp_path / "cache")
         assert len(fetches) == 3 and again["_shard_dir"] == got["_shard_dir"]
 
@@ -119,9 +115,6 @@ class TestMoveBetweenMachines:
 
 class TestARegressionStreamsTheShards:
     def test_a_planted_direction_is_recovered_from_shards(self, tmp_path):
-        """A million-token capture and a thousand-token one cost the same
-        memory in `direction/regress`: two passes over the shards, never
-        the matrix. Here: a planted axis on 600 rows over five shards."""
         from mechbench_compute import directions as dirs
 
         rng = np.random.default_rng(3)
@@ -145,12 +138,6 @@ class TestARegressionStreamsTheShards:
 
 
 class TestTheExecutorMovesShards:
-    """A node that emits a tensor collection: its shards go up as raw
-    objects under the result's label and its header is emitted stripped
-    of the local path — while a consumer in the same job still reads
-    the rows from the local shards. And a $ref to a stored one is
-    materialized before its consumer runs."""
-
     def test_emit_uploads_shards_and_the_consumer_reads_locally(self, tmp_path, monkeypatch):
         from mechbench_compute import bench, blocks, interp
         from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
@@ -177,11 +164,8 @@ class TestTheExecutorMovesShards:
         ], "edges": [{"from": {"node": "cap"}, "to": {"node": "sum", "port": "records"}}]}
         out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,
                                                   extra={"graph": graph, "resultPath": "you/lab/results/j1"}))
-        # The consumer read all ten rows from the local shards…
         assert out.payload["outputs"]["sum"]["rows"][0]["n"] == 10
-        # …the shards went up under the result's label…
         assert [p[0] for p in put] == [f"you/lab/results/j1/cap/shards/shard-000{k}.safetensors" for k in range(3)]
-        # …and the emitted header carries the shards, not the local path.
         header = emitted["you/lab/results/j1/cap"]
         assert header["storage"] == "tensor" and len(header["shards"]) == 3 and "_shard_dir" not in header
         assert header["items"] == []

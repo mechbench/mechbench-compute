@@ -90,10 +90,6 @@ query-side composers.
 
 
 def run(ctx, inputs, params):
-    """weights/circuit: what a head does, read from its own weights
-    and the vocabulary — the OV and QK circuits, and the
-    composition of earlier heads with this one. No forward pass."""
-
     model = ctx.model(params.get("model"))
     return read_head_circuits(model, params, on_item=ctx.on_item,
                                      on_start=ctx.on_start)
@@ -101,22 +97,6 @@ def run(ctx, inputs, params):
 
 def read_head_circuits(model, params: Mapping[str, Any] | None = None,
                        on_item=None, on_start=None) -> dict[str, Any]:
-    """What a head does, read from its weights and the vocabulary — no
-    forward pass, no corpus.
-
-    `ov`: the top singular components of W_O·W_V, each an input
-    direction (tokens that trigger it) paired with an output direction
-    (tokens it then promotes). A copying head shows the same tokens on
-    both sides.
-
-    `qk`: the same for W_Qᵀ·W_K — the query tokens a component looks
-    for, and the key tokens it matches. Positional terms are not in it:
-    RoPE is applied to the activations, not the weights.
-
-    `composition`: how much of what each earlier head WRITES lands in
-    what this head READS, as Q-, K- or V-composition — which is how one
-    names the heads that feed a head before patching any of them.
-    """
     from mechbench_compute import head_weights as hw
     from mechbench_compute.lexicon import kinds as K
 
@@ -178,9 +158,6 @@ def read_head_circuits(model, params: Mapping[str, Any] | None = None,
                 "id": f"L{lay}H{h}:{comp.rank}",
                 "coords": {"layer": lay, "head": h, "rank": comp.rank, "circuit": which},
                 "strength": round(float(comp.strength), 5),
-                # For `ov`: what it writes, and what triggers the write.
-                # For `qk`: what the query looks for, and what the key
-                # matches. The names say which side, not which meaning.
                 "left": _tokens(comp.left_tokens),
                 "right": _tokens(comp.right_tokens),
                 "kv_group": got.kv_group,

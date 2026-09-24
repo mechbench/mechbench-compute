@@ -25,11 +25,6 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                cassette_mode=None, limiter=None, job_budget: Budget | None = None,
                on_item=None, on_start=None,
                resume_items=None) -> dict[str, Any]:
-    """The endpoint path. `ref` is an endpoint ModelRef.
-
-    An empty reply is checkpointed through `on_item` like any other, so
-    a resumed run never buys it twice; `on_empty` is applied when the
-    output collection is assembled, to resumed items as well."""
     from mechbench_compute.seeds import item_seed
 
     on_empty = str(params.get("on_empty", "keep"))
@@ -52,11 +47,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                           or params.get("cassette_mode", "replay")))
     budget = build_budget(params)
     if job_budget is not None:
-        # The node's cap under the job's: a graph whose node caps sum
-        # past the job's cap still cannot spend past the job's.
         budget = job_budget.child(budget.cap_usd)
-    # Which of the provider's APIs answers: the node's choice, else the
-    # model's default (the Responses API only where a model needs it).
     api = params.get("api")
     if api is None:
         from mechbench_compute.providers.openai_responses import default_api
@@ -69,14 +60,8 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     seed = params.get("seed")
     concurrency = max(1, int(params.get("concurrency", 4)))
     record_requests = bool(params.get("record_requests", False))
-    # Rate limits are per ACCOUNT, so the limiter's scope is the
-    # credential's fingerprint — two keys for one provider get two
-    # buckets, and nothing persisted names a secret.
     scope = str(params.get("limit_scope") or pl.scope_for(provider, creds))
 
-    # Tools are ordinary blocks; each item gets its own toolbox so the
-    # runs it records are its own even under the pool. A `sandbox` image
-    # adds its tools and a per-item session.
     image, tool_specs = resolve_sandbox_tools(params)
     max_tool_rounds = int(params.get("max_tool_rounds", 3))
     block_runner = params.get("_block_runner")
@@ -88,8 +73,6 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         on_start(len(recs) * n)
 
     plan: list[tuple[str, dict, int, pm.ChatRequest]] = []
-    # Items land in completion order; the executor stores a collection
-    # in key order, so the order here is nobody's contract.
     items: list[Any] = []
     replayed = 0
     calls: list[dict[str, Any]] = []
@@ -99,9 +82,6 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         for k in range(start, start + n):
             key = f"{rec.get('id')}:{k}"
             if resume_items and key in resume_items:
-                # Exchangeable: this item was paid for once, by this
-                # same process identity. Reuse it rather than buy it
-                # again.
                 items.append(resume_items[key])
                 if on_item:
                     on_item(key, resume_items[key], True)
@@ -110,7 +90,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                 continue
             item_sd = (item_seed(seed, rec.get("id"), k)
                        if seed is not None and transport.capabilities.seed
-                       and api != "responses"   # it has no seed field
+                       and api != "responses"
                        else None)
             plan.append((key, dict(rec), k,
                          build_request(rec, params, model=ref.base,
@@ -122,9 +102,6 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         box, session = open_toolbox(image, tool_specs, block_runner=block_runner)
         extra_calls: list[Any] = []
         rounds: list[pm.Message] = []
-        # The tool loop: answer, run what it asked for, hand back the
-        # results, ask again — bounded, because a model and its tools
-        # can talk to each other for a long time at someone's expense.
         for round_no in range(max_tool_rounds + 1):
             out = transport.chat(req, budget=budget, limiter=limiter, scope=scope,
                                  record_request=record_requests)
@@ -183,8 +160,6 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                         continue
                     land(fut.result())
                     if failed:
-                        # Calls not yet started are not bought; those in
-                        # flight are paid for, so they still land.
                         for f in futures:
                             f.cancel()
     if failed:
@@ -210,4 +185,3 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                "policy": on_empty},
         ended=count_endings(items),
     )
-

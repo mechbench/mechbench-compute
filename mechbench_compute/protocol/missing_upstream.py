@@ -1,5 +1,3 @@
-"""The refusal a `fail` port raises when its upstream produced nothing."""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -7,14 +5,6 @@ from typing import Any
 
 
 class MissingUpstream(RuntimeError):
-    """A node needed an input its upstream never produced, and the port
-    it was wired to says that is fatal.
-
-    Carries the chain, because the useful question is never "what
-    raised" but "what was this waiting for": the node, its port, the
-    upstream that produced nothing, and why THAT happened.
-    """
-
     def __init__(self, nid: str, port: str, source: str, why: Mapping[str, Any]):
         self.nid, self.port, self.source = nid, port, source
         super().__init__(

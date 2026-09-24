@@ -1,5 +1,3 @@
-"""Directions as first-class objects."""
-
 from __future__ import annotations
 
 import numpy as np
@@ -33,7 +31,6 @@ def _vectors(layer=3, point="post", n=4, dim=8, seed=1):
 
 
 def _cos(a, b):
-    """The cosine of two directions, through the metric their kind declares."""
     from mechbench_compute import metrics as M
 
     return float(M.matrix("activations/vector", [a, b], "cosine")[0][0, 1])
@@ -53,8 +50,6 @@ class TestMake:
 
 
 def _measured(layer=3, n=120, dim=8, seed=7, noise=0.05):
-    """Vectors carrying a number that really is written along one axis:
-    `vector = base + value * axis + noise`, the value on a coordinate."""
     rng = np.random.default_rng(seed)
     axis = rng.normal(size=dim)
     axis /= np.linalg.norm(axis)
@@ -75,17 +70,11 @@ class TestRegression:
         x = fit_regression(v, layer=3, target="surprisal")
         assert x["kind"] == "direction/vector"
         assert x["derivation"]["method"] == "ridge"
-        # The fitted weight vector points along the planted axis (either
-        # sign would be a fit; the value RISES along it, so it is this one).
         assert _cos(x, d.make(axis, _space(3, 8), method="planted")) > 0.98
-        # And it says so: a direction that carries the signal scores on
-        # items it never saw.
         assert x["derivation"]["r2_test"] > 0.9
         assert x["derivation"]["n_train"] + x["derivation"]["n_test"] == 120
 
     def test_noise_scores_near_zero_but_still_fits(self):
-        # A weight vector always exists. What separates a real direction
-        # from an artefact is how it does on held-out items.
         rng = np.random.default_rng(3)
         rows = [{"id": f"r{i}", "layer": 3, "coords": {"surprisal": float(rng.normal())},
                  "vector": [float(x) for x in rng.normal(size=8)]} for i in range(60)]
@@ -106,14 +95,10 @@ class TestProducers:
     def test_diff_of_means_points_from_neg_to_pos(self):
         v = _vectors()
         x = fit_mean_difference(v, layer=3, positive="pos", negative="neg")
-        # The fixture is the older flattened spelling: `layer` on the row,
-        # `point` and `model` on the header, `label` as a field. The space
-        # is assembled from it and the label read as the `label` axis.
         assert x["space"] == {"model": "fake/m@r", "layer": 3, "point": "resid_post", "head": None, "d": 8}
         assert x["derivation"]["axis"] == "label"
         assert (x["derivation"]["positive"], x["derivation"]["negative"]) == ("pos", "neg")
         assert x["derivation"]["n_positive"] == 4
-        # the difference is ~ +4 on every coordinate: all-positive unit vector
         assert all(c > 0 for c in x["vector"])
 
     def test_pca_first_component_is_the_label_axis(self):
@@ -128,10 +113,6 @@ class TestProducers:
             fit_mean_difference(_vectors(), layer=9, positive="pos", negative="neg")
 
     def test_an_axis_fit_across_two_models_lives_in_neither(self):
-        # A base capture and an adapted capture in one union: the
-        # difference of their means is a direction in the basis they
-        # share, not in either model — so two such axes (from two
-        # adapters) compare, and the models are on the derivation.
         from mechbench_compute import ops
         from mechbench_compute.lexicon import kinds as K
 
@@ -214,9 +195,6 @@ class TestBlocks:
 
 
 class TestClassify:
-    """A probe per layer: the direction that separates a
-    label, and how much of it a held-out item shows."""
-
     D = 8
 
     def _corpus(self, planted_at=6, flat_at=2, n=40, seed=0):
@@ -243,7 +221,6 @@ class TestClassify:
         flat, planted = by_layer[2], by_layer[6]
         assert planted["accuracy_test"] == 1.0 and planted["over_baseline"] > 0.4
         assert flat["accuracy_test"] <= flat["baseline"] + 0.2
-        # …and the probe that decodes IS the planted axis.
         cos = abs(float(np.asarray(planted["vector"]) @ axis))
         assert cos > 0.9, cos
         assert planted["auc"] == 1.0 and planted["derivation"]["method"] == "logistic"
@@ -294,7 +271,6 @@ class TestClassify:
         out = fit_probe(corpus, axis="sense")
         one = {"kind": "collection", "item_kind": "direction/vector",
                "items": [it for it in out["items"] if it["coords"]["layer"] == 6]}
-        # A collection of exactly one direction IS that direction.
         assert d.coerce_array(one).shape == (self.D,)
         with pytest.raises(ValueError, match="collection of 2"):
             d.coerce_array(out)

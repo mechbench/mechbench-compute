@@ -39,12 +39,6 @@ def run(ctx, inputs, params):
 
 
 def fetch_bench_object(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
-    """`tools/lookup` — fetch a bench object by
-    path, so a model can consult what the platform already knows.
-
-    `fetch` is injectable (the executor passes the recording fetch, and
-    tests pass their own) — nothing here touches the network directly.
-    """
     args = dict(inputs.get("arguments") or {})
     path = str(args.get("path") or params.get("path") or "")
     if not path:

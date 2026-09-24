@@ -1,12 +1,3 @@
-"""How an op is named and resolved (docs/LEXICON.md §1).
-
-A protocol spells an op bare (`records/select`) or stored
-(`~canonical/ops/records/select`). Nothing else resolves: a retired
-name, and the `/1` version segment a stored protocol may carry, are
-refused — by name, and with the current spelling in the message. Every
-table the executor consults is keyed by the bare name and nothing else.
-"""
-
 from __future__ import annotations
 
 import pathlib
@@ -54,14 +45,12 @@ class TestResolve:
             assert new in msg and ALIASES_REMOVED_IN in msg
 
     def test_the_version_segment_is_refused_on_a_current_name_too(self):
-        # A stored protocol may carry a `…/1` version segment.
         for spelling in ("records/select/1", f"{ROOT}records/select/1"):
             with pytest.raises(KeyError):
                 resolve(spelling)
             assert "records/select" in explain_unknown(spelling)
 
     def test_warn_false_is_still_accepted_and_still_resolves(self):
-        # `warn=False` silences the warning and still resolves.
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             assert resolve("logits/read", warn=False) == "logits/read"
@@ -78,11 +67,6 @@ class TestResolve:
 
 
 class TestEveryTableIsKeyedByBareNames:
-    """The dispatcher, the pure registry, the resume table, the reduce
-    algebra and the param table all key by the bare name. A stored path
-    or a retired name in any of them would be a second spelling the
-    resolver does not see."""
-
     def _bad(self, keys) -> list[str]:
         return sorted(k for k in keys if k not in BY_NAME)
 
@@ -112,8 +96,6 @@ class TestEveryTableIsKeyedByBareNames:
         assert not re.search(r'block == "~canonical', src)
 
     def test_no_source_spells_the_stored_root_except_the_lexicon(self):
-        """`~canonical/ops/` appears where the root is DEFINED and in
-        prose — never as a table key."""
         import mechbench_compute
         pkg = pathlib.Path(mechbench_compute.__file__).parent
         offenders = []
@@ -125,17 +107,11 @@ class TestEveryTableIsKeyedByBareNames:
 
 
 class TestTheLookupsAroundIt:
-    """Everything that asks a block a question falls through on a name
-    it cannot resolve rather than raising: the executor has already
-    refused the graph by then, and these are advisory."""
-
     def test_resume_level_falls_through_on_a_retired_name(self):
         from mechbench_compute.resume import item_resumable, resume_level
         assert resume_level("~canonical/ops/text/generate") == \
             resume_level("text/generate")
         assert item_resumable("logits/read") is True
-        # An unresolvable name offers nothing, rather than claiming
-        # the promise of an op it resembles.
         assert resume_level("decision-read") == "restart"
         assert item_resumable("decision-read") is False
 

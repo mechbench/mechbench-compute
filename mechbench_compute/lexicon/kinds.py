@@ -1,20 +1,3 @@
-"""The kinds: every data type an op reads or produces, declared once.
-
-A kind is singular (docs/LEXICON.md §4). Plurality is the one container,
-`collection`: `{kind: "collection", item_kind, key, items, ...header}`,
-where the item kind declares its `key` (the fields that identify an
-item) and its `header` (what a collection of it carries). `emit` sorts a
-collection's items by their key before hashing, so the same items in any
-order are the same bytes.
-
-Value types — `space`, `token`, a distribution's `top` and `tracked` —
-are fields, not kinds; `values.py` declares their shapes and prose,
-`shapes.py` constructs them and every op builds its items through it.
-The lattice (§6) is declared with `extends`.
-
-Retired kind names resolve through `KIND_ALIASES`.
-"""
-
 from __future__ import annotations
 
 import json
@@ -23,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind, Metric, P
-from mechbench_compute.lexicon.values import (  # noqa: F401 — re-exported for the readers that import them here
+from mechbench_compute.lexicon.values import (  # noqa: F401
     COORDS,
     ID,
     SPACE,
@@ -40,7 +23,6 @@ DIST = F("object", "A `logits/distribution`: `{entropy_bits, top, tracked?}`.",
 
 _TABLE_RENDERER = {"primitive": "table", "field_map": {"rows": "items"}}
 
-# --- records --------------------------------------------------------------------------
 
 RECORD = Kind(
     "records/record",
@@ -160,7 +142,6 @@ WORD_LIST = Kind(
             "description": F("string", "Where the list came from.")},
 )
 
-# --- text ------------------------------------------------------------------------------
 
 DOCUMENT = Kind(
     "text/document",
@@ -250,7 +231,6 @@ TOKENIZATION = Kind(
         "expected depth, and names the ones that did not.",
 )
 
-# --- logits ----------------------------------------------------------------------------
 
 DISTRIBUTION = Kind(
     "logits/distribution",
@@ -327,7 +307,6 @@ ATTRIBUTION = Kind(
     doc="Axis `[component]`, in the header's `components` order; measure `contribution`.",
 )
 
-# --- activations -----------------------------------------------------------------------
 
 VECTOR = Kind(
     "activations/vector",
@@ -417,7 +396,6 @@ ATTENTION = Kind(
     doc="Axes `[layer, head, query, key]`; measure `weight` — row = the attending position, column = the attended-to position.",
 )
 
-# --- geometry --------------------------------------------------------------------------
 
 SIMILARITY = Kind(
     "geometry/similarity",
@@ -463,7 +441,6 @@ MST = Kind(
             "bridge_sigma": "The bridge threshold in standard deviations.", "axis": "The coordinate the labels read."},
 )
 
-# --- intervene -------------------------------------------------------------------------
 
 SPEC = Kind(
     "intervene/spec",
@@ -544,7 +521,6 @@ TRACE = Kind(
     doc="Axes `[layer, position]`; measures `recovery` — the change in the metric from the `b` baseline — and `share`, the same as a fraction of the `a`−`b` gap (0 is the corrupt run, 1 the clean one; absent when the pair has no gap); `tokens` are prompt `b`'s.",
 )
 
-# --- direction -------------------------------------------------------------------------
 
 DIRECTION = Kind(
     "direction/vector",
@@ -570,7 +546,6 @@ VOCAB = Kind(
         "distributions, so the distribution metrics compare a direction's vocabulary with another's.",
 )
 
-# --- trajectory ------------------------------------------------------------------------
 
 POINT = Kind(
     "trajectory/point",
@@ -625,7 +600,6 @@ SUMMARY = Kind(
         "`direction/fit` reads directly.",
 )
 
-# --- adapter ---------------------------------------------------------------------------
 
 LORA = Kind(
     "adapter/lora",
@@ -697,9 +671,6 @@ DELTA = Kind(
             "vector": F("array", "The principal left-singular direction, unit length, in the module's output space — present when the node asked for it.", items={"type": "number"}),
             "basis": F("object", "`{module, side, d}` — which space `vector` lives in.")},
     required=("id", "frobenius", "effective_rank", "mass_share"),
-    # Two adapters measured into one collection carry the same module
-    # ids, so the coordinates — which name the adapter — are part of
-    # the identity, as a vector's space is.
     key=("id", "coords"),
     header={"base_model": "The base the adapter was trained on.",
             "trained_on": "`{base, adapters}` — the full stack.",
@@ -732,7 +703,6 @@ PUSH = Kind(
     required=("repo", "files"),
 )
 
-# --- eval ------------------------------------------------------------------------------
 
 VERDICT = Kind(
     "eval/verdict",
@@ -765,7 +735,6 @@ VERDICT = Kind(
         "(the entropy, the KL, the mass) beside the pass, and says why when it could not be judged at all.",
 )
 
-# --- platform kinds (not produced by ops) -------------------------------------------------
 
 PLATFORM: tuple[Kind, ...] = (
     Kind("sandbox/image", "A sandbox image: base, tools, limits, and the tree it starts from.", platform=True,
@@ -840,13 +809,7 @@ KINDS: tuple[Kind, ...] = (
 
 BY_KIND: dict[str, Kind] = {k.name: k for k in KINDS}
 
-#: Retired kind names: old string -> (new kind name, whether the old
-#: object was a collection of it). A plural old kind maps to its item
-#: kind and `True`.
 KIND_ALIASES: dict[str, tuple[str, bool]] = {
-    # A plural old name resolves to its ITEM kind with `True`, never to
-    # the bare container: a `records/record` port wired "a collection of
-    # `collection`" refuses every object stored under the old spelling.
     "document_collection": ("text/document", True),
     "record_set": ("records/record", True),
     "records": ("records/record", True),
@@ -908,8 +871,6 @@ KIND_ALIASES: dict[str, tuple[str, bool]] = {
     "pipeline_result": ("run/result", False),
 }
 
-#: The field a plural object stored under a retired kind keeps its items
-#: in, by that kind. `items_of` reads it.
 _LEGACY_ITEMS_FIELD: dict[str, str] = {
     "document_collection": "items", "record_set": "records", "records": "records",
     "decision_read": "conditions", "decision_distribution": "conditions",
@@ -923,8 +884,6 @@ _LEGACY_ITEMS_FIELD: dict[str, str] = {
 
 
 def all_fields(kind: Kind) -> dict[str, dict[str, Any]]:
-    """The kind's fields including every ancestor's, the nearest
-    declaration winning."""
     chain: list[Kind] = []
     cur: Kind | None = kind
     while cur is not None:
@@ -937,7 +896,6 @@ def all_fields(kind: Kind) -> dict[str, dict[str, Any]]:
 
 
 def ancestry(name: str) -> tuple[str, ...]:
-    """The kind and every kind it extends, nearest first."""
     out: list[str] = []
     cur: str | None = name
     while cur is not None and cur in BY_KIND and cur not in out:
@@ -947,37 +905,25 @@ def ancestry(name: str) -> tuple[str, ...]:
 
 
 def satisfies(actual: str, declared: str) -> bool:
-    """Whether an object of kind `actual` may fill a port declared as
-    `declared`: the same kind, or one that extends it. `collection`
-    declared means any kind at all (the port takes whatever items
-    arrive, as `records/union` does)."""
     if declared == COLLECTION:
         return True
     return declared in ancestry(actual)
 
 
 def canonical_kind_path(name: str) -> str:
-    """The registered identity of a bare kind name."""
     if name == COLLECTION or name.startswith("~"):
         return name
     return f"{KIND_ROOT}{name}"
 
 
 class RetiredKindName(DeprecationWarning):
-    """A kind string that has been renamed. Stored objects keep whatever
-    spelling they were written with, so the alias table is permanent; the
-    warning is for a protocol that still writes a retired spelling in a
-    param or a fixture."""
+    pass
 
 
 _warned: set[str] = set()
 
 
 def resolve_kind(kind: str, *, warn: bool = True) -> tuple[str, bool]:
-    """(bare kind name, was-a-collection) for any spelling a stored
-    object may carry: bare, registered, or a retired string. Raises
-    `KeyError` for a string that is none of these. A retired string
-    resolves and warns once per process."""
     s = kind.strip()
     if s.startswith(KIND_ROOT):
         s = s[len(KIND_ROOT):]
@@ -997,8 +943,6 @@ def resolve_kind(kind: str, *, warn: bool = True) -> tuple[str, bool]:
 
 
 def item_kind_of(obj: Mapping[str, Any]) -> str | None:
-    """The kind of the items in `obj`, whether it is a `collection` or a
-    plural object under a retired kind; None for a singular object."""
     k = obj.get("kind")
     if k == COLLECTION:
         ik = obj.get("item_kind")
@@ -1016,16 +960,12 @@ def item_kind_of(obj: Mapping[str, Any]) -> str | None:
 
 
 def items_of(obj: Any) -> list[Any]:
-    """The items of a collection, however it is spelled: the `collection`
-    container, a plural object under a retired kind, or a bare list."""
     if isinstance(obj, list):
         return obj
     if not isinstance(obj, Mapping):
         raise ValueError("not a collection: a list or a mapping was expected")
     k = obj.get("kind")
     if k == COLLECTION and obj.get("storage") == "tensor":
-        # The rows live in shards: a lazy sequence over them, one shard in
-        # memory at a time. `list()` is the reader's choice.
         from mechbench_compute import tensors
 
         return tensors.items_of(obj)  # type: ignore[return-value]
@@ -1033,8 +973,6 @@ def items_of(obj: Any) -> list[Any]:
         return list(obj["items"])
     if isinstance(k, str) and k in _LEGACY_ITEMS_FIELD:
         return list(obj.get(_LEGACY_ITEMS_FIELD[k]) or [])
-    # An unkinded object, or a container whose list is under one of the
-    # field names a retired shape used. Tried in this order.
     for f in ("records", "conditions", "rows", "items"):
         if isinstance(obj.get(f), list):
             return list(obj[f])
@@ -1042,7 +980,6 @@ def items_of(obj: Any) -> list[Any]:
 
 
 def collection(item_kind: str, items: list[Any], **header: Any) -> dict[str, Any]:
-    """Build a `collection` of `item_kind`, keyed as the kind declares."""
     kind = BY_KIND[item_kind]
     out: dict[str, Any] = {"kind": COLLECTION, "item_kind": item_kind, "key": list(kind.key), "items": list(items)}
     out.update({k: v for k, v in header.items() if v is not None})
@@ -1053,8 +990,6 @@ _SPACE_ORDER = ("model", "layer", "point", "head", "d")
 
 
 def _sort_value(v: Any) -> tuple[int, Any]:
-    """A total order over JSON values for a key field: None first, then
-    numbers, then strings, then everything else by its JSON text."""
     if v is None:
         return (0, "")
     if isinstance(v, bool):
@@ -1064,9 +999,6 @@ def _sort_value(v: Any) -> tuple[int, Any]:
     if isinstance(v, str):
         return (2, v)
     if isinstance(v, Mapping):
-        # A space sorts by model, layer, point, head, width — the order a
-        # reader thinks in — not by its field names alphabetically (which
-        # is how a stored map comes back).
         keys = (_SPACE_ORDER if set(v) == set(_SPACE_ORDER) else tuple(sorted(v)))
         return (3, tuple((k, _sort_value(v[k])) for k in keys))
     if isinstance(v, (list, tuple)):
@@ -1075,10 +1007,6 @@ def _sort_value(v: Any) -> tuple[int, Any]:
 
 
 def canonical_collection(obj: Any) -> Any:
-    """`obj` with a `collection`'s items sorted by their key — the form
-    that is hashed and stored, so the same items in any order are the
-    same bytes. Anything that is not a collection is returned as is.
-    Idempotent."""
     if not isinstance(obj, Mapping) or obj.get("kind") != COLLECTION:
         return obj
     key = list(obj.get("key") or [])

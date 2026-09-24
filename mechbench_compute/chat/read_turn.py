@@ -8,10 +8,6 @@ from mechbench_compute.providers import messages as pm
 
 def read_turn(text: str, reasoning: Sequence[Mapping[str, Any]],
               turn: Sequence[Mapping[str, Any]] | None) -> tuple[Any, ...]:
-    """A stored reply's parts in the order the provider returned them —
-    the inverse of `write_turn`. With no `turn`, the reasoning comes
-    first and the prose after it, which is the order every provider
-    writes a reply without tool calls in."""
     if turn is None:
         return (*(pm.part({"type": "reasoning", **dict(r)}) for r in reasoning),
                 *((pm.TextPart(text),) if text else ()))

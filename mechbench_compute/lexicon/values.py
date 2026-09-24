@@ -1,27 +1,9 @@
-"""The value types: the field shapes and parameter grammars that many
-kinds and ops share, declared once.
-
-A value type is not a kind — it is never stored on its own, and it has
-no key — but a reader meets it on every page that uses it: a `space` on
-every vector, a `token` in every distribution, `coords` on every record,
-one position selector on every op that chooses a position. So each is
-declared here with its fields and its prose; the kinds import the field
-shapes from here, and the documentation site gives each its page.
-
-The three grammars (`position`, `pool`, `point`) describe parameter
-values rather than stored fields. The point vocabulary's names come from
-`points.py`, which is what every `point` parameter is checked against;
-a test holds the prose here to that list.
-"""
-
 from __future__ import annotations
 
 from typing import Any
 
 from mechbench_compute import points as _points
 from mechbench_compute.lexicon._base import Value
-
-# --- field shorthands ---------------------------------------------------------------
 
 
 def F(type_: str, doc: str, **extra: Any) -> dict[str, Any]:
@@ -47,7 +29,6 @@ TOP = F("array", "The most likely tokens, ranked by probability, each `{token, p
 TRACKED = F("object", "Name → `{token, p, logp}` for the tokens the caller asked about, by the names it gave.",
             additionalProperties={"type": "object"})
 
-# --- the value types ----------------------------------------------------------------
 
 SPACE_VALUE = Value(
     "space",
@@ -326,8 +307,6 @@ VALUES: tuple[Value, ...] = (
 
 BY_VALUE: dict[str, Value] = {v.name: v for v in VALUES}
 
-#: Every point name the prose above lists — the test holds this equal to
-#: `points.POINTS`, so the page and the check cannot disagree.
 DOCUMENTED_POINTS: frozenset[str] = frozenset(n for _, names in _POINT_GROUPS for n in names)
 assert DOCUMENTED_POINTS == frozenset(_points.POINTS), (
     sorted(DOCUMENTED_POINTS ^ frozenset(_points.POINTS)))

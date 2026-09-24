@@ -11,11 +11,6 @@ from mechbench_compute.tools.tool_run import ToolRun
 
 
 class Toolbox:
-    """The tools one participant may call, and the machinery to run
-    them. `block_runner(ref, inputs, params)` is injected by the
-    executor for handlers it must own (model blocks, sub-protocols);
-    pure blocks run here."""
-
     def __init__(self, tools: Sequence[Any] = (), *, block_runner=None,
                  session=None) -> None:
         self.tools = [ToolDef.parse(t) for t in tools]
@@ -23,9 +18,6 @@ class Toolbox:
         if len(self._by_name) != len(self.tools):
             raise ValueError("tool names must be unique within a toolbox")
         self._runner = block_runner
-        # A sandbox session: stateful, so it binds to the
-        # toolbox rather than riding in a handler dict, which is copied
-        # into every provenance record and must stay serializable.
         self._session = session
         self.runs: list[ToolRun] = []
 
@@ -36,9 +28,6 @@ class Toolbox:
         return tuple(t.to_spec() for t in self.tools)
 
     def call(self, call: pm.ToolCallPart) -> pm.ToolResultPart:
-        """Run one tool call. Every failure becomes a result the model
-        can read: an unknown name, a handler that raised, a handler
-        that was never wired."""
         started = time.monotonic()
         tool = self._by_name.get(call.name)
         if tool is None:
@@ -47,7 +36,7 @@ class Toolbox:
                                {}, started)
         try:
             output = self._dispatch(tool, dict(call.arguments))
-        except Exception as e:  # noqa: BLE001 — a tool's failure is data
+        except Exception as e:  # noqa: BLE001
             return self._error(call, f"{type(e).__name__}: {e}", tool.handler, started)
         run = ToolRun(tool=tool.name, arguments=dict(call.arguments),
                       handler=dict(tool.handler), output=output,
@@ -71,10 +60,6 @@ class Toolbox:
                 "model but not run")
         method = handler.get("sandbox")
         if method is not None:
-            # A sandbox tool advances the session's snapshot chain; the
-            # session is bound to the toolbox, and the arguments are the
-            # method's keyword parameters (validated by the schema the
-            # model was given, forgiving here).
             if self._session is None:
                 raise ValueError(
                     f"tool {tool.name!r} is a sandbox tool, but this toolbox "
@@ -88,9 +73,6 @@ class Toolbox:
             return fn(**dict(arguments))
         ref = handler.get("block")
         params = dict(handler.get("params") or {})
-        # A handler block sees the call's arguments on its own port AND
-        # as a single record, so an ordinary record block works as a
-        # tool without knowing it is one.
         inputs = {"arguments": dict(arguments), "records": [dict(arguments)]}
         if ref is None:
             if self._runner is None:
@@ -102,8 +84,6 @@ class Toolbox:
 
         if ref in ops.find_standalone():
             return ops.run_standalone(ref, inputs, params)
-        # A model block or a sub-protocol: the executor owns those, and
-        # a toolbox built without one can say so precisely.
         if self._runner is None:
             raise ValueError(
                 f"tool {tool.name!r}: {ref!r} is not a pure block, so it needs "

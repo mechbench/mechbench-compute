@@ -1,11 +1,3 @@
-"""Reasoning is its own content, for every provider the adapters speak.
-
-Each provider's replies are the shapes its documentation gives, answered
-by a scripted `post_json`, so what is asserted is the wire: what the
-adapter read out of a response, what it stored on the item, and the
-exact bytes it sent back on the next request.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -23,9 +15,6 @@ SIG_B = "Es8CCkYICxIM+sig/B=="
 
 
 class Script:
-    """Stands in for `http.post_json`: answers chat requests in order and
-    keeps each payload as sent; a token count is answered on the side."""
-
     def __init__(self, *bodies):
         self.bodies = list(bodies)
         self.sent: list[dict] = []
@@ -50,8 +39,6 @@ def run_chat(monkeypatch, provider, model, bodies, *, records=None, tools=("calc
         secrets={provider: {"token": "k", **({"base_url": base_url} if base_url else {})}})
     return out, script
 
-
-# --- the shapes each provider documents -------------------------------------
 
 ANTHROPIC_THINK = {"type": "thinking", "thinking": "", "signature": SIG_A}
 ANTHROPIC_REDACTED = {"type": "redacted_thinking", "data": "EmwKAhgBEgy3va3pzix/LafPsn4a"}
@@ -79,7 +66,6 @@ def gemini_bodies():
         {"modelVersion": "gemini-3-pro", "usageMetadata": usage, "candidates": [{
             "finishReason": "STOP", "content": {"role": "model", "parts": [
                 GEMINI_THOUGHT,
-                # Parallel calls: only the first carries the signature.
                 {"functionCall": {"name": "calc", "args": {"expression": "2+2"}},
                  "thoughtSignature": SIG_A},
                 {"functionCall": {"name": "calc", "args": {"expression": "3+3"}}}]}}]},
@@ -113,13 +99,10 @@ OPENROUTER_DETAILS = [
 
 
 def assistant_turn(payload, provider):
-    """The assistant message of a request, in the provider's own form."""
     if provider == "gemini":
         return next(c for c in payload["contents"] if c["role"] == "model")
     return next(x for x in payload["messages"] if x["role"] == "assistant")
 
-
-# --- anthropic ---------------------------------------------------------------
 
 class TestAnthropic:
     def test_thinking_is_reasoning_and_the_text_is_prose(self, monkeypatch):
@@ -155,8 +138,6 @@ class TestAnthropic:
         assert item["reasoning"][0]["text"] == "Score: 5"
 
 
-# --- gemini ------------------------------------------------------------------
-
 class TestGemini:
     def test_thoughts_are_reasoning_and_signatures_stay_on_their_parts(self, monkeypatch):
         out, _ = run_chat(monkeypatch, "gemini", "gemini-3-pro", gemini_bodies())
@@ -185,12 +166,8 @@ class TestGemini:
         assert out["items"][0]["reasoning"][0]["text"] == "Score: 5"
 
 
-# --- the chat-completions hosts ----------------------------------------------
-
 class TestDeepSeek:
     def test_reasoning_content_is_separated_and_goes_back_with_tools(self, monkeypatch):
-        # DeepSeek's thinking-mode guide: with `tools`, reasoning_content
-        # must be passed back in every later request, or the API 400s.
         out, script = run_chat(monkeypatch, "deepseek", "deepseek-flash", chat_bodies(
             {"reasoning_content": "Use the calculator."},
             {"reasoning_content": "It said 4."}))
@@ -239,8 +216,6 @@ class TestOpenRouter:
 
 class TestXai:
     def test_reasoning_content_is_shown_and_never_sent_back(self, monkeypatch):
-        # xAI's chat completions has no field to take reasoning back in;
-        # its encrypted reasoning is a Responses API feature.
         out, script = run_chat(monkeypatch, "xai", "grok-4.7", chat_bodies(
             {"reasoning_content": "Use the tool."}, {"reasoning_content": "Done."}))
         assert out["items"][0]["reasoning"][0]["text"] == "Done."
@@ -258,8 +233,6 @@ class TestOpenAI:
         assert set(assistant_turn(script.sent[1], "openai")) == {"role", "content", "tool_calls"}
 
 
-# --- replays -----------------------------------------------------------------
-
 class TestReplay:
     def test_a_cassette_keeps_the_body_and_replays_it_through_the_adapter(self, monkeypatch):
         body = anthropic_bodies()[1]
@@ -275,7 +248,6 @@ class TestReplay:
         assert replayed.parts == recorded.parts
 
     def test_a_kept_body_is_read_by_the_current_mapping(self):
-        # Stored parts that read the thinking as text, beside the body.
         req = m.request({"model": "claude-opus-5", "messages": "hi", "max_tokens": 50})
         body = anthropic_bodies()[1]
         entry = {"parts": [{"type": "text", "text": "The tool said 4."},

@@ -67,15 +67,6 @@ become visible?
 
 
 def run(ctx, inputs, params):
-    """Read the target's probability at every (layer, position), by
-    projecting each mid-stack residual through the unembedding.
-
-    The logit lens over a whole sequence rather than one point: where
-    in the text, and how deep in the stack, does the answer become
-    visible? "Visible at layer k" means decodable there, which is not
-    the same as decided there.
-    """
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return scan_positions(
@@ -89,10 +80,6 @@ def scan_positions(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Project every layer's residual through the unembedding at every
-    position and follow one target token — where
-    in the sequence, and at what depth, does the answer become
-    visible? Rank 0 means the target is that position's top readout."""
     from mechbench_compute import lens
 
     layers = resolve_layers(params.get("layers"), model.arch.n_layers)

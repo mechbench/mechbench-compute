@@ -54,18 +54,6 @@ between its releases, so the version is part of the measurement.
 
 
 def run(ctx, inputs, params):
-    """eval/benchmark — the lm-eval-harness bridge: run standard
-    benchmark tasks against the bound model THROUGH OUR OWN Model
-    (lm_bridge.MechbenchLM), so revision pinning, VLM-shaped
-    checkpoints, and adapter fusion (the standard `adapter` input port)
-    all come free. Publishes a metric table whose rows carry (task,
-    metric, variant) coords — composable straight into
-    `records/union` and `records/subtract` for base-vs-adapter deltas.
-
-    Harness versions ride in the description: prompt templates
-    change across lm-eval releases, so the version IS part of the
-    measurement.
-    """
     import lm_eval
 
     pass
@@ -133,11 +121,6 @@ def run(ctx, inputs, params):
 def build_metric_records(results: Mapping[str, Any],
                          n_samples: Mapping[str, Any] | None = None,
                          variant: str = "base") -> list[dict[str, Any]]:
-    """Shape lm-eval-harness `results` (task -> {"acc,none": v,
-    "acc_stderr,none": s, ...}) into coord-carrying records:
-    one record per (task, metric) with value/stderr/n and coords
-    {task, metric, variant} — composable straight into `records/union`
-    and `records/subtract` for base-vs-adapter deltas."""
     out: list[dict[str, Any]] = []
     for task in sorted(results):
         metrics = results[task]
@@ -149,7 +132,7 @@ def build_metric_records(results: Mapping[str, Any],
             if not isinstance(val, (int, float)):
                 continue
             name = key.split(",", 1)[0]
-            if name in ("sample_len",):  # harness bookkeeping, not a metric
+            if name in ("sample_len",):
                 continue
             if name.endswith("_stderr"):
                 stderrs[name[: -len("_stderr")]] = float(val)

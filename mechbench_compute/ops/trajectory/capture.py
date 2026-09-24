@@ -126,11 +126,6 @@ the model saw.
 
 
 def run(ctx, inputs, params):
-    """trajectory/capture — one position's vector at every layer, or
-    one layer's vector at every
-    position along a sequence, replayed from the trace when the
-    records carry one."""
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return capture(
@@ -142,11 +137,6 @@ AXES = ("layers", "positions")
 
 
 def _read_record_coords(record: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """The record's coordinates, as every item carries them. A document
-    item keeps its coords under `metadata`; the retired `label` field is
-    read as the `label` coordinate so older records group as they did.
-    A measurement a record carries as a field becomes a coordinate
-    through `records/rename` upstream, not here."""
     coords = dict(record.get("coords") or (record.get("metadata") or {}).get("coords") or {})
     label = record.get("label")
     if label is not None and "label" not in coords:
@@ -155,8 +145,6 @@ def _read_record_coords(record: Mapping[str, Any], params: Mapping[str, Any]) ->
 
 
 def _trace_ids(record: Mapping[str, Any]) -> tuple[list[int] | None, int | None]:
-    """(token_ids, generation_start) from a trace-fidelity item, or
-    (None, None) when the record carries no trace."""
     trace = record.get("trace")
     if not isinstance(trace, Mapping):
         return None, None
@@ -179,8 +167,6 @@ def capture(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """The mechanism: one `trajectory/point` per (record, step), or the
-    reduced or projected forms `params` asks for."""
     import mlx.core as mx
 
     from mechbench_compute import Capture
@@ -199,14 +185,6 @@ def capture(
     max_steps = params.get("max_steps")
     if not records:
         raise ValueError("trajectory/capture needs at least one record")
-    # Two ways to keep a corpus-scale trajectory small enough to be an
-    # object (200 stories × 160 steps × d_model is ~80M floats):
-    #   reduce: "mean" — ONE pooled vector per record over the selected
-    #           steps (a window like {"range": [5, 30]} via `steps`) —
-    #           what an outcome axis is fit on.
-    #   project: <direction> — read the scalar coordinate along a
-    #           direction AT capture time and emit no vectors at all —
-    #           the trace itself, 200 × 160 numbers.
     pool = POS.pool_spec(params)
     direction = project
     dvec = None
@@ -239,11 +217,6 @@ def capture(
         steps_per = int(max_steps) if max_steps else None
 
     width = model.arch.d_model
-    # The cap counts the floats this node will EMIT, not the ones it
-    # reads: `project` emits one scalar per step and no vectors at all,
-    # and `reduce` emits one pooled vector per record. Counting steps ×
-    # width regardless would refuse exactly the two configurations that
-    # exist to stay under it.
     if direction is not None:
         per_record = 0
     elif pool:
@@ -314,7 +287,6 @@ def capture(
                 raise ValueError(
                     f"record {record.get('id')!r}: no positions in the window")
             if pool:
-                # `pool.over` selects among the trajectory's STEPS.
                 over = [idx[s] for s in POS.resolve(pool["over"], len(idx))]
                 v, n_pooled = POS.pooled(mat, over, pool["reduce"])
                 row = _build_point(record, coords, sp(layer), 0, over[0] if over else idx[0], v, tok, arr, model, 0)
@@ -338,8 +310,6 @@ def capture(
 
     from mechbench_compute.lexicon import kinds as K
 
-    # A projected trajectory is a collection of coordinates, not of
-    # points without their vectors.
     return K.collection(
         "activations/coordinate" if dvec is not None else "trajectory/point", rows,
         axis=axis,
@@ -359,7 +329,6 @@ def capture(
 
 def _build_point(record, coords, sp, step, pos, vec: np.ndarray, tok, arr, model,
                  vocab_top: int) -> dict[str, Any]:
-    """One `trajectory/point`: a vector item with its step and position."""
     row = S.vector(
         vec, sp, id=record.get("id"), coords=coords,
         token=S.token(tok, int(arr[pos])) if pos < len(arr) else None,
@@ -372,8 +341,6 @@ def _build_point(record, coords, sp, step, pos, vec: np.ndarray, tok, arr, model
 def _project_row(row: dict[str, Any], vec: np.ndarray,
                  dvec: np.ndarray | None,
                  direction: Mapping[str, Any] | None) -> dict[str, Any]:
-    """With a direction, a step is its scalar coordinate and carries no
-    vector — the trace itself, small enough to be an object."""
     if dvec is None:
         return row
     return S.coordinate(
@@ -384,8 +351,6 @@ def _project_row(row: dict[str, Any], vec: np.ndarray,
 
 
 def _unembed_vector(model, vec: np.ndarray, k: int) -> dict[str, Any]:
-    """The vector through the unembedding: the lens reading of this
-    point, as a distribution."""
     import mlx.core as mx
 
     logits = model.project_to_logits(mx.array(vec)[None, :]).astype(mx.float32)

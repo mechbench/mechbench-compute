@@ -7,14 +7,12 @@ from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.transcript.constants import MAIN
 from mechbench_compute.transcript.read_transcripts import read_transcripts
 
-#: One `sees` policy: a word, or an object with one of these fields.
 _POLICY_FIELDS = (
     P("last_turns", "int", "Replay only the n most recent such turns.", None),
     P("truncate_words", "int", "Replay the first n words of each.", None),
 )
 
 
-#: The `sees` clause, wherever a transcript is rendered for a participant.
 _SEES = P("sees", "object",
           "What the participant re-reads of the room's reasoning: its own "
           "scratchpad ahead of its own words, the others' ahead of theirs. "
@@ -131,21 +129,12 @@ def run(ctx, inputs, params):
     return render_records(inputs, params)
 
 
-#: The reserved participant name for scripted lines (the opening, a
-#: human-authored injection). It is never attributed in a rendering:
-#: "user: hello" would read as a participant called "user".
 SCRIPT_SPEAKER = "user"
 
 
-#: Kept for a transcript that does not say who its participants are.
-#: Where it does, the list is the rule and this name is not special.
 PERSPECTIVES = ("others_as_user_attributed", "others_as_user_merged")
 
 
-#: What a participant re-reads of the room's reasoning, by default:
-#: nothing. A scratchpad is written to be thrown away, and a
-#: conversation that replays it by accident is feeding on its own
-#: reasoning. Anything else is a choice — a declared, sweepable one.
 SEES_DEFAULT: dict[str, Any] = {"own_thinking": "none", "others_thinking": "none"}
 
 
@@ -153,13 +142,9 @@ _SEES_KEYS = ("own_thinking", "others_thinking")
 
 
 def parse_sees(value: Any) -> dict[str, Any]:
-    """The `sees` clause, checked: each of `own_thinking` and
-    `others_thinking` is `"none"`, `"full"`, `{"last_turns": n}` or
-    `{"truncate_words": n}`. Absent keys take the default."""
     if value is None:
         return dict(SEES_DEFAULT)
     if isinstance(value, bool):
-        # A bare boolean is the clause "my own thinking, all of it".
         return {"own_thinking": "full" if value else "none", "others_thinking": "none"}
     if not isinstance(value, Mapping):
         raise ValueError("`sees` is an object: {own_thinking, others_thinking}")
@@ -190,12 +175,6 @@ def parse_sees(value: Any) -> dict[str, Any]:
 
 
 def check_native(sees: Mapping[str, Any], *, window: Any, system: str) -> None:
-    """Refuse a rendering that would hand reasoning back after editing
-    what came before it. A provider accepts returned reasoning only
-    while the system prompt and every earlier message are unchanged; a
-    window drops early turns, a `{turn}` system prompt changes every
-    turn, and a partial `others_thinking` shows less of an old turn as
-    the conversation grows."""
     if sees.get("own_thinking") != "native":
         return
     if window and str(window.get("policy", "none")) != "none":
@@ -215,9 +194,6 @@ def check_native(sees: Mapping[str, Any], *, window: Any, system: str) -> None:
 
 
 def read_own_content(m: Mapping[str, Any], text: str) -> list[dict[str, Any]] | None:
-    """An own turn's parts as its model wrote them, or None when it
-    carries no reasoning and no signature, or carries tool calls whose results the
-    transcript does not keep."""
     from mechbench_compute.chat.read_turn import read_turn
     from mechbench_compute.providers import messages as pm
 
@@ -230,23 +206,15 @@ def read_own_content(m: Mapping[str, Any], text: str) -> list[dict[str, Any]] | 
     return [p.to_wire() for p in parts]
 
 
-#: How a transcript is cut down to fit. `truncate_oldest` keeps the
-#: tail; `sliding` keeps the tail AND the opening turn, because the
-#: opening usually carries the task.
 WINDOW_POLICIES = ("none", "truncate_oldest", "sliding")
 
 
 def _count_words(messages: Sequence[Mapping[str, Any]]) -> int:
-    """A cheap length, in words: the window is a budget, not a
-    tokenizer, and a participant's own model is what would count."""
     return max(1, sum(len(str(m.get("text", "")).split()) for m in messages))
 
 
 def apply_window(messages: Sequence[Mapping[str, Any]],
                  window: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """(kept, dropped) under a window policy. How much of a transcript a
-    participant sees is part of what it sees, which is why this belongs
-    beside the rendering and not in a loop."""
     messages = [dict(m) for m in messages]
     if not window:
         return messages, []
@@ -259,15 +227,11 @@ def apply_window(messages: Sequence[Mapping[str, Any]],
         return messages, []
     kept, dropped = list(messages), []
     while len(kept) > 1 and _count_words(kept) > budget:
-        # `sliding` protects the opening turn as well as the tail.
         dropped.append(kept.pop(1 if kind == "sliding" and len(kept) > 2 else 0))
     return kept, dropped
 
 
 def _show_thinking(policy: Any, thinking: str | None, turns_back: int) -> str | None:
-    """The thinking a policy lets through for a message `turns_back`
-    turns from the end of that speaker's (or the others') turns —
-    0 being the most recent."""
     if not thinking or policy == "none":
         return None
     if policy == "full":
@@ -284,36 +248,12 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
            sees: Mapping[str, Any] | None = None,
            participants: Sequence[str] | None = None,
            window: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
-    """The shared transcript as THIS participant sees it: `[{role,
-    content}]`, the messages a chat node sends.
-
-    Own messages become `assistant`; everyone else's become `user`,
-    attributed by name under the attributed perspective. A line nobody
-    in `participants` said is a SCRIPTED one — an opening, an injection
-    — and is never attributed, because "user: hello" would read as a
-    participant called user. (A transcript that lists no participants
-    falls back to the reserved name itself.) Consecutive user-side
-    messages merge into one,
-    because providers require strict alternation and merging is the
-    honest way to give it to them — the alternative is reordering
-    someone's words. A message on a channel this participant is not on
-    (a judge's verdict) is not part of the room.
-
-    `sees` says what reasoning comes back: a participant's own
-    scratchpad ahead of its own words, another's ahead of theirs,
-    marked `(thinking)`.
-    """
     if perspective not in PERSPECTIVES:
         raise ValueError(f"unknown perspective {perspective!r} — one of {PERSPECTIVES}")
     sees = parse_sees(sees)
     seen = set(channels)
     visible = [m for m in messages if str(m.get("channel", MAIN)) in seen]
-    # What is beyond the window was not seen at all — dropped before the
-    # perspective is applied, so the turns that remain still alternate.
     visible, _dropped = apply_window(visible, window)
-    # How many turns back each message is, among its own kind — the
-    # speaker's own turns for `own_thinking`, everyone else's for
-    # `others_thinking` — counted from the end.
     own_back: dict[int, int] = {}
     others_back: dict[int, int] = {}
     for i in range(len(visible) - 1, -1, -1):
@@ -342,8 +282,6 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
     merged: list[tuple[str, str, Any]] = []
     for role, text, parts in turns:
         if merged and merged[-1][0] == role:
-            # Two turns made one are an edit of both: their reasoning
-            # would no longer be what the model wrote, so it goes.
             merged[-1] = (role, merged[-1][1] + "\n\n" + text, None)
         else:
             merged.append((role, text, parts))
@@ -352,9 +290,6 @@ def render(messages: Sequence[Mapping[str, Any]], *, participant: str,
 
 
 def render_records(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`text/render`: every transcript rendered for one participant, as
-    the chat-shaped records `text/chat` takes — `messages`, `system`,
-    the transcript's coords plus `participant` and `conversation`."""
     from mechbench_compute.lexicon import kinds as K
 
     participant = str(params["participant"])
@@ -384,8 +319,6 @@ def render_records(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict
 
 
 def _fill(text: str, *, participant: str, participants: Sequence[str], turn: int) -> str:
-    """A system prompt with the conversation's own variables filled in:
-    who is here, who this is, which turn it is."""
     others = [p for p in participants if p != participant]
     table = {"name": participant, "participants": ", ".join(participants),
              "others": ", ".join(others), "turn": str(turn)}

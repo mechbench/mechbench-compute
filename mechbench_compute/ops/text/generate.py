@@ -234,12 +234,6 @@ seed it reproduces the un-intervened sample byte for byte.
 
 
 def run(ctx, inputs, params):
-    """The generate model block: per condition record, sample n
-    completions into a collection of text documents. The range rule:
-    each sample's rng derives from (seed, record id, index), indices
-    [start, start+n) — so growing a corpus is the same node over a
-    later range plus `records/union`. The prompt is prefilled once per
-    record and the KV cache copied per sample."""
     import numpy as _np
 
     from mechbench_compute.distill import prefill_decision, render
@@ -262,24 +256,14 @@ def run(ctx, inputs, params):
     fidelity = params.get("fidelity", "text")
     if fidelity not in ("text", "trace"):
         raise ValueError(f"generate: unsupported fidelity {fidelity!r}")
-    # A record's prefill begins the assistant's turn when asked: the
-    # samples then continue exactly the envelope a decision read and a
-    # training step condition on, and `stop` ends them where the answer
-    # does. Off, the prefill is dropped.
     continue_prefill = bool(params.get("continue_prefill", False))
     stop_strings = tuple(s for s in (params.get("stop") or ()) if s)
-    # Reasoning a template marks with special tokens leaves the text;
-    # a model whose vocabulary has no such tokens is left untouched.
     delimiters = find_delimiters(tok)
     model_name = str(getattr(params.get("model"), "base", params.get("model")))
 
     from mechbench_compute import intervene as intervene_mod
     from mechbench_compute.generate import offsets_by_cumulative_decode
 
-    # An intervention — inline items or an intervene/spec on the port —
-    # makes the node a sweep: one set of samples per cell, its axes
-    # coordinates, weight edits scoped per strength. Without one,
-    # `cells` is a single None and the loop below runs once.
     plan = intervene_mod.plan(model, params, inputs)
     cells: list = plan.cells if plan else [None]
 
@@ -293,24 +277,16 @@ def run(ctx, inputs, params):
                 lead = str(rec.get("prefill") or "") if continue_prefill else ""
                 r = render(model, dict(rec, prefill=lead))
                 rendered, ids = r.text, r.ids
-                # The prefill's hooks see the prompt's tokens; each
-                # sample then gets its own live intervention, over a
-                # token list its decoder grows.
                 prompt_tokens = [tok.decode([int(t)]) for t in ids] if plan else []
                 prefill = (prefill_decision(model, ids, interventions=plan.live(cell, prompt_tokens, rec))
                            if plan else prefill_decision(model, ids))
                 for k in range(start, start + n):
                     key = f"{rec['id']}:{k}" + (f":{cell.slug}" if plan else "")
                     if ctx.resume_items and key in ctx.resume_items:
-                        # Reproducible: this item is a pure function of
-                        # its key, so the spooled copy IS what this loop
-                        # would produce. Same position, same bytes.
                         items.append(ctx.resume_items[key])
                         if ctx.on_item:
                             ctx.on_item(key, ctx.resume_items[key], True)
                         continue
-                    # The item rule, in seeds.py: a leaf's seed comes
-                    # from its key, never its position.
                     rng = _np.random.default_rng(item_seed(seed, rec["id"], k))
                     text, out_ids = sample_completion_cached(
                         model, ids, max_tokens=max_tokens,
@@ -329,11 +305,7 @@ def run(ctx, inputs, params):
                     item = {
                         "id": f"{rec['id']}-s{k}" + (f"-{cell.slug}" if plan else ""),
                         "kind": "text/document",
-                        # The assistant's turn as it reads: the prefill it was
-                        # begun with, then what the model wrote.
                         "text": lead + text,
-                        # A document is a record: coords on the item, and
-                        # under metadata where older readers look.
                         "coords": coords,
                         "metadata": {
                             "coords": dict(coords),
@@ -342,8 +314,6 @@ def run(ctx, inputs, params):
                                          "index": k, "ended": ended,
                                          **({"prefill": lead} if lead else {}),
                                          **({"stop": list(stop_strings)} if stop_strings else {})},
-                            # The wire form, never the resolved object: the
-                            # object carries the adapter bytes.
                             "model": serialize_model(params.get("model")),
                         },
                     }
@@ -381,12 +351,6 @@ def run(ctx, inputs, params):
                                  "token_end": len(full_ids)},
                             ],
                         }]
-                        # Where the model reasoned, when its own vocabulary
-                        # declares reasoning delimiters. A second
-                        # segmentation beside the envelope, so a reader
-                        # that knows only `prompt`/`body` is unaffected
-                        # and a position selector can name the thinking
-                        # span.
                         reasoning = THINK.segmentation(
                             full_ids, start=len(ids), pair=THINK.delimiter_ids(tok))
                         if reasoning is not None:

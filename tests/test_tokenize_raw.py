@@ -1,10 +1,3 @@
-"""chat_template=False must mean NO chat template — on every arch path.
-
-A branch that ignores the flag is invisible in the output: the prompt
-still tokenizes, and the only trace is a frozen target decoding as
-'user' — the chat-turn header token. So every arch path is checked.
-"""
-
 import mlx.core as mx
 
 from mechbench_compute.model import Model
@@ -40,7 +33,7 @@ def test_raw_flag_bypasses_the_template_on_the_vlm_path(monkeypatch):
     ids = m.tokenize("over the hill", chat_template=False)
     assert isinstance(ids, mx.array)
     assert ids.shape[0] == 1
-    assert int(np_first(ids)) == 2  # the raw tokenizer's own BOS
+    assert int(np_first(ids)) == 2
 
 
 def np_first(ids):

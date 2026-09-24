@@ -1,9 +1,3 @@
-"""The sandbox session and its tools.
-
-Snapshot-only tools (read_file / write_file / list) need no guest and
-run everywhere. The shell-backed tools (bash / find / grep) run the
-real mbshell guest and skip when it is not built on this machine.
-"""
 from __future__ import annotations
 
 import os
@@ -50,8 +44,6 @@ def _image(**kw):
 
 
 class TestTheSnapshotTools:
-    """No guest: read/write/list are pure snapshot operations."""
-
     def test_read_a_seeded_file(self):
         s = SandboxSession(_image())
         assert s.read_file("a.txt") == "one two three\n"
@@ -74,7 +66,7 @@ class TestTheSnapshotTools:
         s = SandboxSession(_image())
         big = "x" * (fs.INLINE_MAX + 10)
         s.write_file("big.txt", big)
-        assert s.read_file("big.txt") == big     # from the sidecar
+        assert s.read_file("big.txt") == big
 
     def test_list_is_scoped_by_prefix(self):
         s = SandboxSession(_image())
@@ -118,9 +110,6 @@ class TestTheFinalWorkspace:
 
 
 class TestObjectMounts:
-    """Read-only trees mounted at absolute paths — the user-extensible
-    stdlib, and any data dir. Guest-agnostic parts use mbshell."""
-
     def test_a_mount_is_parsed_as_a_resolved_tree(self):
         img = SandboxImage.parse({"mounts": [
             {"path": "/opt/data", "snapshot": {"x.txt": "hi\n"}}]})
@@ -138,9 +127,6 @@ class TestObjectMounts:
 
     @needs_guest
     def test_a_mount_is_materialized_once_and_reused(self, guest_installed):
-        # A read-only mount is content-addressed: the same tree is
-        # materialized to the cache once and every later run — this
-        # session or another — preopens the same directory.
         import glob
         cache = os.environ["MECHBENCH_GUEST_CACHE"]
         before = set(glob.glob(cache + "/mount-*"))
@@ -151,7 +137,6 @@ class TestObjectMounts:
             assert s.bash("cat /opt/data/n.txt").strip() == "shared"
         new = set(glob.glob(cache + "/mount-*")) - before
         assert len(new) == 1, "the mount was materialized more than once"
-        # a second session with the same tree adds no new dir
         SandboxSession(img).bash("cat /opt/data/n.txt")
         assert set(glob.glob(cache + "/mount-*")) - before == new
 
@@ -163,7 +148,6 @@ class TestObjectMounts:
         s = SandboxSession(img)
         assert s.bash("cat /opt/data/note.txt").strip() == "mounted"
         s.bash("echo x > new.txt")
-        # the mount is a separate preopen: only the working tree is captured
         assert not any("/opt/data" in p or "note.txt" in p for p in s.snapshot.paths())
         assert s.snapshot.get("new.txt") is not None
 
@@ -191,9 +175,6 @@ class TestTheImage:
 
 
 class TestThroughTheToolbox:
-    """The path a model takes: a ToolCallPart into a Toolbox bound to
-    the session."""
-
     def _box(self):
         session = SandboxSession(_image())
         box = T.build_toolbox(session.tool_defs(), session=session)
@@ -208,7 +189,7 @@ class TestThroughTheToolbox:
         assert [c.tool for c in session.calls] == ["write_file", "list"]
 
     def test_a_sandbox_tool_without_a_session_says_so(self):
-        box = T.Toolbox(SandboxSession(_image()).tool_defs())   # no session
+        box = T.Toolbox(SandboxSession(_image()).tool_defs())
         out = box.call(pm.ToolCallPart(id="c1", name="list", arguments={}))
         assert out.is_error and "without a session" in out.content
 
@@ -216,7 +197,7 @@ class TestThroughTheToolbox:
         import json
         _, session = self._box()
         session.write_file("r.txt", "x")
-        json.dumps([c.to_wire() for c in session.calls])   # must not raise
+        json.dumps([c.to_wire() for c in session.calls])
 
 
 @needs_guest
@@ -238,10 +219,6 @@ class TestTheShellTools:
         assert "[exit 127]" in out
 
     def test_the_acceptance_scenario(self, guest_installed):
-        # "Write a script that counts the words in every file under the
-        # tree and writes a report" — the task's own acceptance test,
-        # driven as a model would drive it: write the script, run it,
-        # read the report back.
         s = SandboxSession(_image())
         s.write_file("count.sh",
                      'for f in $(find . -type f -name "*.txt" | sort); do\n'
@@ -251,12 +228,9 @@ class TestTheShellTools:
         assert s.calls[-1].exit_code == 0, run
         report = s.read_file("report.out")
         assert report == "a.txt 3\nsub/b.txt 2\n"
-        # The report is now part of the workspace: a real object.
         assert s.snapshot.get("report.out") is not None
 
     def test_a_run_is_a_function_of_the_snapshot_it_saw(self, guest_installed):
-        # Replay: the same starting image and the same argv give the
-        # same snapshot chain, digest for digest.
         def drive():
             s = SandboxSession(_image())
             s.bash("echo hello > out.txt")
@@ -266,15 +240,11 @@ class TestTheShellTools:
 
     def test_a_limit_is_named_in_band(self, guest_installed):
         s = SandboxSession(_image(limits={"wall_seconds": 1}))
-        out = s.bash("sleep 30; echo woke")   # waits are virtual — no hang
-        assert "woke" in out                   # completed at once
+        out = s.bash("sleep 30; echo woke")
+        assert "woke" in out
 
 
 class TestThroughTheChatNode:
-    """The sandbox reaches a model as a node param; the loop records the
-    snapshot chain onto the item. `list` needs no guest, so this runs
-    everywhere."""
-
     def _params(self, **kw):
         base = {
             "model": {"provider": "mock", "model": "mock-large"},
@@ -282,7 +252,6 @@ class TestThroughTheChatNode:
             "records": [{"id": "r0", "user": "what is in the workspace?"}],
             "sandbox": {"tools": ["list"], "snapshot": {"a.txt": "hi\n"}},
             "max_tool_rounds": 1,
-            # The mock calls `list` when asked.
             "provider_options": {"mock": {"tool_call": "list"}},
         }
         base.update(kw)
@@ -302,7 +271,6 @@ class TestThroughTheChatNode:
         out = chat_mod.run_remote(mr.parse(params["model"]), params["records"], params)
         snap = out["items"][0]["metadata"].get("sandbox_final")
         assert snap and snap["kind"] == "sandbox/snapshot" and snap["n_files"] == 1
-        # small workspace -> content inline, so the browser can preview it
         assert snap["entries"][0]["data"] == b"hi\n"
 
     def test_a_chat_node_offers_the_sandbox_and_records_the_chain(self):
@@ -314,7 +282,6 @@ class TestThroughTheChatNode:
         assert "sandbox" in meta, "the snapshot chain was not recorded"
         call = meta["sandbox"][0]
         assert call["tool"] == "list" and call["snapshot_in"] == call["snapshot_out"]
-        # Two model calls: the one that asked for the tool, the one after.
         assert out["spend"]["calls"] == 2
 
     def test_no_sandbox_means_no_sandbox_key(self):
@@ -336,11 +303,6 @@ def both_guests(tmp_path_factory):
 
 @needs_python
 class TestThePythonGuest:
-    """CPython over the same snapshot as the shell. The
-    guest is installed with its standard library as a read-only mount;
-    the session picks it for `python` and mbshell for `bash`, sharing
-    one workspace."""
-
     def _sess(self):
         return SandboxSession(SandboxImage.parse({
             "tools": ["bash", "python", "read_file", "write_file", "list"],
@@ -358,7 +320,7 @@ class TestThePythonGuest:
 
     def test_python_reads_and_writes_the_snapshot(self, both_guests):
         s = self._sess()
-        s.python(script="")  # no-op guard
+        s.python(script="")
         s.write_file("count.py",
                      "import glob\nt=0\n"
                      "for p in sorted(glob.glob('data/*.txt')):\n"
@@ -377,8 +339,6 @@ class TestThePythonGuest:
         assert [c.tool for c in s.calls] == ["python", "bash"]
 
     def test_a_user_package_extends_the_stdlib(self, both_guests):
-        # A pure-Python package mounted at site-packages imports — the
-        # user-extensible stdlib (the bench-object mount).
         img = SandboxImage.parse({
             "tools": ["python"],
             "mounts": [{"path": "/usr/local/lib/python3.13/site-packages",
@@ -397,8 +357,6 @@ class TestThePythonGuest:
         assert "wasi does not support processes" in r or "[exit 1]" in r
 
     def test_the_guest_cannot_write_its_own_stdlib(self, both_guests):
-        # The stdlib mount is read-only: a guest scribbling on it would
-        # poison the shared cache for every other run.
         r = self._sess().python(
             code="open('/usr/local/lib/python3.13/os.py','a').write('x')")
         assert "[exit 1]" in r

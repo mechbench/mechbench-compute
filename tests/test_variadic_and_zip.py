@@ -1,13 +1,3 @@
-"""Variadic ports and `records/zip`.
-
-With nothing saying how many edges a port takes, two edges into one
-port silently keep whichever comes LAST in the graph's edge list — a
-winner decided by the order the author wrote the lines in. A port says
-how many edges it takes: one, or several in a declared order.
-`records/zip` is the op that wants several, and is what proves the
-ordering is real.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -74,8 +64,6 @@ class TestEdgeOrder:
 
 
 class TestTwoEdgesIntoOnePort:
-    """The silent loss this began with."""
-
     def _spec(self, port="records"):
         return ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
             "graph": {"dataflow": 2, "nodes": [
@@ -94,7 +82,7 @@ class TestTwoEdgesIntoOnePort:
             ProtocolExecutor().run(self._spec())
         msg = str(e.value)
         assert "port 'records' takes one edge; 2 arrive" in msg
-        assert "silently won" in msg          # the message names the failure
+        assert "silently won" in msg
 
 
 class TestZip:

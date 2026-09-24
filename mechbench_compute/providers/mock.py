@@ -1,17 +1,3 @@
-"""The mock provider, so nothing in the provider layer needs a real
-key to be tested.
-
-Its responses are a deterministic function of the canonical request:
-the same conversation always gets the same answer, on any machine, at
-any time, with no network. That makes it usable for three different
-jobs at once — unit tests, a protocol dry run, and the fixture half of
-a cassette — without any of them spending.
-
-Behaviour is injectable, because the interesting paths are the ugly
-ones: a 429 with a `retry-after`, a run of 500s that becomes an
-outage, a tool call, a token budget that runs out mid-corpus.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -39,37 +25,18 @@ MOCK_CAPABILITIES = Capabilities(
 
 
 class MockTransport(Transport):
-    """`script` injects behaviour per call, consumed in order: an
-    exception instance is raised, a mapping overrides that call's
-    response, None takes the default. When it runs out, the default
-    resumes — so `script=[RateLimited(retry_after=2)]` tests one 429
-    followed by success.
-
-    From inside a graph, where the transport is not yours to construct,
-    `provider_options: {"mock": {...}}` does the smaller version:
-    `text` fixes the reply, `fail` refuses the call, and `empty` names a
-    cause for a reply that comes back with no text. A reply with no text
-    and no tool call is empty with cause `no_content` unless `empty`
-    names another."""
-
     name = "mock"
 
     def __init__(self, *, name: str = "mock", capabilities: Capabilities | None = None,
                  script: Sequence[Any] = (), headers: Mapping[str, str] | None = None,
                  words: tuple[int, int] = (6, 24), sleep=None, clock=None) -> None:
         super().__init__(sleep=sleep, clock=clock)
-        # A dry run IMPERSONATES the provider it stands in for: same
-        # name, so requests hash and price as they will in the real run,
-        # and same capability matrix, so an unsupported ask is still
-        # refused by name.
         self.name = name
         self.capabilities = capabilities or MOCK_CAPABILITIES
         self._script = list(script)
         self._headers = dict(headers or {})
         self._words = words
         self.calls: list[msg.ChatRequest] = []
-
-    # --- deterministic content ------------------------------------------------
 
     def _rng(self, req: msg.ChatRequest) -> random.Random:
         h = hashlib.sha256(msg.request_hash(req, provider=self.name).encode()).digest()
@@ -82,9 +49,6 @@ class MockTransport(Transport):
         return " ".join(rng.choice(_LEXICON) for _ in range(n))
 
     def _count_tokens(self, req: msg.ChatRequest) -> int:
-        # The mock's own truth: words plus a fixed per-message overhead.
-        # `capabilities.count_tokens = "exact"` is honest because this
-        # IS the tokenizer of this provider.
         n = len(req.system.split())
         for m in req.messages:
             n += 3
@@ -99,8 +63,6 @@ class MockTransport(Transport):
             n += 12 + len(str(dict(t.input_schema)).split())
         return max(1, n)
 
-    # --- the adapter ------------------------------------------------------------
-
     def _chat(self, req: msg.ChatRequest, *, on_token=None) -> AdapterResponse:
         self.calls.append(req)
         override: Mapping[str, Any] = {}
@@ -111,11 +73,6 @@ class MockTransport(Transport):
             if isinstance(step, Mapping):
                 override = step
         opts = {**req.options_for("mock"), **req.options_for(self.name)}
-        # `script` can only be set by a caller that constructs the
-        # transport; a GRAPH reaches the mock through provider options
-        # alone. `fail` is how a protocol author rehearses the branch
-        # that goes down — the placeholder path is worth checking
-        # BEFORE a real provider proves it at an awkward moment.
         refuse = override.get("fail", opts.get("fail"))
         if refuse:
             raise RuntimeError(f"mock provider refused: {refuse}")

@@ -1,11 +1,3 @@
-"""The dataflow form through the executor: `{"$param"}` and `{"$ref"}`
-resolved as values, protocol inputs as edge sources, a stored object
-named as a lineage input wherever it sat — and a graph in any other form
-refused before anything runs, naming what it found.
-
-Pure blocks only, with the bench faked, so nothing here needs a model.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -29,7 +21,6 @@ STORE = {"lab/p/freqs": FREQS, "lab/p/draws": DRAWS}
 
 @pytest.fixture
 def fake_bench(monkeypatch):
-    """A bench that holds two objects, and records what was emitted."""
     emitted: dict[str, dict] = {}
 
     def fetch(ref, with_meta=False):
@@ -119,8 +110,6 @@ def test_a_graph_in_the_legacy_form_is_refused_by_what_it_carries(fake_bench, ex
 
 
 def test_every_stored_object_a_node_reads_is_a_lineage_input(fake_bench):
-    """A frequency table fetched into a param is an input of the node
-    that used it, not only what arrived by edge."""
     _run({"graph": DECLARED, "params": {"mode": "items"},
           "inputs": {"draws": {"$ref": {"bench": "lab/p/draws"}}},
           "resultPath": "lab/p/results/j_new"})
@@ -161,7 +150,6 @@ def test_the_legacy_macro_is_named_as_such_in_a_declared_graph(fake_bench):
 
 
 def test_a_param_may_be_bound_to_a_reference(fake_bench):
-    """References are values: a run binds the frequency table itself."""
     graph = {"dataflow": 2, "edges": [], "nodes": [{
         "id": "said", "block": "text/measure",
         "params": {"mode": "items", "measures": [{**MEASURE, "items": {"$param": "vocabulary"}}]},
@@ -188,8 +176,6 @@ def test_lower_turns_an_input_edge_into_the_ports_value_and_keeps_node_edges():
 
 
 def test_an_op_may_declare_that_it_wants_the_reference_itself(monkeypatch):
-    """To stream from an address lazily, or to publish to one. No op asks
-    yet; the declaration is what lets one."""
     from mechbench_compute import lexicon
     from mechbench_compute.lexicon._base import P
 
@@ -202,7 +188,6 @@ def test_an_op_may_declare_that_it_wants_the_reference_itself(monkeypatch):
     assert dataflow.wants_reference("test/publish", "target") is True
     assert dataflow.wants_reference("test/publish", "label") is False
     assert dataflow.wants_reference("test/publish", "absent") is False
-    # …and such a position admits a $ref, where an undeclared one does not.
     monkeypatch.setattr(lexicon, "resolve", lambda block: block)
     nodes = {"pub": {"block": "test/publish", "params": {"target": {"$ref": {"bench": "lab/p/out"}}}}}
     dataflow.check_refs(nodes, {})
@@ -212,9 +197,6 @@ def test_an_op_may_declare_that_it_wants_the_reference_itself(monkeypatch):
 
 
 def test_a_ref_inside_a_map_body_is_judged_by_the_body_nodes_op(fake_bench):
-    """A map's body is a graph; its nodes' $refs sit on THEIR declarations,
-    not on records/map's. On a body node's inputs a $ref is a
-    port, and a port always takes one."""
     body = {"nodes": [
         {"id": "say", "block": "text/measure",
          "params": {"mode": "items", "measures": {"$ref": {"bench": "lab/p/freqs"}}},
@@ -222,13 +204,10 @@ def test_a_ref_inside_a_map_body_is_judged_by_the_body_nodes_op(fake_bench):
     nodes = {"each": {"block": "records/map", "params": {"body": body, "bind": {}}}}
     with pytest.raises(ValueError, match=r"each\.body\.nodes\.0\.params\.measures: a \$ref sits where text/measure declares no") as err:
         dataflow.check_refs(nodes, {})
-    # The port alone is never a problem: one refusal, and it names measures.
     assert "documents" not in str(err.value)
     del body["nodes"][0]["params"]["measures"]
     dataflow.check_refs(nodes, {})
 
-
-# --- declared outputs are the run's results -----------------------
 
 TWO_NODES = {
     "dataflow": 2,
@@ -246,10 +225,8 @@ def test_a_declared_output_is_stored_under_its_name_and_the_rest_apart(fake_benc
                        "outputs": [{"name": "kept", "from": {"node": "picked"}}],
                        "resultPath": "lab/p/results/j1"})
     assert sorted(fake_bench) == ["lab/p/results/j1/kept", "lab/p/results/j1/nodes/grid"]
-    # The manifest speaks in output names, and says which node each is.
     assert list(payload["outputs"]) == ["kept"]
     assert payload["output_nodes"] == {"kept": "picked"}
-    # Lineage follows the stored paths, wherever they now are.
     assert fake_bench["lab/p/results/j1/kept"]["inputs"] == ["lab/p/results/j1/nodes/grid"]
 
 
@@ -287,11 +264,7 @@ def test_a_run_with_no_declared_outputs_keeps_its_terminals_under_their_ids(fake
     assert list(payload["outputs"]) == ["picked"] and "output_nodes" not in payload
 
 
-# --- eager discard: keep: outputs --------------------------------
-
 class _Keeping(_Hooks):
-    """Hooks that also spool held results, as the runner does."""
-
     def __init__(self):
         super().__init__()
         self.held: dict[str, tuple[str, object]] = {}
@@ -309,20 +282,14 @@ def test_keep_outputs_emits_only_the_declared_outputs_and_cites_the_rest_by_hash
     payload, hooks = _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "outputs",
                            "outputs": [{"name": "kept", "from": {"node": "picked"}}],
                            "resultPath": "lab/p/results/j5"}, _Keeping())
-    # The API received the output and nothing else.
     assert sorted(fake_bench) == ["lab/p/results/j5/kept"]
-    # The intermediate went to the device's spool, under its fingerprint.
     assert set(hooks.held) == {"grid"} and hooks.held["grid"][0] == hooks.fingerprints["grid"]
     assert "grid" not in hooks.done
-    # Its consumer's lineage cites it by content hash — a path form of
-    # its own — and the manifest records every node's hash and inputs, so
-    # the result verifies without the bytes.
     grid_hash = payload["node_hashes"]["grid"]
     assert fake_bench["lab/p/results/j5/kept"]["inputs"] == [f"~hash/sha256:{grid_hash}"]
     assert payload["node_inputs"] == {"grid": [], "picked": ["grid"]}
     assert payload["nodes_held"] == ["grid"] and payload["keep"] == "outputs"
     assert "grid" not in payload["node_paths"]
-    # Inspection keeps the summaries either way.
     assert set(payload["node_summaries"]) == {"grid", "picked"}
 
 
@@ -331,8 +298,6 @@ def test_a_discard_mode_run_resumes_from_the_held_result_to_the_same_bytes(fake_
                          "outputs": [{"name": "kept", "from": {"node": "picked"}}],
                          "resultPath": "lab/p/results/j6"}, _Keeping())
     fp, result = hooks.held["grid"]
-    # Interrupted after grid, resumed on the same device: grid is not run
-    # again (no second spool write), and the output is byte-identical.
     again = _Keeping()
     second, again = _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "outputs",
                           "outputs": [{"name": "kept", "from": {"node": "picked"}}],
@@ -341,8 +306,6 @@ def test_a_discard_mode_run_resumes_from_the_held_result_to_the_same_bytes(fake_
     assert again.held == {}
     assert dump_canonical(second["outputs"]) == dump_canonical(first["outputs"])
     assert second["node_hashes"] == first["node_hashes"]
-    # A held result under a changed fingerprint is not trusted: the node
-    # runs again and is spooled again.
     third = _Keeping()
     _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "outputs",
           "outputs": [{"name": "kept", "from": {"node": "picked"}}],
@@ -359,7 +322,6 @@ def test_a_failed_discard_mode_run_stores_its_held_intermediates(fake_bench):
         _run({"graph": failing, "params": {}, "inputs": {}, "keep": "outputs",
               "outputs": [{"name": "kept", "from": {"node": "picked"}}],
               "resultPath": "lab/p/results/j7"}, _Keeping())
-    # The evidence is where a kept run would have stored it.
     assert sorted(fake_bench) == ["lab/p/results/j7/nodes/grid"]
 
 
@@ -370,11 +332,6 @@ def test_keep_takes_two_words(fake_bench):
 
 
 def test_a_map_over_plain_values_needs_no_corpus(fake_bench):
-    """`over` is the other way to give a map its stream: the
-    values become one-field records, and the name `as` gives them is the
-    body's own `$param`."""
-    # The body's own records are literal; what varies is the `$param`
-    # the map binds per value.
     body = {"nodes": [{"id": "say", "block": "records/fill",
                        "params": {"templates": {"note": "layer {layer}"}},
                        "inputs": {"records": [{"id": "x", "coords": {}, "values": {}}]}}],
@@ -399,8 +356,6 @@ def test_a_map_takes_one_stream_or_the_other(fake_bench):
     with pytest.raises(ValueError, match="not both"):
         _run({"graph": graph, "params": {}, "inputs": {}})
 
-
-# --- a variadic port takes any mix of sources ---------------------
 
 XS = {
     "kind": "collection", "item_kind": "records/record", "key": ["id"],
@@ -429,8 +384,6 @@ def test_a_variadic_port_takes_a_protocol_input_beside_a_node_edge(fake_bench, m
                        "resultPath": "lab/p/results/j8"})
     items = payload["outputs"]["paired"]["items"]
     assert [it["coords"]["x"] for it in items] == ["1", "2"]
-    # A branch from an input is named by the input, and the edges'
-    # `index` orders the branches whatever kind of source each is.
     assert list(items[0]["branches"]) == ["stored", "grid"]
     assert items[0]["branches"]["stored"]["values"] == {"v": "1"}
     assert fake_bench["lab/p/results/j8/paired"]["inputs"] == [
@@ -447,7 +400,6 @@ def test_the_edge_index_orders_inputs_and_node_edges_together(fake_bench, monkey
     second, again = _run({"graph": swapped, "params": {},
                           "inputs": {"stored": {"$ref": {"bench": "lab/p/xs"}}}})
     assert list(second["outputs"]["paired"]["items"][0]["branches"]) == ["grid", "stored"]
-    # A different order is a different result, so a different fingerprint.
     assert hooks.fingerprints["paired"] != again.fingerprints["paired"]
 
 
@@ -460,7 +412,6 @@ def test_a_variadic_port_takes_two_inputs_and_counts_them_as_edges(fake_bench, m
                        "inputs": {"a": {"$ref": {"bench": "lab/p/xs"}},
                                   "b": {"$ref": {"bench": "lab/p/xs"}}}})
     assert list(payload["outputs"]["paired"]["items"][0]["branches"]) == ["a", "b"]
-    # One input alone is one branch, and zip's two-edge minimum counts it.
     one_input = {**ZIP_INPUT_AND_EDGE, "edges": two_inputs["edges"][:1]}
     with pytest.raises(ValueError, match="takes at least 2 edges; 1 arrive"):
         _run({"graph": one_input, "params": {}, "inputs": {"a": {"$ref": {"bench": "lab/p/xs"}}}})
@@ -477,9 +428,6 @@ def test_a_port_that_takes_one_source_still_refuses_an_input_and_an_edge():
 
 
 def test_keep_outputs_stores_an_output_that_reads_a_held_intermediate(monkeypatch):
-    """Through the real `bench.emit`, with only the HTTP call faked: the
-    output's provenance cites the held node as `~hash/sha256:<digest>`,
-    and that path has to pass the schema's path grammar to be sent."""
     sent: dict[str, bytes] = {}
 
     def request(method, url, key, body=None, headers=None, **kw):

@@ -177,33 +177,22 @@ The two are different and may be combined.
 )
 
 
-#: What a chart may be drawn as. `heat` is a grid of cells — (layer,
-#: position) from a trace, (layer, head) from a head sweep — and
-#: `tokens` is a prompt's own tokens coloured by a number each carries.
 MARKS = ("bar", "line", "point", "heat", "tokens")
 
 
-#: How a value becomes colour. Diverging is centred on zero, which is how
-#: a change reads; sequential runs from the lowest value, which is how a
-#: magnitude reads. The default is chosen by whether the values cross zero.
 SCALES = ("diverging", "sequential")
 
 
-#: What a figure may call its fields in prose: the axis labels and the
-#: readout's words (`mechbench/docs/VISUALIZATION.md`).
 LABEL_FIELDS = ("x", "y", "value", "series", "color")
 
 
 def run(ctx, inputs, params):
-    # A viz references its upstream by LABEL when the executor knows it
-    # (lineage-true, renders live).
     return build_chart(
         inputs.get("records"), params,
         source_label=ctx.input_paths.get("records") or None)
 
 
 def _read_layer_axis(header: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    """`axes.layer` as a figure carries it, from a header's `arch`."""
     arch = (header or {}).get("arch") if isinstance(header, Mapping) else None
     if not isinstance(arch, Mapping) or "n_layers" not in arch:
         return None
@@ -216,9 +205,6 @@ def _read_layer_axis(header: Mapping[str, Any] | None) -> dict[str, Any] | None:
 
 
 def _check_layer_axis(axes: Any) -> dict[str, Any]:
-    """`axes` as given, its `layer` entry checked: `n` is required and
-    every landmark must be inside it, because a landmark drawn off the
-    axis is a lie about the model."""
     if not isinstance(axes, Mapping):
         raise ValueError("records/plot axes is an object: {\"layer\": {n, global, kv_shared_from}}")
     out = dict(axes)
@@ -245,8 +231,6 @@ def _check_layer_axis(axes: Any) -> dict[str, Any]:
 
 
 def _check_annotations(annotate: Any) -> list[dict[str, Any]]:
-    """Each annotation names where it sits (`at`, a field → value map)
-    and what it says (`text`)."""
     if not isinstance(annotate, (list, tuple)):
         raise ValueError("records/plot annotate is a list of {at, text}")
     out = []
@@ -258,8 +242,6 @@ def _check_annotations(annotate: Any) -> list[dict[str, Any]]:
 
 
 def _check_references(reference: Any) -> list[dict[str, Any]]:
-    """Each reference line names a value on one axis and what it is: a
-    target, a baseline, a threshold, chance."""
     if not isinstance(reference, (list, tuple)):
         raise ValueError("records/plot reference is a list of {y|x, text}")
     out = []
@@ -281,21 +263,6 @@ def _check_references(reference: Any) -> list[dict[str, Any]]:
 
 def build_chart(records: Any, params: Mapping[str, Any],
                source_label: str | None = None) -> dict[str, Any]:
-    """A chart as a bench object: how to present an upstream table, stored
-    beside it rather than drawn once and thrown away.
-
-    When the executor knows the input's label the spec REFERENCES it
-    (`source`, lineage-true, so the chart re-renders as the data
-    changes); otherwise the rows ride inline (`data.rows`) and the viz
-    stays self-contained.
-
-    Beyond the mark and the encoding, a figure carries what makes it a
-    visualization rather than a chart (VISUALIZATION.md): prose
-    `labels` for its fields, the depth landmarks under `axes.layer`
-    (given, or read from the input's `arch` header), `annotate`
-    callouts, and the `focus` field it shares with the other figures on
-    a page.
-    """
     enc = params.get("encoding") or {}
     x = enc.get("x") or params.get("x")
     y = enc.get("y") or params.get("y")
@@ -303,9 +270,6 @@ def build_chart(records: Any, params: Mapping[str, Any],
     if mark not in MARKS:
         raise ValueError(
             f"records/plot mark must be one of {', '.join(MARKS)}, not {mark!r}")
-    # A heat mark needs a third field — the cell's value — and a token
-    # strip needs the tokens and the number that colours them; neither
-    # is an x/y pair.
     value = enc.get("value") or params.get("value")
     text = enc.get("text") or params.get("text")
     if mark == "heat" and not (x and y and value):

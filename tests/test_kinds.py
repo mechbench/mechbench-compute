@@ -1,12 +1,3 @@
-"""The kinds are declared once and the declaration is fit to publish
-(docs/LEXICON.md §3–§6).
-
-Every op emits a declared kind; every declared kind that is not a
-platform kind is emitted by some op; names are two-level and bare; the
-one container is `collection`; a collection sorts by its key and the
-sort is idempotent; every retired string resolves.
-"""
-
 from __future__ import annotations
 
 import json
@@ -31,7 +22,6 @@ INTERNAL = [
 FAMILIES = {"records", "text", "eval", "logits", "activations", "geometry",
             "intervene", "direction", "trajectory", "adapter", "weights",
             "tools",
-            # platform families: kinds no op produces
             "sandbox", "provider", "model", "run"}
 
 
@@ -76,10 +66,6 @@ def test_every_op_emits_a_declared_kind_or_nothing() -> None:
 
 def test_every_op_kind_is_emitted_by_some_op() -> None:
     emitted = {op.output.kind for op in L.OPS if op.output}
-    # Ancestors and the container are declared for the lattice, not
-    # emitted directly; platform kinds are produced by the platform; an
-    # authored input — a corpus, a word list, an intervention's spec —
-    # is written, not emitted.
     exempt = {COLLECTION, "records/record", "records/condition", "records/pair",
               "logits/distribution", "activations/grid", "text/word-list",
               "intervene/spec"}
@@ -89,8 +75,6 @@ def test_every_op_kind_is_emitted_by_some_op() -> None:
 
 
 def test_no_source_literal_names_an_undeclared_kind() -> None:
-    """Every `"kind": "…"` literal in the package names a declared kind:
-    the retired spellings are read through the aliases, never written."""
     root = Path(mechbench_compute.__file__).parent
     pat = re.compile(r'"kind":\s*"([^"]+)"')
     bad = []
@@ -128,9 +112,6 @@ class TestAliases:
             K.resolve_kind("records/tabel")
 
     def test_a_legacy_document_collection_is_documents(self):
-        """A corpus generated before the typology satisfies a records
-        port: its items are documents, which are records. Resolving the
-        old plural to the bare container refused every such corpus."""
         from mechbench_compute.block_params import check_inputs
 
         assert K.item_kind_of({"kind": "document_collection", "items": []}) == "text/document"
@@ -161,7 +142,6 @@ class TestTheContainer:
         assert [(i["id"], i["space"]["layer"], i["space"].get("head")) for i in s["items"]] == [
             ("a", 1, None), ("a", 1, 1), ("a", 3, None), ("b", 2, None)]
         assert K.canonical_collection(s) == s
-        # The same items in any order hash the same.
         import random
         from mechbench_compute.resume import content_hash
         shuffled = dict(c, items=random.Random(3).sample(c["items"], len(c["items"])))
@@ -179,7 +159,6 @@ class TestTheContainer:
         assert K.items_of({"kind": "decision_read", "conditions": [1]}) == [1]
         assert K.items_of({"kind": "record_set", "records": [1]}) == [1]
         assert K.items_of({"records": [1]}) == [1]
-        # A container written with its list under an older name still reads.
         assert K.items_of({"kind": COLLECTION, "item_kind": "records/record", "records": [1]}) == [1]
         with pytest.raises(ValueError):
             K.items_of({"kind": "records/table", "columns": []})
@@ -188,10 +167,6 @@ class TestTheContainer:
 
 
 class TestTheRegistryFollowsTheLexicon:
-    """`platform_kinds.manifests()` is generated from the declarations:
-    one manifest per renderable kind at its canonical path, naming the
-    registered paths it supersedes."""
-
     def test_every_renderable_kind_has_a_manifest_at_its_path(self):
         from mechbench_compute import platform_kinds
 
@@ -205,7 +180,7 @@ class TestTheRegistryFollowsTheLexicon:
             assert m.item_schema["type"] == "object"
             assert m.version == "1"
             if kind.name == "sandbox/snapshot":
-                continue  # the snapshot codec's own schema, not the declaration's
+                continue
             assert set(m.item_schema.get("required", [])) == set(kind.required)
             for f in K.all_fields(kind):
                 assert f in m.item_schema["properties"], f"{kind.name}.{f} missing from the manifest"

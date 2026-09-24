@@ -1,25 +1,3 @@
-"""Filesystem snapshots as values.
-
-A sandbox's state is normally the least reproducible thing in a
-system: a directory somebody mutated, whose history is gone. This
-makes it a VALUE instead — a content-addressed tree — so that every
-tool call is a function
-
-    (snapshot, argv) -> (snapshot', stdout, stderr, exit)
-
-and therefore an ordinary bench item with lineage. You can point at
-the filesystem before and after any command, diff them, replay a run
-byte-identically, and share a snapshot the way you share a corpus.
-
-The whole scheme rests on one property: **identical content must
-produce an identical hash**. So capture normalizes everything that is
-not content — mtimes, ownership, the order the OS happened to return
-entries in — and keeps only what a later run would need to reproduce
-the tree. A snapshot that hashed differently because it was written on
-a Tuesday would make the sandbox exactly as untrustworthy as the
-directory it replaced.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -31,43 +9,27 @@ from dataclasses import dataclass, field
 from typing import Any
 
 KIND = "sandbox/snapshot"
-#: The other wire tag a stored snapshot may carry, still read.
 LEGACY_KIND = "fs_snapshot"
 
-#: Blobs at or below this size ride inside the snapshot object; larger
-#: ones are stored separately and referenced. 64 KiB keeps a snapshot
-#: of scripts and small data self-contained — the common case — without
-#: letting one large file turn the object into a download.
 INLINE_MAX = 64 * 1024
 
-#: Defaults, overridable per capture. A sandbox that can write an
-#: unbounded tree is a sandbox that can fill the disk.
 MAX_FILES = 10_000
 MAX_BYTES = 256 * 1024 * 1024
 
-#: The only mode distinction kept. Real permissions are host detail;
-#: whether a thing is executable changes what a later run DOES.
 MODE_FILE = 0o644
 MODE_EXEC = 0o755
 
 
 class SnapshotLimit(RuntimeError):
-    """A tree exceeded a declared limit. Raised at capture, naming the
-    limit and what was found — a sandbox that quietly truncated would
-    produce a snapshot that is not the directory it claims to be."""
+    pass
 
 
 @dataclass(frozen=True)
 class Entry:
-    """One file. Directories are implied by paths and are not stored:
-    an empty directory carries no content, and reproducing one is the
-    materializer's job, not the snapshot's."""
-
     path: str
     size: int
     blob_hash: str
     executable: bool = False
-    #: Present when the blob is small enough to travel with the tree.
     data: bytes | None = None
 
     def to_wire(self, *, inline: bool = True) -> dict[str, Any]:
@@ -94,15 +56,6 @@ class Entry:
 
 @dataclass(frozen=True)
 class Mount:
-    """A read-only tree grafted in at `at`, identified by the object it
-    came from.
-
-    **Never captured.** A mounted corpus cannot have changed — nothing
-    can write to it — so re-hashing it after every tool call is pure
-    waste, and on a 200 MB corpus it is the dominant cost of the whole
-    sandbox. Its identity is the object it was mounted from.
-    """
-
     at: str
     object: str
     digest: str = ""
@@ -121,28 +74,8 @@ class Mount:
 
 @dataclass(frozen=True)
 class Snapshot:
-    """A directory as a value.
-
-    Entries are sorted by path **at construction**, not by each
-    caller. `os.walk` is depth-first, so `capture` naturally produces
-    `a.txt, z.txt, m/q.txt` while `from_wire` produced sorted order —
-    and the digest walks `entries`, so the same tree hashed two
-    different ways depending on how it was built. Normalizing here
-    means there is one canonical order and no constructor can forget
-    it.
-    """
-
     entries: tuple[Entry, ...] = ()
-    #: Read-only trees present in the sandbox but not part of its
-    #: mutable state. They contribute to the digest by identity, never
-    #: by content.
     mounts: tuple[Mount, ...] = ()
-    #: Blobs too large to inline, keyed by hash, riding WITH the value
-    #: in-process. Not identity (the digest ignores it), not on the
-    #: wire (`to_wire` drops it) — a convenience so a snapshot built by
-    #: `seeded()` or `capture()` can be materialized without the caller
-    #: threading a store through every call. A blob store passed
-    #: explicitly always wins.
     blobs: Mapping[str, bytes] = field(default_factory=dict, compare=False,
                                        hash=False, repr=False)
 
@@ -172,12 +105,6 @@ class Snapshot:
         return None
 
     def digest(self) -> str:
-        """The tree's identity: content and paths, nothing else.
-
-        Not a hash of `to_wire()` — that would fold in whether a blob
-        happened to be inlined, which is a storage decision and not a
-        fact about the tree.
-        """
         h = hashlib.sha256()
         for e in self.entries:
             h.update(e.path.encode("utf-8"))
@@ -185,8 +112,6 @@ class Snapshot:
             h.update(e.blob_hash.encode("ascii"))
             h.update(b"\x01" if e.executable else b"\x00")
         for m in self.mounts:
-            # By identity, not content: the point of a mount is that we
-            # do not read it.
             h.update(b"\x02")
             h.update(m.at.encode("utf-8"))
             h.update(b"\x00")
@@ -194,17 +119,6 @@ class Snapshot:
         return "sha256:" + h.hexdigest()
 
     def to_wire(self, *, inline: bool = False) -> dict[str, Any]:
-        """The stored form. Blobs are REFERENCES by default.
-
-        Measured on a 2000-file tree: 8.43 MB with blobs inline against
-        0.22 MB as hashes — 38x. A sandbox session emits one of these
-        per tool call, so inlining would put the content of the whole
-        tree on the wire for every `ls`. The blob store holds the
-        bytes; this holds the shape.
-
-        `inline=True` is for a self-contained fixture — a seeded tree
-        small enough that carrying it beats needing a store beside it.
-        """
         return {
             "kind": KIND,
             "version": 1,
@@ -227,7 +141,6 @@ class Snapshot:
             tuple(Mount.from_wire(m) for m in value.get("mounts", [])))
 
 
-#: The empty tree is a constant, and its digest is stable.
 EMPTY = Snapshot()
 
 
@@ -236,12 +149,6 @@ def blob_hash(data: bytes) -> str:
 
 
 def _walk(root: pathlib.Path) -> Iterator[pathlib.Path]:
-    """Every regular file under `root`, in sorted order.
-
-    Sorted because `os.walk` returns whatever the filesystem hands it,
-    and a snapshot whose entry order depended on that would hash
-    differently on two machines holding identical content.
-    """
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames.sort()
         for name in sorted(filenames):
@@ -252,16 +159,6 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
             max_files: int = MAX_FILES, max_bytes: int = MAX_BYTES,
             blobs: dict[str, bytes] | None = None,
             mounts: Sequence[Mount] = ()) -> Snapshot:
-    """Read a directory into a snapshot.
-
-    Symlinks are followed only within the tree and stored as the file
-    they point at; a link escaping the root is refused rather than
-    silently resolved, because a sandbox's snapshot must describe the
-    sandbox and nothing outside it.
-
-    `blobs`, when given, receives every blob keyed by hash — including
-    the large ones left out of the entries. The caller stores them.
-    """
     base = pathlib.Path(root).resolve()
     if not base.is_dir():
         raise NotADirectoryError(f"not a directory: {base}")
@@ -273,8 +170,6 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
         rel = path.relative_to(base).as_posix()
         if any(rel == m.at.rstrip("/") or rel.startswith(p)
                for m, p in zip(mounts, skip, strict=True)):
-            # A mount cannot have changed; reading it back is the
-            # dominant cost on a large corpus and buys nothing.
             continue
         real = path.resolve()
         if not str(real).startswith(str(base) + os.sep) and real != base:
@@ -309,13 +204,6 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
 
 def materialize(snapshot: Snapshot, root: str | os.PathLike[str], *,
                 blobs: Mapping[str, bytes] | None = None) -> None:
-    """Write a snapshot into a directory.
-
-    Modes are normalized to 644/755 and mtimes are left to the OS: the
-    snapshot deliberately does not carry them, so materializing is not
-    a bit-for-bit restoration of a host directory. It is a restoration
-    of the CONTENT, which is what a re-run needs.
-    """
     base = pathlib.Path(root)
     base.mkdir(parents=True, exist_ok=True)
     for e in snapshot.entries:
@@ -356,8 +244,6 @@ class Diff:
 
 
 def diff(before: Snapshot, after: Snapshot) -> Diff:
-    """What a command did, as paths. Exact: a file whose content is
-    unchanged never appears, even if it was rewritten."""
     a = {e.path: e for e in before.entries}
     b = {e.path: e for e in after.entries}
     changed = tuple(sorted(
@@ -371,8 +257,6 @@ def diff(before: Snapshot, after: Snapshot) -> Diff:
 
 def seeded(files: Mapping[str, bytes | str], *,
            executable: Sequence[str] = ()) -> Snapshot:
-    """A snapshot built from literal content — the usual way a test or
-    a protocol states its starting filesystem."""
     execs = set(executable)
     entries = []
     large: dict[str, bytes] = {}

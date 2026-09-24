@@ -63,15 +63,6 @@ Unequal-length pairs are reported as errors, not aligned by guesswork.
 
 
 def run(ctx, inputs, params):
-    """For a matched pair of prompts, how far apart the residual
-    streams run at every (layer, position).
-
-    The map that answers "where do these two inputs stop being
-    processed the same way?" — the first thing to look at when two
-    conditions behave differently and nobody knows yet where the
-    difference begins.
-    """
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return measure_residual_divergence(
@@ -85,13 +76,6 @@ def measure_residual_divergence(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Matched-pair divergence: run prompts `a` and `b`, and per
-    (layer, position) report 1 − cosine of the residual streams. The
-    map shows WHERE a one-token change ripples.
-
-    Pairs must tokenize to equal lengths — that is what 'matched'
-    means; unequal pairs are reported as errors, not silently aligned.
-    """
     point = hookpoints.residual(params.get("point"))
     layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     if not records:

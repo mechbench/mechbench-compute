@@ -7,10 +7,6 @@ from mechbench_compute.intervene.spec_error import SpecError
 
 
 def read_source_items(source: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    """The vector items a `source` offers: a collection of
-    activations/vector as it is, or every vector captured by a capture
-    readout (`intervene/readout` items' `captures`), so one intervention's
-    capture is another's source."""
     from mechbench_compute.lexicon import kinds as K
 
     if not isinstance(source, Mapping):
@@ -19,9 +15,6 @@ def read_source_items(source: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     if ik == "activations/vector":
         return list(K.items_of(source))
     if ik == "intervene/readout":
-        # A stored readout of this kind nests its vectors under each
-        # row's `captures`; a capture readout that IS an
-        # `activations/vector` collection takes the branch above.
         out: list[Mapping[str, Any]] = []
         for item in K.items_of(source):
             caps = item.get("captures")

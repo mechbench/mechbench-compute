@@ -4,9 +4,7 @@ from mechbench_compute.distill import encode
 
 
 def encode_target_token(model, target: str) -> int:
-    """The first token of `target`, tokenized raw as a continuation."""
     flat = encode(model.tokenizer, target)
-    # skip BOS-like specials the tokenizer prepends
     specials = set(getattr(model.tokenizer, "all_special_ids", []) or [])
     for t in flat:
         if t not in specials:

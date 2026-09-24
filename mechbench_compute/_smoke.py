@@ -1,14 +1,3 @@
-"""Smoke test for the canonical hook-aware forward pass.
-
-Acceptance criterion: Model.run produces the expected top-1 next-token on
-each FACTUAL_15-style prompt. These prompts are chosen because Gemma 4 E4B
-answers them with high confidence, so any change in the framework that
-broke the forward path would manifest as wrong tokens here.
-
-Run from project root with the venv active:
-    python -m mechbench_compute._smoke
-"""
-
 from __future__ import annotations
 
 import sys

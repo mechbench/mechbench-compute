@@ -1,6 +1,3 @@
-"""Intervals on a summary and a contrast between two conditions: a
-sweep's peak becomes a claim with a width."""
-
 from __future__ import annotations
 
 import random
@@ -14,13 +11,10 @@ from mechbench_compute.ops.records.contrast import contrast
 
 
 def _sweep(n_prompts=30, layers=(21, 22, 23, 24), seed=1):
-    """An ablation-shaped result: one record per prompt per layer, the
-    prompt's own difficulty shared across layers (so pairing matters),
-    layer 23 costing 1.0 more than its neighbours."""
     rng = random.Random(seed)
     out = []
     for i in range(n_prompts):
-        hard = rng.gauss(0, 2.0)  # the prompt's own level, same at every layer
+        hard = rng.gauss(0, 2.0)
         for layer in layers:
             effect = -3.0 if layer == 23 else -2.0
             out.append({"id": f"p{i}", "layer": layer,
@@ -39,7 +33,7 @@ class TestSummarizeInterval:
                                             "interval": 0.95, "resamples": 500})
         for row in out["rows"]:
             assert row["lo"] <= row["mean"] <= row["hi"]
-            assert 0.3 < row["hi"] - row["lo"] < 2.5   # sd≈2 over 30 prompts → ±0.7-ish
+            assert 0.3 < row["hi"] - row["lo"] < 2.5
         assert out["interval"] == {"level": 0.95, "method": "percentile-bootstrap", "of": "mean",
                                    "resamples": 500, "seed": 0}
         assert [c["name"] for c in out["columns"]][-2:] == ["lo", "hi"]
@@ -66,8 +60,6 @@ class TestSummarizeInterval:
 
 class TestContrast:
     def test_paired_the_layer_23_cost_is_resolved_against_its_neighbour(self):
-        # The prompts' own levels (sd 2) swamp a 1.0 effect unless the
-        # records are paired; paired, the interval is tight around −1.
         out = contrast(_sweep(), {"value": "delta_logp", "on": "layer", "a": 23, "b": 22,
                                          "paired": "id", "resamples": 500})
         [row] = out["rows"]

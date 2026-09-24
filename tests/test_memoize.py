@@ -1,9 +1,3 @@
-"""Memoized remote calls.
-
-The point is money: a judged sweep costs real dollars and an arm of
-it is run many times. Re-running an unchanged remote node must not buy
-the same answers again.
-"""
 from __future__ import annotations
 
 import pytest
@@ -20,8 +14,6 @@ from mechbench_compute.providers.cassette import Cassette, CassetteTransport
 
 
 class CountingAdapter(Transport):
-    """An adapter that says how many times it was actually asked."""
-
     name = "anthropic"
 
     def __init__(self) -> None:
@@ -54,7 +46,6 @@ class TestAMemoIsACassetteTheNodeWrote:
         first.chat(_req())
         assert inner.calls == 1
 
-        # A fresh transport over the SAME memo: a later run, same node.
         memo.rewind()
         second = CassetteTransport(memo, inner=inner, mode="auto")
         out = second.chat(_req())
@@ -79,8 +70,6 @@ class TestAMemoIsACassetteTheNodeWrote:
 
 
 class TestACachedCallIsFree:
-    """The half that matters: a hit must not bill."""
-
     def _replayed(self):
         inner = CountingAdapter()
         memo = Cassette(provider="anthropic")
@@ -99,9 +88,6 @@ class TestACachedCallIsFree:
         assert budget.spent_usd == 0.0, "a cached re-run billed for a purchase it did not make"
 
     def test_the_original_usage_is_kept(self):
-        # Zero cost, but the tokens the FIRST call spent are still on
-        # the record — comparing a memoized run to its first run needs
-        # them.
         out = self._replayed().chat(_req())
         assert out.call.usage["input_tokens"] == 10
         assert out.call.usage["output_tokens"] == 5
@@ -118,8 +104,6 @@ class TestACachedCallIsFree:
 
 class TestTheMemoLabel:
     def test_cache_true_derives_a_label_from_protocol_and_node(self, monkeypatch):
-        # Stable across compute releases: the protocol id and the node
-        # id, neither of which a version bump touches.
         from mechbench_compute import bench
         from mechbench_compute.protocol import ProtocolExecutor
 
@@ -131,8 +115,6 @@ class TestTheMemoLabel:
         assert memo.label == "benji/lab/memos/prt_abc/grade"
 
     def test_cache_true_without_a_protocol_id_refuses_and_says_why(self):
-        # A bare spec run outside a job has no stable identity to
-        # derive from; that is the one case a name is required.
         from mechbench_compute.protocol import ProtocolExecutor
 
         with pytest.raises(ValueError, match="needs the run's protocol id"):

@@ -1,8 +1,3 @@
-"""A transcript as a value, and what a turn sees: `text/render` and
-`text/extend` are the two non-model steps of a conversation's fold, and
-a turn composed from them plus `text/chat` is one turn of a
-conversation."""
-
 from __future__ import annotations
 
 import pytest
@@ -55,9 +50,9 @@ class TestRender:
     def test_roles_attribution_and_channels(self):
         view = render(HISTORY, participant="ana")
         assert [m["role"] for m in view] == ["user", "assistant", "user", "assistant"]
-        assert view[0]["content"] == "hello everyone"          # a scripted line is never attributed
-        assert view[2]["content"] == "bo: are you sure?"       # the other side is
-        assert "keep going" not in _said(view)                 # the judge's channel is not the room
+        assert view[0]["content"] == "hello everyone"
+        assert view[2]["content"] == "bo: are you sure?"
+        assert "keep going" not in _said(view)
 
     def test_the_room_hears_answers_not_scratchpads(self):
         assert "two plus two" not in _said(render(HISTORY, participant="bo"))
@@ -68,8 +63,8 @@ class TestRender:
         assert full[1]["content"] == "two plus two is four\n\nfour."
         assert full[3]["content"] == "I am\n\nyes."
         last = render(HISTORY, participant="ana", sees={"own_thinking": {"last_turns": 1}})
-        assert last[1]["content"] == "four."                   # two turns back: withheld
-        assert last[3]["content"] == "I am\n\nyes."            # the most recent: replayed
+        assert last[1]["content"] == "four."
+        assert last[3]["content"] == "I am\n\nyes."
 
     def test_others_thinking_is_a_choice_and_is_marked(self):
         view = render(HISTORY, participant="ana", sees={"others_thinking": "full"})
@@ -148,21 +143,11 @@ class TestExtend:
                        "replies": [{"id": "r", "text": "x", "coords": {}}]}, {"participant": "bo"})
 
 
-#: What a single conversation op said on this turn (mock provider, one
-#: round-robin turn over the opening below, ana's system prompt "Be
-#: {name}."). Its answer is kept as data, so the three nodes that
-#: compose the same turn have to reproduce it word for word rather than
-#: merely run.
 CONVERSE_TURN = {"participant": "ana", "index": 1,
                  "text": "glass sable meridian sable wick meridian"}
 
 
 class TestATurnComposedFromChat:
-    """render → chat → extend, on the mock provider (whose reply is a
-    pure function of the request), says exactly what a single
-    conversation op said on the same turn — the composition is the loop,
-    cut into ops."""
-
     def _run(self, graph):
         out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,
                                                   extra={"graph": graph}))
@@ -171,7 +156,6 @@ class TestATurnComposedFromChat:
 
     def test_the_composed_turn_is_the_loops_turn(self):
         model = {"provider": "mock", "model": "mock-large"}
-        # The same turn from three nodes over the loop's own opening.
         start = {"kind": "collection", "item_kind": "text/transcript", "items": [
             {"id": "c1", "kind": "text/transcript", "participants": ["ana", "bo"], "stopped": "",
              "messages": [_msg(0, "user", "Let's decide where to eat.")]}]}
@@ -192,18 +176,13 @@ class TestATurnComposedFromChat:
 
 
 class TestWhoIsScripted:
-    """A line nobody in `participants` said is scripted — an opening,
-    an injection — and is never attributed. The transcript's own list is
-    the rule; no participant name is special, because the ops carry no
-    assumptions about who is in a conversation."""
-
     HISTORY = [_msg(0, "narrator", "You are at a crossroads."),
                _msg(1, "ana", "Left."), _msg(2, "bo", "Right.")]
 
     def test_a_non_participant_is_not_attributed_whatever_it_is_called(self):
         view = render(self.HISTORY, participant="ana", participants=["ana", "bo"])
-        assert view[0]["content"] == "You are at a crossroads."      # scripted
-        assert view[2]["content"] == "bo: Right."                    # a participant
+        assert view[0]["content"] == "You are at a crossroads."
+        assert view[2]["content"] == "bo: Right."
 
     def test_a_participant_called_user_is_attributed_like_anyone_else(self):
         history = [_msg(0, "user", "I think left."), _msg(1, "ana", "Left it is.")]

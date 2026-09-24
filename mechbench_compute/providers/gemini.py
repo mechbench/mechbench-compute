@@ -1,22 +1,3 @@
-"""Google's generateContent API.
-
-The shape differs more than the others: turns are `contents` with the
-assistant called `model`, tools are `functionDeclarations`, sampling
-knobs live under `generationConfig`, and a tool result is a
-`functionResponse` keyed by the function's NAME rather than the call's
-id — so this adapter resolves ids back to names from the conversation
-it was handed, which is the one place the canonical model needs
-translating rather than renaming.
-
-Reasoning comes two ways. A part marked `thought: true` is a thought
-summary: a reasoning part, never reply text. And any part — a
-`functionCall`, the last text part — may carry a `thoughtSignature`,
-which must go back on that same part: a function call in the current
-turn whose signature is missing is refused. (With parallel calls only
-the first carries one.) The signature is kept on the canonical part it
-rode on, and both kinds go back only to the model that issued them.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -42,7 +23,6 @@ CAPABILITIES = Capabilities(
 )
 
 
-#: The finish reasons that mean the provider withheld the content.
 SAFETY_FINISH_REASONS = frozenset({
     "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII",
     "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION",
@@ -60,8 +40,6 @@ def _contents(req: msg.ChatRequest) -> list[dict[str, Any]]:
         parts: list[dict[str, Any]] = []
         for p in m.content:
             if isinstance(p, msg.ReasoningPart):
-                # Another model's thoughts are dropped, never turned
-                # into text.
                 if p.native and msg.is_replayable(p.provider, p.model,
                                                   provider="gemini", model=req.model):
                     parts.append(dict(p.native))
@@ -87,9 +65,6 @@ def _contents(req: msg.ChatRequest) -> list[dict[str, Any]]:
 
 def read_empty(data: Mapping[str, Any], cand: Mapping[str, Any], *,
                usage: Usage, max_tokens: int) -> EmptyReply:
-    """Why a response with no reply text and no function call came back
-    that way: a blocked prompt, no candidates, or a safety-class finish
-    reason; thoughts that used the allowance; or nothing it says."""
     block = (data.get("promptFeedback") or {}).get("blockReason")
     finish = str(cand.get("finishReason") or "")
     if block:
@@ -122,8 +97,6 @@ def read_empty(data: Mapping[str, Any], cand: Mapping[str, Any], *,
 
 def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
                   headers: Mapping[str, str] | None = None) -> AdapterResponse:
-    """A generateContent response body as canonical parts. Pure: a
-    cassette that kept the body maps it again through this on replay."""
     cand = (data.get("candidates") or [{}])[0]
     parts: list[msg.Part] = []
     prose = False
@@ -141,17 +114,12 @@ def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
         elif "functionCall" in p:
             fc = p["functionCall"]
             parts.append(msg.ToolCallPart(
-                # Gemini does not issue call ids; the index is stable
-                # within a response and correlates the result we send
-                # back (which is keyed by name anyway).
                 id=f"{cand.get('index', 0)}-{i}", name=str(fc.get("name", "")),
                 arguments=dict(fc.get("args") or {}), signature=sig))
     u = data.get("usageMetadata") or {}
     thoughts = int(u.get("thoughtsTokenCount", 0) or 0)
     usage = Usage(
         input_tokens=int(u.get("promptTokenCount", 0)),
-        # Thoughts are billed as output and count against
-        # maxOutputTokens, but `candidatesTokenCount` leaves them out.
         output_tokens=int(u.get("candidatesTokenCount", 0) or 0) + thoughts,
         cache_read_tokens=int(u.get("cachedContentTokenCount", 0) or 0),
         reasoning_tokens=thoughts,
@@ -188,9 +156,6 @@ class GeminiTransport(Transport):
         self._timeout = timeout
 
     def _headers(self) -> dict[str, str]:
-        # The key goes in a header, never the query string: a URL ends
-        # up in logs and error messages, and this one would carry the
-        # account with it.
         return {"x-goog-api-key": self._token}
 
     def _body(self, req: msg.ChatRequest) -> dict[str, Any]:
@@ -218,10 +183,6 @@ class GeminiTransport(Transport):
                     else dict(req.tool_choice).get("mode", "AUTO"))
             body["toolConfig"] = {"functionCallingConfig": {"mode": str(mode).upper()}}
         options = dict(req.options_for(self.name))
-        # `generationConfig` in the options is merged into the one built
-        # here, not swapped for it: replacing it would drop
-        # `maxOutputTokens`, and the budget reserved against max_tokens
-        # would no longer bound what the call can spend.
         if isinstance(options.get("generationConfig"), Mapping):
             cfg.update(options.pop("generationConfig"))
         body.update(options)

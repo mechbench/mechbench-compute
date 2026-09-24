@@ -91,17 +91,6 @@ Because additivity only holds over the whole stream, `layers` must be
 
 
 def run(ctx, inputs, params):
-    """Decompose the target's logit into each layer's direct
-    contribution, and check that the parts sum to the whole.
-
-    Direct logit attribution is a bookkeeping identity rather than a
-    causal claim: it says what each layer WROTE toward the answer
-    through the unembedding, not what would happen without it. The
-    self-check is the point — a decomposition that does not reconstruct
-    the logit is measuring the wrong thing, which is why the final
-    norm's per-position scale has to be folded in.
-    """
-
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return attribute_logits(
@@ -115,18 +104,6 @@ def attribute_logits(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Direct logit attribution per layer.
-
-    One forward per condition captures every layer's residual plus the
-    final norm's scale; the residual stream is decomposed into exactly
-    additive components (embedding, then each layer's delta), and each
-    component's contribution to the target logit is read through the
-    norm-folded unembed (`apply_ln`).
-
-    SELF-VALIDATING: every row reports its additivity residual — the
-    summed contributions minus the model's true final logit. A reader
-    never has to take the decomposition on faith.
-    """
     from mechbench_compute import attribution
 
     apply_ln = bool(params.get("apply_ln", True))
@@ -152,8 +129,6 @@ def attribute_logits(
         Cap.final_norm_scale(),
     ]
     if per_head_layers:
-        # Forces the manual attention path at these layers — per-head
-        # writes cost real time, so they are opt-in by layer.
         interventions.append(Cap.per_head_out(per_head_layers))
     rows: list[dict[str, Any]] = []
     for record in records:
@@ -162,9 +137,6 @@ def attribute_logits(
         result = model.run(ids, interventions=interventions)
         lp = read_last_logp(result.logits)
         tok, tracked = resolve_target(model, record, params, lp)
-        # Two tracked tokens: the contributions are to the DIFFERENCE of
-        # their logits (target minus the second). A record may name the
-        # second as `contrast` instead.
         others = [t for t in tracked.values() if t != tok]
         contrast = record.get("contrast")
         ctok = (encode_target_token(model, str(contrast)) if contrast
@@ -172,7 +144,6 @@ def attribute_logits(
 
         acc = attribution.accumulated_resid(result.cache, include_pre=True)
         components = np.diff(acc, axis=0, prepend=np.zeros_like(acc[:1]))
-        # components[0] = embedding stream, components[i] = layer i-1's delta
         ln_scale = np.array(
             mx.array(result.cache["final_norm.scale"]).astype(mx.float32)
         ).reshape(-1)
@@ -182,10 +153,6 @@ def attribute_logits(
             apply_ln=apply_ln, ln_scale=ln_scale)
         contrib = attrs[:, 0] if ctok is None else attrs[:, 0] - attrs[:, 1]
 
-        # The honesty number: does the decomposition sum to the truth?
-        # The comparison lives in PRE-softcap space — the decomposition
-        # is linear and the cap is not, so on a model that caps its
-        # logits a capped "true" logit would disagree structurally.
         last = result.logits[0, -1, :].astype(mx.float32)
         mx.eval(last)
         last_np = np.array(last, dtype=np.float64)

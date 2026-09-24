@@ -1,32 +1,3 @@
-"""Verification smoke test for Gemma 4 12B (gemma4_unified).
-
-Loads the 12B variant via Model.load() and confirms the canonical forward and
-the head-weight / attribution machinery handle what makes this model different
-from E2B/E4B:
-
-  1. Arch.from_mlx_model derives the expected facts (48 layers, d_model 3840,
-     no KV-sharing). The scalar n_heads / n_kv_heads report the SLIDING-layer
-     geometry; the global layers differ (see #3) and that asymmetry is read
-     per-layer off the live module, not off these scalars.
-  2. Model.run produces sensible top-1 tokens on factual-recall prompts, and
-     attn internals captured at a GLOBAL layer carry the global geometry:
-     1 KV head, head_dim 512 (vs sliding's 8 / 256).
-  3. Static head-weight analysis (get_head_spec / qk_circuit / ov_circuit) and
-     per-head attribution (head_results) work at a global layer, which on the
-     12B is `use_k_eq_v` (V reuses the k_proj map; there is no v_proj) AND
-     quantized (the published conversions are 8-bit; weights are uint32-packed
-     and must be dequantized for static analysis).
-
-The bit-exactness invariant for this model is covered separately by
-_smoke_bitexact (run it with this model id). Multimodal is intentionally out
-of scope here: the encoder-free vision/audio path adds a bidirectional-vision
-attention mask that breaks the causal assumption of DLA / causal tracing —
-text-only is the supported surface.
-
-Run from project root with the venv active:
-    python -m mechbench_compute._smoke_12b
-"""
-
 from __future__ import annotations
 
 import sys
@@ -46,7 +17,7 @@ PROMPTS_REQUIRE_TOP1 = [
     ("Complete this sentence with one word: The capital of Japan is", "Tokyo"),
 ]
 
-GLOBAL_LAYER = 23  # a full_attention layer (k_eq_v, MQA) well inside the stack
+GLOBAL_LAYER = 23
 
 
 def _check(label: str, got, expected) -> bool:

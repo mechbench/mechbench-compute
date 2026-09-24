@@ -1,38 +1,3 @@
-"""Bit-exactness regression smoke for the canonical forward paths.
-
-This is the north-star canary. The whole reason the `_forward*` modules exist
-is to reproduce the upstream layer loop exactly while exposing hook points — so
-the load-bearing invariant is: at every layer the user is NOT actively probing,
-the residual stream stays bitwise-identical to the framework's standard forward.
-A silent break of that invariant (e.g. an upstream refactor we mirror wrong) is
-the single most dangerous failure mode, because outputs still look plausible.
-
-This smoke asserts that invariant directly, rather than via a top-1 proxy:
-
-  1. UNPROBED forward == stock upstream layer loop, BITWISE
-     (max|Δlogit| == 0). Covers cache construction, masks, and — for gemma4
-     E4B/E2B — the `previous_kvs` KV-sharing thread through the shared tail.
-  2. PROBING an attention layer (forcing it onto the manual-softmax path) keeps
-     the prediction coherent: top-1 unchanged, and the logit drift is pure
-     manual-softmax rounding, not KV corruption — confirmed by a control probe
-     of an earlier layer drifting a *comparable* amount (KV corruption would
-     make a KV-source layer diverge MORE, not less).
-
-An upstream release that rewrites the layer loop is the break this canary
-catches: run it after every mlx-vlm or mlx-lm bump.
-
-Scope: all four supported forward paths, dispatched by family —
-  - gemma4 (E2B / E4B / 12B `gemma4_unified`): mlx-vlm `Gemma4TextModel` loop.
-  - gemma3: mlx-vlm `Gemma3Model` loop + `lm_head`.
-  - qwen2 / llama: mlx-lm models (callable → logits directly).
-The stock reference per family is the model's own standard forward, never the
-mechbench mirror.
-
-Run from project root with the venv active:
-    python -m mechbench_compute._smoke_bitexact                       # E4B default
-    python -m mechbench_compute._smoke_bitexact <hf-model-id>         # any family
-"""
-
 from __future__ import annotations
 
 import sys
@@ -50,28 +15,21 @@ _SUPPORTED = ("gemma4", "gemma3", "qwen2", "llama")
 
 
 def _text_model(mlxm, arch):
-    """The text transformer whose layer loop the mechbench forward mirrors."""
     if arch.model_type in ("qwen2", "llama"):
         return mlxm.model
     return mlxm.language_model.model
 
 
 def _stock_logits(mlxm, ids: mx.array, arch) -> mx.array:
-    """The reference: the model's OWN standard forward, unmodified by mechbench.
-
-    Dispatched by family — each path is the upstream layer loop + that family's
-    unembed, exactly what the corresponding `_forward*` module mirrors.
-    """
     mt = arch.model_type
     if mt in ("qwen2", "llama"):
-        # mlx-lm models are callable and return logits directly.
         logits = mlxm(ids)
     elif mt == "gemma3":
         lm = mlxm.language_model
         tm = lm.model
         normed = tm(ids, cache=cache_mod.make_prompt_cache(lm))
         logits = lm.lm_head(normed)
-    else:  # gemma4 / gemma4_unified
+    else:
         lm = mlxm.language_model
         tm = lm.model
         emb = mlxm.get_input_embeddings(input_ids=ids, pixel_values=None)
@@ -113,11 +71,6 @@ def main(model_id: str) -> int:
     print(f"    stock top1 = {stock_top1}   mechbench top1 = "
           f"{int(np.argmax(mb[0, -1]))}")
 
-    # ---- [2] probe a layer; ---- [3] control: an earlier layer ----
-    # `src` is the last fresh-K/V global (the KV source for the shared global
-    # tail when one exists, e.g. E4B); `ctrl` is an earlier global with no
-    # consumers. For all-global families (qwen2/llama) these are just the last
-    # two layers; KV-sharing `consumers` is empty unless the model has it.
     src = arch.last_fresh_kv_global
     ctrl_candidates = [g for g in arch.global_layers if g < src]
     ctrl = max(ctrl_candidates) if ctrl_candidates else src

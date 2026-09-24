@@ -1,17 +1,9 @@
-"""The model algebra's reference form.
-
-What is worth asserting: the grammar's explicitness (no guessing
-between HF repos and bench labels), that a bare string is a hub repo id,
-and that a form the loader does not implement fails at load time with a
-sentence naming it — not at parse time, and never with a shrug.
-"""
-
 import pytest
 
 from mechbench_compute import model_ref
 
 
-def _no_fetch(label):  # a fetch that must not be reached
+def _no_fetch(label):
     raise AssertionError(f"unexpected fetch of {label!r}")
 
 
@@ -27,8 +19,6 @@ class TestParse:
         assert (ref.base_kind, ref.base) == ("hf", "org/model@dead")
 
     def test_base_source_is_never_guessed(self):
-        # An HF repo and a bench label are both slash-paths; a bare
-        # dict base without a source key must refuse, not guess.
         with pytest.raises(ValueError, match="base"):
             model_ref.parse({"base": {"repo": "org/model"}})
 
@@ -48,15 +38,11 @@ class TestParse:
 
 
 class TestResolveLimits:
-    """Arc boundaries fail loudly and name their arc."""
-
     def test_checkpoint_base_resolves_since_arc_c(self):
         ref = model_ref.resolve({"base": {"bench": "me/p/ckpt"}}, fetch=_no_fetch)
         assert (ref.base_kind, ref.base) == ("bench", "me/p/ckpt")
 
     def test_a_stack_resolves_in_order(self):
-        # Order IS the semantics: round two fused onto
-        # round one is not round one fused onto round two.
         fetched = []
 
         def fetch(label):
@@ -114,10 +100,6 @@ class TestWireForm:
         assert model_ref.parse(ref.to_wire()) == ref
 
     def test_provenance_can_fingerprint_a_normalized_ref(self):
-        # Round two of spinner-fairness failed at emit time: the
-        # normalized ModelRef object reached the CBOR fingerprint
-        # ("cannot encode type ModelRef"). The emit path wire-safes
-        # params; this asserts the wire form actually encodes.
         from mechbench_schema.provenance import fingerprint_params
 
         from mechbench_compute.protocol import serialize_params
@@ -128,4 +110,3 @@ class TestWireForm:
             {"model": {"base": {"hf": "org/m"}, "adapters": [{"bench": "x/a"}]},
              "steps": 40}
         )
-

@@ -1,15 +1,3 @@
-"""Prompt and PromptSet dataclasses + the validate() machinery.
-
-A Prompt is an immutable description of one prompt to send through the model
-plus optional metadata used by analyses (target answer, subject-entity
-substring, category label). A PromptSet is an ordered collection of Prompts.
-
-PromptSet.validate(model) runs each prompt through the model, captures the
-top-1 prediction + confidence, and returns a ValidatedPromptSet that has
-input_ids and baseline log-probability attached to each item. Most
-experiments start with this validate() call.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -21,21 +9,6 @@ import numpy as np
 
 @dataclass(frozen=True)
 class Prompt:
-    """A single prompt.
-
-    Attributes:
-        text: The prompt string. Will be passed through Model.tokenize, which
-            applies the chat template.
-        target: Expected answer token (substring match against the model's
-            top-1 decoded token). If None, validation only checks confidence.
-            Case-insensitive substring match in either direction.
-        subject: Substring identifying the 'subject entity' position in the
-            tokenized prompt. Used by fact_vectors() to pick which token's
-            residual to extract. Optional.
-        category: Categorical label for grouped analyses. Optional.
-        metadata: Free-form dict for any extra context. Optional.
-    """
-
     text: str
     target: Optional[str] = None
     subject: Optional[str] = None
@@ -45,13 +18,6 @@ class Prompt:
 
 @dataclass(frozen=True)
 class PromptSet:
-    """An ordered collection of Prompts.
-
-    Pass to PromptSet.validate(model) to run them through the model and get
-    a ValidatedPromptSet. Most analysis helpers (fact_vectors, etc.) accept
-    a ValidatedPromptSet as input.
-    """
-
     prompts: tuple[Prompt, ...]
     name: Optional[str] = None
 
@@ -65,14 +31,12 @@ class PromptSet:
         return self.prompts[idx]
 
     def by_category(self, category: str) -> "PromptSet":
-        """Return a new PromptSet containing only prompts in this category."""
         return PromptSet(
             prompts=tuple(p for p in self.prompts if p.category == category),
             name=f"{self.name}[{category}]" if self.name else category,
         )
 
     def categories(self) -> list[str]:
-        """List of distinct categories present, in first-seen order."""
         return list(
             dict.fromkeys(
                 p.category for p in self.prompts if p.category is not None
@@ -87,22 +51,6 @@ class PromptSet:
         require_target_match: bool = True,
         verbose: bool = True,
     ) -> "ValidatedPromptSet":
-        """Run each prompt through the model; keep ones that pass validation.
-
-        A prompt PASSES if:
-          - top-1 probability at the final position is >= min_confidence, AND
-          - if require_target_match is True AND prompt.target is set, the
-            target is a case-insensitive substring of the top-1 decoded token
-            (or vice versa, handling surface variants like 'Paris' vs ' Paris'
-            vs 'paris').
-
-        Pass require_target_match=False for geometric experiments where you
-        want to keep every prompt regardless of whether the model answers
-        correctly — where the analysis is about WHERE the representation
-        lives, not whether the model is right.
-
-        verbose=True prints a one-line OK/SKIP summary per prompt as it goes.
-        """
         items = []
         skipped = []
         for prompt in self.prompts:
@@ -153,8 +101,6 @@ class PromptSet:
 
 @dataclass(frozen=True)
 class ValidatedPrompt:
-    """One prompt that passed validation, with model-side artifacts attached."""
-
     prompt: Prompt
     input_ids: mx.array
     target_id: int
@@ -165,12 +111,6 @@ class ValidatedPrompt:
 
 @dataclass(frozen=True)
 class ValidatedPromptSet:
-    """A PromptSet that's been run through the model.
-
-    Iterates over ValidatedPrompts (the kept items). The .skipped attribute
-    holds Prompts that failed validation, for diagnostic purposes.
-    """
-
     items: tuple[ValidatedPrompt, ...]
     skipped: tuple[Prompt, ...] = ()
     source_name: Optional[str] = None
@@ -186,8 +126,6 @@ class ValidatedPromptSet:
 
     @property
     def categories(self) -> list[str]:
-        """Distinct category values present, in first-seen order. Excludes None.
-        For a per-prompt array (potentially with Nones), use .labels instead."""
         return list(
             dict.fromkeys(
                 vp.prompt.category for vp in self.items if vp.prompt.category is not None
@@ -196,11 +134,6 @@ class ValidatedPromptSet:
 
     @property
     def labels(self) -> np.ndarray:
-        """One-per-prompt array of each prompt's .category, in iteration order.
-
-        May contain None entries if some prompts didn't specify a category.
-        Composes directly with iterate_clusters and the geometry stats helpers.
-        """
         return np.array([vp.prompt.category for vp in self.items])
 
     def by_category(self, category: str) -> "ValidatedPromptSet":

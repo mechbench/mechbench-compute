@@ -1,30 +1,3 @@
-"""The WASI sandbox runtime.
-
-One function, and its signature is the design:
-
-    run(snapshot, argv) -> (snapshot', stdout, stderr, exit)
-
-The guest sees exactly one directory — the materialized snapshot —
-and nothing else. No network (wasmtime's WASI has no network API to
-switch off; absence is the default state). CPU is fuel-metered, wall
-clock is epoch-interrupted, memory is capped, the wasm call stack is
-capped, output is capped. Every limit that trips is reported by name
-in the result rather than as a truncated-looking success.
-
-The guest module is compiled once per process and kept — compiling
-the 15 MB standard-Go guest is 1.1 s, deserializing its compiled form
-is 10 ms, and a tool call is otherwise 5 ms. One engine, one epoch
-ticker, a store per run.
-
-The guest's file I/O goes through wasmtime's WASI in Rust straight to
-the host, so Python is never entered per syscall. What a call pays is
-the boundary — materialize before, capture after.
-
-The runtime takes a SNAPSHOT, not a path, on purpose. Whether it
-materializes into a directory or, someday, serves the tree from the
-content store is its own business, and nothing above it should know.
-"""
-
 from __future__ import annotations
 
 import atexit
@@ -40,30 +13,14 @@ from typing import Any
 from mechbench_compute import guests
 from mechbench_compute import snapshots as fs
 
-#: Marker appended when captured output exceeds its cap. Explicit, so a
-#: model reading the result knows it saw a prefix and not the whole.
 TRUNCATED = "\n[output truncated at {n} bytes]"
 
-#: A second, empty preopen the guest can write its TRUE exit status
-#: into. WASI hosts reject `proc_exit` outside [0, 126) — wasmtime
-#: reports "invalid exit status" with the number discarded — and 127
-#: is what every shell says for "command not found". A guest that
-#: wants to exit ≥ 126 writes the number to `<EXIT_DIR>/exit` and
-#: exits 125; the host reads the file if it is there. Outside the
-#: snapshot root, so never captured; invisible to `ls /`.
 EXIT_DIR = "/.mechbench"
 
 
 @dataclass(frozen=True)
 class Limits:
-    """Every ceiling a guest runs under. Defaults are meant for a tool
-    call, not a build: generous for scripts, useless for mining."""
-
     memory_mb: int = 256
-    #: wasmtime fuel, roughly one unit per wasm instruction. Calibrated
-    #: on this machine: gzip over 8 MB burned 2.4e8 in 26 ms, so about
-    #: 1e10 per second of tight compute. 1e11 is ~10 s — enough for a
-    #: script, useless for mining.
     fuel: int = 100_000_000_000
     wall_seconds: float = 30.0
     output_bytes: int = 256 * 1024
@@ -79,10 +36,6 @@ class Limits:
 
 @dataclass(frozen=True)
 class Result:
-    """What one command did. `snapshot` is the tree AFTER, `changed`
-    is what it touched, and `limit` names the ceiling that ended it,
-    if one did — `None` means the guest finished on its own."""
-
     snapshot: fs.Snapshot
     stdout: str
     stderr: str
@@ -90,8 +43,6 @@ class Result:
     changed: fs.Diff
     duration_ms: int
     fuel_used: int | None = None
-    #: One of `fuel`, `wall_seconds`, `memory_mb`, `stack`, `max_files`,
-    #: `max_bytes` — or None.
     limit: str | None = None
     truncated: tuple[str, ...] = ()
 
@@ -117,52 +68,17 @@ class Result:
 
 
 class SandboxError(RuntimeError):
-    """The runtime itself could not run the guest — a missing binary,
-    a module that will not instantiate. Distinct from a guest that ran
-    and failed, which is an ordinary Result with a non-zero exit."""
+    pass
 
 
-#: WASI preview1 imports that strict mode REPLACES with deterministic
-#: ones. Each is a source of nondeterminism a reproducible re-run cannot
-#: tolerate: a guest that reads the clock or the RNG can produce
-#: different bytes from the same snapshot, and then the snapshot chain
-#: is a record of nothing.
-#:
-#: Replaced, not denied. A language runtime reads the clock before
-#: `main` and seeds its hash from `random_get` before the first line,
-#: so denying these kills every run at startup. A runtime needs them to
-#: exist; what it does not need is for them to be real —
-#: so strict hands it a clock that starts at a fixed instant and
-#: advances one microsecond per read, and a byte stream seeded from the
-#: snapshot and argv. The run is then a pure function of its inputs,
-#: which is the whole point.
 STRICT_VIRTUAL = ("clock_res_get", "random_get")
 
-#: Replaced ALWAYS, strict or not. `poll_oneoff` is how a guest sleeps
-#: or waits, and a guest blocked inside it is beyond the reach of epoch
-#: interruption — the trap fires only when control returns to wasm, so
-#: `sleep 10` under a 1 s wall cap runs the full ten seconds. It cannot
-#: be denied either: Go's runtime waits inside its own GC path, so a
-#: denial kills every guest that grows its heap. Instead every
-#: wait completes at once AND the clock jumps forward by the wait —
-#: without the jump, Go's scheduler re-reads the clock, finds the
-#: deadline unmet, and polls again until real time catches up. So the
-#: clock is always ours too: host time plus every wait the guest has
-#: skipped, or the strict counter. Nothing a sandboxed guest waits FOR
-#: can happen — no network, no other process, stdin is a file — so a
-#: completed wait is the truth, not a lie, and `sleep 5` followed by a
-#: timestamp reads five seconds later either way.
 ALWAYS_VIRTUAL = ("poll_oneoff", "clock_time_get")
 
-#: Where the strict clock starts: the beginning of 2000 UTC, in
-#: nanoseconds. Any fixed instant would do; this one is recognizable
-#: in a log.
 STRICT_EPOCH_NS = 946_684_800 * 1_000_000_000
 STRICT_TICK_NS = 1_000
 
 
-#: How often the shared engine's epoch advances. Wall-clock caps are
-#: rounded up to this.
 EPOCH_TICK_S = 0.1
 
 _ENGINE_LOCK = threading.Lock()
@@ -171,9 +87,6 @@ _MODULES: dict[tuple[str, int, int], Any] = {}
 
 
 def _engine():
-    """The one engine, with its epoch ticker. Stores are per run and
-    set their deadline relative to the epoch when they start, so a
-    single ticker serves any number of concurrent runs."""
     global _ENGINE
     import wasmtime
 
@@ -195,10 +108,6 @@ def _engine():
 
 
 def _module(engine, path: pathlib.Path):
-    """The compiled guest: from memory, else from the serialized copy
-    beside the guest cache, else compiled and both are filled. The
-    on-disk form is keyed by guest identity and wasmtime version;
-    deserializing trusts the bytes, so only our own cache dir is read."""
     import importlib.metadata
 
     import wasmtime
@@ -215,12 +124,12 @@ def _module(engine, path: pathlib.Path):
     if cwasm.is_file():
         try:
             module = wasmtime.Module.deserialize(engine, cwasm.read_bytes())
-        except Exception:  # noqa: BLE001 — a stale or foreign artifact; recompile
+        except Exception:  # noqa: BLE001
             module = None
     if module is None:
         try:
             module = wasmtime.Module.from_file(engine, str(path))
-        except Exception as e:  # noqa: BLE001 — a bad binary is a runtime fault
+        except Exception as e:  # noqa: BLE001
             raise SandboxError(f"guest {path.name} will not load: {e}") from e
         try:
             tmp = cwasm.with_suffix(f".{os.getpid()}.part")
@@ -234,9 +143,6 @@ def _module(engine, path: pathlib.Path):
 
 
 def _release_cached() -> None:
-    """Drop the cached modules and engine while wasmtime's FFI is still
-    loaded. Left to interpreter teardown, their finalizers run after
-    the library handle is gone and print a TypeError to stderr."""
     global _ENGINE
     with _ENGINE_LOCK:
         _MODULES.clear()
@@ -261,22 +167,6 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         stdin: bytes | str = b"", blobs: Mapping[str, bytes] | None = None,
         mounts: Sequence[tuple[str, fs.Snapshot]] = (),
         mount_blobs: Mapping[str, Mapping[str, bytes]] | None = None) -> Result:
-    """Run `argv` inside `guest` over `snapshot`; return what happened.
-
-    `guest` is a registered name (`"busybox"`), resolved through
-    `guests.ensure` — fetched on first use and verified by hash — or a
-    path to a `.wasm` file for a build under test. `argv[0]` is the
-    applet name — busybox dispatches on it, so `["find", ".", …]` runs
-    find. `strict=True` replaces the clock and the RNG with
-    deterministic ones, so the same snapshot and argv give the same
-    bytes back every time — see `STRICT_VIRTUAL`.
-
-    `mounts` are `(guest_path, Snapshot)` pairs materialized READ-ONLY
-    at absolute paths outside the working tree — a user's pure-Python
-    packages over CPython's stdlib, say. They are separate preopens, so
-    they never appear in the captured result; the working tree at `/`
-    is the only thing a run can change.
-    """
     import wasmtime
 
     limits = limits or Limits()
@@ -285,14 +175,12 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
     except guests.GuestUnavailable as e:
         raise SandboxError(str(e)) from e
     if not guest_path.is_file():
-        # A registered name whose bytes are not installed says so
-        # through `resolve`; a bare path that is not there says it here.
         raise SandboxError(
             _resolve_hint(guest) or f"guest binary not found: {guest_path}")
 
     with tempfile.TemporaryDirectory(prefix="mechbench-sandbox-") as td:
         root = pathlib.Path(td) / "root"
-        fs.materialize(snapshot, root, blobs=blobs)  # falls back to snapshot.blobs
+        fs.materialize(snapshot, root, blobs=blobs)
         meta = pathlib.Path(td) / "meta"
         meta.mkdir()
         stdout_path = pathlib.Path(td) / "stdout"
@@ -309,14 +197,9 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
 
         wasi = wasmtime.WasiConfig()
         wasi.argv = list(argv)
-        # The guest's own runtime env (PYTHONHOME, say) under the
-        # caller's — a protocol can override, the guest sets the floor.
         wasi.env = [(k, v) for k, v in {**dict(guest_env), **(env or {})}.items()]
         wasi.preopen_dir(str(root), "/")
         wasi.preopen_dir(str(meta), EXIT_DIR)
-        # A guest's runtime mounts — CPython's standard library, say —
-        # preopened READ-ONLY (fs_mutable=False): a guest must not
-        # corrupt the shared runtime it and every other run depend on.
         for m in guest_mounts:
             if not m.host or not pathlib.Path(m.host).is_dir():
                 raise SandboxError(
@@ -324,9 +207,6 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
                     f"host directory {m.host!r} is missing — install the guest "
                     f"with its runtime (guests.install_local(..., mounts=…))")
             wasi.preopen_dir(m.host, m.at, fs_mutable=False)
-        # Image object-mounts: a user's tree (pure-Python packages, a
-        # data dir) materialized read-only at an absolute path. Separate
-        # preopens outside `/`, so nothing here is ever captured.
         for at, tree in mounts:
             if not at.startswith("/") or at.rstrip("/") in ("", EXIT_DIR):
                 raise SandboxError(
@@ -346,9 +226,6 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         virtual = _Virtual(snapshot, argv, strict)
         virtual.install(linker, store, module)
 
-        # Wall clock: the shared ticker advances the epoch every
-        # EPOCH_TICK_S, and the store traps when its deadline passes.
-        # Coarse, and enough.
         store.set_epoch_deadline(max(1, int(limits.wall_seconds / EPOCH_TICK_S)))
 
         started = time.monotonic()
@@ -375,8 +252,6 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
             elif "epoch" in low or "interrupt" in low:
                 limit = "wall_seconds"
             elif "call stack exhausted" in low:
-                # The wasm call stack, wasmtime's default 512 KiB —
-                # unbounded recursion in the guest, not its heap.
                 limit = "stack"
             elif _out_of_memory(instance_holder, store, limits, text):
                 limit = "memory_mb"
@@ -385,12 +260,8 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         except wasmtime.WasmtimeError as e:
             text = str(e)
             if "invalid exit status" in text:
-                # The guest exited ≥ 126 without using the side channel.
-                # 126 is the floor of what we know.
                 exit_code = _reported_exit(meta, 126)
             elif "memory minimum size" in text and "exceeds" in text:
-                # The cap is below what the guest declares it needs to
-                # start at all — a limit the protocol set, so a Result.
                 exit_code, limit = -1, "memory_mb"
                 stderr_path.write_bytes(
                     stderr_path.read_bytes()
@@ -403,7 +274,7 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         fuel_left = None
         try:
             fuel_left = store.get_fuel()
-        except Exception:  # noqa: BLE001 — fuel accounting unavailable after a trap
+        except Exception:  # noqa: BLE001
             pass
 
         truncated: list[str] = []
@@ -416,9 +287,6 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
                                max_bytes=limits.max_bytes,
                                mounts=snapshot.mounts)
         except fs.SnapshotLimit as e:
-            # The guest wrote more than the sandbox allows. Report it
-            # as the limit it is; the tree is not captured, because a
-            # truncated capture would be a snapshot of nothing real.
             return Result(snapshot=snapshot, stdout=out, stderr=err + f"\n[limit] {e}",
                           exit_code=-1, changed=fs.Diff(), duration_ms=duration_ms,
                           fuel_used=(limits.fuel - fuel_left) if fuel_left is not None else None,
@@ -433,7 +301,6 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
 
 
 def _reported_exit(meta: pathlib.Path, fallback: int) -> int:
-    """The status the guest wrote to the side channel, else `fallback`."""
     try:
         return int((meta / "exit").read_text().strip())
     except (OSError, ValueError):
@@ -446,19 +313,10 @@ _MOUNTS_READY: set[str] = set()
 
 def _materialize_mount(tree: fs.Snapshot,
                        blobs: Mapping[str, bytes] | None = None) -> pathlib.Path:
-    """A read-only mount's host directory, materialized ONCE and reused.
-
-    A mount is read-only and content-addressed: a tree with a given
-    digest is always the same bytes, so it is materialized into the
-    guest cache under that digest and every later run — this session or
-    another — preopens the same directory. Without this the stdlib
-    extension a session mounts would be rewritten to disk on every
-    single tool call.
-    """
     digest = tree.digest().split(":")[-1][:16]
     cache = guests.cache_dir()
     dest = cache / f"mount-{digest}"
-    marker = cache / f".mount-{digest}.ok"   # sibling, so the mount dir stays clean
+    marker = cache / f".mount-{digest}.ok"
     with _MOUNT_LOCK:
         if digest in _MOUNTS_READY:
             return dest
@@ -471,9 +329,9 @@ def _materialize_mount(tree: fs.Snapshot,
     try:
         fs.materialize(tree, staging, blobs=blobs if blobs is not None else tree.blobs)
         try:
-            os.replace(staging, dest)   # atomic when dest is absent
+            os.replace(staging, dest)
         except OSError:
-            shutil.rmtree(staging, ignore_errors=True)  # a racer won; same bytes
+            shutil.rmtree(staging, ignore_errors=True)
         marker.write_bytes(b"")
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
@@ -484,11 +342,6 @@ def _materialize_mount(tree: fs.Snapshot,
 
 
 def _resolve_hint(guest: str | os.PathLike[str]) -> str | None:
-    """The message for a guest that could not be found. An unregistered
-    bare NAME is reported as such — `run(guest="typo")` should say "no
-    guest named typo", not "file not found: typo" — while a `.wasm`
-    path that is not there is a plain missing-file error (returns
-    None, the caller supplies it)."""
     if (isinstance(guest, str) and not guests.is_registered(guest)
             and os.sep not in guest and not guest.endswith(".wasm")):
         return (f"no guest named {guest!r} is registered — known: "
@@ -502,35 +355,17 @@ def _pages(holder: list, store) -> int:
     try:
         mem = holder[0].exports(store).get("memory")
         return mem.size(store) if mem is not None else 0
-    except Exception:  # noqa: BLE001 — a store mid-trap may refuse
+    except Exception:  # noqa: BLE001
         return 0
 
 
 def _oom_exit(holder: list, store, limits: Limits, stderr: str) -> bool:
-    """Go's runtime does not trap on a refused grow: it prints
-    `fatal error: out of memory` and exits 2. The phrase alone is not
-    evidence — a guest can print anything — so it counts only with the
-    memory most of the way to the cap when the guest died."""
     if "out of memory" not in stderr.lower():
         return False
     return _pages(holder, store) * 65536 >= limits.memory_mb * 1024 * 1024 * 0.5
 
 
 def _out_of_memory(holder: list, store, limits: Limits, trap_text: str) -> bool:
-    """Did the guest die because it hit the memory cap?
-
-    An allocator that cannot grow does not trap with a memory error.
-    TinyGo takes its fatal path, which is a plain `unreachable`, and a
-    genuine guest panic (awk's `reflect` gap, say) looks the same in
-    the trap text. Two pieces of evidence tell them apart:
-
-    - the allocator is in the backtrace. Inside a capped linear memory
-      an allocator fails for exactly one reason, so `runtime.alloc` (or
-      `malloc`, for a C-built guest) above the trap IS the cap;
-    - failing that, the memory was most of the way to the cap when the
-      guest died. A doubling allocator trips at half; measured, TinyGo's
-      `sort` died at 56 of 64 pages.
-    """
     low = trap_text.lower()
     if any(m in low for m in ("runtime.alloc", "out of memory", "malloc",
                               "memory allocation")):
@@ -541,26 +376,14 @@ def _out_of_memory(holder: list, store, limits: Limits, trap_text: str) -> bool:
 
 
 class _Virtual:
-    """Stand-ins for the WASI calls through which a guest sees the
-    outside world: the clock, the RNG, and waiting.
-
-    Waiting is always virtual (`ALWAYS_VIRTUAL`). The clock and RNG
-    are virtual only under strict: a clock from `STRICT_EPOCH_NS`
-    advancing `STRICT_TICK_NS` per read — advancing, so a guest that
-    spins until time passes still finishes, and by a fixed step, so it
-    finishes the same way every time — and SHA-256 in counter mode over
-    a seed drawn from the snapshot digest and argv. WASI's errno for
-    success is 0.
-    """
-
-    #: WASI preview1 wire layouts: subscription is 48 bytes, event 32.
+    # external: WASI preview1 — a poll_oneoff subscription is 48 bytes, an event 32
     SUB, EV = 48, 32
 
     def __init__(self, snapshot: fs.Snapshot, argv: Sequence[str], strict: bool):
         import hashlib
         self.strict = strict
-        self.clock = STRICT_EPOCH_NS   # strict: the counter clock
-        self.skipped = 0               # plain: nanoseconds of waits skipped
+        self.clock = STRICT_EPOCH_NS
+        self.skipped = 0
         self.seed = hashlib.sha256(
             b"mechbench-sandbox-strict\0" + snapshot.digest().encode()
             + b"\0" + b"\0".join(a.encode() for a in argv)).digest()
@@ -584,8 +407,6 @@ class _Virtual:
         if self.strict:
             self.clock += STRICT_TICK_NS
             return self.clock
-        # 0 realtime, 1 monotonic, 2/3 cpu time — all move with the
-        # host, all carry the skipped waits.
         base = time.time_ns() if clock_id == 0 else time.monotonic_ns()
         return base + self.skipped
 
@@ -617,9 +438,6 @@ class _Virtual:
         return 0
 
     def poll_oneoff(self, caller, subs, events, n, nevents_out):
-        """Every subscription fires now. A clock subscription (tag 0)
-        moves the strict clock to its deadline; fd subscriptions (1, 2)
-        report ready — every fd a guest has is a file."""
         mem = caller.get("memory")
         for i in range(n):
             raw = bytes(mem.read(caller, subs + self.SUB * i, subs + self.SUB * (i + 1)))

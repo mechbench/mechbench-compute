@@ -1,11 +1,3 @@
-"""A conversation continued from a stored transcript hands a model back
-exactly the reasoning it issued, and nobody else's.
-
-The path is the one a protocol takes: render a transcript, ask a model,
-extend the transcript with the reply, store it (a JSON round trip), and
-render it again for the next turn under `own_thinking: "native"`.
-"""
-
 from __future__ import annotations
 
 import json
@@ -29,8 +21,6 @@ OPENING = {"id": "c1", "kind": "text/transcript", "participants": ["ana"],
            "messages": [{"index": 0, "participant": "user", "role_as_seen": "user",
                          "text": "What is 2+2?"}]}
 
-#: provider -> (model, the replies of the first node, what the stored
-#: reasoning must look like when it goes back).
 CASES = {
     "anthropic": ("claude-opus-5", anthropic_bodies,
                   lambda turn: turn["content"] == [ANTHROPIC_FINAL_THINK,
@@ -49,7 +39,6 @@ SECRET = {"anthropic": ANTHROPIC_FINAL_THINK["signature"], "gemini": SIG_B,
 
 
 def next_body(provider):
-    """Any final reply, for the second node's one request."""
     return {"anthropic": anthropic_bodies, "gemini": gemini_bodies,
             "deepseek": lambda: chat_bodies({}, {})}[provider]()[-1]
 
@@ -62,7 +51,6 @@ def stored_after_one_turn(monkeypatch, provider):
                    {"participant": "ana"})["items"][0]
     grown["messages"].append({"index": 2, "participant": "user", "role_as_seen": "user",
                               "text": "And 3+3?"})
-    # What storage does to it: the transcript is JSON on the bench.
     return json.loads(json.dumps(grown))
 
 
@@ -104,9 +92,6 @@ def test_another_model_gets_no_reasoning_and_no_leak(monkeypatch, provider, othe
 
 
 def test_another_anthropic_model_is_handed_the_block_to_read_or_drop(monkeypatch):
-    # Anthropic's thinking docs: keep passing blocks back on a model
-    # switch; the API drops what the target cannot read, and a client
-    # that strips them itself loses reasoning a later model could read.
     stored = stored_after_one_turn(monkeypatch, "anthropic")
     payload = continue_on(monkeypatch, stored, "anthropic", "claude-fable-5-1")
     assert ANTHROPIC_FINAL_THINK in assistant_turn(payload, "anthropic")["content"]

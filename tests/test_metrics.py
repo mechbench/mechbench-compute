@@ -1,6 +1,3 @@
-"""Metrics on kinds: a kind declares how its items compare, and
-`geometry/compare` + `geometry/span` stand over anything that does."""
-
 from __future__ import annotations
 
 import math
@@ -28,7 +25,6 @@ def direction(id_, v):
 
 
 def read(id_, masses: dict[str, float], **coords):
-    """A decision read carrying `tracked` masses (ids by text hash)."""
     tracked = {name: {"token": {"id": abs(hash(name)) % 1000, "text": name}, "p": p,
                       "logp": math.log(p)} for name, p in masses.items()}
     top = sorted(tracked.values(), key=lambda t: -t["p"])
@@ -100,8 +96,6 @@ class TestDistributionMetrics:
         assert js[0, 1] == pytest.approx(1.0) and tv[0, 1] == pytest.approx(1.0)
 
     def test_the_unnamed_mass_is_one_bucket(self):
-        # A read that names half its mass and one that names it all: the
-        # rest is compared as one bucket, not ignored.
         a = read("a", {"x": 0.5})
         b = read("b", {"x": 0.5, "y": 0.5})
         tv, _, _ = M.matrix("logits/distribution", [a, b], "total-variation")
@@ -125,10 +119,6 @@ class TestRecordMetric:
 
 class TestTheOps:
     def test_a_balanced_design_under_hamming_is_a_flat_lattice(self):
-        # A 2×3 design under hamming: same-genre pairs differ on one axis,
-        # cross-genre pairs on one or two — so the genre split shows in
-        # the separation, while the tree has no bridges, every step being
-        # one axis. A sanity test that the record metric reads the design.
         design = ops.run_standalone("records/cross", {}, {"factors": [
             {"name": "genre", "levels": [{"key": "noir"}, {"key": "fable"}]},
             {"name": "seed", "levels": [{"key": "1"}, {"key": "2"}, {"key": "3"}]}]})
@@ -144,9 +134,6 @@ class TestTheOps:
         assert t["bridges"] == 0 and t["components_after_cut"] == 1
 
     def test_eight_axes_align_in_one_node(self):
-        # The 018 question: are the adapters' pressure axes the same axis?
-        # Six single-domain axes near one direction, two joint axes off
-        # it — a union of the directions, one similarity, one tree.
         rng = np.random.default_rng(0)
         base = np.array([1.0, 0.2, 0.0])
         ports = {}
@@ -165,13 +152,9 @@ class TestTheOps:
         assert by[("die", "joint4")] < 0.1
         assert item["pairs"][0]["value"] >= item["pairs"][-1]["value"]
         tree = ops.run_standalone("geometry/span", {"similarity": sim}, {})["items"][0]
-        # Six near-identical axes and two strangers: the longest edges
-        # are the bridges to the joints.
         assert tree["n"] == 8 and tree["bridges"] >= 1
 
     def test_a_grid_of_decision_reads_builds_a_tree_of_conditions(self):
-        # The 022 matrix: reads under different conditions, compared by
-        # what the model says. Two prompt families, two outcome profiles.
         reads = [read(f"a{i}", {"x": 0.8 - i * 0.02, "y": 0.2 + i * 0.02}, family="a") for i in range(4)]
         reads += [read(f"b{i}", {"x": 0.2 + i * 0.02, "y": 0.8 - i * 0.02}, family="b") for i in range(4)]
         coll = K.collection("logits/decision", reads, top_k=2)
@@ -191,8 +174,6 @@ class TestTheOps:
             ops.run_standalone("geometry/span", {"similarity": sim}, {})
 
     def test_grouping_by_a_coordinate(self):
-        # A funnel's items are one read per (record, layer): compare the
-        # records within each layer.
         items = []
         for layer in (3, 7):
             for i in range(3):
@@ -208,7 +189,6 @@ class TestTheOps:
         from mechbench_compute import lexicon
         from mechbench_compute.block_params import check_inputs
 
-        # The refusal names what to write instead.
         with pytest.raises(KeyError):
             lexicon.resolve("direction/similarity")
         assert "geometry/compare" in lexicon.explain_unknown("direction/similarity")

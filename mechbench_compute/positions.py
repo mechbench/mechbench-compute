@@ -1,29 +1,3 @@
-"""One position grammar, wherever a position is chosen.
-
-A selector names token positions of a rendered sequence:
-
-    "last"                  the final position
-    "all"                   every position
-    [3, 5, -1]              indices; negative counts from the end
-    {"tokens": ["x", …]}    every position whose token text is one of these
-    {"range": [a, b]}       positions a … b-1; negative or null ends as a
-                            Python slice
-    {"after": n}            positions n … end
-    {"segment": "thinking"} a named span of the trace — the roles a
-                            document's `segmentations` declare
-    "subject"               the last token of the record's `subject` string
-    "generated"             from where generation began — the trace's span,
-                            else the end of the rendered prompt
-
-A single-position parameter (`position` on `activations/capture`,
-`intervene/steer`, a capture readout) takes the same selector and must
-resolve to exactly one position.
-
-One pooling clause, `pool: {"reduce": "mean" | "max", "over": selector}`,
-turns a one-position read into a reduction over the selected positions
-— `over` applied to the sequence, or, on a trajectory, to its steps.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -49,20 +23,7 @@ def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
             prompt_len: int | None = None, gen_start: int | None = None,
             segmentations: Sequence[Mapping[str, Any]] | None = None,
             absent: str = "error") -> list[int]:
-    """The positions `selector` names in a sequence of `n` tokens.
-
-    `tokens` (the decoded pieces) serves `{"tokens": …}` and `"subject"`;
-    `record` supplies `subject`; `gen_start` (from a trace) or
-    `prompt_len` (from the rendering) serves `"generated"`;
-    `segmentations` (from a document's trace) serves
-    `{"segment": role}`. Raises `ValueError` for a selector that names
-    nothing, or one this sequence cannot answer — except that with
-    `absent: "none"` a token or segment the sequence does not (yet)
-    contain selects nothing, which is the normal state of a sequence
-    still being written. A malformed selector raises either way.
-    """
     if selector is None or selector == "last" or selector == "final":
-        # `final` is an accepted synonym for `last`.
         return [n - 1] if n else []
     if selector == "all":
         return list(range(n))
@@ -111,12 +72,6 @@ def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
 
 
 def _segment(role: Any, n: int, segmentations: Sequence[Mapping[str, Any]] | None) -> list[int]:
-    """The positions of the span named `role`, from the document's named
-    spans. A document without it is refused WITH THE ROLES IT HAS: a
-    capture aimed at reasoning must not quietly read an answer, and the
-    reader deserves to know the document simply has no such span —
-    because the model declares no reasoning delimiters, or wrote none.
-    """
     want = str(role)
     have: list[str] = []
     for seg_set in (segmentations or []):
@@ -137,7 +92,6 @@ def _segment(role: Any, n: int, segmentations: Sequence[Mapping[str, Any]] | Non
 
 
 def one(selector: Any, n: int, **kw: Any) -> int:
-    """A selector that must name exactly one position."""
     idx = resolve(selector, n, **kw)
     if len(idx) != 1:
         raise ValueError(
@@ -153,10 +107,6 @@ def _subject(tokens: Sequence[str] | None, record: Mapping[str, Any] | None) -> 
             "`subject` field naming a substring of the prompt")
     if tokens is None:
         raise ValueError("position 'subject' needs the decoded tokens")
-    # Among tokens whose text appears in the subject, prefer the LONGEST
-    # (ties -> latest): 'casa' must beat a stray 'a' later in the
-    # sentence. The subject's own final piece carries the representation.
-    # Casefolded: 'Capital' at a sentence start is still 'capital'.
     folded = subject.casefold()
     hits = [(len(t.strip()), i) for i, t in enumerate(tokens)
             if t.strip() and t.strip().casefold() in folded]
@@ -168,7 +118,6 @@ def _subject(tokens: Sequence[str] | None, record: Mapping[str, Any] | None) -> 
 
 
 def pool_spec(params: Mapping[str, Any]) -> dict[str, Any] | None:
-    """`pool: {"reduce": "mean" | "max", "over": selector}`, or None."""
     pool = params.get("pool")
     if pool is None:
         return None
@@ -184,11 +133,6 @@ def pool_spec(params: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def pooled(mat: Any, idx: Sequence[int], reduce: str) -> tuple[Any, int]:
-    """Reduce the rows `idx` of `mat` ([seq, d]). Returns the vector and
-    how many rows went into it, because a pooled vector that does not
-    say its own n is not auditable. An empty selection falls back to the
-    last row rather than emitting zeros, which would look like a vector
-    and mean nothing."""
     sub = mat[list(idx)] if idx else mat[-1:]
     v = sub.max(axis=0) if reduce == "max" else sub.mean(axis=0)
     return v, int(sub.shape[0])

@@ -84,14 +84,10 @@ def run(ctx, inputs, params):
     return compare_geometry(inputs, params)
 
 
-#: Beyond this many items a group's every-pair list is left out: the
-#: matrix already carries the numbers, and n² rows of prose is not a
-#: reading anyone makes.
 PAIRS_LIMIT = 32
 
 
 def _group_key(item: Mapping[str, Any], by: str | None) -> tuple[str, dict[str, Any]]:
-    """(the group's name, the fields naming it) for one item."""
     if by in (None, "", "none"):
         return "all", {}
     if by == "space":
@@ -108,10 +104,6 @@ def _group_key(item: Mapping[str, Any], by: str | None) -> tuple[str, dict[str, 
 
 
 def score_separation(matrix: np.ndarray, labels: list[Any], *, distance: bool) -> dict[str, Any]:
-    """How well the labels separate under this matrix: mean within-group
-    and between-group value and their gap, the share of items whose
-    nearest neighbour shares their label, and the silhouette when it can
-    be computed. Read off the matrix, so every metric gets it."""
     n = len(labels)
     intra: list[float] = []
     inter: list[float] = []
@@ -130,8 +122,6 @@ def score_separation(matrix: np.ndarray, labels: list[Any], *, distance: bool) -
     nn = np.argmin(m, axis=1) if distance else np.argmax(m, axis=1)
     lab = np.asarray(labels, dtype=object)
     out["nn_purity"] = round(float((lab[nn] == lab).mean()), 4)
-    # sklearn absent, or a degenerate labelling: the silhouette is
-    # optional garnish, never worth failing the readout.
     with contextlib.suppress(Exception):
         from sklearn.metrics import silhouette_score
 
@@ -145,11 +135,6 @@ def score_separation(matrix: np.ndarray, labels: list[Any], *, distance: bool) -
 
 
 def compare_geometry(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """The op. `items` is a collection of any kind with metrics; `metric`
-    names one (the kind's first by default), `options` its options, `by`
-    the header axis to group on (`space` — per layer and head — for
-    vectors, `null` for one group, or a coordinate), `axis` the
-    coordinate the separation reads."""
     src = inputs.get("items")
     if not isinstance(src, Mapping):
         raise ValueError("geometry/compare needs a collection on its `items` port")

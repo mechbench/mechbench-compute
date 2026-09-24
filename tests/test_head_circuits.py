@@ -1,7 +1,3 @@
-"""`weights/circuit`: what a head does, read from the
-weights alone — the OV and QK circuits, and which earlier heads reach
-this one."""
-
 from __future__ import annotations
 
 import os
@@ -23,14 +19,9 @@ def _spec(w_o, w_v, *, layer=0, head=0, d_model=8, head_dim=2):
 
 
 class TestCompositionScore:
-    """The score is the share of what a head writes that lands in what a
-    later head reads — 0 when they never meet."""
-
     D, H = 8, 2
 
     def _basis(self, dims):
-        """W_O [d_model, head_dim] and W_V [head_dim, d_model] writing
-        into exactly the named residual dimensions."""
         w_o = np.zeros((self.D, self.H), np.float32)
         w_v = np.zeros((self.H, self.D), np.float32)
         for i, dim in enumerate(dims):
@@ -92,7 +83,6 @@ class TestOnGemma:
         assert first["strength"] > 0
         assert len(first["left"]) == 5 and len(first["right"]) == 5
         assert all(isinstance(t["token"], str) for t in first["left"])
-        # The components are ordered by the gain they carry.
         assert first["strength"] >= out["items"][1]["strength"]
 
     def test_qk_is_the_other_circuit_and_a_layer_of_heads_is_one_node(self, model):
@@ -110,7 +100,6 @@ class TestOnGemma:
         assert len(rows) == 2 * model.arch.n_heads * 2
         assert {r["coords"]["kind"] for r in rows} == {"q", "k"}
         assert all(0.0 <= r["score"] <= 1.0 for r in rows)
-        # Some head reaches it more than the median one does.
         scores = sorted(r["score"] for r in rows)
         assert scores[-1] > scores[len(scores) // 2] > 0
 

@@ -149,10 +149,6 @@ readings.
 
 
 def run(ctx, inputs, params):
-    """The decision-read model block: per condition record, the exact
-    decision-token distribution (prefix-cached) and optional best-first
-    outcome expansion. Records keep their coords, so a downstream
-    grouping reads the design that produced them."""
     import numpy as np
 
     from mechbench_compute.distill import (
@@ -167,9 +163,6 @@ def run(ctx, inputs, params):
     tok = model.tokenizer
     conditions = lexicon.items_of(inputs.get("conditions") or [])
     if not conditions:
-        # An empty read is never what a protocol meant: the battery
-        # did not arrive, and a silent empty collection would be read
-        # as a finding.
         raise ValueError(
             "logits/read: no conditions to read — wire records to "
             "the `conditions` port")
@@ -179,9 +172,6 @@ def run(ctx, inputs, params):
     complete = params.get("complete")
     top_k = int(params.get("top_k", 10))
     from mechbench_compute import shapes as S
-    # The fields are `system`, `user`, `prefill`, by name: a record
-    # that carries them under other names goes through records/rename
-    # first, so the adaptation is a node in the graph, not a param.
     out = []
     for cond in conditions:
         key = str(cond["id"])
@@ -194,11 +184,6 @@ def run(ctx, inputs, params):
         rendered, ids = r.text, r.ids
         prefill = prefill_decision(model, ids)
         lp = np.array(prefill[1] - mx.logsumexp(prefill[1])).astype(np.float64)
-        # Per-record outcome sets override the block-level param —
-        # heterogeneous batteries (d6 vs coin vs open-ended) carry
-        # their outcomes as data. Each outcome is tracked by its own
-        # name, at its first token as a suffix of the rendered prompt;
-        # `tracked` names any other token to follow.
         tracked: dict[str, int] = {}
         for o in (cond.get("outcomes") or []):
             tracked[str(o)] = int(suffix_tokens(tok, rendered, ids, o)[0])
@@ -212,12 +197,6 @@ def run(ctx, inputs, params):
         if rollout:
             entry["rollout"] = expand_top_outcomes_cached(
                 model, tok, ids, rollout, prefill=prefill)
-        # Complete outcomes, exactly: each scored whole and closed,
-        # into `tracked` under its own name, so `eval/expect`
-        # judges multi-token outcomes as it judges tokens. A record's
-        # own `complete` is laid over the block's field by field, so a
-        # probe at a later list slot names only its opener and closer
-        # and keeps the block's outcomes.
         spec = {**(complete or {}), **(cond.get("complete") or {})}
         if spec:
             scored, mass, entropy = score_complete(model, tok, rendered, ids, spec)

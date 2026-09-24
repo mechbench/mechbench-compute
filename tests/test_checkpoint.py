@@ -1,11 +1,3 @@
-"""The merge is a delta-shard rewrite.
-
-Tiny real tensors, real mx arithmetic: the assertions that matter are
-W' == W + scale·(B@A) on exactly the targeted tensors, byte-identical
-copies of everything else, honest manifests, and a materializer that
-refuses corruption rather than caching it.
-"""
-
 import hashlib
 import json
 
@@ -86,7 +78,6 @@ class TestExportMerged:
         merged = dict(mx.load(str(out / "model-00001-of-00002.safetensors")))
         want = w + (scale * (b @ a)).astype(w.dtype)
         assert bool(mx.allclose(merged["model.layers.0.self_attn.q_proj.weight"], want, atol=1e-5))
-        # the untouched shard and config are byte-identical to the base
         for name in ("model-00002-of-00002.safetensors", "config.json"):
             assert (out / name).read_bytes() == (snap / name).read_bytes()
 
@@ -154,9 +145,7 @@ class TestMaterialize:
         os.utime(mark, (then, then))
         d2 = checkpoint.materialize(man, fetch, tmp_path / "cache")
         assert d2 == d1
-        assert len(calls) == n_first  # complete mark short-circuits
-        # ...and the hit refreshed the mark: last-used, not fetched-at,
-        # is what the eviction pass reads.
+        assert len(calls) == n_first
         assert mark.stat().st_mtime > then + 3000
 
     def test_a_corrupt_fetch_caches_nothing(self, tmp_path):
@@ -167,24 +156,19 @@ class TestMaterialize:
                 man, lambda _n: b"not the bytes", tmp_path / "cache"
             )
         assert d is None
-        # and a later honest fetch succeeds from scratch
         ok = checkpoint.materialize(man, lambda n: store[n], tmp_path / "cache")
         assert (ok / "w.safetensors").read_bytes() == b"\x00\x01\x02"
 
 
 class TestHfCacheLayout:
     def test_a_symlinked_snapshot_merges(self, snapshot, tmp_path):
-        """The real HF cache: snapshots are symlinks into an
-        extensionless blobs/ dir. mx.load picks its parser by the
-        PATH'S extension, so the merge must hand it the link, not the
-        resolved blob — the exact failure of prod's first merge."""
         snap, w = snapshot
         blobs = tmp_path / "blobs"
         linked = tmp_path / "linked-snap"
         blobs.mkdir()
         linked.mkdir()
         for i, entry in enumerate(sorted(snap.iterdir())):
-            blob = blobs / f"{i:064x}"  # extensionless, like the cache
+            blob = blobs / f"{i:064x}"
             blob.write_bytes(entry.read_bytes())
             (linked / entry.name).symlink_to(blob)
         payload, a, b, scale = _adapter_payload()
@@ -194,7 +178,6 @@ class TestHfCacheLayout:
         want = w + (scale * (b @ a)).astype(w.dtype)
         assert bool(mx.allclose(
             merged["model.layers.0.self_attn.q_proj.weight"], want, atol=1e-5))
-        # copies resolved through the links to real bytes
         assert not (out / "config.json").is_symlink()
         assert (out / "config.json").read_bytes() == (snap / "config.json").read_bytes()
 
@@ -202,8 +185,6 @@ class TestHfCacheLayout:
 
 class TestMaterializeProgress:
     def test_reports_cumulative_bytes_against_the_manifest_total(self, tmp_path):
-        """`on_bytes` is a download's proof of life: a silent fetch of
-        tens of gigabytes is indistinguishable from a wedged one."""
         src = tmp_path / "src"
         src.mkdir()
         (src / "a.bin").write_bytes(b"\x01" * (5 << 20))
@@ -227,4 +208,4 @@ class TestMaterializeProgress:
         assert all(t == total for _, t in ticks)
         dones = [d for d, _ in ticks]
         assert dones == sorted(dones)
-        assert dones[-1] == total  # the final tick says complete
+        assert dones[-1] == total

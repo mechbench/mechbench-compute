@@ -5,10 +5,6 @@ from typing import Any
 
 
 class Monoid:
-    """`partial(records, params)` → P; `identity()` → P; `merge(P, P)` → P
-    (associative, commutative); `finalize(P, params)` → the block's
-    output. `partial(all) == merge over any partition of all` exactly."""
-
     def identity(self) -> Any:
         raise NotImplementedError
 

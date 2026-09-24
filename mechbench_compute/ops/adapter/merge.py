@@ -50,22 +50,6 @@ Nothing arrives by edge: the stack to merge is the `model` reference's.
 
 
 def run(ctx, inputs, params):
-    """Collapse a model's adapter stack into one standalone
-    checkpoint, published to the bench or to Hugging Face.
-
-    What turns "base plus these three adapters" into a single thing
-    someone else can load.
-
-    The merge never loads the model: it is a delta-shard rewrite
-    (see checkpoint.py), so peak memory is one shard. Destination
-    is explicit and mirrors the base grammar:
-
-        {"to": {"bench": {"name": "spinner-fair-v1"}}}
-            -> objects under <owner>/<project>/checkpoints/<name>/
-               plus a manifest; usable as {"base": {"bench": ...}}.
-        {"to": {"hf": {"repo": "user/repo", "private": true}}}
-            -> a Hub commit; usable as {"base": {"hf": "repo@sha"}}.
-    """
     import shutil
     import tempfile
     from pathlib import Path
@@ -100,8 +84,6 @@ def run(ctx, inputs, params):
             snapshot, list(mref.adapter_payloads), out)
         manifest = checkpoint.build_manifest(
             out, files, mref.to_wire(), base_snapshot)
-        # One unit per file: an hour of shard upload must read as
-        # motion on the jobs page, not as a wedged run.
         if ctx.on_start:
             ctx.on_start(len(files))
 
@@ -115,12 +97,6 @@ def run(ctx, inputs, params):
                 raise ValueError("no result path — cannot derive the project")
             owner, project = ctx.result_base.split("/")[:2]
             prefix = f"{owner}/{project}/checkpoints/{name}"
-            # Retry-as-resume: a failed upload leaves its intact
-            # files on the server (torn ones were deleted by the
-            # hash check), so ask what is already there and skip
-            # byte-identical matches. On a residential uplink this
-            # is the difference between resuming a 9.6GB upload and
-            # restarting it.
             have = bench.list_prefix_hashes(prefix)
             by_name = {f["name"]: f["sha256"] for f in manifest["files"]}
             total = 0

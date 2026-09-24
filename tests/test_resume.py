@@ -1,16 +1,3 @@
-"""Bit-identical resume — the acceptance tests that define the
-semantics.
-
-For an item-resumable block: run a pipeline to completion; run it
-again with an interruption after item j, collecting what the runner
-would have spooled; resume with that map; the result payload's
-canonical bytes and the node object's content hash must be identical
-to the uninterrupted run, and only the missing items are computed.
-For training: interrupt at a checkpoint, resume, and the final
-weights must be byte-identical. A fingerprint mismatch, or a consumer
-requiring more than the block offers, restarts the node instead.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -26,8 +13,6 @@ from mechbench_compute.distill import Example
 from mechbench_compute.finetune import train_soft_ce
 from mechbench_compute.lora import apply_lora
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
-
-# --- a fake generate substrate: deterministic per rng -------------------------
 
 
 class _FakeTok:
@@ -86,9 +71,6 @@ def _gen_spec(n=3):
 
 
 class _Spool:
-    """What the runner's second half will keep: fingerprints per node,
-    items per node, done nodes."""
-
     def __init__(self, interrupt_after: int | None = None):
         self.fingerprints: dict[str, str] = {}
         self.items: dict[str, dict[str, dict]] = {}
@@ -130,7 +112,6 @@ class TestGenerateItemResume:
         reference = full.executor().run(_gen_spec())
         assert calls.n == 6
 
-        # Interrupt after 4 of 6 items; the spool holds those 4.
         calls.n = 0
         partial = _Spool(interrupt_after=4)
         with pytest.raises(KeyboardInterrupt):
@@ -140,14 +121,11 @@ class TestGenerateItemResume:
         calls.n = 0
         resumed = _Spool()
         out = resumed.executor().run(_gen_spec(), resume=partial.resume_map("gen"))
-        assert calls.n == 2  # only the two missing items were computed
+        assert calls.n == 2
         assert _digest(out) == _digest(reference)
-        # the node's content hash — what the bench would store — matches
         assert resumed.done["gen"][1] == full.done["gen"][1]
 
     def test_any_subset_resumes_in_canonical_order(self, monkeypatch):
-        # Emission order must not depend on which items were spooled:
-        # hand back only the LAST item and the result is still identical.
         calls = _Calls()
         _fake_generate_substrate(monkeypatch, calls)
         full = _Spool()
@@ -172,7 +150,7 @@ class TestGenerateItemResume:
             _gen_spec(),
             resume={"gen": {"fingerprint": "sha256:not-the-same",
                             "items": dict(full.items["gen"])}})
-        assert calls.n == 6  # nothing reused
+        assert calls.n == 6
 
     def test_a_param_change_changes_the_fingerprint(self, monkeypatch):
         calls = _Calls()
@@ -180,14 +158,11 @@ class TestGenerateItemResume:
         a = _Spool(); a.executor().run(_gen_spec(n=3))
         b = _Spool(); b.executor().run(_gen_spec(n=4))
         assert a.fingerprints["gen"] != b.fingerprints["gen"]
-        # and a downstream node's fingerprint follows its upstream's content
         assert a.fingerprints["stats"] != b.fingerprints["stats"]
 
     def test_a_consumer_requirement_above_the_offer_forces_restart(self, monkeypatch):
         calls = _Calls()
         _fake_generate_substrate(monkeypatch, calls)
-        # Pretend generate were merely exchangeable and the consumer
-        # requires reproducible: the partial must not be reused.
         monkeypatch.setitem(rm.BLOCK_RESUME, "text/generate",
                             {"level": "exchangeable", "items": True})
         spec = _gen_spec()
@@ -220,8 +195,8 @@ class TestGenerateItemResume:
         ticks = []
         resumed.executor().run(_gen_spec(), resume=full.resume_map("gen"),
                                on_progress=lambda d, t: ticks.append((d, t)))
-        assert ticks[-1][0] == ticks[-1][1]  # progress reached the end
-        assert resumed.items == {}  # nothing was spooled again
+        assert ticks[-1][0] == ticks[-1][1]
+        assert resumed.items == {}
 
 
 class TestNodeSkip:
@@ -280,13 +255,7 @@ class TestNonResumableBlocksIgnoreTheMap:
         assert _digest(out) == _digest(reference)
 
 
-# --- training: state-restorable -------------------------------------------------
-
-
 class _TinyLM(nn.Module):
-    """A language model small enough to train in a test and shaped so
-    `apply_lora` finds `model.layers[i].self_attn.q_proj`."""
-
     def __init__(self, vocab=16, dim=8, layers=2):
         super().__init__()
 
@@ -355,9 +324,6 @@ class TestTrainingCheckpointResume:
         train_soft_ce(lm_b, _examples(), {"target": 1, "anchor": 1, "seq": 1},
                       steps=3, lr=1e-2, seed=3, factories={"seq": _factory},
                       checkpoint_every=3, on_checkpoint=checkpoints.append)
-        # `steps=3` finishes AT the would-be checkpoint; a final step
-        # never checkpoints, so capture one explicitly the way an
-        # interrupted 6-step run at step 3 would have.
         assert checkpoints == []
         lm_c = _fresh_lm()
         got = []
@@ -368,10 +334,6 @@ class TestTrainingCheckpointResume:
         state = got[0]
         assert state["mx_key"] is None or hasattr(state["mx_key"], "shape")
 
-        # Same BASE weights (the frozen model comes from the same files
-        # in reality; the checkpoint carries only the trainable state),
-        # with the LoRA state scrambled first: the checkpoint must
-        # override whatever the fresh init produced.
         lm_d = _fresh_lm()
         from mlx.utils import tree_flatten, tree_unflatten
 
@@ -408,7 +370,7 @@ class TestLevels:
         assert rm.satisfies("state-restorable", "reproducible")
         assert not rm.satisfies("exchangeable", "reproducible")
         assert rm.satisfies("exchangeable", "exchangeable")
-        assert rm.satisfies("restart", "reproducible")  # recomputes: nothing to mistrust
+        assert rm.satisfies("restart", "reproducible")
         with pytest.raises(ValueError):
             rm.satisfies("reproducible", "bit-perfect")
 

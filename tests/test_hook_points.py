@@ -1,7 +1,3 @@
-"""The forward-pass grammar's points — registry, selectors and
-validation without a model; an opt-in smoke test on the real Gemma 4
-E2B when it is cached locally (MECHBENCH_MODEL_TESTS=1)."""
-
 from __future__ import annotations
 
 import os
@@ -39,7 +35,7 @@ class TestRegistry:
             assert p in _arch.LAYER_HOOK_POINTS
         for p in NEW_GLOBAL:
             assert p in _arch.GLOBAL_HOOK_POINTS
-        assert "final_norm.scale" in _arch.GLOBAL_HOOK_POINTS  # untouched
+        assert "final_norm.scale" in _arch.GLOBAL_HOOK_POINTS
 
     def test_names_parse(self):
         a = _arch_e2b_like()
@@ -60,7 +56,7 @@ class TestRegistry:
     def test_internal_sets(self):
         assert {"attn.scores", "attn.o_in", "attn.q_pre_rope"} <= _arch.ATTN_INTERNAL_POINTS
         assert _arch.MLP_INTERNAL_POINTS == {"mlp.gate", "mlp.up", "mlp.act", "mlp.down_in"}
-        assert "mlp.in_norm" not in _arch.MLP_INTERNAL_POINTS  # both paths dispatch it
+        assert "mlp.in_norm" not in _arch.MLP_INTERNAL_POINTS
 
 
 class TestFamilySupport:
@@ -81,8 +77,6 @@ class TestFamilySupport:
 
 
 class _FakeModelForValidation:
-    """Just enough of Model to exercise `_validate_hook_names`."""
-
     def __init__(self, arch):
         self.arch = arch
 
@@ -94,13 +88,12 @@ class _FakeModelForValidation:
 class TestValidation:
     def test_shared_layer_pre_key_points_are_refused_loudly(self):
         m = _FakeModelForValidation(_arch_e2b_like())
-        m._validate_hook_names({"blocks.14.attn.k_pre_rope"})  # last fresh layer: fine
+        m._validate_hook_names({"blocks.14.attn.k_pre_rope"})
         with pytest.raises(InvalidHookName) as e:
             m._validate_hook_names({"blocks.15.attn.k_pre_rope"})
         assert "KV-shared" in str(e.value)
         with pytest.raises(InvalidHookName):
             m._validate_hook_names({"blocks.20.attn.k_pre_norm"})
-        # queries are computed at every layer: allowed on shared layers
         m._validate_hook_names({"blocks.20.attn.q_pre_rope"})
 
     def test_unimplemented_family_point_is_refused(self):
@@ -110,8 +103,6 @@ class TestValidation:
             m._validate_hook_names({"blocks.3.mlp.act"})
         assert "not implemented" in str(e.value)
 
-
-# --- opt-in: the real forward ---------------------------------------------------
 
 E2B = "mlx-community/gemma-4-e2b-it-bf16"
 
@@ -143,7 +134,7 @@ class TestRealForward:
 
         ids = mx.array([encode(model.tokenizer, "The old lighthouse keeper")])
         a = model.arch
-        layer = a.last_fresh_kv_global  # a fresh-KV global layer: every point exists
+        layer = a.last_fresh_kv_global
         capture = [f"blocks.{layer}.{p}" for p in NEW_LAYER] + NEW_GLOBAL
         res = model.run(ids, capture=capture)
         L = int(ids.shape[-1])
@@ -166,14 +157,10 @@ class TestRealForward:
 
         ids = mx.array([encode(model.tokenizer, "The old lighthouse keeper")])
         base = model.run(ids).logits
-        # Capturing an MLP-interior point switches that layer to the manual
-        # path: the logits must still match the compiled path closely.
         layer = model.arch.last_fresh_kv_global
         cap = model.run(ids, capture=[f"blocks.{layer}.mlp.act"]).logits
-        assert float(mx.abs(cap - base).max()) < 5e-2  # bf16 last-bit class
-        # A zero override at mlp.down_in changes the logits.
+        assert float(mx.abs(cap - base).max()) < 5e-2
         zero = model.run(ids, hooks={f"blocks.{layer}.mlp.down_in": lambda x, i: mx.zeros_like(x)}).logits
         assert float(mx.abs(zero - base).max()) > 1e-2
-        # A logits override is the last word.
         const = model.run(ids, hooks={"logits": lambda x, i: mx.zeros_like(x)}).logits
         assert float(mx.abs(const).max()) == 0.0

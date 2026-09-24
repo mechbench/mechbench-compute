@@ -82,26 +82,6 @@ def fit_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
                    alphas: Sequence[float] | None = None, holdout: float = 0.2,
                    seed: int = 0, point: str | None = None,
                    source: str | None = None) -> dict[str, Any]:
-    """Ridge regression of the items' vectors against a continuous
-    coordinate; the fitted weight vector IS the direction.
-
-    `fit_mean_difference` answers "which way does THIS group lie from THAT
-    one" — two labels and a difference of centroids. Some signals are
-    not two groups: a token's surprisal, a passage's length, a score.
-    For those the question is which way the residual moves as the
-    quantity rises, and the answer is a regression, not a contrast.
-
-    The fit holds out a fixed fraction so the derivation can say how
-    much of the signal the direction actually carries: a weight vector
-    always exists, and R² on unseen items is what says whether it means
-    anything. The alpha is the one that does best on the holdout.
-
-    The rows are read in two passes and never held whole: the
-    first accumulates the training normal equations (d × d, with an
-    unpenalised intercept), which are solved for every alpha at once;
-    the second scores every alpha on the held-out rows. A collection of
-    a million tokens costs the same memory as one of a thousand.
-    """
     from mechbench_compute.lexicon import kinds as K
 
     if not isinstance(vectors, Mapping) or K.item_kind_of(vectors) != "activations/vector":
@@ -110,8 +90,6 @@ def fit_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
     frac = float(holdout)
 
     def rows_at_layer():
-        """(index among kept rows, row) for the rows at `layer` carrying
-        the target — the same rows in the same order on both passes."""
         i = 0
         for r in K.items_of(vectors):
             if S.layer_of(r) != layer or _read_number(r, target) is None:
@@ -120,12 +98,9 @@ def fit_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
             i += 1
 
     def is_test(i: int) -> bool:
-        # A deterministic holdout under the seed, decided per row from
-        # its index — so neither pass needs the count in advance.
         h = hashlib.sha256(f"{seed}:{i}".encode()).digest()
         return int.from_bytes(h[:4], "little") / 2**32 < frac
 
-    # Pass one: the training normal equations, and the rows' lineage.
     xtx = xty = None
     n_train = n_test = n_at_layer = 0
     first: list[Mapping[str, Any]] = []
@@ -156,17 +131,16 @@ def fit_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
         raise ValueError("holdout leaves too few items to fit")
     assert xtx is not None and xty is not None
     d = xtx.shape[0] - 1
-    penalty = np.eye(d + 1); penalty[d, d] = 0.0      # the intercept is free
-    weights = np.stack([np.linalg.solve(xtx + a * penalty, xty) for a in grid], axis=1)  # [d+1, k]
+    penalty = np.eye(d + 1); penalty[d, d] = 0.0
+    weights = np.stack([np.linalg.solve(xtx + a * penalty, xty) for a in grid], axis=1)
 
-    # Pass two: every alpha scored on both sides at once.
     sse_test = np.zeros(len(grid)); sse_train = np.zeros(len(grid))
     sum_y_test = sum_y2_test = sum_y_train = sum_y2_train = 0.0
     sum_p_test = np.zeros(len(grid)); sum_py_test = np.zeros(len(grid)); sum_p2_test = np.zeros(len(grid))
     for i, r in rows_at_layer():
         x = np.append(np.asarray(r["vector"], dtype=np.float64), 1.0)
         y = float(_read_number(r, target) or 0.0)
-        pred = x @ weights                                   # [k]
+        pred = x @ weights
         if is_test(i):
             sse_test += (y - pred) ** 2
             sum_y_test += y; sum_y2_test += y * y
@@ -182,7 +156,6 @@ def fit_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
     r2_tests = r2(sse_test, sum_y_test, sum_y2_test, n_test)
     best = int(np.argmax(r2_tests))
     r2_trains = r2(sse_train, sum_y_train, sum_y2_train, n_train)
-    # Pearson between prediction and truth on the holdout, from sums.
     cov = sum_py_test[best] / n_test - (sum_p_test[best] / n_test) * (sum_y_test / n_test)
     var_p = sum_p2_test[best] / n_test - (sum_p_test[best] / n_test) ** 2
     var_y = sum_y2_test / n_test - (sum_y_test / n_test) ** 2
@@ -207,8 +180,6 @@ def fit_regression(vectors: Mapping[str, Any], *, layer: int, target: str,
 
 
 def _read_number(row: Mapping[str, Any], name: str) -> float | None:
-    """The row's value for `name`, from its coordinates or its top level,
-    when that value is a number. None when it is absent or is not one."""
     coords = row.get("coords")
     v = (coords.get(name) if isinstance(coords, Mapping) else None)
     if v is None:
@@ -216,4 +187,3 @@ def _read_number(row: Mapping[str, Any], name: str) -> float | None:
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         return None
     return float(v)
-

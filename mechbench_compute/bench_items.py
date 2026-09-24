@@ -1,19 +1,3 @@
-"""A collection's items, read on the server.
-
-`bench.items` is `mechbench object items` and the MCP `object(verb="items")`
-as a Python call: the fields asked for, of the items that pass every
-`where`, a page at a time, so the rest of each item never leaves the
-store. `bench.fetch_items` is the older whole-item page, kept for its
-callers.
-
-    bench.items("benji/lab/results/j_…/gen", fields="id,text", lines=1)
-    bench.items(path, where={"coords.prompt": "flash"}, count=True)
-
-`where` is `PATH OP VALUE` strings (OP one of `= != < <= > >= ~`), or a
-mapping read as equalities. The grammar is the API's
-(`mechbench-api/src/lib/item_query.ts`).
-"""
-
 from __future__ import annotations
 
 import urllib.parse

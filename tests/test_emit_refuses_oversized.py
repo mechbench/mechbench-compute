@@ -1,10 +1,3 @@
-"""`bench.emit` refuses a body over the API's object limit before any
-bytes leave the machine.
-
-The server returns 413 for the same ceiling; this is the version that
-says so in one line instead of after five retries of a minute each.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -43,5 +36,4 @@ def test_a_payload_under_the_limit_is_sent(configured):
 
 
 def test_the_limit_is_the_servers(monkeypatch):
-    """64 MiB, and it must be raised together with body_limit.ts."""
     assert bench.MAX_OBJECT_BYTES == 64 * 1024 * 1024

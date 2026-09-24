@@ -1,12 +1,3 @@
-"""`eval/judge`: scales and parsing, votes
-and spread, position randomization, and the block end to end on the
-mock provider.
-
-The aggregation is tested directly on synthetic votes — a judge that
-disagrees with itself is the interesting case, and the mock cannot
-disagree with itself on purpose.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -23,7 +14,6 @@ STORIES = [
 
 
 def judged(text, **params):
-    """Run the block with the mock answering `text` every time."""
     base = {
         "judge": {"model": {"provider": "mock", "model": "judge-1"},
                   "system": "Grade the story for cliché.",
@@ -33,7 +23,6 @@ def judged(text, **params):
         "records": STORIES,
     }
     base.update(params)
-    # The subjects arrive on the `records` port, not in params.
     return run(base, inputs={"records": base.pop("records")})
 
 
@@ -48,8 +37,6 @@ class TestScales:
     def test_out_of_range_is_clamped_and_flagged(self):
         scale = Scale({"kind": "numeric", "min": 1, "max": 5})
         out = scale.read('{"score": 9}')
-        # A judge that answers 9 on a 1–5 scale did not mean 5, and
-        # hiding that would hide a broken rubric.
         assert out["score"] == 5.0 and out["out_of_range"] == 9.0
 
     def test_a_categorical_scale_takes_a_label_by_name(self):
@@ -93,8 +80,6 @@ class TestVotesAndSpread:
                  {"parsed": True, "label": "cliché"}]
         row = aggregate({"id": "s1"}, votes, scale=scale)
         assert row["label"] == "fresh"
-        # A rubric that produces 0.67 here is the finding, not a number
-        # to average away.
         assert row["agreement"] == pytest.approx(0.6667, abs=1e-4)
         assert row["counts"] == {"fresh": 2, "cliché": 1}
 
@@ -119,11 +104,11 @@ class TestPairwisePosition:
             fields=["text"], n_votes=8, seed=11,
             pairwise_fields=["text_a", "text_b"])
         orders = [p["order"] for p in prompts]
-        assert set(orders) == {"AB", "BA"}      # both sides get to go first
+        assert set(orders) == {"AB", "BA"}
         ab = next(p for p in prompts if p["order"] == "AB")
         ba = next(p for p in prompts if p["order"] == "BA")
         assert ab["user"].startswith("A:\nAAA")
-        assert ba["user"].startswith("A:\nBBB")   # B shown in slot A
+        assert ba["user"].startswith("A:\nBBB")
 
     def test_the_same_seed_gives_the_same_orders(self):
         args = {"scale": Scale({"kind": "pairwise"}), "rubric": "r",
@@ -134,25 +119,16 @@ class TestPairwisePosition:
         assert [p["order"] for p in one] == [p["order"] for p in two]
 
     def test_an_answer_is_mapped_back_from_what_the_judge_saw(self):
-        """The judge answers about the sides in front of it, and half
-        the time they are swapped. A vote that says "A" under `BA`
-        chose `text_b`, and every count downstream has to know that."""
         out = judged('{"winner": "A", "rationale": "the first one"}',
                      n_votes=4, scale={"kind": "pairwise"},
                      records=[{"id": "p1", "coords": {},
                                "text_a": "one", "text_b": "two"}])
         votes = out["items"][0]["votes"]
-        assert {v["shown_winner"] for v in votes} == {"A"}   # always said A
+        assert {v["shown_winner"] for v in votes} == {"A"}
         for v in votes:
             assert v["winner"] == ("A" if v["order"] == "AB" else "B")
 
     def test_a_judge_that_always_picks_the_first_shown_is_visibly_biased(self):
-        """The whole point of randomising position. This judge has no
-        opinion about the writing at all — it answers "A" every time —
-        and the diagnostics must say so: the first-shown option won
-        every vote, and the verdict is a coin toss. Before the answers
-        were mapped back, this same judge reported perfect agreement
-        and an unremarkable 0.5 position rate."""
         out = judged('{"winner": "A"}', n_votes=6,
                      scale={"kind": "pairwise"},
                      records=[{"id": "p1", "coords": {},
@@ -161,7 +137,6 @@ class TestPairwisePosition:
         assert out["items"][0]["agreement"] < 1.0
 
     def test_position_bias_is_reported_as_a_rate(self):
-        # Every vote picked whatever was shown first.
         votes = [{"parsed": True, "winner": "A", "order": "AB"},
                  {"parsed": True, "winner": "B", "order": "BA"},
                  {"parsed": True, "winner": "A", "order": "AB"}]
@@ -176,10 +151,9 @@ class TestTheBlock:
         assert [r["id"] for r in out["items"]] == ["s1", "s2"]
         row = out["items"][0]
         assert row["score"] == 4.0 and row["n_votes"] == 3
-        assert row["coords"]["arm"] == "base"      # coords survive judging
+        assert row["coords"]["arm"] == "base"
         assert row["rationale"] == "unhurried"
         assert out["summary"]["mean"] == 4.0
-        # Two subjects, three votes each, all metered.
         assert out["spend"]["calls"] == 6
         assert out["judge"]["scale"] == "numeric"
 
@@ -206,10 +180,6 @@ class TestTheBlock:
             run({"scale": {"kind": "numeric"}}, inputs={"records": STORIES})
 
     def test_no_temperature_is_sent_unless_the_author_named_one(self):
-        """A default the provider may REFUSE is not a safe default:
-        claude-sonnet-5 answers HTTP 400 to `temperature` at all, which
-        made it unusable as a judge while this block sent 0.0 for
-        everyone. Steadiness is bought with `n_votes`."""
         import mechbench_compute.judge as judge_mod
 
         sent = []
@@ -231,9 +201,6 @@ class TestTheBlock:
         assert sent == [None, 0.0]
 
     def test_error_refuses_a_subject_with_nothing_to_judge_by_name(self):
-        """Reachable from `records/zip` with `on_missing: "placeholder"`:
-        a branch failed, its key survived, and its side is absent. A
-        winner over an empty string reads exactly like a real one."""
         with pytest.raises(ValueError, match="no text to judge") as exc:
             judged('{"score": 4}', on_missing="error",
                    records=[STORIES[0], {"id": "s2", "coords": {}, "text": " "}])
@@ -245,7 +212,6 @@ class TestTheBlock:
         rows = {r["id"]: r for r in out["items"]}
         assert rows["s1"]["score"] == 4.0
         assert rows["s2"]["unjudged"] and rows["s2"]["missing"] == ["text"]
-        # The mean is of what was actually judged, and says so.
         assert out["summary"]["mean"] == 4.0
         assert out["summary"]["n_unjudged"] == 1
         assert out["summary"]["unjudged"] == ["s2"]
@@ -314,7 +280,6 @@ class TestThroughTheExecutor:
                 "inputs": {"records": STORIES}}], "edges": []}}))
         node = out.payload["outputs"]["grade"]
         assert node["summary"]["mean"] == 2.0
-        # A local judge spends nothing, so there is no bill to report.
         assert "spend" not in node
 
     def test_the_resume_level_follows_the_judges_model(self):
@@ -326,7 +291,6 @@ class TestThroughTheExecutor:
             "judge": {"model": "google/gemma-3-4b-it"}}) == "reproducible"
 
 
-#: A stored corpus, as a `generate` node emits one.
 CORPUS_FIXTURE = {
     "kind": "document_collection",
     "item_kind": "~canonical/kinds/text",
@@ -342,10 +306,6 @@ CORPUS_FIXTURE = {
 
 
 class TestSubjectsFromACorpus:
-    """A generate node's items carry their coords under `metadata`, and
-    judging a stored corpus is the main way this block will be used —
-    losing them would make the scores unsliceable."""
-
     def test_coords_survive_from_metadata(self):
         out = run({
             "judge": {"model": {"provider": "mock", "model": "judge-1"},
@@ -361,5 +321,4 @@ class TestSubjectsFromACorpus:
             J.chat_mod.read_records(CORPUS_FIXTURE), scale=Scale({"kind": "numeric"}),
             rubric="grade it", fields=["text"], n_votes=1, seed=0)
         assert "lighthouse" in prompts[0]["user"]
-        # A judge that can see the condition label is grading the label.
         assert "neutral" not in prompts[0]["user"]

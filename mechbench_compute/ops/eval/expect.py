@@ -64,31 +64,6 @@ def run(ctx, inputs, params):
 
 def check_expectations(inputs: Mapping[str, Any],
                        params: Mapping[str, Any]) -> dict[str, Any]:
-    """The first member of the eval block family (~canonical/ops/eval/):
-    judge decision-read results against per-condition EXPECTATIONS
-    carried as data, publishing a metric table with verdicts.
-
-    Expectation kinds (per record, joined on id):
-      {"type": "uniform", "over": [outcomes], "max_kl_bits": t}
-          -> kl_bits from uniform over the outcome masses; pass iff
-             kl_bits <= t and the outcomes carry real mass.
-      {"type": "answer", "value": tok, "min_p": t}
-          -> p_expected from the read's top tokens; pass iff >= t.
-      {"type": "min_entropy", "bits": t}
-          -> pass iff the decision entropy >= t (diversity floor).
-      {"type": "weights", "weights": {outcome: w}, "max_kl_bits": t}
-          -> kl_bits from the NORMALIZED weights over the outcome
-             masses (the shaped-target battery: a rung is judged
-             against its OWN target, not uniform); pass iff <= t.
-      {"type": "absent", "over": [outcomes], "max_p": t}
-          -> mass, the total on outcomes that should not be said (a
-             list slot's repeats); pass iff mass <= t. Every named
-             outcome must have been READ (in `tracked`): absence is
-             never inferred from an outcome the read did not score.
-
-    The aggregate row (id "ALL") carries the pass rate — the number a
-    publication cites.
-    """
     import math
 
     results = read_items(inputs["results"])
@@ -105,9 +80,6 @@ def check_expectations(inputs: Mapping[str, Any],
         if not exp:
             continue
         expect_type = exp.get("type") or exp["kind"]
-        # One shape to read: the distribution's `tracked` holds each
-        # named outcome's mass, `top` the ranked tokens. A read written
-        # before the shape existed is read through `distribution_of`.
         dist = S.distribution_of(c)
         tracked = dist.get("tracked") or {}
         row: dict[str, Any] = {"id": c["id"], "coords": dict(c.get("coords") or {}),
@@ -118,7 +90,6 @@ def check_expectations(inputs: Mapping[str, Any],
             t = tracked.get(str(name))
             if t is not None and t.get("p") is not None:
                 return float(t["p"])
-            # Not tracked: the ranked tokens, by exact text.
             return sum(float(t["p"]) for t in dist.get("top") or []
                        if str(t["token"].get("text")).strip() == str(name).strip()
                        and t.get("p") is not None)
@@ -135,9 +106,6 @@ def check_expectations(inputs: Mapping[str, Any],
                 row["mass"] = round(tot, 4)
                 ok = kl <= float(exp.get("max_kl_bits", 0.1))
             else:
-                # Nothing to judge is not a failure — it is a hole in
-                # the read, and it must not masquerade as one more
-                # False among real verdicts.
                 row["pass"] = None
                 row["note"] = "unjudgeable: no mass on any outcome in the read"
                 n_unjudgeable += 1

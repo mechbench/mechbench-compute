@@ -1,8 +1,3 @@
-"""`text/generate` keeps a local model's reasoning out of `text`, as
-`text/chat` does: a thought goes to the item's `reasoning`, an
-unterminated one is reasoning, and a sample without markup is kept byte
-for byte."""
-
 from __future__ import annotations
 
 import json
@@ -17,9 +12,6 @@ from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 GEMMA4 = DELIMITERS[0]
 MODEL = "mlx-community/gemma-4-e2b-it-bf16"
 
-# The shape of story flash-48 in experiment 023's animals4id corpus: a
-# numbered plan inside Gemma 4's thinking channel, written with thinking
-# off, then the story.
 PLAN = ("Thinking Process:\n\n1.  **Analyze the Request:** The user wants a "
         "\"100 word piece of flash fiction.\"\n\n"
         "6.  **Final Output Generation.** (This leads to the final output.)")

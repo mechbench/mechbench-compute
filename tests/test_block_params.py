@@ -1,25 +1,3 @@
-"""The param declarations must cover every op, and must not drift.
-
-Declaring params per block buys a loud failure when a protocol asks for
-something a block cannot do. Two bugs sit either side of that:
-
-* **Under-declaring** refuses a param the block does read — a false
-  refusal, for no reason the author can see.
-* **Over-declaring** accepts a param the block never reads, which is a
-  wrong answer with no error: a job can declare `center: true`, succeed,
-  and be uncentered. Declaring a port name as a param does exactly this.
-
-So this reads the source and asserts the table equals what the code
-reads, in both directions, for EVERY registered op.
-
-Finding what a block reads is not a one-function grep. A block is often a
-thin wrapper in `protocol.py` that hands `params` to a module elsewhere
-(`chat` → `chat.py`, the interp readouts → `interp.py`), and those in turn
-hand it to helpers, sometimes in a package (`chat` → `providers/budget.py`
-for `budget_usd`). The scanner follows `params` wherever it is passed,
-across modules and into packages, which is what makes the equality
-assertion safe to make.
-"""
 from __future__ import annotations
 
 import ast
@@ -35,11 +13,7 @@ from mechbench_compute.lexicon import BY_NAME
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
 P = "protocol/pipeline.py"
 
-#: op -> the places its params are read: (module, symbol). `symbol` is a
-#: function or a class; None means the whole module. Several sites are
-#: unioned — a wrapper plus what it delegates to.
 SITES: dict[str, list[tuple[str, str | None]]] = {
-    # --- model blocks implemented inline in the executor ---
     "logits/read": [
         ("ops/logits/read.py", "run")],
     "text/generate": [
@@ -66,7 +40,6 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/plot.py", "_check_annotations"),
         ("ops/records/plot.py", "_check_references"),
         ("ops/records/plot.py", "build_chart")],
-    # --- model blocks that delegate to a module ---
     "text/chat": [
         ("ops/text/chat.py", "run"),
         ("protocol/memo.py", "_open_memo"),
@@ -135,7 +108,6 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "activations/contrast": [
         ("ops/activations/contrast.py", "run"),
         ("ops/activations/contrast.py", "measure_residual_divergence")],
-    # --- pure blocks ---
     "records/cross": [
         ("ops/records/cross.py", "run"),
         ("ops/records/cross.py", "_sample_value"),
@@ -284,8 +256,6 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "trajectory/aggregate": [
         ("ops/trajectory/aggregate.py", "run"),
         ("ops/trajectory/aggregate.py", "aggregate")],
-    # The reduce ops share one closure; the MONOID is what differs, and
-    # each one's params are its own.
     "records/total": [
         ("ops/records/total.py", "run"),
         ("ops/records/total.py", "FloatSum")],
@@ -318,20 +288,14 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/tools/lookup.py", "fetch_bench_object")],
 }
 
-#: Params a block genuinely reads somewhere the scanner cannot follow —
-#: each with the reason, because an exemption is a statement, not a
-#: shrug. Empty is the goal.
 EXEMPT: dict[str, dict[str, str]] = {}
 
-#: Names a block reads off `inputs` that are not ports — each with the
-#: reason.
 PORT_EXEMPT: dict[str, dict[str, str]] = {
     "tools/calc": {"arguments": "a tool's arguments come from the model's call, not an edge"},
     "tools/lookup": {"arguments": "a tool's arguments come from the model's call, not an edge"},
 }
 
 def _reads_of(var: str) -> re.Pattern[str]:
-    # `params["x"]`, `params.get("x")`, and the guarded `(inputs or {}).get("x")`.
     return re.compile(rf"""(?:\({var} or \{{\}}\)|{var})(?:\.get\(\s*|\[\s*)["']([^"']+)["']""")
 
 
@@ -341,8 +305,6 @@ _MODULES: dict[str, tuple[str, dict[str, ast.AST]]] = {}
 
 
 def _resolve(mod: str) -> list[str]:
-    """A module name to the file(s) that can define it: a `.py`, or every
-    `.py` in a package directory."""
     if mod.endswith(".py"):
         return [mod] if (ROOT / mod).is_file() else []
     if (ROOT / f"{mod}.py").is_file():
@@ -363,15 +325,11 @@ def _load(rel: str) -> tuple[str, dict[str, ast.AST]]:
 
 
 def _imports(src: str) -> dict[str, str]:
-    """Local name -> the mechbench_compute module it came from."""
     out: dict[str, str] = {}
     for n in ast.walk(ast.parse(src)):
         if isinstance(n, ast.ImportFrom) and (n.module or "").startswith("mechbench_compute"):
             tail = (n.module or "").split(".")
             for a in n.names:
-                # The whole path under the package, so a module inside a
-                # subpackage resolves to its file rather than to a
-                # top-level module that happens to share its last name.
                 out[a.asname or a.name] = "/".join(tail[1:]) if len(tail) > 1 else a.name
         elif isinstance(n, ast.Import):
             for a in n.names:
@@ -395,7 +353,6 @@ def _hands_params(call: ast.Call) -> bool:
 
 
 def _called_name(call: ast.Call) -> tuple[str | None, str | None]:
-    """(local name to resolve a module by, symbol called)."""
     if isinstance(call.func, ast.Name):
         return call.func.id, call.func.id
     if isinstance(call.func, ast.Attribute):
@@ -406,11 +363,6 @@ def _called_name(call: ast.Call) -> tuple[str | None, str | None]:
 
 def names_read(sites: list[tuple[str, str | None]], var: str = "params",
                *, bodies: list[str] | None = None) -> set[str]:
-    """Every name read from `var` at these sites — `params["x"]`,
-    `inputs.get("x")` — following `var` wherever it is handed on:
-    module-local calls, cross-module imports, and into packages.
-    Depth-bounded and cycle-safe. `bodies`, when given, collects the
-    source of every site visited."""
     reads = _reads_of(var)
     found: set[str] = set()
     seen: set[tuple[str, str | None]] = set()
@@ -427,10 +379,6 @@ def names_read(sites: list[tuple[str, str | None]], var: str = "params",
                 continue
             node = syms.get(sym)
             if node is None:
-                # Not defined here, but perhaps imported here: follow a
-                # re-export to where the definition is. A module that
-                # hands on a name it took from elsewhere is a hop, not a
-                # dead end.
                 origin = _imports(src).get(sym)
                 if origin is not None:
                     stack.append((origin, sym, depth + 1))
@@ -460,10 +408,6 @@ def params_read(sites: list[tuple[str, str | None]]) -> set[str]:
 
 
 def _dispatch_branch(ref: str) -> str:
-    """The executor's dispatch branch for `ref`: the lines between
-    `block == "ref":` and the next `elif`/`else`, where a port is
-    sometimes read straight off `inputs` (a chart's source, a score's
-    collection path)."""
     src = (ROOT / P).read_text()
     m = re.search(
         rf'block == "{re.escape(ref)}":\s*\n(.*?)(?=\n\s+elif block|\n\s+else:)',
@@ -472,8 +416,6 @@ def _dispatch_branch(ref: str) -> str:
 
 
 def _registry_entry(ref: str) -> str:
-    """The pure-block registry's adapter for `ref` — the lambda that
-    hands `inputs["records"]` to the function the site names."""
     src = (ROOT / "blocks/__init__.py").read_text()
     m = re.search(rf'"{re.escape(ref)}":\s*\n?\s*lambda inputs, params:(.*?)(?=\n\s+"[a-z]|\n\}})',
                   src, re.DOTALL)
@@ -481,9 +423,6 @@ def _registry_entry(ref: str) -> str:
 
 
 def ports_read(ref: str) -> set[str]:
-    """Every port name the op reads off `inputs`: at its sites, in the
-    registry adapter, and in the executor's dispatch branch. An op run
-    through `_run_model_block` reads `adapter` there, for every op alike."""
     bodies: list[str] = []
     read = names_read(SITES[ref], "inputs", bodies=bodies)
     branch = _dispatch_branch(ref)
@@ -491,28 +430,18 @@ def ports_read(ref: str) -> set[str]:
     read |= set(READS_INPUTS.findall(_registry_entry(ref)))
     if "_run_model_block" in branch or any("_run_model_block" in b for b in bodies):
         read.add("adapter")
-    # An operation in its own file (docs/OPS_LAYOUT.md) has no dispatch
-    # branch: the executor fuses an adapter around it when its
-    # declaration says there are local weights to fuse onto.
     if ops.find(ref) is not None and ops.fuses_adapter(ref):
         read.add("adapter")
     return read
 
 
 def registered_ops() -> set[str]:
-    """Every op the executor can run: the pure registry plus the blocks
-    the dispatcher names."""
-    # The dispatcher compares the resolved bare name (docs/LEXICON.md §1).
     dispatched = set(re.findall(r'block == "([a-z0-9-]+/[a-z0-9-]+)"',
                                 (ROOT / P).read_text()))
     return set(ops.find_standalone()) | dispatched | set(ops.load_modules())
 
 
-# --- the gate ----------------------------------------------------------------
-
 def test_every_registered_op_is_declared():
-    """Every registered op declares its params. One left out accepts
-    anything and silently ignores what it does not read."""
     missing = sorted(registered_ops() - set(ACCEPTED))
     assert not missing, (
         f"{len(missing)} registered ops declare no params: {missing}. "
@@ -534,7 +463,6 @@ def test_every_declared_op_has_sites():
 
 @pytest.mark.parametrize("ref", sorted(SITES))
 def test_the_declaration_covers_what_the_block_reads(ref):
-    """Under-declaring is a false refusal of a param that works."""
     read = {p for p in params_read(SITES[ref]) if not p.startswith("_")}
     missing = sorted(read - ACCEPTED[ref] - COMMON)
     assert not missing, (
@@ -544,26 +472,21 @@ def test_the_declaration_covers_what_the_block_reads(ref):
 
 @pytest.mark.parametrize("ref", sorted(SITES))
 def test_the_declaration_claims_nothing_the_block_ignores(ref):
-    """A param the block never reads is accepted and silently ignored.
-    A port name declared as a param does exactly that: `similarity` is
-    read from `inputs`, never from params."""
     read = params_read(SITES[ref])
     exempt = set(EXEMPT.get(ref, {}))
     claimed = sorted(ACCEPTED[ref] - read - COMMON - exempt)
     assert not claimed, (
         f"{ref} declares {claimed} but never reads them from params. A "
-        f"protocol setting one would be accepted and ignored — the exact "
-        f"failure 000438 exists to prevent. Remove it, or list it in "
+        f"protocol setting one would be accepted and ignored. Remove it, "
+        f"or list it in "
         f"EXEMPT with the reason it cannot be seen here.")
 
 
 @pytest.mark.parametrize("ref", sorted(SITES))
 def test_the_declaration_covers_every_port_the_block_reads(ref):
-    """A port the block reads but does not declare would be refused by
-    `check_inputs` when wired — a false refusal."""
     op = BY_NAME[ref]
     if op.wildcard is not None:
-        return  # any port name lands on the wildcard
+        return
     missing = sorted(ports_read(ref) - op.port_names - set(PORT_EXEMPT.get(ref, {})))
     assert not missing, (
         f"{ref} reads {missing} from its inputs but declares no such port — "
@@ -572,8 +495,6 @@ def test_the_declaration_covers_every_port_the_block_reads(ref):
 
 @pytest.mark.parametrize("ref", sorted(SITES))
 def test_the_declaration_claims_no_port_the_block_ignores(ref):
-    """A declared port nothing reads is wired, accepted, and silently
-    unused."""
     op = BY_NAME[ref]
     declared = {p.name for p in op.inputs if not p.wildcard}
     claimed = sorted(declared - ports_read(ref))
@@ -588,8 +509,6 @@ def test_exemptions_carry_a_reason():
             for param, why in entries.items():
                 assert why.strip(), f"{ref}.{param} is exempt with no reason given"
 
-
-# --- check_inputs behaviour ---------------------------------------------------
 
 def test_an_unknown_port_is_refused_by_name():
     with pytest.raises(ValueError) as caught:
@@ -617,10 +536,8 @@ def test_a_kind_that_extends_the_port_kind_satisfies_it():
     reads = {"kind": "collection", "item_kind": "logits/decision", "key": ["id"], "items": []}
     out = check_inputs("eval/expect", {"results": reads, "expectations": [{"id": "x", "expect": {}}]})
     assert out["results"] is reads
-    # A bare list on a collection port is wrapped as the collection it stands for.
     assert out["expectations"]["kind"] == "collection"
     assert out["expectations"]["item_kind"] == "records/record"
-    # A retired spelling resolves before it is compared.
     old = {"kind": "decision_read", "conditions": []}
     check_inputs("eval/expect", {"results": old, "expectations": []})
 
@@ -638,17 +555,12 @@ def test_a_wildcard_op_takes_any_port_name_but_needs_one():
 
 
 def test_a_value_with_no_kind_is_not_second_guessed():
-    # An older stored object, or a literal, carries no name to refuse by.
     check_inputs("direction/normalize", {"direction": {"vector": [1.0, 0.0]}})
     check_inputs("text/tokenize", {"vocabulary": ["red", "blue"]})
-    # Nor does a kind the registry does not know — an extension's, or a
-    # string an author wrote before kinds were named.
     check_inputs("activations/capture", {"records": {"kind": "owner/x", "items": [{"id": "a"}]}})
 
 
 def test_the_prompt_objects_the_experiments_stored_are_record_collections():
-    # `{"kind": "records", "records": [...]}` is what every experiment
-    # author emitted for a prompt set; it is a collection of records.
     stored = {"kind": "records", "records": [{"id": "p", "user": "u"}]}
     out = check_inputs("activations/capture", {"records": stored})
     assert out["records"] is stored
@@ -658,8 +570,6 @@ def test_the_prompt_objects_the_experiments_stored_are_record_collections():
 
 
 def test_a_port_given_as_a_param_is_refused_by_name():
-    """A port's value given under `params` is refused by name, saying
-    it is a port. Nothing lifts it onto the port."""
     from mechbench_compute import protocol
 
     assert not hasattr(protocol, "_lift_port_params"), \
@@ -671,11 +581,7 @@ def test_a_port_given_as_a_param_is_refused_by_name():
                      {"model": "m", "conditions": [{"id": "c"}], "top_k": 3})
 
 
-# --- check_params behaviour ---------------------------------------------------
-
 def test_an_executor_injection_is_not_refused():
-    # `_block_runner` and friends are added by the executor, never
-    # declared by a protocol.
     check_params("geometry/span", {"_block_runner": object()})
 
 
@@ -688,5 +594,4 @@ def test_an_unknown_param_is_refused_by_name():
 
 
 def test_an_unregistered_block_is_not_second_guessed():
-    # A block this runner does not know is the api's problem, not ours.
     check_params("~someone/ops/custom/1", {"anything": 1})

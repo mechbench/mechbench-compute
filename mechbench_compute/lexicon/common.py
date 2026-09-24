@@ -1,17 +1,3 @@
-"""The parameters every block accepts: the wiring, not the operation.
-
-A protocol node names its block and gives it params. A few of those
-params are about how the node is connected — which model it runs on,
-how to label what it produces, what it may spend — and every block accepts
-them, so they are documented once here rather than on each of the
-fifty-five pages.
-
-What a node computes ON is not a param. Records, vectors, directions
-and the rest arrive on the node's typed input ports — by an edge from
-an upstream node, or inline under the node's `inputs` — and each op's
-page lists its ports.
-"""
-
 from __future__ import annotations
 
 from mechbench_compute.lexicon._base import P, Param

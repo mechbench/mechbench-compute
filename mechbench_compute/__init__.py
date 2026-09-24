@@ -1,47 +1,3 @@
-"""mechbench_compute — a mechanistic-interpretability framework for
-Google's Gemma 4 E4B running locally on Apple Silicon via MLX.
-
-Quick start:
-
-    from mechbench_compute import Model
-
-    model = Model.load("mlx-community/gemma-4-E4B-it-bf16")
-    ids = model.tokenize("Complete this sentence with one word: The Eiffel Tower is in")
-
-    # Forward pass, no instrumentation:
-    result = model.run(ids)
-    for tok, p in result.top_k(model.tokenizer, k=5):
-        print(f'{tok!r:20s} p={p:.4f}')
-
-Capture activations:
-
-    result = model.run(ids, capture=['blocks.23.attn.weights',
-                                      'blocks.14.mlp_out'])
-    weights = result.cache['blocks.23.attn.weights']  # [1, 8, S, S], bf16
-    mlp = result.cache['blocks.14.mlp_out']           # [1, S, 2560], bf16
-
-Modify activations with a hook:
-
-    import mlx.core as mx
-
-    def zero_layer_14_mlp(act, info):
-        return mx.zeros_like(act)
-
-    result = model.run(ids, hooks={'blocks.14.mlp_out': zero_layer_14_mlp})
-
-Declarative interventions (Ablate / Capture / Patch), prompt tooling,
-logit-lens + geometry helpers, and matplotlib plot helpers are all
-re-exported from this module — see README.md for the full API tour.
-
-The full list of hook points is at mechbench_compute.all_hook_names().
-"""
-
-# Everything below the substrate check assumes a substrate. The package
-# imports anywhere and refuses ON USE, because the modules that report on
-# a machine with no backend (`backends`, `inventory`) live inside this
-# package: a gate at import time would make them reachable only from a
-# machine that does not need them. `doctor` is exactly that machine's
-# tool.
 from .backends import (
     BACKENDS,
     Backend,
@@ -159,25 +115,9 @@ if active_backend() is not None:
 else:
 
     def __getattr__(name: str) -> object:
-        """Explain, rather than fail with a missing-module traceback.
-
-        Reached only on a machine with no compute backend, where every
-        name below is genuinely unavailable — so the same explanation is
-        the right answer for all of them.
-
-        Submodules that touch MLX directly (`model`, `protocol`, …) are
-        not covered: importing one still raises out of MLX itself. That
-        is the situation `mechbench-runner doctor` exists to catch first.
-        """
         if name.startswith("__"):
             raise AttributeError(name)
 
-        # Submodules that do not touch the substrate stay reachable —
-        # `backends` and `inventory` are precisely what reports on a
-        # machine like this one, and `from mechbench_compute import
-        # inventory` has to keep working. Without this the package
-        # attribute hook shadows the submodule and answers "no backend"
-        # for a module that never needed one.
         import importlib
 
         try:
@@ -185,52 +125,20 @@ else:
         except ImportError:
             pass
 
-        # Either a name that lives behind the substrate, or a submodule
-        # that failed on MLX itself. Both get the explanation rather than
-        # a traceback out of a package nobody asked for.
         _require_backend()
-        raise AttributeError(name)  # unreachable; require() always raises
-
-# Single-sourced from the installed distribution: a hardcoded literal
-# here drifts from what the package ships, and every provenance
-# record's produced_by would repeat it.
+        raise AttributeError(name)
 
 
 def _editable_source_digest() -> str | None:
-    """A digest of the source actually on disk, for an EDITABLE install
-    only.
-
-    Dist metadata is a promise the source need not keep: under
-    `pip install -e` the code can run many versions ahead of the
-    recorded version, and that version string is what
-    `node_fingerprint` hashes as its ONLY guard against reusing work
-    computed by different code. Block params are hashed as DECLARED, so
-    a changed default or changed block semantics moves nothing else.
-
-    So an editable install reports what it is running, not what it was
-    registered as. A released wheel is not editable and keeps its plain
-    version; the release gate asserts that.
-    """
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parent
-    # Not `direct_url.json`: that read returns None when the CWD is the
-    # source repo, so the check would depend on where you were standing.
-    # The condition that actually matters is simpler and cannot be
-    # fooled — is the code being imported the installed copy, or a tree
-    # someone can edit?
     if {"site-packages", "dist-packages"} & set(root.parts):
         return None
     return _digest_tree(root)
 
 
 def _digest_tree(root) -> str:
-    """Twelve hex characters standing for the .py content under `root`.
-
-    Content, not mtime: a git checkout touches files it did not change,
-    and a spurious fingerprint miss costs real compute. Paths are mixed
-    in too, so moving code between files is a change.
-    """
     import hashlib
 
     h = hashlib.sha256()
@@ -244,14 +152,6 @@ def _digest_tree(root) -> str:
 
 
 def _source_version() -> str | None:
-    """The version the source checkout DECLARES, from its pyproject.
-
-    Dist metadata under an editable install is whatever number the tree
-    had when `pip install -e` last ran, and nobody re-runs that on a
-    version bump, so anything stamped with it can name a version the
-    tree left long ago. The digest already says exactly which code; the
-    label beside it should be the one the tree itself claims.
-    """
     import pathlib
     import re
 
@@ -271,32 +171,27 @@ try:
     if _src:
         __version__ = f"{_source_version() or __version__}+src.{_src}"
     del _src
-except Exception:  # noqa: BLE001 — source checkouts without metadata
+except Exception:  # noqa: BLE001
     __version__ = "0.0.0+unknown"
 
 __all__ = [
-    # Substrate — the part that answers on a machine with no backend
     "Backend",
     "BACKENDS",
     "active_backend",
     "available_backends",
     "describe_platform",
-    # Main API
     "Model",
     "RunResult",
     "ActivationCache",
-    # Declarative interventions
     "Ablate",
     "Capture",
     "Patch",
     "Intervention",
     "compose",
-    # Prompts (specific prompt collections live in experiments.prompts)
     "Prompt",
     "PromptSet",
     "ValidatedPrompt",
     "ValidatedPromptSet",
-    # Distributional-target training (distill + lora)
     "TargetMap",
     "TargetTrie",
     "Example",
@@ -314,15 +209,12 @@ __all__ = [
     "load_adapter",
     "fuse",
     "restore",
-    # Logit lens
     "logit_lens_final",
     "logit_lens_per_position",
-    # Direct logit attribution + residual decomposition
     "accumulated_resid",
     "decompose_resid",
     "head_results",
     "logit_attrs",
-    # Fact vectors + geometry
     "fact_vectors",
     "fact_vectors_at",
     "fact_vectors_at_hook",
@@ -336,12 +228,9 @@ __all__ = [
     "silhouette_cosine",
     "nearest_neighbor_purity",
     "orthogonalize_against",
-    # Probes (persistent concept vectors)
     "Probe",
-    # Generation (for corpus-building workflows)
     "generate_text",
     "generate_labeled_corpus",
-    # Head-weight analysis (static interp on W_Q/W_K/W_V/W_O)
     "HeadSpec",
     "CircuitComponent",
     "CircuitAnalysis",
@@ -353,13 +242,11 @@ __all__ = [
     "ov_circuit",
     "head_ov_position_writes",
     "head_ov_actual_writes",
-    # Vocabulary-space concentration
     "VocabConcentration",
     "vocab_concentration",
     "top_k_mass",
     "entropy_bits",
     "effective_vocab_size",
-    # Plot helpers
     "bar_by_layer",
     "lens_trajectory",
     "logprob_trajectory",
@@ -371,11 +258,9 @@ __all__ = [
     "grouped_row_heatmap",
     "intensity_curve",
     "leaderboard_bar",
-    # Hook types (for users writing raw callbacks)
     "HookInfo",
     "HookFn",
     "parse_hook_name",
-    # Architecture facts
     "Arch",
     "N_LAYERS",
     "D_MODEL",
@@ -385,7 +270,6 @@ __all__ = [
     "LAYER_HOOK_POINTS",
     "layer_type",
     "all_hook_names",
-    # Errors
     "InterpError",
     "InvalidHookName",
     "LayerIndexOutOfRange",

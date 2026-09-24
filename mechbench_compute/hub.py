@@ -1,12 +1,3 @@
-"""Hub-ref plumbing: revision pinning and offline resolution against
-the HuggingFace cache layout.
-
-Refs may pin a revision as ``repo/name@revision`` where revision is a
-commit sha (or unambiguous prefix) or a ref name (branch/tag). Pinned
-or not, callers should RECORD what actually resolved — reproducibility
-by record first, strictness opt-in.
-"""
-
 from __future__ import annotations
 
 import os
@@ -15,7 +6,6 @@ from typing import Callable
 
 
 def parse_model_ref(ref: str) -> tuple[str, str | None]:
-    """Split ``repo@revision`` into (repo_id, revision|None)."""
     if "@" in ref:
         repo, _, rev = ref.partition("@")
         return repo, (rev or None)
@@ -38,15 +28,11 @@ def _repo_dir(repo_id: str) -> Path:
 
 def resolve_cached_revision(repo_id: str,
                             revision: str | None = None) -> str | None:
-    """Resolve a revision to a full commit sha from the local cache —
-    offline-safe. None revision resolves the ``main`` ref. Returns None
-    when the repo (or ref) isn't cached."""
     d = _repo_dir(repo_id)
     if not d.exists():
         return None
     snapshots = d / "snapshots"
     if revision:
-        # Commit sha or prefix?
         if all(c in "0123456789abcdef" for c in revision.lower()) and len(revision) >= 7:
             matches = [s.name for s in snapshots.iterdir()
                        if s.name.startswith(revision.lower())] \
@@ -60,7 +46,6 @@ def resolve_cached_revision(repo_id: str,
     main = d / "refs" / "main"
     if main.exists():
         return main.read_text().strip()
-    # Single-snapshot caches without refs: unambiguous.
     if snapshots.exists():
         snaps = [s.name for s in snapshots.iterdir() if s.is_dir()]
         if len(snaps) == 1:
@@ -74,11 +59,6 @@ def snapshot_path(repo_id: str, commit_sha: str) -> Path | None:
 
 
 def is_offline() -> bool:
-    """Whether the hub should be treated as unreachable.
-
-    Respects HuggingFace's own switches so a machine configured for offline
-    work behaves consistently across every tool that reads the same cache.
-    """
     for var in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"):
         v = os.environ.get(var, "").strip().lower()
         if v in {"1", "true", "yes", "on"}:
@@ -93,22 +73,6 @@ def ensure_model(
     on_download: "Callable[[str, str | None], None] | None" = None,
     on_bytes: "Callable[[int, int], None] | None" = None,
 ) -> tuple[str, str, Path]:
-    """Make sure the weights named by `ref` are on disk, and say what they are.
-
-    Returns `(repo_id, commit_sha, snapshot_path)` — the resolved commit, not
-    the reference asked for, because that is what a run has to record: a
-    result whose model is "whatever main pointed at" cannot be reproduced.
-
-    A pinned revision that is not in the cache is FETCHED, not refused:
-    a pinned reference has to work on a fresh install, not only for
-    someone who already holds the weights.
-
-    `on_download` is called with (repo_id, revision) just before a download
-    starts, and only then — the caller can announce a multi-gigabyte wait
-    without having to guess whether one is about to happen. `on_bytes` is
-    called with (downloaded, total) as it proceeds, so that wait can have a
-    progress bar rather than a spinner.
-    """
     repo_id, revision = parse_model_ref(ref)
 
     sha = resolve_cached_revision(repo_id, revision)
@@ -134,13 +98,12 @@ def ensure_model(
         kwargs = {}
         if on_bytes is not None:
             kwargs["tqdm_class"] = _progress_tqdm(on_bytes)
+        # external: huggingface_hub — snapshot_download lands in a directory named for the resolved commit
         path = Path(snapshot_download(repo_id, revision=revision, **kwargs))
-    except Exception as exc:  # noqa: BLE001 — re-raised with the ref named
+    except Exception as exc:  # noqa: BLE001
         what = f"{repo_id}@{revision}" if revision else repo_id
         raise ValueError(f"could not fetch {what} from the HuggingFace hub: {exc}") from exc
 
-    # snapshot_download lands the files in a directory named for the commit,
-    # which is how the exact revision is learned when none was pinned.
     resolved = path.name if _looks_like_sha(path.name) else resolve_cached_revision(repo_id, revision)
     if resolved is None:
         raise ValueError(
@@ -155,12 +118,6 @@ def _looks_like_sha(name: str) -> bool:
 
 
 def _progress_tqdm(on_bytes: "Callable[[int, int], None]"):
-    """A tqdm class that reports total bytes across every bar at once.
-
-    huggingface_hub opens one progress bar per file, so no single bar knows
-    how the download as a whole is going. These share one accumulator, which
-    is what a caller wants to show: 1.2 GB of 24 GB, not file 3 of 11.
-    """
     from tqdm.auto import tqdm as _tqdm
 
     live: dict[int, tuple[int, int]] = {}
@@ -168,8 +125,6 @@ def _progress_tqdm(on_bytes: "Callable[[int, int], None]"):
     class _Tqdm(_tqdm):  # type: ignore[misc]
         def update(self, n=1):  # noqa: ANN001, ANN201
             result = super().update(n)
-            # Byte bars carry a total; the "Fetching N files" bar counts
-            # files and would corrupt the sum, so it is left out.
             if self.unit in ("B", "iB") and self.total:
                 live[id(self)] = (int(self.n), int(self.total))
                 done = sum(d for d, _ in live.values())

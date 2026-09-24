@@ -88,14 +88,6 @@ TRANSCRIPT_KIND = "text/transcript"
 
 
 def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`text/extend`: each transcript with one more turn — the reply on
-    `replies` whose `coords.conversation` names it — spoken by
-    `participant`. The reply's thinking (when its model marks
-    reasoning) is kept on the message and out of its `text`, which is
-    what the room hears; its provider call — with whatever tools the
-    turn ran — rides along as `call`.
-    A conversation with two replies is two conversations, which is a
-    map, not a turn: more than one reply per transcript is refused."""
     from mechbench_compute.lexicon import kinds as K
 
     participant = str(params["participant"])
@@ -134,21 +126,14 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
         if reasoning:
             message["reasoning"] = reasoning
         turn = (d.get("metadata") or {}).get("turn")
-        # The order indexes spans of the reply's own text; a reply whose
-        # text was cut here no longer has those spans.
         if turn is not None and said == raw_text:
             message["turn"] = [dict(e) for e in turn]
         if channel != MAIN:
-            # Recorded, but not part of the room: only a participant
-            # whose `channels` include this one will be rendered it.
             message["channel"] = channel
         if thought:
             message["thinking"] = thought
         meta = d.get("metadata") or {}
         call = meta.get("call")
-        # What the turn actually did with the tools it was offered
-        # rides along on the provider call, so the transcript records
-        # the work and the room hears only the answer.
         runs = meta.get("tool_runs") or []
         if call is not None or runs:
             message["call"] = {
@@ -160,12 +145,7 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
             names.append(participant)
         known = {"id", "kind", "coords", "participants", "messages", "stopped",
                  "text", "turns", "metadata"}
-        # The transcript's own carried fields stand until a reply
-        # replaces one.
         standing = {k: v for k, v in t.items() if k not in known}
-        # Why the conversation is over, when this turn ended it: a stop
-        # phrase in what was said, or the message cap reached. A fold's
-        # `until: {"field": "stopped"}` reads it.
         stopped = str(t.get("stopped") or "")
         messages = [*t["messages"], message]
         if not stopped:
@@ -174,9 +154,6 @@ def extend(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, An
                 stopped = f"stop_phrase:{hit}"
             elif max_messages is not None and len(messages) >= int(max_messages):
                 stopped = "max_messages"
-        # What the reply said about itself, carried onto the transcript:
-        # a verdict, a rating, whose turn is next. The op does not know
-        # what any of them mean — it carries what it was told to.
         carried = {**standing, **{f: d[f] for f in keep_fields if f in d}}
         items.append(build_transcript_item(cid, messages, participants=names,
                                            stopped=stopped, carried=carried,
@@ -191,10 +168,6 @@ def build_transcript_item(cid: str, messages: Sequence[Mapping[str, Any]], *,
                           coords: Mapping[str, Any] | None = None,
                           metadata: Mapping[str, Any] | None = None,
                           carried: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """One conversation as its kind declares it: `messages`,
-    `participants` and `stopped` at the top level, `turns` and `text`
-    (the visible turns) for the browser, and coords on the item as
-    every record's are."""
     visible = [m for m in messages if str(m.get("channel", MAIN)) == MAIN]
     return {
         **dict(carried or {}),

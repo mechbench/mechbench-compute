@@ -1,11 +1,3 @@
-"""Tools as blocks: the toolbox, the two first tools,
-local parsing, and the tool loop in a chat node — including the turn of
-a conversation, which is a chat node with a transcript on either side.
-
-Nothing here spends: remote tool calls come from the mock, which emits
-a tool call on demand.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -37,8 +29,6 @@ class TestTheToolbox:
         bad = box.call(call("calc", expression="__import__('os').system('ls')"))
         assert bad.is_error is True
         assert "refuses Call" in bad.content
-        # …and the refusal is recorded, because what a model tried is
-        # part of what happened.
         assert box.runs[0].error.startswith("CalcRefused")
 
     def test_an_unknown_tool_is_an_answer_the_model_can_read(self):
@@ -49,7 +39,7 @@ class TestTheToolbox:
 
     def test_a_handler_that_raises_becomes_an_error_result(self):
         box = T.build_toolbox(["calc"])
-        out = box.call(call("calc"))          # no expression
+        out = box.call(call("calc"))
         assert out.is_error and "expression" in out.content
 
     def test_bench_lookup_consults_the_bench_through_an_injected_fetch(self):
@@ -84,8 +74,6 @@ class TestTheToolbox:
         out = box.call(call("read", prompt="hi"))
         assert not out.is_error
         assert seen["ref"] == "logits/read"
-        # The arguments arrive on their own port AND as one record, so
-        # an ordinary record block works as a tool unmodified.
         assert seen["inputs"]["arguments"] == {"prompt": "hi"}
         assert seen["inputs"]["records"] == [{"prompt": "hi"}]
         assert seen["params"] == {"model": "$model"}
@@ -101,10 +89,6 @@ class TestTheToolbox:
             T.build_toolbox(["telepathy"])
 
 
-# Local tool-call parsing is covered by `test_dialects.py`, against
-# what each model's own chat template actually renders.
-
-
 class TestTheRemoteToolLoop:
     def _params(self, **kw):
         base = {
@@ -112,15 +96,12 @@ class TestTheRemoteToolLoop:
             "budget_usd": 1.0,
             "tools": ["calc"],
             "records": [{"id": "r0", "user": "what is 6*7?"}],
-            # The mock emits a tool call when asked to.
             "provider_options": {"mock": {"tool_call": "calc"}},
         }
         base.update(kw)
         return base
 
     def test_a_model_that_calls_a_tool_gets_its_result_and_answers(self):
-        # A tool that succeeds whatever the mock fabricates, so this
-        # tests the LOOP rather than the mock's arithmetic.
         lookup = {
             "name": "bench.lookup",
             "schema": {"type": "object", "properties": {"path": {"type": "string"}}},
@@ -133,24 +114,18 @@ class TestTheRemoteToolLoop:
                                   params["records"], params)
         runs = out["items"][0]["metadata"]["tool_runs"]
         assert len(runs) == 1 and runs[0]["tool"] == "bench.lookup"
-        assert "error" not in runs[0]        # the handler really ran
-        # Two calls: the one that asked for the tool, and the one after
-        # the result went back. Both metered.
+        assert "error" not in runs[0]
         assert out["spend"]["calls"] == 2
 
     def test_a_tool_that_fails_still_comes_back_as_an_answer(self):
-        # calc gets whatever the mock invents, which is not arithmetic:
-        # the model is told so, and the run is recorded as an error.
         params = self._params(max_tool_rounds=1)
         out = chat_mod.run_remote(mr.parse(params["model"]),
                                   params["records"], params)
         run = out["items"][0]["metadata"]["tool_runs"][0]
         assert run["tool"] == "calc" and run["error"].startswith("CalcRefused")
-        assert out["items"][0]["text"]      # the run continued regardless
+        assert out["items"][0]["text"]
 
     def test_the_loop_is_bounded(self):
-        # The mock asks for a tool every time; max_tool_rounds is what
-        # stops a model and its tools talking forever at your expense.
         out = chat_mod.run_remote(
             mr.parse({"provider": "mock", "model": "mock-large"}),
             [{"id": "r0", "user": "loop"}],
@@ -173,10 +148,6 @@ class TestTheRemoteToolLoop:
 
 
 class TestToolsInAConversation:
-    """A participant with tools is a chat node with tools, between a
-    `text/render` and a `text/extend`. The transcript records what the
-    turn ran; the room hears the answer."""
-
     def test_a_turn_may_call_tools_and_the_transcript_records_them(self):
         from mechbench_compute import transcript as TR
 
@@ -196,14 +167,11 @@ class TestToolsInAConversation:
         asker = out["items"][0]["messages"][-1]
         assert asker["participant"] == "asker"
         assert asker["call"]["tool_runs"][0]["tool"] == "calc"
-        # The room saw an answer, not the plumbing.
         assert all("tool_code" not in t["text"] for t in out["items"][0]["turns"])
 
 
 class TestThroughTheExecutor:
     def test_decision_read_is_available_as_a_tool(self, monkeypatch):
-        """A model that can consult another model mid-turn: the
-        handler is a MODEL block, which only the executor can run."""
         from mechbench_compute.protocol import ProtocolExecutor
 
         ex = ProtocolExecutor()
@@ -246,7 +214,4 @@ class TestThroughTheExecutor:
             kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
         item = out.payload["outputs"]["ask"]["items"][0]
         assert item["metadata"]["tool_runs"][0]["tool"] == "calc"
-        # The injected runner never reaches the node's recorded params.
         assert "_block_runner" not in str(out.payload["nodes_executed"])
-
-

@@ -1,10 +1,3 @@
-"""Filesystem snapshots as values.
-
-The whole sandbox rests on one property: identical content must
-produce an identical hash, on any machine, in any order. Most of what
-follows tests that, because everything above it is meaningless if it
-does not hold.
-"""
 from __future__ import annotations
 
 import os
@@ -92,9 +85,6 @@ class TestRoundTrip:
         assert os.access(out / "run.sh", os.X_OK)
 
     def test_a_large_blob_from_the_wire_needs_its_store(self, tmp_path):
-        # In-process, a captured snapshot carries its large blobs. Once
-        # it has crossed the wire the sidecar is gone — that is where a
-        # store becomes mandatory, and where the error must be loud.
         src = write(tmp_path / "src", {"big.txt": "x" * 100})
         blobs: dict[str, bytes] = {}
         snap = fs.capture(src, inline_max=10, blobs=blobs)
@@ -180,10 +170,6 @@ class TestTheEmptyTree:
 
 
 class TestOneCanonicalOrder:
-    """`capture` walks depth-first and `from_wire` reads a list. Both
-    must produce the same object, or the digest depends on how the
-    snapshot was built rather than on what is in it."""
-
     def test_capture_and_from_wire_agree(self, tmp_path):
         src = write(tmp_path / "src",
                     {"z.txt": "1", "a.txt": "2", "m/q.txt": "3"})
@@ -203,10 +189,6 @@ class TestOneCanonicalOrder:
 
 
 class TestMountsAreNotCaptured:
-    """A read-only mount cannot have changed, so re-hashing it after
-    every tool call is the dominant cost on a large corpus and buys
-    nothing. Its identity is the object it came from."""
-
     def test_a_mounted_tree_is_skipped(self, tmp_path):
         root = write(tmp_path / "r", {"work.txt": "mine",
                                       "data/big.txt": "x" * 1000,
@@ -235,9 +217,6 @@ class TestMountsAreNotCaptured:
 
 
 class TestTheStoredFormIsReferences:
-    """Measured: 2000 files at 4K is 8.43 MB with blobs inline and
-    0.22 MB as hashes. A session emits one snapshot per tool call."""
-
     def test_blobs_are_not_inlined_by_default(self, tmp_path):
         root = write(tmp_path / "r", {"a.txt": "hello"})
         wire = fs.capture(root).to_wire()
@@ -265,10 +244,6 @@ class TestTheStoredFormIsReferences:
 
 
 class TestBlobsRideWithTheValue:
-    """A snapshot from `seeded()` or `capture()` carries its large
-    blobs in-process, so it can be materialized without the caller
-    threading a store through every call. Not identity, not wire."""
-
     def test_a_seeded_large_file_materializes_without_a_store(self, tmp_path):
         snap = fs.seeded({"big.bin": b"x" * (fs.INLINE_MAX + 1)})
         fs.materialize(snap, tmp_path / "out")
@@ -276,7 +251,7 @@ class TestBlobsRideWithTheValue:
 
     def test_the_sidecar_is_not_identity(self, tmp_path):
         a = fs.seeded({"big.bin": b"x" * (fs.INLINE_MAX + 1)})
-        b = fs.Snapshot(a.entries)  # same entries, no sidecar
+        b = fs.Snapshot(a.entries)
         assert a.digest() == b.digest() and a == b
 
     def test_the_sidecar_is_not_on_the_wire(self):

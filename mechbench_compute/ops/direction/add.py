@@ -41,4 +41,3 @@ normalised to unit length.
 
 def run(ctx, inputs, params):
     return add(collect_directions(inputs, params), params.get("weights"))
-

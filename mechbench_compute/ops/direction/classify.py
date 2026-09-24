@@ -93,25 +93,6 @@ def fit_probe(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
               layers: Sequence[int] | None = None, holdout: float = 0.2,
               seed: int = 0, C: float = 1.0, point: str | None = None,
               source: str | None = None) -> dict[str, Any]:
-    """A linear probe per space: which way the items of one label lie
-    from the rest, and how much of that a held-out item shows.
-
-    `direction/fit` takes the difference of two centroids — an answer
-    that always exists and never says how good it is. A probe is the
-    same question asked so that it can be wrong: fit a boundary on part
-    of the items, and read its accuracy on the part it never saw, over
-    the majority-class baseline. Run at every layer, the accuracies are
-    the curve that says WHERE something becomes linearly decodable,
-    which is the standard probing result and the thing a single
-    difference of centroids cannot produce.
-
-    One item per (space × label): a `direction/vector` whose derivation
-    carries the fit, and whose headline scores sit at the top level so
-    `records/plot x: "layer", y: "accuracy_test"` is the figure and
-    `records/rank` finds the best layer. Two labels give one direction
-    (from the negative label towards the positive); more give one per
-    label, each against the rest.
-    """
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import roc_auc_score
 
@@ -158,7 +139,6 @@ def fit_probe(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
         pred_test, pred_train = fit.predict(x[test]), fit.predict(x[train])
         proba = fit.predict_proba(x[test])
         accuracy_test = float(np.mean(pred_test == y[test]))
-        # What a probe has to beat: always answering the commonest label.
         counts = {c: int(np.sum(y[test] == c)) for c in classes}
         baseline = float(max(counts.values()) / len(test))
         scores = {
@@ -166,8 +146,6 @@ def fit_probe(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
             "accuracy_train": round(float(np.mean(pred_train == y[train])), 4),
             "baseline": round(baseline, 4),
             "over_baseline": round(accuracy_test - baseline, 4),
-            # How sure it is when it answers — beside the accuracy, this
-            # is how a confidently wrong probe shows itself.
             "confidence_test": round(float(np.mean(np.max(proba, axis=1))), 4),
             "n_items": len(rows), "n_train": int(len(train)), "n_test": int(len(test)),
         }
@@ -178,7 +156,7 @@ def fit_probe(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
         binary = len(classes_fit) == 2
         for i, cls in enumerate(classes_fit):
             if binary and i == 0:
-                continue        # one boundary: the direction points at classes_[1]
+                continue
             coef = fit.coef_[0] if binary else fit.coef_[i]
             if not np.any(coef):
                 raise ValueError(
@@ -196,7 +174,6 @@ def fit_probe(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
             item["id"] = f"L{key[0]}:{cls}" if key[2] is None else f"L{key[0]}h{key[2]}:{cls}"
             item["coords"] = {"layer": key[0], "label": cls,
                               **({"head": key[2]} if key[2] is not None else {})}
-            # The headline numbers where a table and a chart read them.
             item.update({k: v for k, v in scores.items()})
             if auc is not None:
                 item["auc"] = auc
@@ -207,4 +184,3 @@ def fit_probe(vectors: Mapping[str, Any], *, axis: str = DEFAULT_AXIS,
                             f"A linear probe for {axis!r} at each space: the direction "
                             "that separates a label from the rest, and how much of it "
                             "a held-out item shows."))
-

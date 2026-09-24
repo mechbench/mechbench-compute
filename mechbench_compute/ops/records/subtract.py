@@ -64,11 +64,6 @@ def run(ctx, inputs, params):
 
 
 def subtract_baseline(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """For each non-baseline record, subtract its matched baseline's
-    value. match_on: coords that must agree; baseline_where: coords
-    identifying the baseline records; value: the numeric field.
-    Output records keep coords (minus nothing) plus value/baseline/
-    delta fields — composable straight into group_stats."""
     recs = read_items(records)
     match_on = params.get("match_on") or []
     baseline_where = params.get("baseline_where")

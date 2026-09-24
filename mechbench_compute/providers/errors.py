@@ -1,40 +1,17 @@
-"""What can go wrong when someone else's model answers.
-
-The distinctions here are the ones the runner acts on, not a taxonomy
-for its own sake:
-
-  `BudgetExceeded`      refused BEFORE the call — no spend, no wait.
-  `RateLimited`         the provider said slow down, and said how long;
-                        the limiter waits that long, never a guess.
-  `ProviderUnavailable` a sustained failure window; the runner maps it
-                        to an INTERRUPT, so the job keeps its partials
-                        and resumes later instead of failing.
-  `CapabilityUnsupported` asked for something this provider cannot do
-                        (logprobs from Anthropic, say) — a protocol
-                        error, caught before the job starts where the
-                        capability matrix is checked.
-  `CassetteMiss`        replay mode met a request it has no answer for;
-                        a test that would otherwise have spent money.
-"""
-
 from __future__ import annotations
 
 from mechbench_compute.errors import InterpError
 
 
 class ProviderError(InterpError):
-    """Base for every provider-transport error."""
+    pass
 
 
 class AuthError(ProviderError):
-    """The credential was missing, malformed, or refused."""
+    pass
 
 
 class TransientError(ProviderError):
-    """A failure worth retrying: a 5xx, a timeout, a dropped socket.
-    `retryable` is what the shared retry loop reads — an error without
-    it is a bug report, not a hiccup, and must surface immediately."""
-
     retryable = True
 
     def __init__(self, message: str, *, status: int | None = None):
@@ -63,8 +40,6 @@ class RateLimited(ProviderError):
 
 
 class ProviderUnavailable(ProviderError):
-    """Sustained failure: the runner interrupts rather than fails."""
-
     def __init__(self, message: str, *, provider: str = "", seconds: float = 0.0):
         super().__init__(message)
         self.provider = provider

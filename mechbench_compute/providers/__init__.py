@@ -1,16 +1,3 @@
-"""Provider transports.
-
-`make_transport(provider, credential)` is the one door. It knows which
-adapter speaks which wire format, and it takes the two flags that make
-a run free — `dry_run` (a mock that impersonates the provider) and a
-`cassette` (recorded responses replayed by canonical request hash) —
-so no caller has to remember to disable spending in tests.
-
-The capability matrix is readable without a credential
-(`capabilities(provider)`), because the protocol validator checks a
-node's asks against it long before a key is delivered.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -40,10 +27,6 @@ from mechbench_compute.providers.errors import (
 from mechbench_compute.providers.limiter import Limiter, NullLimiter, RateLimits
 from mechbench_compute.providers.messages import ChatRequest, Message, ToolSpec
 
-#: Every provider a ModelRef may name. `openai-compatible` is the
-#: generic escape hatch (Together, Groq, Mistral, OpenRouter,
-#: a local vLLM or llama.cpp server): its credential carries a
-#: base_url alongside the token.
 PROVIDERS: tuple[str, ...] = (
     "anthropic", "openai", "xai", "gemini", "fireworks", "deepseek",
     "openai-compatible", "mock",
@@ -85,7 +68,6 @@ __all__ = [
 
 
 def capabilities(provider: str) -> Capabilities:
-    """What this provider can do, without needing a credential."""
     if provider == "anthropic":
         from mechbench_compute.providers.anthropic import CAPABILITIES
 
@@ -110,13 +92,6 @@ def make_transport(provider: str, credential: Mapping[str, Any] | str | None = N
                    base_url: str | None = None, dry_run: bool = False,
                    cassette: Cassette | None = None, cassette_mode: str = "replay",
                    sleep=None, clock=None, **kw: Any) -> Transport:
-    """The adapter for `provider`, wrapped as the run asks.
-
-    `dry_run` returns a mock wearing this provider's name and
-    capability matrix — the same requests, the same refusals, no
-    network and no spend. A `cassette` replays recorded responses (and
-    in `record`/`auto` mode wraps the real adapter to fill itself).
-    """
     if provider not in PROVIDERS:
         raise ValueError(
             f"unknown provider {provider!r} — known: {', '.join(PROVIDERS)}")
@@ -139,9 +114,6 @@ def make_transport(provider: str, credential: Mapping[str, Any] | str | None = N
 
 def remap_response(provider: str, raw: Any, req: Any, *,
                    headers: Mapping[str, str] | None = None):
-    """A recorded response body mapped through `provider`'s adapter as
-    it reads bodies now, or None when the provider has no such reader
-    (the mock) or the body is not one."""
     if not isinstance(raw, Mapping):
         return None
     if provider == "anthropic":
@@ -154,8 +126,6 @@ def remap_response(provider: str, raw: Any, req: Any, *,
         return read_response(raw, req, headers=headers)
     if provider in _OPENAI_SHAPED:
         if getattr(req, "api", None) == "responses":
-            # `api` is part of the request hash, so a body kept under
-            # this key came from the Responses API.
             from mechbench_compute.providers.openai_responses import read_response
         else:
             from mechbench_compute.providers.openai_compatible import read_response

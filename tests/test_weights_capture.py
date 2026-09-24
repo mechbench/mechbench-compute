@@ -1,11 +1,3 @@
-"""`weights/capture` and `weights/decompose`.
-
-The parameter half of the points × operations grammar: what the model
-IS, rather than what it did on an input. The model here is a stub whose
-parameter tree has the shape a real decoder's has, so the selector, the
-stats and the residual-side rule are all exercised without 9.5 GB.
-"""
-
 from __future__ import annotations
 
 import mlx.core as mx
@@ -104,7 +96,7 @@ class TestCapture:
                                 "parameter": "weight"}
         assert it["shape"] == [8, 16] and it["n"] == 128
         assert it["frobenius"] > 0 and 0.0 <= it["sparsity"] <= 1.0
-        assert "singular_values" not in it     # not unless asked
+        assert "singular_values" not in it
         assert "values" not in it
 
     def test_the_header_says_what_was_read(self, lm):
@@ -122,7 +114,6 @@ class TestCapture:
         assert len(it["singular_values"]) == 3
         assert it["spectral"] == pytest.approx(it["singular_values"][0])
         assert 1.0 <= it["effective_rank"] <= 8.0
-        # …and it is the matrix's own spectrum.
         arr = np.array(W.read_parameters(lm)["layers.0.mlp.down_proj.weight"]
                        .astype(mx.float32))
         assert np.allclose(it["singular_values"],
@@ -142,7 +133,7 @@ class TestCapture:
                                      "spectrum": 4})
         it = out["items"][0]
         assert it["shape"] == [8]
-        assert "singular_values" not in it   # an SVD of a vector is nothing
+        assert "singular_values" not in it
 
 
 class TestDecompose:
@@ -157,7 +148,7 @@ class TestDecompose:
         assert first["space"] == {"model": "acme/tiny", "layer": 1,
                                   "point": "attn_out", "d": 8}
         assert np.isclose(np.linalg.norm(first["vector"]), 1.0, atol=1e-6)
-        assert first["norm"] >= out["items"][1]["norm"]   # largest first
+        assert first["norm"] >= out["items"][1]["norm"]
         assert first["derivation"]["side"] == "out"
         assert first["derivation"]["method"] == "weights/decompose"
 
@@ -167,7 +158,7 @@ class TestDecompose:
         it = out["items"][0]
         assert it["derivation"]["side"] == "in"
         assert it["space"]["point"] == "attn.in_norm"
-        assert it["space"]["d"] == 8           # the residual width, not the head's
+        assert it["space"]["d"] == 8
 
     def test_the_directions_are_the_matrix_own_singular_vectors(self, lm):
         arr = np.array(W.read_parameters(lm)["layers.1.self_attn.o_proj.weight"]
@@ -197,17 +188,10 @@ class TestDecompose:
 
 
 class TestParameterIntervention:
-    """The write half: a spec item that names a `parameter`
-    edits the model for the life of the node, and the original tensor is
-    put back — the tensor itself, not a subtraction that would not
-    round-trip."""
-
     def _w(self, lm, name="layers.0.self_attn.o_proj.weight"):
         return np.array(W.read_parameters(lm)[name].astype(mx.float32))
 
     def _dir(self, vec):
-        """A direction as a spec item carries one: the kind, not a bare
-        list — the same object an edge from `direction/fit` would."""
         v = np.asarray(vec, dtype=np.float32)
         return {"kind": "direction/vector", "id": "d", "vector": [float(x) for x in v],
                 "space": {"model": "acme/tiny", "layer": 0, "point": "attn_out",
@@ -227,7 +211,7 @@ class TestParameterIntervention:
         handle = W.edit_parameters(
             lm, [{"parameter": "layers.0.self_attn.o_proj", "op": "scale",
                   "strength": 2.0}], factor=0.5)
-        assert np.allclose(self._w(lm), before, atol=1e-6)   # 2.0 × 0.5
+        assert np.allclose(self._w(lm), before, atol=1e-6)
         W.restore_parameters(lm, handle)
 
     def test_a_star_edits_every_layer(self, lm):
@@ -240,28 +224,26 @@ class TestParameterIntervention:
         assert np.any(self._w(lm) != 0)
 
     def test_project_out_removes_a_direction_from_what_it_writes(self, lm):
-        before = self._w(lm)                      # (d, heads)
+        before = self._w(lm)
         v = before[:, 0] / np.linalg.norm(before[:, 0])
         handle = W.edit_parameters(
             lm, [{"parameter": "layers.0.self_attn.o_proj",
                   "op": "project_out", "direction": self._dir(v)}])
         after = self._w(lm)
-        # Nothing the module writes has any component along v any more…
         assert np.allclose(v @ after, 0, atol=1e-5)
-        # …and what was orthogonal to v is untouched.
         assert np.allclose(after, before - np.outer(v, v @ before), atol=1e-5)
         W.restore_parameters(lm, handle)
         assert np.allclose(self._w(lm), before)
 
     def test_project_out_on_a_reading_module_uses_the_other_side(self, lm):
         name = "layers.0.self_attn.q_proj.weight"
-        before = self._w(lm, name)                # (heads, d)
+        before = self._w(lm, name)
         v = before[0] / np.linalg.norm(before[0])
         handle = W.edit_parameters(
             lm, [{"parameter": "layers.0.self_attn.q_proj",
                   "op": "project_out", "direction": self._dir(v)}])
         after = self._w(lm, name)
-        assert np.allclose(after @ v, 0, atol=1e-5)   # it can no longer read v
+        assert np.allclose(after @ v, 0, atol=1e-5)
         W.restore_parameters(lm, handle)
 
     def test_a_direction_of_the_wrong_width_is_refused(self, lm):

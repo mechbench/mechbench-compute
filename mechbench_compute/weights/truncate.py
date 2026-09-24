@@ -7,8 +7,6 @@ import numpy as np
 
 
 def truncate(w: Any, item: Mapping[str, Any], name: str) -> Any:
-    """Keep the top `rank` singular directions of this weight and drop
-    the rest — how much of the module survives being low-rank."""
     import mlx.core as mx
 
     rank = item.get("rank")

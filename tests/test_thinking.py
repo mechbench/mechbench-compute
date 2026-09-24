@@ -1,5 +1,3 @@
-"""Where a model's reasoning is, in the tokens it produced."""
-
 from __future__ import annotations
 
 import pytest
@@ -12,8 +10,6 @@ from mechbench_compute.ops.text.render import render
 
 
 class _Tok:
-    """A tokenizer that declares what its vocabulary holds."""
-
     unk_token_id = 0
 
     def __init__(self, vocab: dict[str, int]):
@@ -28,8 +24,6 @@ class TestDeclaredDelimiters:
         assert T.delimiter_ids(_Tok({"<think>": 151667, "</think>": 151668})) == (151667, 151668)
 
     def test_a_model_that_does_not(self):
-        # Gemma has no reasoning tokens: every lookup is `unk`. A span
-        # must not be invented for it.
         assert T.delimiter_ids(_Tok({})) is None
 
     def test_a_tokenizer_without_the_method(self):
@@ -40,7 +34,6 @@ class TestSegments:
     PAIR = (100, 101)
 
     def test_the_span_is_what_is_inside_the_markers(self):
-        # prompt 0..2, then <think> 7 8 9 </think> 42 43
         ids = [1, 2, 3, 100, 7, 8, 9, 101, 42, 43]
         segs = T.segments(ids, start=3, pair=self.PAIR)
         assert segs == [
@@ -49,8 +42,6 @@ class TestSegments:
         ]
 
     def test_cut_off_mid_thought_has_no_answer_and_says_so(self):
-        # A model that ran out of room did not produce an answer, and a
-        # reader must be able to see that rather than find an empty one.
         segs = T.segments([1, 100, 7, 8], start=1, pair=self.PAIR)
         assert segs == [{"role": "thinking", "token_start": 2, "token_end": 4,
                          "terminated": False}]
@@ -60,8 +51,6 @@ class TestSegments:
         assert T.segments([1, 100, 7], start=1, pair=None) == []
 
     def test_only_the_generated_tail_is_searched(self):
-        # The delimiter id appearing in the PROMPT is not the model's
-        # reasoning — it is something the prompt said.
         ids = [100, 5, 101, 9]
         assert T.segments(ids, start=3, pair=self.PAIR) == []
 
@@ -76,7 +65,6 @@ class TestAnswerText:
         assert T.answer_text("<think>hmm</think>  four") == "four"
 
     def test_an_incomplete_one_is_left_whole(self):
-        # Cutting here would hide that the model never finished.
         assert T.answer_text("<think>hmm and") == "<think>hmm and"
 
     def test_text_without_a_thought(self):
@@ -96,12 +84,9 @@ class TestSelector:
     def test_a_span_resolves_to_its_positions(self):
         assert P.resolve({"segment": "thinking"}, 10, segmentations=self.SEGS) == [4, 5, 6]
         assert P.resolve({"segment": "answer"}, 10, segmentations=self.SEGS) == [8, 9]
-        # And the envelope's own roles are nameable by the same word.
         assert P.resolve({"segment": "prompt"}, 10, segmentations=self.SEGS) == [0, 1, 2]
 
     def test_a_document_without_the_span_is_refused_with_what_it_has(self):
-        # Not "read the answer instead": a capture aimed at reasoning
-        # must fail loudly on a model that did none.
         with pytest.raises(ValueError, match="no 'thinking' segment here.*body.*prompt"):
             P.resolve({"segment": "thinking"}, 10, segmentations=[self.SEGS[0]])
         with pytest.raises(ValueError, match="carries no named spans"):
@@ -113,10 +98,6 @@ class TestSelector:
 
 
 class TestThroughTheTurn:
-    """A conversation keeps each turn's reasoning and does not replay it
-    into the room. `text/render` decides what comes back;
-    `text/extend` is what wrote it down."""
-
     def _history(self):
         return [{"index": 0, "participant": "ana", "role_as_seen": "assistant",
                  "text": "four.", "thinking": "two plus two is four"},
@@ -128,8 +109,6 @@ class TestThroughTheTurn:
 
     def test_split_keeps_both_apart(self):
         assert T.split_thought("<think>hmm</think>four") == ("hmm", "four")
-        # Never closed: no answer to separate, and the turn says so by
-        # keeping its text whole.
         assert T.split_thought("<think>hmm and") == (None, "<think>hmm and")
         assert T.split_thought("four") == (None, "four")
 
@@ -141,7 +120,6 @@ class TestThroughTheTurn:
         assert "two plus two" not in said
 
     def test_a_participant_never_sees_anothers_reasoning(self):
-        # Even asking for replay only ever returns your OWN.
         view = render(self._history(), participant="bo",
                          perspective="others_as_user_merged",
                          sees={"own_thinking": "full"})

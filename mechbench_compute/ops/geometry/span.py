@@ -61,14 +61,10 @@ def run(ctx, inputs, params):
     return build_span_trees(inputs, params)
 
 
-#: How far above the mean an edge must sit to count as a bridge between
-#: clusters rather than a step within one.
 DEFAULT_BRIDGE_SIGMA = 2.0
 
 
 def grow_minimum_spanning_tree(distance: np.ndarray) -> list[tuple[int, int, float]]:
-    """Prim's, deterministic. Returns (i, j, weight) with i < j by
-    construction of the frontier, in the order the tree grew."""
     n = int(distance.shape[0])
     if n < 2:
         return []
@@ -79,11 +75,9 @@ def grow_minimum_spanning_tree(distance: np.ndarray) -> list[tuple[int, int, flo
     edges: list[tuple[int, int, float]] = []
     for _ in range(n - 1):
         masked = np.where(in_tree, np.inf, best)
-        # argmin returns the FIRST minimum, so ties go to the lower
-        # index and the tree is reproducible.
         j = int(np.argmin(masked))
         if not np.isfinite(masked[j]):
-            break                      # disconnected: nothing reachable
+            break
         edges.append((int(parent[j]), j, float(best[j])))
         in_tree[j] = True
         closer = (distance[j] < best) & ~in_tree
@@ -94,8 +88,6 @@ def grow_minimum_spanning_tree(distance: np.ndarray) -> list[tuple[int, int, flo
 
 def measure_tree(edges: Sequence[tuple[int, int, float]], *,
                  bridge_sigma: float = DEFAULT_BRIDGE_SIGMA) -> dict[str, Any]:
-    """The numbers the measure is about. `mean` and `variance` travel
-    together on purpose — see the module docstring."""
     weights = [w for _, _, w in edges]
     if not weights:
         return {"n_edges": 0}
@@ -108,24 +100,17 @@ def measure_tree(edges: Sequence[tuple[int, int, float]], *,
         "mean": round(mean, 6),
         "variance": round(variance, 6),
         "stdev": round(stdev, 6),
-        # Scale-free, so corpora embedded at different layers (whose
-        # absolute cosine distances differ) stay comparable.
         "cv": round(stdev / mean, 6) if mean > 0 else 0.0,
         "total": round(float(np.sum(weights)), 6),
         "max": round(float(np.max(weights)), 6),
         "min": round(float(np.min(weights)), 6),
         "bridge_threshold": round(threshold, 6),
         "bridges": int(sum(w > threshold for w in weights)),
-        # Cutting the bridges leaves this many components — a cluster
-        # count nobody had to choose a k for.
         "components_after_cut": int(sum(w > threshold for w in weights)) + 1,
     }
 
 
 def _read_distance_matrix(entry: Mapping[str, Any], header: Mapping[str, Any]) -> np.ndarray:
-    """The distance matrix a similarity item stands for: a distance
-    metric as it is; cosine as 1 − s (what the tree has always been
-    built on); any other similarity as max − s."""
     m = np.array(entry["matrix"], dtype=float)
     kind = header.get("metric_kind") or ("similarity" if header.get("metric") in (None, "cosine") else "distance")
     if kind == "distance":
@@ -139,9 +124,6 @@ def _read_distance_matrix(entry: Mapping[str, Any], header: Mapping[str, Any]) -
 
 
 def build_span_trees(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """`geometry/span`: a tree per group of a `geometry/similarity`
-    collection, whatever metric produced it — the metric and its
-    options ride along from the similarity's header."""
     bridge_sigma = float(params.get("bridge_sigma", DEFAULT_BRIDGE_SIGMA))
     keep_edges = bool(params.get("keep_edges", True))
     from mechbench_compute.lexicon import kinds as K
@@ -174,7 +156,6 @@ def build_span_trees(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> di
 
     metric = src.get("metric", "cosine")
     options = dict(src.get("options") or {})
-    # One item per group; `records/tabulate` reads the items directly.
     return K.collection(
         "geometry/mst", out_groups,
         name=params.get("name", "mst"),

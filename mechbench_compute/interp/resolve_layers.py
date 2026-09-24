@@ -4,7 +4,6 @@ from typing import Any
 
 
 def resolve_layers(spec: Any, n_layers: int) -> list[int]:
-    """"all", an int, or a list of ints — validated against the arch."""
     if spec in (None, "all"):
         return list(range(n_layers))
     layers = [int(spec)] if isinstance(spec, int) else [int(x) for x in spec]

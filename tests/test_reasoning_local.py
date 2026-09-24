@@ -1,11 +1,3 @@
-"""A local model's reasoning leaves its text, and a model that cannot
-reason is left exactly as it was.
-
-Of the families this package runs (Gemma 4, Gemma 3, Llama, Qwen 2.5),
-only Gemma 4's tokenizer declares reasoning markup: `<|channel>` and
-`<channel|>` as special tokens, written `<|channel>thought\\n…<channel|>`.
-"""
-
 from __future__ import annotations
 
 import glob
@@ -108,7 +100,6 @@ def test_a_local_reply_of_reasoning_alone_is_empty(monkeypatch):
 
 @pytest.mark.parametrize("reply", ["Four.", "<|channel>thought\nx<channel|>Four.", ""])
 def test_a_model_that_cannot_reason_keeps_its_item_exactly(monkeypatch, reply):
-    # Gemma 3, Llama and Qwen 2.5 declare no reasoning tokens.
     item = run_local(monkeypatch, FakeTok(), reply)["items"][0]
     assert item["text"] == reply
     assert "reasoning" not in item

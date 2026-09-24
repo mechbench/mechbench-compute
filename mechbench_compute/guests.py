@@ -1,21 +1,3 @@
-"""WASI guest binaries, fetched on first use and verified by hash.
-
-The sandbox runs real programs — busybox, CPython — compiled to
-WebAssembly. They are not vendored into the wheel: CPython-on-WASI is
-20–30 MB and would triple what `pip install mechbench-compute` costs
-for every user who never runs a sandbox. Instead each guest is a
-**pinned artifact**: a URL, a sha256, and a size, built by us from a
-pinned upstream commit and hosted as a GitHub release on this repo,
-tagged by guest and hash. The runner fetches it the first time a
-protocol asks, verifies the hash, and keeps it under
-`~/.mechbench/guests/`.
-
-The hash is the contract. A fetched file that does not match is
-deleted, never used, and the failure names what was expected — the
-same discipline as a hub revision, because a sandbox running
-a binary we did not pin is not a sandbox.
-"""
-
 from __future__ import annotations
 
 import gzip
@@ -30,16 +12,6 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class GuestMount:
-    """A read-only directory preopened beside the working snapshot,
-    carrying a guest's own runtime files. The CPython guest mounts its
-    standard library here; the working tree stays at `/`.
-
-    `at` is the guest path (fixed by the guest). `host` is the local
-    directory that backs it — set by `install_local` for an unhosted
-    build, or filled by unpacking `url` (a companion tarball, verified
-    by `sha256`) once the guest is hosted. Never writable: a guest
-    corrupting its own runtime would poison the shared cache."""
-
     at: str
     host: str = ""
     url: str = ""
@@ -48,16 +20,6 @@ class GuestMount:
 
 @dataclass(frozen=True)
 class Guest:
-    """One pinned artifact. `source` is where the bytes were BUILT
-    from (a repo and commit), which is a different fact from `url`,
-    where they are hosted; provenance wants both. An empty `url` means
-    pinned but not yet hosted: the hash is settled, the bytes have to
-    be built locally (`install_local`) until a release hosts them.
-
-    `env` and `mounts` are the guest's RUNTIME needs — an interpreter
-    that reads `PYTHONHOME` and a standard library it must find. They
-    are not part of the wasm's hash; they are how it is run."""
-
     name: str
     url: str
     sha256: str
@@ -72,24 +34,9 @@ class Guest:
 
 
 class GuestUnavailable(RuntimeError):
-    """The guest could not be produced in a state we are willing to
-    run — unknown name, unreachable host, or a hash that did not match.
-    Never a silent fallback to whatever bytes were there."""
+    pass
 
 
-#: name -> pinned artifact.
-#:
-#: mbshell is THE guest: go-busybox's applets behind an in-process
-#: POSIX shell (mvdan/sh with a small WASI patch), compiled with
-#: standard Go's wasip1 port — recipe and rationale in
-#: `guests/mbshell/`. Plain busybox is not pinned because it has no
-#: shell under wasm and never will (its ash is fork/exec).
-#:
-#: Hosted as a GitHub release on this repo, tagged by guest and hash,
-#: with the third-party NOTICE beside it: go-busybox is MIT as declared
-#: in its README (no LICENSE file in the tree; upstream issue #3),
-#: mvdan/sh BSD-3-Clause, goawk MIT, golang.org/x BSD-3-Clause. The
-#: hosted form is gzipped; the pin is the decompressed bytes.
 REGISTRY: dict[str, Guest] = {
     "mbshell": Guest(
         name="mbshell",
@@ -98,14 +45,6 @@ REGISTRY: dict[str, Guest] = {
         size=15426977,
         source="guests/mbshell (go-busybox@13f3053 + go-busybox-wasi.patch + "
                "mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch; go1.27.1 -trimpath -buildvcs=false)"),
-    # CPython compiled to wasip1 with wasi-sdk — recipe in
-    # `guests/cpython/`. Its standard library is a read-only MOUNT at
-    # `/usr/local/lib/python3.13` (every module builds static, so the
-    # library is pure .py), which the guest finds via PYTHONHOME. Both
-    # the wasm and the stdlib tarball are hosted as a GitHub release;
-    # `-ffile-prefix-map` in build.sh keeps the wasm free of build
-    # paths. The wasm pin is the decompressed bytes; the mount pin is
-    # the .tar.gz bytes.
     "cpython": Guest(
         name="cpython",
         url="https://github.com/mechbench/mechbench-compute/releases/download/cpython-0e9a1065ab0d/python.wasm.gz",
@@ -144,12 +83,6 @@ def _sha256_of(path: pathlib.Path) -> str:
 
 
 def ensure(name: str, *, fetch: bool = True) -> pathlib.Path:
-    """The guest's path on disk, fetching and verifying if needed.
-
-    A cached file is re-hashed before it is trusted: a partial download
-    from a previous crash, or a file edited by hand, must not run just
-    because it has the right name.
-    """
     guest = REGISTRY.get(name)
     if guest is None:
         raise GuestUnavailable(
@@ -159,8 +92,6 @@ def ensure(name: str, *, fetch: bool = True) -> pathlib.Path:
     if target.exists():
         if _sha256_of(target) == guest.sha256:
             return target
-        # Wrong bytes under the right name: remove them so the next
-        # attempt is a clean fetch rather than a repeat of this one.
         target.unlink()
     if not guest.hosted:
         raise GuestUnavailable(
@@ -174,10 +105,6 @@ def ensure(name: str, *, fetch: bool = True) -> pathlib.Path:
 
 
 def _tls_context():
-    """A TLS context that trusts certifi's bundle. The python.org
-    framework build on macOS ships with no system CA bundle wired in,
-    so a plain urlopen fails with CERTIFICATE_VERIFY_FAILED on the
-    first fetch — which is how this line got here."""
     import ssl
 
     try:
@@ -188,13 +115,6 @@ def _tls_context():
 
 
 def _fetch(guest: Guest, target: pathlib.Path) -> pathlib.Path:
-    """Download, decompress if the URL ends in .gz, verify, install.
-
-    A standard-Go guest is 15 MB raw and 4 MB gzipped, and CloudFront
-    will not compress objects over 10 MB, so the hosted form is the
-    .gz. The pin is always the hash of the DECOMPRESSED bytes — what
-    runs — so a re-compression upstream changes nothing.
-    """
     tmp_fd, tmp_name = tempfile.mkstemp(prefix=f"{guest.name}-", suffix=".part",
                                         dir=str(target.parent))
     tmp = pathlib.Path(tmp_name)
@@ -227,24 +147,6 @@ def install_local(name: str, path: str | os.PathLike[str], *,
                   source: str = "", replace: bool = False,
                   mounts: Sequence[tuple[str, str]] = (),
                   env: Mapping[str, str] | None = None) -> Guest:
-    """Register a guest from a file already on this machine — a fresh
-    build, or a test fixture — computing its hash rather than trusting
-    one. Copies it into the cache under its hash so later `ensure`
-    calls find it without a network.
-
-    If `name` is already pinned with a hash, the file must match it. A
-    build that comes out different is a real event — a toolchain moved,
-    or a source tree did — and running it under the pinned name would
-    make the registry a lie. Pass `replace=True` to re-pin deliberately.
-    A pin with an EMPTY hash is unpinned (a guest whose reproducible
-    hash is not yet recorded) and accepts any build.
-
-    `mounts` are `(host_dir, guest_path)` pairs — a guest's read-only
-    runtime files, like CPython's standard library; `env` is the
-    guest's runtime environment. When the name is pre-declared with
-    mount TARGETS (the `at` paths) but no hosts, the hosts given here
-    fill them; `env` merges over the declared env.
-    """
     src = pathlib.Path(path)
     digest = _sha256_of(src)
     pinned = REGISTRY.get(name)
@@ -270,10 +172,6 @@ def install_local(name: str, path: str | os.PathLike[str], *,
 
 
 def _ensure_mount(name: str, mount: GuestMount, *, fetch: bool) -> GuestMount:
-    """A mount with its `host` filled: a local directory as-is, or a
-    hosted `.tar.gz` (verified by `sha256` of the archive bytes)
-    unpacked into the cache. Read-only content, so once unpacked under
-    its hash it is reused."""
     if mount.host and pathlib.Path(mount.host).is_dir():
         return mount
     if not mount.url:
@@ -309,19 +207,14 @@ def _ensure_mount(name: str, mount: GuestMount, *, fetch: bool) -> GuestMount:
         staging = pathlib.Path(tempfile.mkdtemp(prefix=f"{name}-lib-",
                                                 dir=str(cache_dir())))
         with tarfile.open(tmp, "r:gz") as tf:
-            # `filter='data'` refuses members that escape the destination
-            # or carry unsafe types (links, devices) — a tarball we host,
-            # but verified anyway.
             try:
                 tf.extractall(staging, filter="data")
-            except TypeError:  # Python < 3.12 without the backport
+            except TypeError:
                 tf.extractall(staging)
         (staging / ".ok").write_bytes(b"")
         try:
-            os.replace(staging, dest)   # atomic when dest does not exist
+            os.replace(staging, dest)
         except OSError:
-            # A concurrent unpack won the slot; its content is the same
-            # bytes (same hash), so use it and drop ours.
             shutil.rmtree(staging, ignore_errors=True)
         return GuestMount(at=mount.at, host=str(dest), url=mount.url, sha256=mount.sha256)
     finally:
@@ -330,10 +223,6 @@ def _ensure_mount(name: str, mount: GuestMount, *, fetch: bool) -> GuestMount:
 
 def resolve(guest: str | os.PathLike[str], *, fetch: bool = True
             ) -> tuple[pathlib.Path, tuple[GuestMount, ...], Mapping[str, str]]:
-    """`(wasm_path, mounts, env)` for a registered NAME (fetched and
-    verified as needed) or a bare `.wasm` PATH (no mounts, no env). The
-    sandbox calls this so a guest's runtime needs travel with it — a
-    hosted mount is fetched and unpacked here on first use."""
     if isinstance(guest, str) and is_registered(guest):
         g = REGISTRY[guest]
         wasm = ensure(guest, fetch=fetch)

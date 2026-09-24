@@ -5,7 +5,6 @@ from typing import Any
 
 
 def read_interval(params: Mapping[str, Any]) -> tuple[float, int, int] | None:
-    """(level, resamples, seed) when the node asks for an interval."""
     level = params.get("interval")
     if level is None:
         return None

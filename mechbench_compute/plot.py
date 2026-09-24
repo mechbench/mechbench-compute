@@ -1,38 +1,3 @@
-"""Matplotlib plot helpers with project conventions baked in.
-
-Ten helpers covering the recurring chart styles in this project:
-
-  bar_by_layer            per-layer bar chart with red=global / blue=local
-                          conventions
-  lens_trajectory         per-layer rank curves with optional geometric-mean
-                          aggregation
-  logprob_trajectory      per-layer log-probability curves
-  position_heatmap        [layer x position] heatmap with subject and global-
-                          layer markers
-  pca_scatter             2D PCA projection colored by category
-  similarity_heatmap      pairwise cosine, reordered block-diagonal
-  head_heatmap            [n_layers x n_heads] per-head metric heatmap with
-                          global-layer markers
-  probe_diagonal_heatmap  true x predicted aggregated scoring grid with
-                          per-cell text annotations
-  grouped_row_heatmap     per-row heatmap with rows grouped by category +
-                          horizontal boundary lines
-  intensity_curve         multi-line plot against a scalar parameter with
-                          target/antipode emphasis
-  leaderboard_bar         ranked horizontal bar chart with text labels and
-                          global/local color coding
-
-API contract:
-  - Inputs are numpy arrays.
-  - Each function accepts ax=... for composition; if None, a new figure+axes
-    is created and the new Axes returned.
-  - Functions return the Axes (never call plt.show() or fig.savefig()).
-  - The conventions (colors, GLOBAL_LAYERS dashed lines, log-scale ticks for
-    rank) are defaults; every one is overridable via keyword.
-
-Optional layer; every plot can still be hand-rolled in matplotlib.
-"""
-
 from __future__ import annotations
 
 from typing import Iterable, Optional
@@ -44,12 +9,10 @@ from matplotlib.patches import Patch
 
 from ._arch import GLOBAL_LAYERS, layer_type
 
-# Default colors for the layer-type convention.
-COLOR_GLOBAL = "#d62728"  # red
-COLOR_LOCAL = "#1f77b4"   # blue
-COLOR_AGGREGATE = "#d62728"  # red, for the bold mean line
+COLOR_GLOBAL = "#d62728"
+COLOR_LOCAL = "#1f77b4"
+COLOR_AGGREGATE = "#d62728"
 
-# Distinct 12-category palette.
 DEFAULT_CATEGORY_COLORS: dict[str, str] = {
     "capital": "#e41a1c", "element": "#377eb8", "author": "#4daf4a",
     "landmark": "#ff7f00", "opposite": "#984ea3", "past_tense": "#a65628",
@@ -65,20 +28,12 @@ def _ensure_axes(ax: Optional[Axes], **figkwargs) -> Axes:
 
 
 def _color_for(label: str, color_map: dict[str, str]) -> str:
-    """Pick a color, falling back to DEFAULT_CATEGORY_COLORS, then matplotlib's
-    cycler (deterministic via hash)."""
     if label in color_map:
         return color_map[label]
     if label in DEFAULT_CATEGORY_COLORS:
         return DEFAULT_CATEGORY_COLORS[label]
-    # Fallback: deterministic palette index from label hash
     cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     return cycle[hash(label) % len(cycle)]
-
-
-# ---------------------------------------------------------------------------
-# bar_by_layer
-# ---------------------------------------------------------------------------
 
 
 def bar_by_layer(
@@ -94,18 +49,6 @@ def bar_by_layer(
     ylabel: Optional[str] = None,
     figsize: tuple[float, float] = (14, 5),
 ) -> Axes:
-    """Per-layer bar chart with red=global / blue=local convention.
-
-    Args:
-        values: 1D array of length N_LAYERS (or shorter; bars indexed 0..len-1).
-        ax: existing Axes to draw on; creates a new figure if None.
-        color_global / color_local: bar colors for the two layer types.
-        show_global_lines: draw vertical dashed lines at every global-layer
-            index (often noisy when there are also bars; default off).
-        show_legend: include a (global, local) color legend in the lower-left.
-        xticks_step: tick every N layers (default 3).
-        title / ylabel: optional axis labels.
-    """
     ax = _ensure_axes(ax, figsize=figsize)
     n = len(values)
     colors = [color_global if layer_type(i) == "full_attention" else color_local
@@ -135,11 +78,6 @@ def bar_by_layer(
     return ax
 
 
-# ---------------------------------------------------------------------------
-# lens_trajectory  (rank version + logprob version)
-# ---------------------------------------------------------------------------
-
-
 def lens_trajectory(
     ranks: np.ndarray,
     *,
@@ -152,18 +90,6 @@ def lens_trajectory(
     title: Optional[str] = None,
     figsize: tuple[float, float] = (12, 4),
 ) -> Axes:
-    """Per-layer rank trajectory plot.
-
-    Args:
-        ranks: array of shape [n_prompts, n_layers] for batch, or [n_layers]
-            for a single prompt.
-        individuals: draw one thin line per prompt (no-op if 1D).
-        aggregate: draw a bold geometric-mean line over prompts (no-op if 1D).
-        aggregate_label: legend label for the aggregate line.
-        log_scale: y-axis on log scale (rank=0 is replaced by 0.5 for
-            display so it doesn't hit -inf in log space).
-        show_global_lines: vertical dashed lines at GLOBAL_LAYERS.
-    """
     ax = _ensure_axes(ax, figsize=figsize)
     ranks = np.asarray(ranks)
     if ranks.ndim == 1:
@@ -219,10 +145,6 @@ def logprob_trajectory(
     title: Optional[str] = None,
     figsize: tuple[float, float] = (12, 4),
 ) -> Axes:
-    """Per-layer log-probability trajectory plot.
-
-    Same shape conventions as lens_trajectory; aggregate is arithmetic mean
-    (log p is already in log space)."""
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(logprobs)
     if arr.ndim == 1:
@@ -260,11 +182,6 @@ def logprob_trajectory(
     return ax
 
 
-# ---------------------------------------------------------------------------
-# position_heatmap
-# ---------------------------------------------------------------------------
-
-
 def position_heatmap(
     values: np.ndarray,
     token_labels: Optional[list[str]] = None,
@@ -281,20 +198,6 @@ def position_heatmap(
     title: Optional[str] = None,
     figsize: tuple[float, float] = (12, 8),
 ) -> Axes:
-    """Heatmap of values[layer, position] with optional position/layer markers.
-
-    Args:
-        values: 2D array shape [n_layers, seq_len].
-        token_labels: per-position labels for the x-axis ticks.
-        cmap: matplotlib colormap name (default RdYlGn for log p; pass
-            'RdYlGn_r' for rank).
-        vmin/vmax: color scale bounds. If None, set from data percentiles.
-        mark_positions: vertical red-dashed lines at these positions
-            (e.g. subject-entity tokens).
-        mark_layers: horizontal gray-dotted lines at these layers
-            (default: GLOBAL_LAYERS).
-        log_scale: pass values through log10(x+1) before plotting (for rank).
-    """
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(values)
     if log_scale:
@@ -325,11 +228,6 @@ def position_heatmap(
     return ax
 
 
-# ---------------------------------------------------------------------------
-# pca_scatter
-# ---------------------------------------------------------------------------
-
-
 def pca_scatter(
     vectors: np.ndarray,
     labels,
@@ -344,17 +242,7 @@ def pca_scatter(
     title: Optional[str] = None,
     figsize: tuple[float, float] = (10, 8),
 ) -> Axes:
-    """2D PCA projection colored by category.
-
-    Args:
-        vectors: [N, D] array of vectors to project.
-        labels: [N] sequence of category labels (string or hashable).
-        color_map: optional {label -> color}. Falls back to
-            DEFAULT_CATEGORY_COLORS, then to a deterministic hash-based pick
-            from matplotlib's color cycler.
-        show_variance: append explained-variance percentage to the title.
-    """
-    from sklearn.decomposition import PCA  # imported lazily
+    from sklearn.decomposition import PCA
 
     ax = _ensure_axes(ax, figsize=figsize)
     color_map = color_map or {}
@@ -385,11 +273,6 @@ def pca_scatter(
     return ax
 
 
-# ---------------------------------------------------------------------------
-# similarity_heatmap
-# ---------------------------------------------------------------------------
-
-
 def similarity_heatmap(
     vectors: np.ndarray,
     labels,
@@ -404,18 +287,7 @@ def similarity_heatmap(
     title: Optional[str] = None,
     figsize: tuple[float, float] = (10, 8),
 ) -> Axes:
-    """Pairwise cosine heatmap, reordered so members of the same category
-    sit in contiguous blocks (block-diagonal layout).
-
-    Args:
-        vectors: [N, D].
-        labels: [N] categorical.
-        cmap, vmin, vmax: passed to imshow.
-        show_category_labels: place category names along both axes at the
-            block midpoints.
-        show_boundary_lines: black lines between category blocks.
-    """
-    from .geometry import cosine_matrix  # avoid circular import at module load
+    from .geometry import cosine_matrix
 
     ax = _ensure_axes(ax, figsize=figsize)
     labels = np.asarray(labels)
@@ -463,11 +335,6 @@ def similarity_heatmap(
     return ax
 
 
-# ---------------------------------------------------------------------------
-# head_heatmap
-# ---------------------------------------------------------------------------
-
-
 def head_heatmap(
     values: np.ndarray,
     *,
@@ -485,17 +352,6 @@ def head_heatmap(
     colorbar_label: str = "",
     figsize: tuple[float, float] = (5, 9),
 ) -> Axes:
-    """Per-(layer, head) metric heatmap.
-
-    Args:
-        values: 2D array shape [n_layers, n_heads] (n_heads can be 8 for
-            Q-heads or 2 for KV-heads in Gemma 4 E4B).
-        diverging: if True, the colormap is symmetric around zero (vmin/vmax
-            set to ±max-abs unless overridden). Use False for non-negative
-            metrics like accuracy.
-        mark_global_layers: draw small red ticks at GLOBAL_LAYERS rows.
-        title / colorbar_label: optional labels.
-    """
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(values)
     n_layers, n_heads = arr.shape
@@ -519,7 +375,6 @@ def head_heatmap(
     ax.set_yticks(range(0, n_layers, yticks_step))
 
     if mark_global_layers:
-        # Small red ticks on the left edge marking each global layer.
         for g in GLOBAL_LAYERS:
             if g < n_layers:
                 ax.axhline(g, color="red", linewidth=0.4, alpha=0.4,
@@ -531,11 +386,6 @@ def head_heatmap(
         plt.colorbar(im, ax=ax, shrink=0.8, label=colorbar_label)
 
     return ax
-
-
-# ---------------------------------------------------------------------------
-# probe_diagonal_heatmap
-# ---------------------------------------------------------------------------
 
 
 def probe_diagonal_heatmap(
@@ -553,19 +403,6 @@ def probe_diagonal_heatmap(
     colorbar_label: str = "score",
     figsize: tuple[float, float] = (8, 6),
 ) -> Axes:
-    """Aggregated probe-vs-target scoring heatmap (e.g. emotion probes scored
-    on emotion training corpus).
-
-    Args:
-        values: [len(row_labels), len(col_labels)] score matrix. Rows
-            typically = true category, columns = probe under test.
-        row_labels / col_labels: axis tick labels.
-        annotate: write each cell value on the heatmap.
-        annotation_format: format-string for cell text (e.g. '+.2f', '.3f').
-        annotation_threshold: when |value| / |values|.max() exceeds this
-            fraction, the annotation is drawn white instead of black for
-            readability against dark cells.
-    """
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(values)
     vmax_abs = float(np.abs(arr).max()) if arr.size > 0 else 1.0
@@ -596,11 +433,6 @@ def probe_diagonal_heatmap(
     return ax
 
 
-# ---------------------------------------------------------------------------
-# grouped_row_heatmap
-# ---------------------------------------------------------------------------
-
-
 def grouped_row_heatmap(
     values: np.ndarray,
     row_groups: np.ndarray,
@@ -620,21 +452,6 @@ def grouped_row_heatmap(
     colorbar_label: str = "",
     figsize: tuple[float, float] = (8, 10),
 ) -> Axes:
-    """Per-row heatmap with rows visually grouped by category + boundary lines.
-
-    Rows get re-ordered so members of the same group sit contiguously, and
-    thin horizontal lines are drawn between groups. The y-axis is unlabeled
-    (too many rows) but the grouping structure is visually obvious.
-
-    Args:
-        values: [n_rows, n_cols] score matrix.
-        row_groups: [n_rows] sequence of group labels (strings).
-        col_labels: optional column-axis labels.
-        group_order: optional canonical ordering of groups. If None, groups
-            are ordered by first appearance in row_groups.
-
-    For per-row heatmaps where rows are visually grouped by a label.
-    """
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(values)
     groups = np.asarray(row_groups)
@@ -642,7 +459,6 @@ def grouped_row_heatmap(
     if group_order is None:
         group_order = list(dict.fromkeys(groups.tolist()))
 
-    # Sort rows by group order
     order = np.argsort([group_order.index(g) for g in groups])
     arr_ord = arr[order]
     groups_ord = groups[order]
@@ -661,7 +477,6 @@ def grouped_row_heatmap(
         ax.set_xticklabels(col_labels, rotation=30, ha="right")
     ax.set_yticks([])
 
-    # Boundaries between groups
     cur = groups_ord[0] if len(groups_ord) else None
     for y in range(1, len(groups_ord)):
         if groups_ord[y] != cur:
@@ -678,11 +493,6 @@ def grouped_row_heatmap(
         plt.colorbar(im, ax=ax, shrink=0.8, label=colorbar_label)
 
     return ax
-
-
-# ---------------------------------------------------------------------------
-# intensity_curve
-# ---------------------------------------------------------------------------
 
 
 def intensity_curve(
@@ -705,20 +515,6 @@ def intensity_curve(
     thin_alpha: float = 0.55,
     figsize: tuple[float, float] = (7, 5),
 ) -> Axes:
-    """Multi-series line plot against a scalar parameter, with optional
-    target/antipode emphasis.
-
-    Args:
-        levels: iterable of x-axis scalar values (e.g. Tylenol dose in mg).
-        scores: [n_levels, n_series] array of per-series y values.
-        series_names: list of n_series labels (used for legend + to match
-            target_up / target_down).
-        target_up: name of the series expected to rise with x; drawn bold.
-        target_down: name of the series expected to fall with x; also bold.
-        colors: {series_name: color}. Falls back to matplotlib's default
-            cycle when absent.
-        log_x: x-axis log scale (default True; most intensity axes are log).
-    """
     ax = _ensure_axes(ax, figsize=figsize)
     arr = np.asarray(scores)
     cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
@@ -752,11 +548,6 @@ def intensity_curve(
     return ax
 
 
-# ---------------------------------------------------------------------------
-# leaderboard_bar
-# ---------------------------------------------------------------------------
-
-
 def leaderboard_bar(
     items: list[tuple[str, float]],
     *,
@@ -769,14 +560,6 @@ def leaderboard_bar(
     xlabel: Optional[str] = None,
     figsize: tuple[float, float] = (8, 9),
 ) -> Axes:
-    """Ranked horizontal bar chart with text labels per bar.
-
-    Args:
-        items: list of (label, value) tuples, already sorted by value.
-        color_groups: optional list of same length as items, one of
-            'global' / 'local' / None per bar; sets bar color.
-        title / xlabel: optional labels.
-    """
     ax = _ensure_axes(ax, figsize=figsize)
     n = len(items)
     ys = np.arange(n)

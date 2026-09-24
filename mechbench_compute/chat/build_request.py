@@ -11,12 +11,6 @@ def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
                   seed: int | None = None,
                   tools: Sequence[Any] | None = None,
                   api: str | None = None) -> pm.ChatRequest:
-    """One record's request. A record carries either a full `messages`
-    conversation or the `system`/`user` fields a corpus record has —
-    the same fields `generate` reads, so a protocol can swap a local
-    generate node for a chat node without rewriting its corpus. A
-    record that carries them under other names goes through
-    records/rename first."""
     convo = rec.get("messages")
     if convo is None and "user" in rec:
         convo = [{"role": "user", "content": rec["user"]}]

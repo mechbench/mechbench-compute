@@ -10,7 +10,6 @@ from mechbench_compute.lexicon._base import Op, Output, P
 _COORDS_TYPE = "map[string, string | float]"
 
 
-#: One factor of a crossed design: enumerated levels, sampled ones, or both.
 _FACTOR_FIELDS = (
     P("name", "string", "The factor's name: the coordinate every record carries it under."),
     P("levels", "list[object]", "The enumerated levels.", None,
@@ -99,24 +98,17 @@ def run(ctx, inputs, params):
     return build_collection(cross_factors(params))
 
 
-# The noise charset, fixed: a change here changes every sampled value
-# a protocol has drawn from it.
 SEED_CHARS = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
               "1234567890!@#$%^&*-_=+`~[]{}\\|;'\"/?.>,<")
 
 
 def _sample_value(gen: Mapping[str, Any], index: int) -> str:
-    """One sampled axis value, deterministic in (seed, index) alone —
-    the range-splitting guarantee."""
     kind = gen.get("type") or gen["kind"]
     size = int(gen["size"])
     rng = random.Random(f"{gen.get('seed', 0)}:{index}")
     if kind == "noise":
         body = "".join(rng.choice(SEED_CHARS) for _ in range(size))
     elif kind == "words":
-        # word_list: an inline list, or a fetched word_list object
-        # payload ({kind: "word_list", words: [...]}) — the executor's
-        # {"$ref": source} resolution hands the payload through whole.
         raw = gen.get("word_list") or []
         words = raw.get("words") if isinstance(raw, Mapping) else raw
         if not words:
@@ -131,13 +123,6 @@ def _sample_value(gen: Mapping[str, Any], index: int) -> str:
 
 
 def _materialize_levels(factor: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Materialize a factor to its [{key, value, coords}] levels. A
-    factor may carry enumerated `levels`, `sampled` generators (one or
-    a list), or both (enumerated first). Levels and generators may
-    attach extra `coords` merged into each record (generators stamp a
-    `<name>_kind` coordinate by default, so analysis groups by
-    generator type, never by parsing keys). `values` is an accepted
-    spelling of `levels`."""
     name = factor.get("name", "")
     out: list[dict[str, Any]] = []
     enumerated = factor.get("levels", factor.get("values"))
@@ -165,9 +150,6 @@ def _materialize_levels(factor: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def cross_factors(params: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Fully crossed factors: the Cartesian product of every factor's
-    levels, as coordinate-carrying records. `axes` is an accepted
-    spelling of `factors`."""
     factors = params.get("factors", params.get("axes")) or []
     records: list[dict[str, Any]] = [
         {"id": "", "coords": {}, "values": {}}

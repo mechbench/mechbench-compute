@@ -1,11 +1,3 @@
-"""How each item ended: one word on every item of `text/generate` and
-`text/chat`, local or remote, in `metadata.sampling.ended`, and the
-node's header counting its items by that word.
-
-Nothing here touches the network: the adapters run against a scripted
-`post_json`, the local paths against a fake sampler.
-"""
-
 from __future__ import annotations
 
 import copy
@@ -21,7 +13,6 @@ from mechbench_compute.chat.read_ending import read_ending
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 from mechbench_compute.providers import http
 
-# --- the mapping, word by word ----------------------------------------------
 
 @pytest.mark.parametrize("provider,word,ended", [
     ("anthropic", "end_turn", "end"),
@@ -82,14 +73,10 @@ def test_an_empty_reply_is_empty_whatever_the_provider_said():
 
 
 def test_a_natural_stop_holding_a_tool_call_is_a_tool_call():
-    # Gemini and the Responses API report a function call as a plain stop.
     assert read_ending("gemini", "stop", tool_call=True) == "tool_call"
     assert read_ending("openai", "completed", tool_call=True) == "tool_call"
-    # A tool call cut off at the limit was still cut off.
     assert read_ending("openai", "length", tool_call=True) == "max_tokens"
 
-
-# --- through the adapters and the node --------------------------------------
 
 class Script:
     def __init__(self, *bodies):
@@ -155,7 +142,6 @@ class TestTheNode:
         assert endings(out) == ["end", "max_tokens", "stop", "empty"]
         assert out["ended"] == {"end": 1, "stop": 1, "max_tokens": 1, "tool_call": 0,
                                 "filtered": 0, "empty": 1, "other": 0}
-        # The provider's own word stays where it was.
         assert sorted(i["metadata"]["call"]["stop_reason"] for i in out["items"]) == [
             "end_turn", "max_tokens", "refusal", "stop_sequence"]
 
@@ -196,8 +182,6 @@ class TestTheNode:
         assert node["items"][0]["metadata"]["sampling"]["ended"] == "max_tokens"
         assert out.payload["node_summaries"]["chat"]["ended"] == node["ended"]
 
-
-# --- local ---------------------------------------------------------------------
 
 class _Tok:
     def decode(self, ids):
@@ -241,7 +225,6 @@ def test_a_local_chat_says_how_each_reply_ended(monkeypatch):
     assert endings(out) == ["end", "max_tokens", "stop"]
     assert out["ended"] == dict.fromkeys(ENDINGS, 0) | {
         "end": 1, "max_tokens": 1, "stop": 1}
-    # The field sits beside what the sampling record always had.
     assert list(out["items"][0]["metadata"]["sampling"]) == [
         "temperature", "top_p", "seed", "index", "ended"]
 
@@ -249,7 +232,6 @@ def test_a_local_chat_says_how_each_reply_ended(monkeypatch):
 def test_a_local_reply_of_reasoning_alone_ends_empty(monkeypatch):
     import importlib
 
-    # The package re-exports the function under the module's own name.
     run_local_mod = importlib.import_module("mechbench_compute.chat.run_local")
 
     monkeypatch.setattr(run_local_mod, "find_delimiters", lambda tok: ("<t>", "</t>"))
@@ -297,8 +279,6 @@ def test_generate_counts_its_items_by_ending(monkeypatch):
         "stop": 1, "max_tokens": 1, "end": 1}
 
 
-# --- a result stored before the field -----------------------------------------
-
 def test_an_old_result_reads_with_the_field_absent_not_wrong():
     old = {"kind": "collection", "item_kind": "text/document", "items": [
         {"id": "r0-s0", "text": "Once.", "metadata": {
@@ -306,8 +286,6 @@ def test_an_old_result_reads_with_the_field_absent_not_wrong():
             "call": {"provider": "anthropic", "stop_reason": "max_tokens"}}}]}
     assert "ended" not in old
     assert "ended" not in old["items"][0]["metadata"]["sampling"]
-    # Counting it invents nothing: an item without the word is not
-    # counted as any ending, least of all a natural one.
     assert count_endings(old["items"]) == dict.fromkeys(ENDINGS, 0)
 
 
@@ -317,5 +295,4 @@ def test_the_manifest_carries_each_generation_nodes_count():
     node = {"kind": "collection", "item_kind": "text/document", "items": [{}, {}],
             "ended": dict.fromkeys(ENDINGS, 0) | {"end": 1, "max_tokens": 1}}
     assert summarize_node(node)["ended"] == node["ended"]
-    # A node without the count (any other op, or one stored before it) has none.
     assert "ended" not in summarize_node({**node, "ended": None})

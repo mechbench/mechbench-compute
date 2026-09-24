@@ -62,8 +62,6 @@ def run(ctx, inputs, params):
 
 
 def relabel(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """`records/relabel`: each value of `field` that `labels` names,
-    replaced by its label."""
     field = str(params["field"])
     labels = params.get("labels")
     if not isinstance(labels, Mapping) or not labels:
@@ -94,14 +92,10 @@ def relabel(records: Any, params: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _read_label_key(value: Any) -> str:
-    """The key a value is labelled under: text as itself, anything else
-    as its JSON."""
     return value if isinstance(value, str) else json.dumps(value)
 
 
 def _write_back(rec: dict[str, Any], field: str, label: Any) -> None:
-    """`label` written where `read_field` found the value: a coordinate,
-    a top-level field, or the end of a dot path."""
     coords = rec.get("coords")
     if isinstance(coords, Mapping) and field in coords:
         rec["coords"] = {**coords, field: label}

@@ -1,10 +1,3 @@
-"""Smoke test for attribution.py: accumulated_resid, decompose_resid,
-head_results, logit_attrs.
-
-Runs a single forward pass with enough captures to exercise every code
-path, then asserts the outputs have the right shapes and sane values.
-"""
-
 from __future__ import annotations
 
 import numpy as np
@@ -42,7 +35,6 @@ def main() -> None:
     result = model.run(ids, interventions=interventions)
     cache = result.cache
 
-    # --- accumulated_resid ---
     stack = accumulated_resid(cache)
     assert stack.shape == (N_LAYERS, seq_len, D_MODEL), stack.shape
     assert stack.dtype == np.float32
@@ -52,7 +44,6 @@ def main() -> None:
     assert stack_with_pre.shape == (N_LAYERS + 1, seq_len, D_MODEL)
     print(f"accumulated_resid(include_pre): {stack_with_pre.shape}")
 
-    # --- decompose_resid ---
     parts = decompose_resid(cache)
     for k in ("attn", "mlp", "gate"):
         assert parts[k].shape == (N_LAYERS, seq_len, D_MODEL), (k, parts[k].shape)
@@ -61,12 +52,10 @@ def main() -> None:
         f"mlp={parts['mlp'].shape} gate={parts['gate'].shape}"
     )
 
-    # --- head_results ---
     heads23 = head_results(model, cache, layer=23)
     assert heads23.shape == (n_heads, seq_len, D_MODEL), heads23.shape
     print(f"head_results(layer=23):     {heads23.shape}")
 
-    # --- logit_attrs ---
     paris_id = int(model.tokenizer.encode(" Paris", add_special_tokens=False)[0])
     berlin_id = int(model.tokenizer.encode(" Berlin", add_special_tokens=False)[0])
     print(f"Target tokens: Paris={paris_id}, Berlin={berlin_id}")
@@ -79,8 +68,6 @@ def main() -> None:
     assert head_attrs.shape == (n_heads, 2), head_attrs.shape
     print(f"logit_attrs(heads at L23):  {head_attrs.shape}")
 
-    # Sanity: by the final layer, Paris attribution should beat Berlin for
-    # a France-capital prompt (directionally — we don't assert a magnitude).
     final_paris = float(layer_attrs[-1, 0])
     final_berlin = float(layer_attrs[-1, 1])
     print(

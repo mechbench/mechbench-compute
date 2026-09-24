@@ -1,16 +1,9 @@
-"""The order a graph's nodes run in."""
-
 from __future__ import annotations
 
 from typing import Any
 
 
 def sort_nodes(nodes: dict[str, Any], edges: list[dict]) -> list[str]:
-    """The node ids in topological order (Kahn), refusing a cycle.
-
-    The API validates acyclicity before a job is queued; a runner never
-    trusts its inputs to be well-formed.
-    """
     indeg = {nid: 0 for nid in nodes}
     for e in edges:
         indeg[e["to"]["node"]] += 1

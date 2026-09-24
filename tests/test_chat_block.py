@@ -1,10 +1,3 @@
-"""`text/chat` end to end: the endpoint
-ModelRef, the remote path through the executor, ordering under
-concurrency, resume, the budget, cassettes, and the local path.
-
-The provider is the mock, so the whole file runs offline and free.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -79,11 +72,9 @@ class TestRemoteNodeThroughTheExecutor:
         assert [i["id"] for i in node["items"]] == [
             "r0-s0", "r0-s1", "r1-s0", "r1-s1", "r2-s0", "r2-s1"]
         assert all(i["text"] for i in node["items"])
-        # Provenance per item: who answered, what it used, what it cost.
         call = node["items"][0]["metadata"]["call"]
         assert call["provider"] == "mock" and call["model_version"].endswith("mock-20260908")
         assert call["cost_usd"] > 0 and call["usage"]["output_tokens"] > 0
-        # And the node's own bill, summed into the manifest.
         spend = node["spend"]
         assert spend["calls"] == 6 and spend["cost_usd"] > 0
         total = out.payload["resources"]["spend"]
@@ -116,12 +107,10 @@ class TestRemoteNodeThroughTheExecutor:
         keep = {"r0:0": first["items"][0], "r1:0": first["items"][1]}
         again = chat_mod.run_remote(ref, _records(3), {"budget_usd": 1.0},
                                     resume_items=keep)
-        assert again["spend"]["calls"] == 1          # only r2 was bought
+        assert again["spend"]["calls"] == 1
         assert again["items"][:2] == first["items"][:2]
 
     def test_the_budget_refuses_the_call_that_would_cross_it(self):
-        # Every mock call costs a little; a cap of two calls' worth
-        # stops the third before it is made.
         one = chat_mod.run_remote(mr.parse(ENDPOINT), _records(1),
                                   {"budget_usd": 1.0, "max_tokens": 32})
         each = one["spend"]["cost_usd"]
@@ -187,18 +176,10 @@ class TestLocalPath:
         out = chat_mod.run_local(FakeModel(), mr.parse("google/gemma-3-4b-it"),
                                  _records(2), {"n": 1, "seed": 3})
         assert [i["text"] for i in out["items"]] == ["a local answer"] * 2
-        # System merges into the first user turn: these templates
-        # take no system role of their own.
         assert rendered[0] == "user:be brief\n\nquestion 0"
-        assert "spend" not in out       # nothing was bought
+        assert "spend" not in out
 
     def test_a_local_model_calls_tools_by_writing_them(self, monkeypatch):
-        """A local model's tools go through its OWN chat template: the
-        template declares them, renders the call and renders the result.
-        The stub below is a Qwen-shaped template — it changes when
-        `tools` is passed, and writes calls in Qwen's envelope — because
-        a template that ignores `tools` is refused, which is the next
-        test."""
         from mechbench_compute import distill, generate
 
         prompts: list[str] = []
@@ -209,10 +190,6 @@ class TestLocalPath:
         ])
 
         class QwenishTok:
-            """Renders turns, and renders them DIFFERENTLY when tools
-            are declared — which is how `probe_template` decides a
-            model supports them."""
-
             def apply_chat_template(self, turns, tokenize=False,
                                      add_generation_prompt=True, tools=None,
                                      **kw):
@@ -224,8 +201,6 @@ class TestLocalPath:
                 if tools:
                     names = [t["function"]["name"] for t in tools]
                     body = f"<tools>{names}</tools> " + body
-                    # A rendered call + result, so the probe can read
-                    # this model's dialect off its own output.
                     if any(t.get("tool_calls") for t in turns):
                         body += ('<tool_call>\n{"name": "calc", "arguments": '
                                  '{"expression": "37 + 18"}}\n</tool_call>'
@@ -247,9 +222,7 @@ class TestLocalPath:
         assert item["text"] == "The answer is 42."
         run = item["metadata"]["tool_runs"][0]
         assert run["tool"] == "calc" and run["arguments"] == {"expression": "6*7"}
-        # The TEMPLATE declared the tools — we did not write a fence.
         assert "<tools>['calc']</tools>" in prompts[-1]
-        # The call and its result went back as real turns, not prose.
         assert "[calls:['calc']]" in prompts[-1]
         assert '"result": 42' in prompts[-1], "the tool result reached the model"
         assert "tool:" in prompts[-1], "and did so under a tool role"
@@ -260,8 +233,6 @@ class TestLocalPath:
 
     def test_a_model_with_no_tool_protocol_refuses_rather_than_inventing_one(
             self, monkeypatch):
-        """A model that cannot receive a tool declaration must say so,
-        not quietly do worse."""
         from mechbench_compute import dialects, distill, generate
 
         class IgnoresTools:
@@ -282,7 +253,6 @@ class TestLocalPath:
                                _records(1), {"n": 1, "tools": ["calc"]})
 
     def test_the_same_model_is_fine_without_tools(self, monkeypatch):
-        # The refusal is about OFFERING tools, not about the model.
         from mechbench_compute import distill, generate
 
         class IgnoresTools:
@@ -304,10 +274,6 @@ class TestLocalPath:
 
 
 class TestToolErrors:
-    """A call that did not execute is an ERROR, reported in the results
-    with its cause. There is no "near miss": the only question worth
-    asking about a failed call is whose fault it was."""
-
     def _run(self, reply, extra=None):
         from mechbench_compute import distill, generate
 
@@ -355,8 +321,6 @@ class TestToolErrors:
         assert "OUR parser" in errs[0]["detail"]
 
     def test_answering_without_a_tool_is_not_an_error(self):
-        # Whether the model SHOULD have called one is the experiment's
-        # question, not the harness's. It is counted, not faulted.
         out = self._run("The stall has 55 apples.")
         assert out["tools"]["errors"] == []
         assert out["tools"]["without_calls"] == 1
@@ -369,7 +333,7 @@ class TestToolErrors:
 
     def test_an_error_does_not_fail_the_run_by_default(self):
         out = self._run('<tool_call>\n{"name": "wget", "arguments": {}}\n</tool_call>')
-        assert out["items"][0]["text"]  # the response is still there
+        assert out["items"][0]["text"]
         assert out["tools"]["errors_by_cause"] == {"unknown_tool": 1}
 
     def test_on_tool_error_fail_makes_it_fatal_when_asked(self):
@@ -390,8 +354,6 @@ class TestJobBudget:
         job = Budget(cap_usd=0.002)
         ex = PE(budget=job)
         spec = _spec({"n": 4, "max_tokens": 64})
-        # Each node cap is 5.0 and could not stop this on its own; the
-        # job cap can, and the runner reads its spend live.
         with pytest.raises(BudgetExceeded):
             for _ in range(20):
                 ex.run(spec)
@@ -399,12 +361,6 @@ class TestJobBudget:
 
 
 class TestEveryParamIsAPromise:
-    """A param the block cannot honour is a wrong answer with no
-    error, which is what `check_params` exists to prevent. The remote
-    path refuses by capability; the local path, having no equivalent of
-    these four, refuses them outright.
-    """
-
     def _local(self, params, monkeypatch, sampled="a local answer"):
         from mechbench_compute import distill, generate
 
@@ -439,8 +395,6 @@ class TestEveryParamIsAPromise:
         assert len(out["items"]) == 1
 
     def test_a_false_json_mode_is_not_a_request_for_json(self, monkeypatch):
-        # The default is False; a protocol that writes it out explicitly
-        # is asking for nothing, and must not be refused for it.
         assert self._local({"json_mode": False, "logprobs": None},
                            monkeypatch)["items"]
 
@@ -455,7 +409,6 @@ class TestEveryParamIsAPromise:
 
         with pytest.raises(ValueError, match="thinking"):
             pm.request({"model": "m", "provider_options": {"thinking": {"x": 1}}})
-        # …and the keyed form is fine.
         req = pm.request({"model": "m",
                           "provider_options": {"anthropic": {"thinking": {}}}})
         assert req.options_for("anthropic") == {"thinking": {}}

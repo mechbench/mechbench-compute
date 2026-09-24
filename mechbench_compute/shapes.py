@@ -1,30 +1,3 @@
-"""The value types and item constructors every op builds its output
-from (docs/LEXICON.md §4–§5).
-
-Many ops carry a float vector, or "the top tokens", and each would
-otherwise spell "what it is of", "which space" and "its norm" its own
-way. This module is the one place those shapes are made:
-
-  space(...)         `{model, layer, point, head?, d}` — where a vector
-                     lives; two vectors are comparable only when their
-                     spaces agree (`same_space`).
-  token(...)         `{id, text}` — a token, once.
-  vector(...)        an `activations/vector` item: `{id, coords, space,
-                     vector, norm, token?, n_pooled?}`.
-  distribution(...)  a `logits/distribution`: `{entropy_bits, top,
-                     tracked}` from a log-probability vector and the
-                     tokens the caller asked about.
-  grid(...)          an `activations/grid` item: `{id, axes, measures,
-                     tokens?}` — a scalar field over model axes.
-  coordinate(...)    an `activations/coordinate` item: a vector's scalar
-                     coordinate along a direction.
-
-Readers of the shapes the bench stored before these existed (a `layer`
-on the item and `point` on the header; `label` instead of a coordinate;
-`top_tokens` with `p` only) go through `space_of`, `layer_of`,
-`label_of` and `distribution_of`, which read either spelling.
-"""
-
 from __future__ import annotations
 
 import math
@@ -39,15 +12,9 @@ _ROUND_VECTOR = 5
 _ROUND_P = 5
 _ROUND_LOGP = 4
 
-# --- value types ------------------------------------------------------------------------
-
 
 def space(*, model: str | None, layer: int | None, point: str, d: int,
           head: int | None = None) -> dict[str, Any]:
-    """Where a vector lives. `layer` is None for a whole-model point
-    (the embedding, the final norm); `head` is None except for a per-head
-    source. Every space has the same five fields, so spaces compare and
-    sort against each other."""
     return {
         "model": model,
         "layer": None if layer is None else int(layer),
@@ -58,8 +25,6 @@ def space(*, model: str | None, layer: int | None, point: str, d: int,
 
 
 def same_space(a: Mapping[str, Any], b: Mapping[str, Any], *, what: str = "vectors") -> None:
-    """Refuse two things that do not share a space: layer, point, head
-    and width must agree; the model must agree when both are known."""
     sa, sb = space_of(a), space_of(b)
     for k in ("layer", "point", "head", "d"):
         if sa.get(k) != sb.get(k):
@@ -71,18 +36,13 @@ def same_space(a: Mapping[str, Any], b: Mapping[str, Any], *, what: str = "vecto
 
 
 def token(tokenizer, tid: int) -> dict[str, Any]:
-    """A token as `{id, text}`."""
     return {"id": int(tid), "text": tokenizer.decode([int(tid)])}
-
-
-# --- items ------------------------------------------------------------------------------
 
 
 def vector(vec: Any, sp: Mapping[str, Any], *, id: Any = None,
            coords: Mapping[str, Any] | None = None,
            token: Mapping[str, Any] | None = None,
            n_pooled: int | None = None, **extra: Any) -> dict[str, Any]:
-    """An `activations/vector` item."""
     v = np.asarray(vec, dtype=np.float32).reshape(-1)
     if v.size != int(sp["d"]):
         raise ValueError(f"vector has {v.size} dims; its space says {sp['d']}")
@@ -104,8 +64,6 @@ def vector(vec: Any, sp: Mapping[str, Any], *, id: Any = None,
 def coordinate(coord: float, sp: Mapping[str, Any], direction: Mapping[str, Any], *,
                id: Any = None, coords: Mapping[str, Any] | None = None,
                **extra: Any) -> dict[str, Any]:
-    """An `activations/coordinate` item: the scalar coordinate of a vector
-    along a direction, with the space and the direction's identity."""
     out: dict[str, Any] = {}
     if id is not None:
         out["id"] = id
@@ -118,8 +76,6 @@ def coordinate(coord: float, sp: Mapping[str, Any], direction: Mapping[str, Any]
 
 
 def direction_ref(d: Mapping[str, Any]) -> dict[str, Any]:
-    """A direction's identity without its vector: its space and how it
-    was made."""
     prov = d.get("derivation") or {}
     out: dict[str, Any] = {"space": space_of(d), "method": prov.get("method")}
     for k in ("axis", "positive", "negative", "labels", "sources"):
@@ -130,18 +86,9 @@ def direction_ref(d: Mapping[str, Any]) -> dict[str, Any]:
 
 def distribution(logp: np.ndarray, tokenizer, *, top_k: int,
                  tracked: Mapping[str, int] | None = None) -> dict[str, Any]:
-    """A `logits/distribution` from a log-probability vector over the
-    vocabulary: entropy in bits, the `top_k` most likely tokens ranked
-    (each `{token, p, logp}`), and `tracked` — name → `{token, p, logp}`
-    for the token ids the caller asked about, by the names it gave."""
     lp = np.asarray(logp, dtype=np.float64).reshape(-1)
     probs = np.exp(lp)
     nz = probs[probs > 0]
-    # A stable sort: tokens with exactly equal log-probability (common at a
-    # high-entropy layer read through the unembedding, where bf16 logits
-    # tie by the hundred) rank by token id, so the same logits give the
-    # same `top` every time and on every machine. An unstable sort here
-    # makes two identical runs disagree on a fifth of their top tokens.
     out: dict[str, Any] = {
         "entropy_bits": round(float(-(nz * np.log2(nz)).sum()), 4),
         "top": [_entry(tokenizer, int(t), lp) for t in np.argsort(-lp, kind="stable")[: int(top_k)]],
@@ -161,8 +108,6 @@ def _entry(tokenizer, tid: int, lp: np.ndarray) -> dict[str, Any]:
 def grid(id: Any, axes: Sequence[str], measures: Mapping[str, Any], *,
          tokens: Sequence[str] | None = None,
          coords: Mapping[str, Any] | None = None, **extra: Any) -> dict[str, Any]:
-    """An `activations/grid` item: named measures, each a nested list
-    indexed in `axes` order; `tokens` when an axis is `position`."""
     out: dict[str, Any] = {"id": id, "coords": dict(coords or {}),
                            "axes": list(axes), "measures": dict(measures)}
     if tokens is not None:
@@ -172,8 +117,6 @@ def grid(id: Any, axes: Sequence[str], measures: Mapping[str, Any], *,
 
 
 def model_id_of(model: Any) -> str | None:
-    """The identity a loaded model was asked for, for a space's `model`:
-    the requested id when the model kept it, else the architecture's."""
     for attr in ("requested_ref", "requested", "model_id"):
         v = getattr(model, attr, None)
         if isinstance(v, str) and v:
@@ -183,13 +126,7 @@ def model_id_of(model: Any) -> str | None:
     return v if isinstance(v, str) and v else None
 
 
-# --- readers of either spelling ---------------------------------------------------------
-
-
 def space_of(item: Mapping[str, Any], header: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """The item's `space`, or one assembled from the older flattened
-    spelling (`layer`/`head` on the item, `point`/`d_model`/`model` on
-    the header, `d` on a direction)."""
     sp = item.get("space")
     if isinstance(sp, Mapping):
         return dict(sp)
@@ -218,8 +155,6 @@ def head_of(item: Mapping[str, Any]) -> int | None:
 
 
 def coords_of(item: Mapping[str, Any]) -> dict[str, Any]:
-    """The item's coordinates, with the retired `label` field folded in
-    as the `label` coordinate."""
     coords = dict(item.get("coords") or {})
     if item.get("label") is not None and "label" not in coords:
         coords["label"] = item["label"]
@@ -227,8 +162,6 @@ def coords_of(item: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def label_of(item: Mapping[str, Any], axis: str | None) -> Any:
-    """The item's value on `axis` — a coordinate; the retired `label`
-    field is read as the `label` axis."""
     coords = item.get("coords") or {}
     if axis is None or axis == "label":
         v = coords.get("label")
@@ -238,10 +171,6 @@ def label_of(item: Mapping[str, Any], axis: str | None) -> Any:
 
 
 def distribution_of(item: Mapping[str, Any]) -> dict[str, Any]:
-    """A `logits/distribution` view of an item that does not carry the
-    shape: `top_tokens` (`{token, p}`), `outcome_mass` (outcome → p),
-    `track_logp`, `tracks` (name → logp), or the `top` of a readout
-    (`{token, logp}`). An item already in the shape is returned as is."""
     top = item.get("top")
     if isinstance(top, list) and top and isinstance(top[0].get("token"), Mapping):
         return dict(item)
@@ -280,8 +209,6 @@ def distribution_of(item: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def measures_of(item: Mapping[str, Any], legacy: Mapping[str, str]) -> dict[str, Any]:
-    """A grid item's `measures`, or the per-op fields named by
-    `legacy` (measure name → the field it is stored under)."""
     m = item.get("measures")
     if isinstance(m, Mapping):
         return dict(m)

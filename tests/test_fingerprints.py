@@ -1,11 +1,4 @@
-"""The fingerprint contract.
-
-A run that errors is a nuisance. A run that returns different numbers
-with no signal is a corrupted finding that gets written up and built
-on — the only failure a reproducibility platform cannot recover from.
-`node_fingerprint` is the thing standing between us and that, so what
-it does and does not cover is asserted here rather than assumed.
-"""
+import inspect
 import pathlib
 
 import pytest
@@ -42,52 +35,27 @@ class TestWhatMovesTheFingerprint:
         assert fp(**{field: value}) != fp()
 
     def test_param_order_does_not_matter(self):
-        # Canonical serialization, not repr: two identical param sets
-        # built in different orders are the same computation.
         a = fp(params={"layers": [14], "position": "final"})
         b = fp(params={"position": "final", "layers": [14]})
         assert a == b
 
     def test_adding_a_param_moves_it(self):
-        # A param added to the set moves the fingerprint: a record
-        # made with `pool` is not the record made without it.
         assert fp(params={**BASE["params"], "pool": "mean"}) != fp()
 
 
 class TestWhatDoesNotMoveIt:
-    """The gaps, asserted so they are known rather than discovered.
-
-    These are not bugs to fix here — hashing resolved defaults would
-    churn every fingerprint whenever a signature is touched. They are
-    the reason `core_version` has to be honest, which is what
-    TestTheVersionIsHonest is about."""
-
     def test_an_unstated_default_is_invisible(self):
-        # A protocol that omits `bridge_sigma` hashes the same before
-        # and after DEFAULT_BRIDGE_SIGMA changes, because params are
-        # hashed as DECLARED. Only the version separates them.
         declared = {"name": "corpus-variety"}
         assert fp(params=declared) == fp(params=declared)
         assert fp(params={**declared, "bridge_sigma": 2.0}) != fp(params=declared)
 
     def test_block_semantics_are_not_hashed_directly(self):
-        # There is no per-block semantics version in the body: change
-        # what a block DOES without changing its name or its declared
-        # params, and only core_version can notice.
-        assert "semantics" not in resume.node_fingerprint.__doc__.lower()
+        assert set(inspect.signature(resume.node_fingerprint).parameters) == {
+            "block", "params", "input_hashes", "core_version", "model"}
 
 
 class TestTheVersionIsHonest:
-    """`core_version` is `mechbench_compute.__version__`, which reads
-    installed dist METADATA — a promise the source need not keep, since
-    an editable install's metadata only updates when someone reinstalls.
-    Since params are hashed as declared, that string is the ONLY guard
-    against reusing work computed by different code, so a source import
-    must report a digest of the tree it is actually running."""
-
     def test_a_source_import_reports_its_source(self):
-        # This suite runs against the source tree, so the version must
-        # carry a digest of what is actually on disk.
         assert "+src." in mechbench_compute.__version__, (
             "a source/editable import must not report a bare version: "
             f"{mechbench_compute.__version__}"
@@ -108,10 +76,6 @@ class TestTheVersionIsHonest:
         assert d == mechbench_compute._editable_source_digest()
 
     def test_a_source_import_labels_itself_with_the_tree_s_own_number(self):
-        # The label beside the digest is the checkout's pyproject
-        # version, not the metadata of whenever `pip install -e` last
-        # ran: nobody reinstalls on a bump, so the metadata's number
-        # names a tree that is no longer there.
         import pathlib
         import re
 
@@ -148,8 +112,6 @@ class TestTheSourceDigest:
                 != mechbench_compute._digest_tree(b))
 
     def test_touching_without_editing_does_not_change_it(self, tmp_path):
-        # mtime-based digests churn on every git checkout; a spurious
-        # miss costs real compute, so content is what is hashed.
         a = self._tree(tmp_path / "a", {"m.py": "x = 1\n"})
         before = mechbench_compute._digest_tree(a)
         (a / "m.py").touch()
@@ -164,23 +126,17 @@ class TestTheSourceDigest:
 
 class TestResumeLevels:
     def test_an_unlisted_block_restarts(self):
-        # Safe by omission: residuals/vectors and vectors/mst are not
-        # in BLOCK_RESUME, so no partial of theirs is ever reused.
         assert resume.resume_level("geometry/span") == "restart"
         assert resume.resume_level(
             "activations/capture") == "restart"
 
     def test_restart_satisfies_anything_because_it_recomputes(self):
-        # `satisfies` reads backwards until you see that the level is a
-        # DEMAND, not a guarantee: a block that restarts asks nothing of
-        # the consumer and has no partial to mistrust.
         assert resume.satisfies("restart", "reproducible")
 
     def test_exchangeable_cannot_promise_bit_identity(self):
         assert not resume.satisfies("exchangeable", "reproducible")
 
     def test_state_restorable_ranks_with_reproducible(self):
-        # Documented: full state capture IS bit-identical.
         assert resume.satisfies("state-restorable", "reproducible")
 
     def test_an_unknown_level_refuses_rather_than_guessing(self):
