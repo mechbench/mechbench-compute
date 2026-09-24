@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.blocks.build_collection import build_collection
+from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
@@ -153,6 +154,10 @@ excluded unless named.
                 ), stored="text/word-list"),
               P("count", "int", "For `list`: how many items a valid list has.", None),
           )),
+        P("field", "string",
+          "The field holding each record's text: `text` by default, or another "
+          "string field (`rationale`, `id`), or a dot path to one.",
+          "text"),
         P("mode", "string",
           "`\"annotate\"`: emit each record with its measures. "
           "`\"corpus\"`: emit one summary record. `\"items\"`: emit one "
@@ -247,7 +252,7 @@ def measure_texts(inputs: Mapping[str, Any],
         raise ValueError(
             "text/measure needs texts on its `records` or `documents` port")
     recs = read_items(raw)
-    field = "text"
+    field = str(params.get("field") or "text")
     measures = params.get("measures") or []
     mode = params.get("mode", "annotate")
     if mode not in ("annotate", "corpus", "items"):
@@ -387,7 +392,8 @@ def measure_texts(inputs: Mapping[str, Any],
     # Per lexical measure, word -> [occurrences, texts using it].
     used: dict[str, dict[str, list[int]]] = {}
     for r in recs:
-        text = str(r.get(field, ""))
+        value = read_field(r, field)
+        text = "" if value is None else str(value)
         row = {**(r if keep else {}), "id": r.get("id"), "coords": coords_of(r)}
         for name, kind, cfg in compiled:
             if kind == "pattern":

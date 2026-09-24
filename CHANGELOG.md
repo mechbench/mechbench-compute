@@ -50,6 +50,9 @@ _None._
   it. `items` mode with only a `lexical` measure, once refused, now
   tallies its words. `word` says what a word is (a regular expression;
   `\S+` for whitespace tokens), on `lexical` and `opening`.
+- **`text/measure` `field` (000664).** The field holding each record's
+  text, `text` by default, or a dot path: a capture can read a slot
+  number out of an `id`, a pattern can search a judge's `rationale`.
 - **Openings (000664).** `text/measure` type `opening`: a text's first
   `words` words, lowercased and joined by spaces; in `corpus` mode
   `<name>_distinct` and `<name>_values`, each opening with how many

@@ -262,3 +262,11 @@ class TestStructuredCondition:
     def test_a_malformed_mapping_is_refused(self):
         with pytest.raises(ValueError, match="path, op, value"):
             parse_where([{"path": "x", "op": "=="}])
+
+
+def test_measure_reads_the_text_from_the_field_named():
+    rows = [{"id": "slot3-p1", "kl_bits": 0.2}, {"id": "ALL", "pass_rate": 0.8}]
+    out = measure_texts({"records": rows}, {"field": "id", "keep": True, "measures": [
+        {"type": "capture", "name": "slot", "pattern": r"^slot(\d+)-", "as": "number"}]})
+    assert [r.get("slot") for r in out] == [3, None]
+    assert out[0]["kl_bits"] == 0.2
