@@ -36,6 +36,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+# A collection's items, read on the server, re-exported.
+from .bench_items import fetch_items, items  # noqa: F401
+
 if TYPE_CHECKING:
     import ssl
 
@@ -427,18 +430,6 @@ def fetch_envelope(target: str, *, api_url: str | None = None,
     provenance, not just the payload: for the caller that wants lineage,
     the params fingerprint, or the producing tool version."""
     return _fetch_decoded(target, api_url, api_key, with_meta)
-
-
-def fetch_items(target: str, offset: int = 0, limit: int = 20, *,
-                api_url: str | None = None,
-                api_key: str | None = None) -> dict:
-    """Fetch one page of a collection object's items (server-side
-    slicing; never transfers the whole collection)."""
-    url, key = _config(api_url, api_key)
-    return _request(
-        "GET",
-        f"{url}/objects/~items?path={target}&offset={offset}&limit={limit}",
-        key)
 
 
 def listing(prefix: str, *, api_url: str | None = None,
