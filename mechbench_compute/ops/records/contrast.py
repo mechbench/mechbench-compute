@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
 from mechbench_compute.blocks.read_interval import read_interval
 from mechbench_compute.blocks.read_items import read_items
@@ -70,12 +71,6 @@ def run(ctx, inputs, params):
     return contrast(inputs["records"], params)
 
 
-def _read_field(record: Mapping[str, Any], name: str) -> Any:
-    """A field read the way `read_group_key` reads one: coords first, then
-    the record itself."""
-    coords = record.get("coords") or {}
-    return coords[name] if name in coords else record.get(name)
-
 
 def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     """`records/contrast`: the difference between two conditions'
@@ -102,18 +97,19 @@ def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
                                             "seed": params.get("seed", 0)})
     sides: dict[tuple, dict[str, list[tuple[Any, float]]]] = {}
     for r in recs:
-        side = _read_field(r, on)
+        side = read_field(r, on)
         if side == a_val:
             which = "a"
         elif side == b_val:
             which = "b"
         else:
             continue
-        if value_field not in r or r[value_field] is None:
+        value = read_field(r, value_field)
+        if value is None:
             raise ValueError(f"contrast: record {r.get('id')!r} has no {value_field!r} field")
         key = read_group_key(r, by)
-        pair_key = _read_field(r, paired) if paired else None
-        sides.setdefault(key, {"a": [], "b": []})[which].append((pair_key, float(r[value_field])))
+        pair_key = read_field(r, paired) if paired else None
+        sides.setdefault(key, {"a": [], "b": []})[which].append((pair_key, float(value)))
     rows = []
     rng = np.random.default_rng(seed)
     for key in sorted(sides, key=lambda k: tuple(str(x) for x in k)):

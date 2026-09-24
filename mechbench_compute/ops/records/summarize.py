@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute.blocks.expand_cells import expand_cells
+from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
 from mechbench_compute.blocks.read_interval import read_interval
 from mechbench_compute.blocks.read_items import read_items
@@ -54,7 +55,8 @@ sweep is a claim with a width, not a number. Whether two groups DIFFER is
     params=(
         P("value", "string",
           "The numeric field to summarise. A record has many numeric "
-          "fields; this names the one the question is about."),
+          "fields; this names the one the question is about. A dotted "
+          "name is a path from the record's root."),
         P("by", "list[string]",
           "The coordinates to group on. Empty gives one overall row.",
           None),
@@ -163,7 +165,8 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     groups: dict[tuple, list[float]] = {}
     n_missing = 0
     for r in recs:
-        if value_field not in r or r[value_field] is None:
+        value = read_field(r, value_field)
+        if value is None:
             if on_missing == "skip":
                 n_missing += 1
                 continue
@@ -173,7 +176,7 @@ def group_stats(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
                 f"(a judge that could not be read, an unscored item) — the "
                 f"count is then reported on the table.")
         key = read_group_key(r, by)
-        groups.setdefault(key, []).append(float(r[value_field]))
+        groups.setdefault(key, []).append(float(value))
     out = summarize_groups(groups, params)
     if n_missing:
         out["n_missing"] = n_missing
@@ -189,14 +192,14 @@ class GroupStats(Monoid):
         return {}
 
     def partial(self, records, params):
-        from mechbench_compute.blocks import read_group_key, expand_cells
+        from mechbench_compute.blocks import expand_cells, read_group_key
 
         by = params.get("by") or []
         f = params["value"]
         groups: dict[tuple, list[float]] = {}
         for r in expand_cells(records):
             key = read_group_key(r, by)
-            groups.setdefault(key, []).append(float(r[f]))
+            groups.setdefault(key, []).append(float(read_field(r, f)))
         return {k: tuple(sorted(v)) for k, v in groups.items()}
 
     def merge(self, a, b):

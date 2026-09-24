@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.blocks.build_collection import build_collection
+from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
@@ -40,7 +41,7 @@ count as `n_missing`.
                many=True),),
     output=Output('records/record', collection=True, doc="One record per element, in the parents' order and then the list's: `id`, `coords` (the parent's and the `index` coordinate), `parent`, and the element's fields. The header's `unnested` says the field, how many parents, how many records came out, and `n_missing` when any were skipped."),
     params=(
-        P("field", "string", "The list field to unnest."),
+        P("field", "string", "The list field to unnest, or a dot path to it."),
         P("index", "string",
           "The coordinate that holds each element's place in its list.",
           "index"),
@@ -73,7 +74,7 @@ def unnest(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     out: list[dict[str, Any]] = []
     parents = missing = 0
     for r in read_items(records):
-        elements = r.get(field)
+        elements = read_field(r, field)
         if elements is None:
             if on_missing == "skip":
                 missing += 1

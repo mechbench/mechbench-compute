@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from statistics import NormalDist
 from typing import Any
 
+from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
@@ -55,7 +56,7 @@ omits it and reports the count as `n_missing`.
         Output('records/table', collection=False, doc='One row per group with the `by` coordinates and `n`, `rho`, plus `lo` and `hi` when an `interval` was asked; `n_missing` when any records were skipped. The header\'s `correlation` names the method and the two fields, and `interval` the level and method when one was asked.')
     ),
     params=(
-        P("x", "string", "One numeric field: a coordinate or a top-level field."),
+        P("x", "string", "One numeric field: a coordinate, a top-level field, or a dot path."),
         P("y", "string", "The other numeric field."),
         P("by", "list[string]",
           "The coordinates to group on. Empty gives one overall row.",
@@ -123,10 +124,6 @@ def estimate_fisher_interval(rho: float | None, n: int, level: float) -> tuple[f
     return math.tanh(centre - z * se), math.tanh(centre + z * se)
 
 
-def _read_field(record: Mapping[str, Any], name: str) -> Any:
-    coords = record.get("coords") or {}
-    return coords[name] if name in coords else record.get(name)
-
 
 class RankPoints(Monoid):
     """Per group, the multiset of (x, y) points (sorted), and the records
@@ -146,7 +143,7 @@ class RankPoints(Monoid):
         groups: dict[tuple, list[tuple[float, float]]] = {}
         missing = 0
         for r in records:
-            x, y = _read_field(r, fx), _read_field(r, fy)
+            x, y = read_field(r, fx), read_field(r, fy)
             if x is None or y is None:
                 if on_missing == "skip":
                     missing += 1

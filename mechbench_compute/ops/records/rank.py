@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
 
@@ -18,7 +19,7 @@ top-ks, so partial results merge without loss.
                many=True),),
     output=Output('records/record', collection=True, doc='The top k, in order.'),
     params=(
-        P("value", "string", "The numeric field to rank by."),
+        P("value", "string", "The numeric field to rank by, or a dot path to it."),
         P("k", "int", "How many to keep.", 10),
     ),
     example={"value": "delta", "k": 5},
@@ -46,11 +47,11 @@ class TopK(Monoid):
     def partial(self, records, params):
         k = int(params.get("k", 10))
         f = params["value"]
-        rows = sorted(records, key=lambda r: (-float(r[f]), str(r.get("id"))))
+        rows = sorted(records, key=lambda r: (-float(read_field(r, f)), str(r.get("id"))))
         return tuple(dict(r) for r in rows[:k])
 
     def merge(self, a, b):
-        return tuple(sorted(a + b, key=lambda r: (-float(r[self._f]), str(r.get("id"))))[: self._k])
+        return tuple(sorted(a + b, key=lambda r: (-float(read_field(r, self._f)), str(r.get("id"))))[: self._k])
 
     def finalize(self, p, params):
         from mechbench_compute.lexicon import kinds as K

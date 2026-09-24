@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from mechbench_compute.blocks.read_field import read_field
+
 
 def read_group_key(record: Mapping[str, Any], by: Sequence[str]) -> tuple:
     """The grouping key, read from the record's coordinates and then from
@@ -14,6 +16,6 @@ def read_group_key(record: Mapping[str, Any], by: Sequence[str]) -> tuple:
     being exactly the condition. A field is a field wherever the record
     carries it, and the key must fall back the same way the VALUE does,
     or grouping by `layer` collapses every row onto one key of `None`.
+    A dotted name is a path from the record's root (`read_field`).
     """
-    coords = record.get("coords") or {}
-    return tuple(coords.get(k, record.get(k)) for k in by)
+    return tuple(read_field(record, k) for k in by)

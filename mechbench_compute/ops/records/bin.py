@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
 
@@ -50,7 +51,7 @@ class Histogram(Monoid):
         lo, hi, n = float(params["lo"]), float(params["hi"]), int(params["bins"])
         counts: dict[int, int] = {}
         for r in records:
-            v = float(r[f])
+            v = float(read_field(r, f))
             b = n if v >= hi else (-1 if v < lo else int((v - lo) / (hi - lo) * n))
             counts[b] = counts.get(b, 0) + 1
         return counts

@@ -5,6 +5,8 @@ from collections.abc import Mapping, Sequence
 from statistics import NormalDist
 from typing import Any
 
+from mechbench_compute.blocks.match_where import match_where, parse_where
+from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
@@ -13,7 +15,8 @@ from mechbench_compute.reduce.monoid import Monoid
 OP = Op(
     name="records/count",
     summary=(
-        "Count the records whose field holds a value — k of n, the "
+        "Count the records whose field holds a value, or that meet a "
+        "condition — k of n, the "
         "proportion, and its Wilson interval — one row per combination of "
         "the `by` coordinates."
     ),
@@ -45,6 +48,20 @@ A record without the field is refused by name. When absent values are
 expected — an unparsed vote carries no winner — set `on_missing: "skip"`,
 and the count of skipped records is reported on the table as `n_missing`.
 
+A field name with dots in it is a path from the record's root,
+`metadata.call.stop_reason`; a coordinate or top-level field of that
+name is read first.
+
+### A condition instead of a value
+
+When a success is not one value — a reply longer than 250 tokens, a
+score of at least 4 — name it with `where` in place of `field`: a list of
+conditions in the grammar the API's item query reads, `PATH OP VALUE`
+with OP one of `=` `!=` `<` `<=` `>` `>=` `~`. A record is a success when
+every condition holds, and every record is a trial. A missing field is
+null, so `metadata.call.usage.reasoning_tokens>0` is a failure on a reply
+that carries no count, and `x!=null` counts the records that have one.
+
 `by` names coordinates (or top-level fields) to group on: one row per
 combination, each its own count. Empty gives one overall row.
 """,
@@ -54,16 +71,23 @@ combination, each its own count. Empty gives one overall row.
                "item has an id and its fields; a table's rows are read as records.",
                many=True),),
     output=(
-        Output('records/table', collection=False, doc='One row per group with the `by` coordinates and `k`, `n`, `rate`, `lo`, `hi`; `n_missing` when any records were skipped. The header\'s `interval` says the level and the method (`wilson`), and `counted` says which field and value.')
+        Output('records/table', collection=False, doc='One row per group with the `by` coordinates and `k`, `n`, `rate`, `lo`, `hi`; `n_missing` when any records were skipped. The header\'s `interval` says the level and the method (`wilson`), and `counted` says which field and value, or which conditions.')
     ),
     params=(
-        P("field", "string", "The field read from every record: a coordinate or a top-level field."),
+        P("field", "string",
+          "The field read from every record: a coordinate, a top-level field, "
+          "or a dot path. One of `field` and `where` is required.",
+          None),
         P("equals", "json",
           "The value that counts as a success. `true` by default, for a "
           "field that is already a yes or a no.",
           True),
         P("by", "list[string]",
           "The coordinates to group on. Empty gives one overall row.",
+          None),
+        P("where", "list[string]",
+          "Conditions a success meets, each `PATH OP VALUE` (`\"lex_words>80\"`), "
+          "in place of `field` and `equals`.",
           None),
         P("on_missing", "string",
           "`\"error\"`: refuse a record without the field. `\"skip\"`: omit "
@@ -98,16 +122,19 @@ def estimate_wilson(k: int, n: int, level: float) -> tuple[float, float]:
     return max(0.0, centre - half), min(1.0, centre + half)
 
 
-def _read_field(record: Mapping[str, Any], name: str) -> Any:
-    coords = record.get("coords") or {}
-    return coords[name] if name in coords else record.get(name)
-
 
 def _matches(value: Any, equals: Any) -> bool:
     # A bool is an int in Python; `1` is not `true` in a record.
     if isinstance(equals, bool) or isinstance(value, bool):
         return isinstance(value, bool) and isinstance(equals, bool) and value is equals
     return value == equals
+
+
+def _read_success(params: Mapping[str, Any]):
+    field, where = params.get("field"), params.get("where")
+    if (field is None) == (where is None):
+        raise ValueError("count takes one of `field` and `where`")
+    return field, (parse_where(where) if where is not None else None)
 
 
 def _read_level(params: Mapping[str, Any]) -> float:
@@ -125,7 +152,7 @@ class CountShare(Monoid):
         return ({}, 0)
 
     def partial(self, records: Sequence[Mapping[str, Any]], params):
-        field = params["field"]
+        field, conditions = _read_success(params)
         equals = params.get("equals", True)
         by = params.get("by") or []
         on_missing = str(params.get("on_missing", "error"))
@@ -134,7 +161,12 @@ class CountShare(Monoid):
         groups: dict[tuple, tuple[int, int]] = {}
         missing = 0
         for r in records:
-            value = _read_field(r, field)
+            if conditions is not None:
+                key = read_group_key(r, by)
+                k, n = groups.get(key, (0, 0))
+                groups[key] = (k + match_where(r, conditions), n + 1)
+                continue
+            value = read_field(r, field)
             if value is None:
                 if on_missing == "skip":
                     missing += 1
@@ -169,12 +201,15 @@ class CountShare(Monoid):
             rows.append(row)
         columns = ([{"name": name, "dtype": "string"} for name in by]
                    + [{"name": c, "dtype": "number"} for c in ("k", "n", "rate", "lo", "hi")])
-        field = params["field"]
+        field, conditions = _read_success(params)
+        counted = ({"where": [f"{c.path}{c.op}{c.raw}" for c in conditions]}
+                   if conditions is not None
+                   else {"field": field, "equals": params.get("equals", True)})
         out = {"kind": "records/table",
-               "name": params.get("name", f"{field}-count"),
+               "name": params.get("name", f"{field or 'where'}-count"),
                "description": params.get("description", ""),
                "row_axis": "condition", "columns": columns, "rows": rows,
-               "counted": {"field": field, "equals": params.get("equals", True)},
+               "counted": counted,
                "interval": {"level": level, "method": "wilson", "of": "proportion"}}
         if missing:
             out["n_missing"] = missing

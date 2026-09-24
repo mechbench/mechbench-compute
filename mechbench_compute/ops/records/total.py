@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
 
@@ -45,7 +46,7 @@ class FloatSum(Monoid):
 
     def partial(self, records, params):
         f = params["value"]
-        return tuple(sorted(float(r[f]) for r in records))
+        return tuple(sorted(float(read_field(r, f)) for r in records))
 
     def merge(self, a, b):
         return tuple(sorted(a + b))
