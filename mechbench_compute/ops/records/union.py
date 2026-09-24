@@ -70,7 +70,11 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
         # A single kinded object on a port — a direction from
         # `direction/fit`, say — is a collection of one; it
         # takes the port's name as its id when it carries none, so the
-        # union's items stay distinguishable by key.
+        # union's items stay distinguishable by key. A table is not one
+        # thing but its rows, as every records op reads it.
+        if isinstance(value, Mapping) and value.get("kind") == "records/table" \
+                and isinstance(value.get("rows"), list):
+            return value
         if isinstance(value, Mapping) and K.item_kind_of(value) is None \
                 and isinstance(value.get("kind"), str):
             try:

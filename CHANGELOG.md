@@ -28,6 +28,9 @@ _None._
   top-level field, as `count`, `correlate` and grouping already did. A
   record that carries the same name as both a coordinate and a field now
   reads the coordinate.
+- **`records/union` reads a `records/table` on a port as its rows (000668).**
+  It wrapped the table as one item named for the port, so a union of
+  `records/summarize` outputs held one record per table.
 
 ### Other
 
@@ -57,6 +60,17 @@ _None._
   `words` words, lowercased and joined by spaces; in `corpus` mode
   `<name>_distinct` and `<name>_values`, each opening with how many
   texts start that way.
+- **`records/lookup` (000668).** Reads each record's value through a list
+  or map its input's header carries: `by: "member"` (a layer through
+  `arch.global_layers`, true or false) or `by: "index"` (a grid place
+  through an attribution's `components`). A `header` input takes the
+  original result when the records were remade from it.
+- **`records/relabel` (000668).** Replaces a field's values with labels;
+  a key matches the value or its JSON spelling, and `others: "error"`
+  refuses a value no label names.
+- **`records/tabulate` `by`, `order`, `descending` (000668).** The rows in
+  the order asked for, by value or by a listed order of values. Ordering
+  is a table's: a stored collection is kept in key order.
 
 ## 0.133.0 — 2026-09-23
 

@@ -196,7 +196,14 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/text/extend.py", "build_transcript_item")],
     "records/tabulate": [
         ("ops/records/tabulate.py", "run"),
-        ("ops/records/tabulate.py", "tabulate_records")],
+        ("ops/records/tabulate.py", "tabulate_records"),
+        ("ops/records/tabulate.py", "sort_records")],
+    "records/lookup": [
+        ("ops/records/lookup.py", "run"),
+        ("ops/records/lookup.py", "lookup")],
+    "records/relabel": [
+        ("ops/records/relabel.py", "run"),
+        ("ops/records/relabel.py", "relabel")],
     "records/union": [
         ("ops/records/union.py", "run"),
         ("ops/records/union.py", "union"),
