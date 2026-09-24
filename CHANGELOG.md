@@ -40,7 +40,8 @@ _None._
   of `PATH OP VALUE` conditions in the API's item-query grammar
   (`= != < <= > >= ~`, a missing path is null), and `records/count` takes
   the same list as `where` in place of `field`/`equals`: k is the records
-  meeting every condition. `blocks/match_where.py`.
+  meeting every condition. A condition may also be `{path, op, value}`,
+  whose value can be a `$param`. `blocks/match_where.py`.
 - **`records/subtract` `minus` (000664).** A field of the same record as
   the baseline, in place of a matched baseline record.
 - **Words a corpus uses (000664).** `text/measure`'s `lexical` measure

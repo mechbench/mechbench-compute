@@ -29,7 +29,9 @@ value is JSON when it parses as JSON and text otherwise. A missing field is
 null, so `x=null` keeps the records without it and `x!=null` the records
 with it. Ordering holds between two numbers or two texts and nothing else;
 `~` is text containing the value, case-insensitively, or a list holding it.
-A record passes when every condition holds.
+A record passes when every condition holds. A condition may also be written
+`{"path": "depth", "op": ">=", "value": {"$param": "allowance"}}`, which lets
+its value come from a param.
 
 A field name with dots in it is a path from the record's root:
 `metadata.coords.prompt` reads a coordinate a corpus keeps in its
@@ -46,7 +48,7 @@ each under the name as written.
                many=True),),
     output=Output('records/record', collection=True, doc='The matching records.'),
     params=(
-        P("where", "map[string, string | float | bool | list[string | float | bool]] | list[string]",
+        P("where", "map[string, string | float | bool | list[string | float | bool]] | list[string | object]",
           "Field → value or list of values: `{\"genre\": \"noir\", "
           "\"leak\": 0}` keeps noir records with no leak. Or a list of "
           "`PATH OP VALUE` conditions: `[\"lex_words>80\"]`.",

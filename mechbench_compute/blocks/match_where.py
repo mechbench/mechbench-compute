@@ -24,7 +24,9 @@ class Condition:
 def parse_where(where: str | Iterable[str] | Mapping[str, Any] | None) -> list[Condition]:
     """Conditions in the API's item-query grammar, `PATH OP VALUE`, OP one
     of `= != < <= > >= ~`. The value is JSON when it parses as JSON and
-    text otherwise. A mapping is read as equalities."""
+    text otherwise. A condition may also be a mapping `{path, op, value}`,
+    whose value is taken as given, so a protocol can bind it to a param. A
+    mapping in place of the list is read as equalities."""
     if where is None:
         return []
     if isinstance(where, Mapping):
@@ -34,6 +36,9 @@ def parse_where(where: str | Iterable[str] | Mapping[str, Any] | None) -> list[C
         where = [where]
     out = []
     for w in where:
+        if isinstance(w, Mapping):
+            out.append(_parse_condition(w))
+            continue
         m = _WHERE.match(str(w))
         if not m:
             raise ValueError(
@@ -46,6 +51,15 @@ def parse_where(where: str | Iterable[str] | Mapping[str, Any] | None) -> list[C
             value = raw
         out.append(Condition(m.group(1), m.group(2), value, raw))
     return out
+
+
+def _parse_condition(w: Mapping[str, Any]) -> Condition:
+    path, op = w.get("path"), w.get("op", "=")
+    if not isinstance(path, str) or not path or op not in OPS:
+        raise ValueError(
+            f"a condition is {{path, op, value}}, op one of {' '.join(OPS)}, not {dict(w)!r}")
+    value = w.get("value")
+    return Condition(path, op, value, _read_text(value) if _read_text(value) is not None else json.dumps(value))
 
 
 def _read_rank(v: Any) -> int:

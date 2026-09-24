@@ -85,9 +85,9 @@ combination, each its own count. Empty gives one overall row.
         P("by", "list[string]",
           "The coordinates to group on. Empty gives one overall row.",
           None),
-        P("where", "list[string]",
-          "Conditions a success meets, each `PATH OP VALUE` (`\"lex_words>80\"`), "
-          "in place of `field` and `equals`.",
+        P("where", "list[string | object]",
+          "Conditions a success meets, each `PATH OP VALUE` (`\"lex_words>80\"`) or "
+          "`{path, op, value}`, in place of `field` and `equals`.",
           None),
         P("on_missing", "string",
           "`\"error\"`: refuse a record without the field. `\"skip\"`: omit "

@@ -249,3 +249,16 @@ class TestOpening:
     def test_words_is_at_least_one(self):
         with pytest.raises(ValueError, match="at least 1"):
             measure_texts({"records": list(self.STORIES)}, {"measures": [{"type": "opening", "words": 0}]})
+
+
+class TestStructuredCondition:
+    def test_a_mapping_condition_takes_its_value_as_given(self):
+        kept = select(REPLIES, {"where": [{"path": "metadata.call.usage.output_tokens", "op": ">=", "value": 260}]})
+        assert [r["id"] for r in kept] == ["flash-s1", "neutral-s4"]
+        out = count(REPLIES, {"where": [{"path": "metadata.call.stop_reason", "op": "=", "value": "max_tokens"}]})
+        assert (out["rows"][0]["k"], out["rows"][0]["n"]) == (1, 5)
+        assert out["counted"] == {"where": ["metadata.call.stop_reason=max_tokens"]}
+
+    def test_a_malformed_mapping_is_refused(self):
+        with pytest.raises(ValueError, match="path, op, value"):
+            parse_where([{"path": "x", "op": "=="}])
