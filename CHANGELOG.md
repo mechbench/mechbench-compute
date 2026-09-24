@@ -13,6 +13,35 @@ nothing said so.
 
 ---
 
+## Unreleased — `records/diff` (000658)
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- **`records/diff`: two collections compared record by record.**
+  Records are matched by key (`id`, or named coordinates such as
+  `["prompt", "sample"]`), never by position. The answer says whether
+  the two payloads are identical, which records are on one side only,
+  and for each record that differs, which fields moved (`added`,
+  `removed`, `extends`, `truncates`, `changed`) with the values and,
+  for numbers, the delta and its largest magnitude. Fields that move on
+  every run (timestamps, latencies, provider and job ids, rate limits,
+  result paths, the compute version and its `+src` stamp) are left out
+  by default, listed, and counted where they differed. `allow` states
+  the differences expected, with a condition on the earlier record
+  (`when`), and `holds` says whether every difference was one of them;
+  `by` puts each side's group means side by side. A kind in a retired
+  spelling compares equal to its current name. As a node, its ports
+  reference the two results, so the comparison cites both runs; the
+  runner's `run diff` verb calls the same function.
+
 ## 0.132.0 — 2026-09-23
 
 ### Changes that raise

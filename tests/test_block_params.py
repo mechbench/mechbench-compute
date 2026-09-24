@@ -162,6 +162,9 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/summarize.py", "summarize_groups"),
         ("ops/records/summarize.py", "group_stats"),
         ("ops/records/summarize.py", "GroupStats")],
+    "records/diff": [
+        ("ops/records/diff.py", "run"),
+        ("ops/records/diff.py", "diff_collections")],
     "records/contrast": [
         ("ops/records/contrast.py", "run"),
         ("ops/records/contrast.py", "_read_field"),
