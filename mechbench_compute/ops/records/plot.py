@@ -59,7 +59,8 @@ mark to do it (the vocabulary is `mechbench/docs/VISUALIZATION.md`):
   key/value boundary, so a layer is the same place in every figure. A
   sweep's result carries them under `arch`, and a summary or contrast
   of it carries them forward; this op reads them from its input when
-  `axes` is not given.
+  `axes` is not given and the x or y field is `layer`, the field the
+  renderer draws as depth.
 * **`annotate`** — callouts drawn on the figure at named rows. The
   extremes are labelled by default; this names what else to say.
 * **`focus`** — the field this figure shares with the others on a page:
@@ -126,7 +127,8 @@ The two are different and may be combined.
           "Landmarks for an axis. `layer` carries the model's depth: "
           "`n` layers, the `global` attention layers, and "
           "`kv_shared_from`, the first layer that reuses keys and values. "
-          "Read from the input's `arch` header when not given.",
+          "Read from the input's `arch` header when not given and the x or y "
+          "field is `layer`.",
           None, fields=(
               P("layer", "object", "The depth landmarks.", None, fields=(
                   P("n", "int", "How many layers the model has.", None),
@@ -184,6 +186,7 @@ SCALES = ("diverging", "sequential")
 
 
 LABEL_FIELDS = ("x", "y", "value", "series", "color")
+DEPTH_FIELD = "layer"
 
 
 def run(ctx, inputs, params):
@@ -301,7 +304,8 @@ def build_chart(records: Any, params: Mapping[str, Any],
     labels = {k: str(v) for k, v in labels_in.items() if v}
     header = records if isinstance(records, Mapping) else None
     axes = (_check_layer_axis(params["axes"]) if params.get("axes") is not None
-            else ({"layer": la} if (la := _read_layer_axis(header)) else None))
+            else ({"layer": la} if DEPTH_FIELD in (x, y) and (la := _read_layer_axis(header))
+                  else None))
     annotate = (_check_annotations(params["annotate"])
                 if params.get("annotate") is not None else None)
     reference = (_check_references(params["reference"])

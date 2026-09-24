@@ -13,6 +13,22 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- **`records/plot` stamps layer landmarks (`axes.layer`) from its input's
+  `arch` only when the x or y field is `layer`**, the field the renderer
+  draws as depth. A chart of anything else over a sweep's result (a die
+  face, a genre) no longer claims a layer axis. Landmarks given in `axes`
+  are kept as before, and the chart still carries the model's `arch`.
+
+---
+
 ## 0.136.0 — 2026-09-24
 
 ### Changes that raise

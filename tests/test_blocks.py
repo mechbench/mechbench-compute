@@ -277,6 +277,18 @@ class TestAFigureCarriesItsVocabulary:
         spec = self._spec({}, records=coll)
         assert spec["axes"] == {"layer": {"n": 4, "global": [1, 3], "kv_shared_from": 2}}
 
+    def test_a_chart_that_plots_no_layer_takes_no_landmarks_from_its_input(self):
+        coll = {"kind": "collection", "item_kind": "intervene/ablation",
+                "items": self.ROWS, "arch": self.ARCH}
+        spec = self._spec({"encoding": {"x": "kind", "y": "mean"}}, records=coll)
+        assert "axes" not in spec
+
+    def test_layer_on_the_y_axis_takes_the_landmarks(self):
+        coll = {"kind": "collection", "item_kind": "intervene/ablation",
+                "items": self.ROWS, "arch": self.ARCH}
+        spec = self._spec({"encoding": {"x": "kind", "y": "layer"}}, records=coll)
+        assert spec["axes"] == {"layer": {"n": 4, "global": [1, 3], "kv_shared_from": 2}}
+
     def test_given_landmarks_win_and_are_checked(self):
         spec = self._spec({"axes": {"layer": {"n": 4, "global": [3]}}})
         assert spec["axes"]["layer"] == {"n": 4, "global": [3]}
