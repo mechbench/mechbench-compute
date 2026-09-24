@@ -52,7 +52,12 @@ each under the name as written.
           "Field → value or list of values: `{\"genre\": \"noir\", "
           "\"leak\": 0}` keeps noir records with no leak. Or a list of "
           "`PATH OP VALUE` conditions: `[\"lex_words>80\"]`.",
-          None),
+          None, fields=(
+              P("path", "string", "The field or dot path the condition reads."),
+              P("op", "string", "The comparison.", "=", choices=("=", "!=", "<", "<=", ">", ">=", "~")),
+              P("value", "json", "The value compared against, as given: a number, text, "
+                "`null`, or a `$param` reference."),
+          )),
         P("fields", "list[string]",
           "Keep only these fields (plus `id` and `coords`). By default the "
           "whole record is kept.",

@@ -270,3 +270,34 @@ def test_measure_reads_the_text_from_the_field_named():
         {"type": "capture", "name": "slot", "pattern": r"^slot(\d+)-", "as": "number"}]})
     assert [r.get("slot") for r in out] == [3, None]
     assert out[0]["kl_bits"] == 0.2
+
+
+def test_a_condition_value_is_bound_from_a_param_through_the_executor(monkeypatch):
+    """The allowance a truncation check compares against is a param of the
+    protocol, read by a condition's value."""
+    import hashlib
+
+    from mechbench_schema import dump_canonical
+
+    from mechbench_compute import bench
+    from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+
+    stored = {"kind": "collection", "item_kind": "records/record", "key": ["id"], "items": REPLIES}
+
+    def fetch(ref, with_meta=False):
+        meta = {"content_hash": "sha256:" + hashlib.sha256(dump_canonical(stored)).hexdigest()}
+        return ({"payload": stored}, meta) if with_meta else {"payload": stored}
+
+    monkeypatch.setattr(bench, "fetch", fetch)
+    graph = {"dataflow": 2, "nodes": [
+        {"id": "reached", "block": "records/count", "params": {
+            "by": ["metadata.coords.prompt"],
+            "where": [{"path": "metadata.call.usage.output_tokens", "op": ">=", "value": {"$param": "allowance"}}]}},
+    ], "edges": [{"from": {"input": "stories"}, "to": {"node": "reached", "port": "records"}}]}
+    extra = {"graph": graph, "params": {"allowance": 260},
+             "declared_params": [{"name": "allowance", "type": "int"}],
+             "inputs": {"stories": {"$ref": {"bench": "lab/p/results/j/gen"}}},
+             "outputs": [{"name": "reached", "from": {"node": "reached"}}]}
+    out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra=extra))
+    rows = (out.payload if hasattr(out, "payload") else out)["outputs"]["reached"]["rows"]
+    assert {r["metadata.coords.prompt"]: (r["k"], r["n"]) for r in rows} == {"flash": (1, 3), "neutral": (1, 2)}

@@ -88,7 +88,12 @@ combination, each its own count. Empty gives one overall row.
         P("where", "list[string | object]",
           "Conditions a success meets, each `PATH OP VALUE` (`\"lex_words>80\"`) or "
           "`{path, op, value}`, in place of `field` and `equals`.",
-          None),
+          None, fields=(
+              P("path", "string", "The field or dot path the condition reads."),
+              P("op", "string", "The comparison.", "=", choices=("=", "!=", "<", "<=", ">", ">=", "~")),
+              P("value", "json", "The value compared against, as given: a number, text, "
+                "`null`, or a `$param` reference."),
+          )),
         P("on_missing", "string",
           "`\"error\"`: refuse a record without the field. `\"skip\"`: omit "
           "it from `n` and report how many were omitted.",
