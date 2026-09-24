@@ -12,6 +12,7 @@ import hashlib
 
 import pytest
 from mechbench_schema import dump_canonical
+from mechbench_schema.identity import InvalidPathError
 
 from mechbench_compute import bench, dataflow
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
@@ -398,3 +399,103 @@ def test_a_map_takes_one_stream_or_the_other(fake_bench):
          "inputs": {"records": [{"id": "r"}]}}], "edges": []}
     with pytest.raises(ValueError, match="not both"):
         _run({"graph": graph, "params": {}, "inputs": {}})
+
+
+# --- a variadic port takes any mix of sources ---------------------
+
+XS = {
+    "kind": "collection", "item_kind": "records/record", "key": ["id"],
+    "items": [{"id": f"s{x}", "kind": "records/record", "coords": {"x": x}, "values": {"v": x}}
+              for x in ("1", "2")],
+}
+
+ZIP_INPUT_AND_EDGE = {
+    "dataflow": 2,
+    "nodes": [
+        TWO_NODES["nodes"][0],
+        {"id": "paired", "block": "records/zip", "params": {"by": ["x"]}},
+    ],
+    "edges": [
+        {"from": {"input": "stored"}, "to": {"node": "paired", "port": "branches"}, "index": 0},
+        {"from": {"node": "grid"}, "to": {"node": "paired", "port": "branches"}, "index": 1},
+    ],
+}
+
+
+def test_a_variadic_port_takes_a_protocol_input_beside_a_node_edge(fake_bench, monkeypatch):
+    monkeypatch.setitem(STORE, "lab/p/xs", XS)
+    payload, _ = _run({"graph": ZIP_INPUT_AND_EDGE, "params": {},
+                       "inputs": {"stored": {"$ref": {"bench": "lab/p/xs"}}},
+                       "outputs": [{"name": "paired", "from": {"node": "paired"}}],
+                       "resultPath": "lab/p/results/j8"})
+    items = payload["outputs"]["paired"]["items"]
+    assert [it["coords"]["x"] for it in items] == ["1", "2"]
+    # A branch from an input is named by the input, and the edges'
+    # `index` orders the branches whatever kind of source each is.
+    assert list(items[0]["branches"]) == ["stored", "grid"]
+    assert items[0]["branches"]["stored"]["values"] == {"v": "1"}
+    assert fake_bench["lab/p/results/j8/paired"]["inputs"] == [
+        "lab/p/results/j8/nodes/grid", "lab/p/xs"]
+
+
+def test_the_edge_index_orders_inputs_and_node_edges_together(fake_bench, monkeypatch):
+    monkeypatch.setitem(STORE, "lab/p/xs", XS)
+    swapped = {**ZIP_INPUT_AND_EDGE, "edges": [
+        {**ZIP_INPUT_AND_EDGE["edges"][0], "index": 1},
+        {**ZIP_INPUT_AND_EDGE["edges"][1], "index": 0}]}
+    _first, hooks = _run({"graph": ZIP_INPUT_AND_EDGE, "params": {},
+                          "inputs": {"stored": {"$ref": {"bench": "lab/p/xs"}}}})
+    second, again = _run({"graph": swapped, "params": {},
+                          "inputs": {"stored": {"$ref": {"bench": "lab/p/xs"}}}})
+    assert list(second["outputs"]["paired"]["items"][0]["branches"]) == ["grid", "stored"]
+    # A different order is a different result, so a different fingerprint.
+    assert hooks.fingerprints["paired"] != again.fingerprints["paired"]
+
+
+def test_a_variadic_port_takes_two_inputs_and_counts_them_as_edges(fake_bench, monkeypatch):
+    monkeypatch.setitem(STORE, "lab/p/xs", XS)
+    two_inputs = {**ZIP_INPUT_AND_EDGE, "edges": [
+        {"from": {"input": "a"}, "to": {"node": "paired", "port": "branches"}, "index": 0},
+        {"from": {"input": "b"}, "to": {"node": "paired", "port": "branches"}, "index": 1}]}
+    payload, _ = _run({"graph": two_inputs, "params": {},
+                       "inputs": {"a": {"$ref": {"bench": "lab/p/xs"}},
+                                  "b": {"$ref": {"bench": "lab/p/xs"}}}})
+    assert list(payload["outputs"]["paired"]["items"][0]["branches"]) == ["a", "b"]
+    # One input alone is one branch, and zip's two-edge minimum counts it.
+    one_input = {**ZIP_INPUT_AND_EDGE, "edges": two_inputs["edges"][:1]}
+    with pytest.raises(ValueError, match="takes at least 2 edges; 1 arrive"):
+        _run({"graph": one_input, "params": {}, "inputs": {"a": {"$ref": {"bench": "lab/p/xs"}}}})
+
+
+def test_a_port_that_takes_one_source_still_refuses_an_input_and_an_edge():
+    graph = {"dataflow": 2,
+             "nodes": [{"id": "a", "block": "records/cross"},
+                       {"id": "b", "block": "records/select"}],
+             "edges": [{"from": {"input": "recs"}, "to": {"node": "b", "port": "records"}},
+                       {"from": {"node": "a"}, "to": {"node": "b", "port": "records"}}]}
+    with pytest.raises(ValueError, match="one or the other"):
+        dataflow.lower(graph, {"recs": []})
+
+
+@pytest.mark.xfail(
+    strict=True, raises=InvalidPathError,
+    reason="mechbench-schema holds a hash segment to the 63-char name limit, and "
+           "`sha256:<digest>` is 71; passes once the schema's path grammar admits it")
+def test_keep_outputs_stores_an_output_that_reads_a_held_intermediate(monkeypatch):
+    """Through the real `bench.emit`, with only the HTTP call faked: the
+    output's provenance cites the held node as `~hash/sha256:<digest>`,
+    and that path has to pass the schema's path grammar to be sent."""
+    sent: dict[str, bytes] = {}
+
+    def request(method, url, key, body=None, headers=None, **kw):
+        target = url.split("/objects/", 1)[1]
+        sent[target] = body
+        return {"path": target}
+
+    monkeypatch.setattr(bench, "_config", lambda url, key: ("http://bench.test", "k"))
+    monkeypatch.setattr(bench, "_request", request)
+    payload, _ = _run({"graph": TWO_NODES, "params": {}, "inputs": {}, "keep": "outputs",
+                       "outputs": [{"name": "kept", "from": {"node": "picked"}}],
+                       "resultPath": "lab/p/results/j9"}, _Keeping())
+    assert sorted(sent) == ["lab/p/results/j9/kept"]
+    assert payload["nodes_held"] == ["grid"]

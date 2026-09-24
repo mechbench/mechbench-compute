@@ -15,7 +15,9 @@ Before anything runs:
   from a protocol input becomes that input's bound value on the port,
   and `from: {node, output}` becomes `{node, port}`. Each value lands
   where the executor reads it, so ordering, resume, missing-node
-  handling and fingerprints see one shape.
+  handling and fingerprints see one shape. On a variadic port the
+  inputs' values are a list of `INPUT_BRANCH` entries, which the
+  executor orders among the port's node edges.
 - `check_refs` refuses a `$ref` that sits where no declaration admits a
   stored object, by node and place.
 
@@ -45,6 +47,9 @@ DATAFLOW_DOCS = "https://docs.mechbench.ai/dataflow/"
 #: What `find_undeclared` says of a graph whose only fault is the
 #: missing marker.
 NO_MARKER = 'no "dataflow": 2 marker'
+#: The keys of one entry `lower` puts on a variadic port for each input
+#: edge onto it: the input's name, the edge's `index`, and the bound value.
+INPUT_BRANCH = frozenset({"input", "index", "value"})
 _HOLE = re.compile(r"^\$[A-Za-z][A-Za-z0-9_-]*$")
 
 
@@ -135,11 +140,15 @@ def lower(graph: Mapping[str, Any], bound_inputs: Mapping[str, Any]) -> dict[str
     An edge from `{"input": name}` puts the run's bound value for that
     input on the target port, as an inline input, so the node's input
     hash — and with it its fingerprint — is formed from the value
-    itself, wherever it came from.
+    itself, wherever it came from. A variadic port takes any number of
+    input edges beside its node edges: each input's value is one
+    `INPUT_BRANCH` entry in a list on the port.
     """
     nodes = [dict(n, inputs=dict(n.get("inputs") or {})) for n in graph.get("nodes", [])]
     by_id = {n["id"]: n for n in nodes}
     edges = []
+    # Node id -> the variadic ports that input edges feed.
+    variadic: dict[str, set[str]] = {}
     for e in graph.get("edges", []):
         src, dst = e["from"], e["to"]
         if "input" in src:
@@ -149,21 +158,51 @@ def lower(graph: Mapping[str, Any], bound_inputs: Mapping[str, Any]) -> dict[str
             target = by_id.get(dst["node"])
             if target is None:
                 raise ValueError(f"an edge goes to {dst['node']!r}, which is not a node")
-            if dst["port"] in target["inputs"]:
+            port = dst["port"]
+            if is_variadic_port(target.get("block"), port):
+                if port not in variadic.setdefault(target["id"], set()):
+                    if port in target["inputs"]:
+                        raise ValueError(
+                            f"{dst['node']}: port {port!r} is fed by input {name!r} "
+                            f"and also given under `inputs` — one or the other")
+                    variadic[target["id"]].add(port)
+                    target["inputs"][port] = []
+                target["inputs"][port].append(
+                    {"input": name, "index": int(e.get("index", 0)),
+                     "value": bound_inputs[name]})
+                continue
+            if port in target["inputs"]:
                 raise ValueError(
-                    f"{dst['node']}: port {dst['port']!r} is fed by input {name!r} "
+                    f"{dst['node']}: port {port!r} is fed by input {name!r} "
                     f"and also given under `inputs` — one or the other")
-            target["inputs"][dst["port"]] = bound_inputs[name]
+            target["inputs"][port] = bound_inputs[name]
             continue
         edges.append({**e, "from": {"node": src["node"], "port": src.get("output", "out")}})
     fed = {(e["to"]["node"], e["to"]["port"]) for e in edges}
     for n in nodes:
-        both = [p for p in n["inputs"] if (n["id"], p) in fed]
+        both = [p for p in n["inputs"]
+                if (n["id"], p) in fed and p not in variadic.get(n["id"], ())]
         if both:
             raise ValueError(
                 f"{n['id']}: port {both[0]!r} is wired by an edge and also fed by an "
                 f"input — a port takes one or the other")
     return {"nodes": nodes, "edges": edges}
+
+
+def is_variadic_port(block: Any, port: str) -> bool:
+    try:
+        op = lexicon.BY_NAME.get(lexicon.resolve(str(block), warn=False))
+    except KeyError:
+        return False
+    decl = op.port(port) if op is not None else None
+    return bool(decl is not None and decl.variadic)
+
+
+def is_input_branches(value: Any) -> bool:
+    """Whether a lowered port value is the list of `INPUT_BRANCH` entries
+    `lower` writes for input edges onto a variadic port."""
+    return (isinstance(value, list) and bool(value)
+            and all(isinstance(v, Mapping) and set(v) == INPUT_BRANCH for v in value))
 
 
 def _declared_at(op: Any, path: list[str]) -> Any:

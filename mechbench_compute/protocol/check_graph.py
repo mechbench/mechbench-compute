@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mechbench_compute import lexicon
+from mechbench_compute import dataflow, lexicon
 
 #: What a port may do when its upstream produced nothing.
 MISSING_POLICIES = ("fail", "skip", "placeholder")
@@ -41,6 +41,12 @@ def check_graph(nodes, edges, order) -> None:
             into.setdefault(to["node"], set()).add(to["port"])
             counts = edge_counts.setdefault(to["node"], {})
             counts[to["port"]] = counts.get(to["port"], 0) + 1
+    # Input edges lowered onto a variadic port are edges too.
+    for nid, node in nodes.items():
+        for port, raw in (node.get("inputs") or {}).items():
+            if dataflow.is_input_branches(raw):
+                counts = edge_counts.setdefault(nid, {})
+                counts[port] = counts.get(port, 0) + len(raw)
 
     for nid in order:
         node = nodes[nid]
