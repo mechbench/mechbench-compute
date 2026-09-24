@@ -169,3 +169,29 @@ class TestSpellingsThatCoincide:
         prefix = "The capital of France is"
         answer = encode_answer_in_context(tok, "Paris", prefix, tok.encode(prefix))
         assert answer.ids == (SPACED,)
+
+
+class SplitSpaceTokenizer:
+    all_special_ids = (0,)
+    names = {1: "Q", 2: ":", 3: " ", 4: "8", 5: "Rome", 6: " Rome"}
+
+    def encode(self, text, add_special_tokens=False):
+        ids = {v: k for k, v in self.names.items()}
+        return [ids[p] for p in re.findall(r" ?Rome|\d| |Q|:", text)]
+
+    def decode(self, ids):
+        return "".join(self.names[int(i)] for i in ids)
+
+
+def test_a_spelling_that_begins_with_a_bare_space_token_is_not_a_variant():
+    tok = SplitSpaceTokenizer()
+    assert encode_answer(tok, " 8").ids == (4,)
+    assert encode_answer(tok, "8").ids == (4,)
+    assert set(encode_answer(tok, "Rome").ids) == {5, 6}
+
+
+def test_in_context_a_bare_space_token_is_not_a_variant():
+    tok = SplitSpaceTokenizer()
+    answer = encode_answer_in_context(tok, "8", "Q:", tok.encode("Q:"))
+    assert answer.ids == (4,)
+

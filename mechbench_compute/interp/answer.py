@@ -74,8 +74,15 @@ def encode_answer(tokenizer, text: str) -> Answer:
         first = next((int(t) for t in encode(tokenizer, spelling) if t not in specials), None)
         if first is None:
             raise ValueError(f"tracked answer {spelling!r} tokenized to specials only")
-        ids.append(first)
+        if _carries_text(tokenizer, first):
+            ids.append(first)
+    if not ids:
+        raise ValueError(f"tracked answer {text!r} begins with no token that carries it")
     return make_answer(ids)
+
+
+def _carries_text(tokenizer, token_id: int) -> bool:
+    return bool(tokenizer.decode([token_id]).strip())
 
 
 def encode_answer_in_context(tokenizer, text: str, prefix: str,
@@ -84,7 +91,9 @@ def encode_answer_in_context(tokenizer, text: str, prefix: str,
     refused: ValueError | None = None
     for spelling in spell_answer_variants(text):
         try:
-            ids.append(int(suffix_tokens(tokenizer, prefix, prefix_ids, spelling)[0]))
+            first = int(suffix_tokens(tokenizer, prefix, prefix_ids, spelling)[0])
+            if _carries_text(tokenizer, first):
+                ids.append(first)
         except ValueError as err:
             refused = refused or err
     if not ids:
