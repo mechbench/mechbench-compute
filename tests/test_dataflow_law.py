@@ -177,6 +177,13 @@ CATALOG: dict[str, dict] = {
         "params": {"x": "delta", "y": "score", "by": ["g"], "interval": 0.9}},
     "records/unnest": {
         "leaves": _nested_leaves(), "params": {"field": "votes", "index": "vote"}},
+    "records/lookup": {
+        "leaves": _leaves(120, seed=5),
+        "inputs": {"header": {"names": {"a": "first", "b": "second", "c": "third"}}},
+        "params": {"field": "g", "in": "names", "as": "name"}},
+    "records/relabel": {
+        "leaves": _leaves(120, seed=5),
+        "params": {"field": "g", "labels": {"a": "first", "b": "second"}}},
     "records/contrast": {
         "leaves": _paired_leaves(),
         "params": {"value": "delta", "on": "arm", "a": "test", "b": "base",

@@ -67,7 +67,7 @@ VERBS = {
     "normalize", "note", "open", "orthogonalize", "pack", "parse", "patch",
     "pick", "place", "plan", "plot", "pop", "prepare", "project", "prune",
     "publish", "push", "put", "quote", "raise", "rank", "read", "record",
-    "reduce", "refuse", "register", "regress", "reject", "release", "remove",
+    "reduce", "refuse", "register", "regress", "reject", "relabel", "release", "remove",
     "rename", "render", "repair", "replace", "report", "require", "resolve",
     "restore", "reverse", "rewrite", "round", "run", "sample", "save", "say",
     "scale", "scan", "score", "seed", "select", "send", "serialize", "set",
