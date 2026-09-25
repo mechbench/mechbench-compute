@@ -13,6 +13,23 @@ nothing said so.
 
 ---
 
+## 0.140.0 — 2026-09-25
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+Also: `claude-opus-5-5` ($4/$20 per million tokens, cache reads $0.20,
+writes $5) and `claude-fable-5-1` ($10/$50, cache reads $0.25, writes
+$12.50) are in the price table, so a chat on either is priced and both
+are offered wherever provider models are listed.
+
+---
+
 ## 0.139.0 — 2026-09-25
 
 ### Changes that raise

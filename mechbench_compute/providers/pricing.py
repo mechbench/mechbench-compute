@@ -22,6 +22,8 @@ class Price:
 
 PRICES: dict[str, dict[str, Price]] = {
     "anthropic": {
+        "claude-opus-5-5": Price(4.0, 20.0, 0.2, 5.0),
+        "claude-fable-5-1": Price(10.0, 50.0, 0.25, 12.5),
         "claude-opus-5": Price(5.0, 25.0, 0.5, 6.25),
         "claude-sonnet-5": Price(3.0, 15.0, 0.3, 3.75),
         "claude-haiku-4-5": Price(1.0, 5.0, 0.1, 1.25),

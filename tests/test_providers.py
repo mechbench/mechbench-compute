@@ -127,6 +127,16 @@ class TestBudget:
                                         {"input_tokens": 1000, "output_tokens": 1000})
         assert (cost, priced) == (0.0, False)
 
+    def test_the_newest_claude_models_are_priced(self):
+        cost, _ = pricing.cost_usd("anthropic", "claude-opus-5-5", {
+            "input_tokens": 1_000_000, "output_tokens": 1_000_000,
+            "cache_read_tokens": 500_000})
+        assert cost == pytest.approx(0.5 * 4.0 + 0.5 * 0.2 + 20.0)
+        cost, _ = pricing.cost_usd("anthropic", "claude-fable-5-1", {
+            "input_tokens": 1_000_000, "output_tokens": 0,
+            "cache_write_tokens": 1_000_000})
+        assert cost == pytest.approx(12.5)
+
     def test_cached_input_is_priced_at_its_own_rate(self):
         cost, _ = pricing.cost_usd("anthropic", "claude-opus-5", {
             "input_tokens": 1_000_000, "output_tokens": 0,
