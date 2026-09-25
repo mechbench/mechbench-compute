@@ -33,6 +33,7 @@ class Capabilities:
     streaming: bool = False
     models: bool = False
     responses: bool = False
+    reasoning: bool = False
 
     def to_wire(self) -> dict[str, Any]:
         return asdict(self)

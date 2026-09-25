@@ -20,7 +20,7 @@ DEFAULT_BASE_URL = "https://api.anthropic.com"
 CAPABILITIES = Capabilities(
     chat=True, complete=False, count_tokens="exact", tools=True,
     json_mode=False, seed=False, logprobs=None, cache_control=True,
-    batch=True, embed=False, streaming=False, models=True,
+    batch=True, embed=False, streaming=False, models=True, reasoning=True,
 )
 
 REASONING_BLOCKS = frozenset({"thinking", "redacted_thinking"})

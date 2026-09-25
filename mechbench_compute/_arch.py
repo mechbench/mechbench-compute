@@ -50,19 +50,13 @@ SHARED_LAYER_ABSENT_POINTS: frozenset[str] = frozenset({
     "attn.k_pre_norm", "attn.k_pre_rope",
 })
 
-_LEGACY_LAYER_POINTS: frozenset[str] = frozenset({
-    "resid_pre", "attn_out", "mlp_out", "resid_post",
-    "attn.weights", "attn.per_head_out", "attn.q", "attn.k", "attn.v",
-})
-_LEGACY_GLOBAL_POINTS: frozenset[str] = frozenset({"final_norm.scale"})
-
-
 def family_supports(model_type: str, point: str, *, layer_scoped: bool) -> bool:
-    if model_type not in ("gemma3", "qwen2", "llama"):
+    from .support import architecture
+
+    arch = architecture(model_type)
+    if arch is None:
         return True
-    if point == "gate_out":
-        return False
-    return point in (_LEGACY_LAYER_POINTS if layer_scoped else _LEGACY_GLOBAL_POINTS)
+    return arch.supports(point, layer_scoped=layer_scoped)
 
 
 @dataclass(frozen=True)
@@ -147,10 +141,12 @@ class Arch:
     def _from_mlx_lm_args(cls, args, model_id: str | None) -> "Arch":
         n_layers = int(args.num_hidden_layers)
         family_raw = (getattr(args, "model_type", "") or "").lower()
-        if family_raw not in ("qwen2", "llama"):
+        from .support import MLX_LM_MODEL_TYPES
+
+        if family_raw not in MLX_LM_MODEL_TYPES:
             raise NotImplementedError(
                 f"mlx-lm model_type {family_raw!r} is not supported; the "
-                f"hook-aware forwards cover qwen2 and llama."
+                f"hook-aware forwards cover {', '.join(sorted(MLX_LM_MODEL_TYPES))}."
             )
 
         layer_types = getattr(args, "layer_types", None)

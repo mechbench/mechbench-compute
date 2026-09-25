@@ -13,6 +13,7 @@ SIBLINGS = HERE.parent
 COPIES = {
     "mechbench-models/src/lexicon.generated.ts": "dump_lexicon_ts.py",
     "mechbench-models/src/kinds.generated.ts": "dump_kinds_ts.py",
+    "mechbench-models/src/support.generated.ts": "dump_support_ts.py",
 }
 
 

@@ -10,7 +10,7 @@ from mlx_vlm.models.gemma4.language import logit_softcap
 from mlx_vlm.prompt_utils import apply_chat_template
 from mlx_vlm.utils import get_model_path, load_config, prepare_inputs
 
-from . import _arch
+from . import _arch, support
 from ._forward import run_forward
 from ._forward_gemma3 import run_forward_gemma3
 from ._forward_llama import run_forward_llama
@@ -20,17 +20,17 @@ from .errors import InvalidHookName
 from .hooks import HookFn, parse_hook_name
 from .interventions import Intervention, compose
 
-_MLX_LM_FAMILIES: frozenset[str] = frozenset({"qwen2", "llama"})
+_MLX_LM_FAMILIES: frozenset[str] = support.MLX_LM_MODEL_TYPES
 
 
-def _peek_model_type(model_id: str) -> str:
+def _peek_config(model_id: str) -> dict:
     try:
         path = get_model_path(model_id)
         if isinstance(path, tuple):
             path = path[0]
-        return (load_config(path).get("model_type") or "").lower()
+        return dict(load_config(path))
     except Exception:
-        return ""
+        return {}
 
 
 @dataclass(frozen=True)
@@ -90,8 +90,13 @@ class Model:
                 model_id, on_download=on_download, on_bytes=on_download_bytes)
         model_id = str(snapshot)
 
+        config = _peek_config(model_id)
+        refused = support.refusal(config) if config.get("model_type") else None
+        if refused is not None:
+            raise NotImplementedError(
+                f"mechbench-compute cannot load {requested!r}: {refused}.")
         # external: mlx-vlm — its text_only wrapper also loads these families, in a shape the mlx-lm forwards do not mirror
-        if _peek_model_type(model_id) in _MLX_LM_FAMILIES:
+        if str(config.get("model_type") or "").lower() in _MLX_LM_FAMILIES:
             from mlx_lm import load as mlx_lm_load
 
             m, p = mlx_lm_load(model_id)
@@ -107,11 +112,11 @@ class Model:
                     raise
 
         arch = _arch.Arch.from_mlx_model(m, model_id=model_id)
-        if arch.model_type not in ("gemma4", "gemma3", "qwen2", "llama"):
+        if support.architecture(arch.model_type) is None:
             raise NotImplementedError(
-                f"mechbench-compute's hook-aware forward path supports Gemma 3, "
-                f"Gemma 4, Qwen 2.x, and Llama 3.x; loaded model {model_id!r} "
-                f"reports model_type={arch.model_type!r}."
+                f"mechbench-compute's hook-aware forward path supports "
+                f"{', '.join(a.name for a in support.ARCHITECTURES)}; loaded model "
+                f"{model_id!r} reports model_type={arch.model_type!r}."
             )
         model = cls(m, p, arch=arch)
         model.repo_id = repo_id

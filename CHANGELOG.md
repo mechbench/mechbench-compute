@@ -13,6 +13,32 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+- **`Model.load` refuses a checkpoint compute does not declare before
+  loading it.** `mechbench_compute.support` now declares the local
+  architectures (config.json `model_type`, loader, support level, hook
+  points) and the config keys that refuse one; `Model.load`, the hook
+  gate and the mlx-lm loader split all read it. A checkpoint whose
+  config names an undeclared `model_type` (`gemma4_text`, `qwen2_vl`,
+  `qwen3`) raises `NotImplementedError` naming it, where a vision-language
+  one could load before and be labelled `gemma4`; a Gemma 4
+  mixture-of-experts checkpoint (`enable_moe_block`) raises at load
+  rather than at its first forward.
+
+### Changes that alter results without raising
+
+_None._
+
+Also: `support.provider_models()` lists each real provider's priced
+models, `Capabilities` gains `reasoning` (the adapter keeps reasoning as
+its own content), and `scripts/dump_support_ts.py` writes both lists to
+mechbench-models' `src/support.generated.ts`.
+
+---
+
 ## 0.137.0 — 2026-09-24
 
 ### Changes that raise

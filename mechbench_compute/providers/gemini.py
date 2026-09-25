@@ -19,7 +19,7 @@ DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 CAPABILITIES = Capabilities(
     chat=True, complete=False, count_tokens="exact", tools=True,
     json_mode=True, seed=False, logprobs=5, cache_control=True,
-    batch=True, embed=True, streaming=False, models=True,
+    batch=True, embed=True, streaming=False, models=True, reasoning=True,
 )
 
 

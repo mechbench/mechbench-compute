@@ -19,19 +19,19 @@ HOSTS: dict[str, tuple[str, Capabilities]] = {
     "openai": ("https://api.openai.com/v1", Capabilities(
         chat=True, complete=False, count_tokens=None, tools=True,
         json_mode=True, seed=True, logprobs=20, cache_control=False,
-        batch=True, embed=True, streaming=False, models=True, responses=True)),
+        batch=True, embed=True, streaming=False, models=True, responses=True, reasoning=True)),
     "xai": ("https://api.x.ai/v1", Capabilities(
         chat=True, tools=True, json_mode=True, seed=True, logprobs=8,
-        batch=False, embed=False, models=True, responses=True)),
+        batch=False, embed=False, models=True, responses=True, reasoning=True)),
     "fireworks": ("https://api.fireworks.ai/inference/v1", Capabilities(
         chat=True, complete=True, tools=True, json_mode=True, seed=True,
-        logprobs=5, batch=False, embed=True, models=True)),
+        logprobs=5, batch=False, embed=True, models=True, reasoning=True)),
     "deepseek": ("https://api.deepseek.com", Capabilities(
         chat=True, tools=True, json_mode=True, seed=False, logprobs=None,
-        batch=False, embed=False, models=True)),
+        batch=False, embed=False, models=True, reasoning=True)),
     "openai-compatible": ("", Capabilities(
         chat=True, tools=True, json_mode=True, seed=True, logprobs=5,
-        models=True)),
+        models=True, reasoning=True)),
 }
 
 
