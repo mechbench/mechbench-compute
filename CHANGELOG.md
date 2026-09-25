@@ -13,7 +13,7 @@ nothing said so.
 
 ---
 
-## Unreleased
+## 0.139.0 — 2026-09-25
 
 ### Changes that raise
 
@@ -21,7 +21,14 @@ _None._
 
 ### Changes that alter results without raising
 
-_None._
+- **Claude Opus 5 and Claude Fable 5 are priced at their listed rates.**
+  `claude-opus-5` was priced as Opus 4 ($15/$75 per million tokens) and
+  is now $5/$25; `claude-fable-5` was priced at $3/$15 and is now
+  $10/$50. Cache reads are a tenth of the input price and five-minute
+  cache writes 1.25x. A chat's `cost_usd` and a run's spend on either
+  model change by those factors, and a budget that stopped a run early
+  on Opus 5 now allows three times the tokens. `TABLE_VERSION` is
+  `2026-09-25`.
 
 Also: `tests/fixtures/providers/` holds one JSON file per recorded
 provider exchange (the neutral request, the wire body each adapter
