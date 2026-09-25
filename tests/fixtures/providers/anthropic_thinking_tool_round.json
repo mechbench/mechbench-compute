@@ -157,7 +157,7 @@
           "output_tokens": 30
         },
         "empty": null,
-        "cost_usd": 0.0024,
+        "cost_usd": 0.0008,
         "priced": true
       }
     },
@@ -366,7 +366,7 @@
           "output_tokens": 30
         },
         "empty": null,
-        "cost_usd": 0.0024,
+        "cost_usd": 0.0008,
         "priced": true
       }
     }

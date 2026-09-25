@@ -82,7 +82,7 @@
           "cause": "reasoning",
           "message": "anthropic: 100 of 100 output tokens (max_tokens) went to reasoning and no prose followed (content block type(s) thinking). The completion holds reasoning only, kept as the item's `reasoning` and not as a reply. Raise max_tokens so the reply has room after the reasoning, or turn reasoning off with provider_options: {\"anthropic\": {\"thinking\": {\"type\": \"disabled\"}}}."
         },
-        "cost_usd": 0.007575,
+        "cost_usd": 0.002525,
         "priced": true
       }
     }

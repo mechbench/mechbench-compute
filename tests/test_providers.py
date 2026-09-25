@@ -131,7 +131,7 @@ class TestBudget:
         cost, _ = pricing.cost_usd("anthropic", "claude-opus-5", {
             "input_tokens": 1_000_000, "output_tokens": 0,
             "cache_read_tokens": 900_000})
-        assert cost == pytest.approx(100_000 / 1e6 * 15.0 + 900_000 / 1e6 * 1.5)
+        assert cost == pytest.approx(100_000 / 1e6 * 5.0 + 900_000 / 1e6 * 0.5)
 
 
 class TestCapabilities:

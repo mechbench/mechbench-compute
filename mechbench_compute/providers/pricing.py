@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-TABLE_VERSION = "2026-09-23"
+TABLE_VERSION = "2026-09-25"
 
 
 @dataclass(frozen=True)
@@ -22,10 +22,10 @@ class Price:
 
 PRICES: dict[str, dict[str, Price]] = {
     "anthropic": {
-        "claude-opus-5": Price(15.0, 75.0, 1.5, 18.75),
+        "claude-opus-5": Price(5.0, 25.0, 0.5, 6.25),
         "claude-sonnet-5": Price(3.0, 15.0, 0.3, 3.75),
         "claude-haiku-4-5": Price(1.0, 5.0, 0.1, 1.25),
-        "claude-fable-5": Price(3.0, 15.0, 0.3, 3.75),
+        "claude-fable-5": Price(10.0, 50.0, 1.0, 12.5),
     },
     "openai": {
         # external: OpenAI — GPT-6 Astra charges 2x input and 1.5x output on a request over 272K input tokens; this is the standard rate
