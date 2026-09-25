@@ -71,7 +71,8 @@ seed it reproduces the un-intervened sample byte for byte.
         In("records", "records/record",
            "Chat-shaped records: `user` (required), `system` and `prefill` "
            "(optional; the prefill is read only with `continue_prefill`), "
-           "an `id`, and optionally `coords`.", many=True),
+           "an `id`, and optionally `coords`."
+           " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("intervention", "intervene/spec",
            "An intervention declared as an object — its `items` are spec "
            "items in the grammar `intervene/apply` documents — applied "

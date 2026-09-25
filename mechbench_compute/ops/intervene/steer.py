@@ -40,7 +40,8 @@ For anything beyond one direction at one layer and position, use
     inputs=(
         In("records", "records/record",
            "The prompts to steer (`user`, `prompt` or `text`); a record may "
-           "carry its own `position` and `tracked`.", many=True),
+           "carry its own `position` and `tracked`."
+           " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("vectors", "activations/vector",
            "The labelled vectors the direction is built from, with items at "
            "the injection `layer`.", many=True),

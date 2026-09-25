@@ -7,15 +7,7 @@ from typing import Any
 
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind, Metric, P
 from mechbench_compute.lexicon.values import (  # noqa: F401
-    COORDS,
-    ID,
-    SPACE,
-    SPACE_DOC,
-    TOKEN,
-    TOP,
-    TRACKED, VARIANTS,
-    VEC,
-    F,
+    COORDS, ID, SPACE, SPACE_DOC, TOKEN, TOP, TRACKED, VARIANTS, VEC, F,
 )
 
 DIST = F("object", "A `logits/distribution`: `{entropy_bits, top, tracked?}`.",
@@ -37,7 +29,11 @@ RECORD = Kind(
         "`rename`, `union`, `delta`, `stats`, `sum`, `top-k`, `histogram`, `table`, `chart` — take any "
         "collection at all, whatever its item kind, since every item has an id and its fields. Fields beyond "
         "`id` and `coords` are whatever the producing op wrote; a consumer that needs one under another name "
-        "gets it through `records/rename`, never through a parameter.",
+        "gets it through `records/rename`, never through a parameter. When a model reads a record, its "
+        "prompt is the first of `user`, `prompt` and `text` that it has. `user` is wrapped in the model's "
+        "chat template, with the record's `system` as the system turn; `prompt` and `text` go in raw, as "
+        "written. A record's `template` field overrides this: `\"chat\"` (or `true`) wraps any of the three, `\"raw\"` "
+        "(or `false`) wraps none. A `prefill` is appended after the prompt either way.",
     metrics=(
         Metric("hamming", "distance", True,
                "How many coordinate axes two records differ on; an axis one of them lacks counts as a difference. The design's own factor structure, as a distance."),

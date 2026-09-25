@@ -54,7 +54,8 @@ Fitted against the surprisal it carries, by `direction/regress`, this is
 the surprise-direction probe.
 """,
     inputs=(
-        In("records", "records/record", "The prompts to read.", many=True),
+        In("records", "records/record", "The prompts to read."
+                                        " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("adapter", "adapter/lora", "An adapter to fuse first.", required=False),
     ),
     output=Output('activations/vector', collection=True, doc='One item per record per kept position per layer, with `position` and `surprisal` among its coords and the token as `token`. The header carries `model`, `point`, `source`, `position` (the selector), `every`, `layers` and `d_model`; under tensor storage also `storage: "tensor"`, `shards` (name, rows, size, sha256 each), `n_items` and `d`, with `items` empty — the rows are the shards.'),

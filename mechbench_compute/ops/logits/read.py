@@ -55,7 +55,8 @@ readings.
         In("conditions", "records/record",
            "Chat-shaped records: `user` (required), `system` and `prefill` "
            "(optional), an `id`, and optionally `coords`; a record may carry "
-           "its own `tracked`.", many=True),
+           "its own `tracked`."
+           " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("adapter", "adapter/lora",
            "A LoRA adapter to fuse on top of the model for this node only — "
            "from an `adapter/train` node, a `{\"$ref\": {\"hf_adapter\": {\"repo\": …}}}` "

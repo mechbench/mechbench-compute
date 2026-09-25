@@ -54,7 +54,8 @@ layers or records.
         In("records", "records/record",
            "The prompts (`user`, `prompt` or `text`), each optionally with "
            "`coords`, and a `subject` when `position` is `\"subject\"`. A "
-           "document collection is read the same way.", many=True),
+           "document collection is read the same way."
+           " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("adapter", "adapter/lora",
            "A LoRA adapter to fuse on top of the model for this node only — "
            "from an `adapter/train` node, a `{\"$ref\": {\"hf_adapter\": {\"repo\": …}}}` "

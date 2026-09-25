@@ -30,6 +30,13 @@ magnitude.
 
 This is the difference-of-means method — the simplest and most robust way
 to find a concept direction, and the one most steering results are built on.
+
+`layer` has to be chosen before the run, and the best layer is usually not
+known yet. The usual pattern is two runs of one protocol. It captures
+several layers and feeds them to both `direction/classify` and this op,
+with `layer` as a protocol param. The first run's probe reports accuracy
+by layer, and the second run binds `layer` to the best of them. [Protocols
+as files](/protocol-files/) has a complete protocol built this way.
 """,
     inputs=(
         In("vectors", "activations/vector",

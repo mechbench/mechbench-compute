@@ -52,7 +52,8 @@ the model saw.
            "The texts, each a record with a prompt (`user`, `prompt` or "
            "`text`) or a `trace`, and optionally `coords` and a `subject` "
            "when `position` is `\"subject\"`. A document collection is read "
-           "the same way.", many=True),
+           "the same way."
+           " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("project", "direction/vector",
            "A direction: read each step's scalar coordinate along it at "
            "capture time and emit coordinates instead of vectors.",

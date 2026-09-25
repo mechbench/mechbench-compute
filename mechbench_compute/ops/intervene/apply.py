@@ -154,7 +154,8 @@ one item can zero every layer's `o_proj`.
            "The prompts to run, one forward pass each; a record's prompt is "
            "its `user`, `prompt` or `text` field. A record may also carry its "
            "own `tracked`, which takes precedence over the param of the same "
-           "name.", many=True),
+           "name."
+           " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("intervention", "intervene/spec",
            "An intervention declared as an object — its `items` are spec "
            "items in the grammar `intervene/apply` documents — applied "

@@ -46,7 +46,8 @@ mean, sd, min, max), so a window's value can be read against the field it
 came from rather than as a bare number.
 """,
     inputs=(
-        In("records", "records/record", "The corpus to search.", many=True),
+        In("records", "records/record", "The corpus to search."
+                                        " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("direction", "direction/vector",
            "The direction to excite; its space says where to read. A "
            "collection carrying exactly one direction is that direction.",

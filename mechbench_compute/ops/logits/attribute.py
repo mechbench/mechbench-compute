@@ -53,7 +53,8 @@ Because additivity only holds over the whole stream, `layers` must be
     inputs=(
         In("records", "records/record",
            "The prompts, one per record (`user`, `prompt` or `text`). A "
-           "record may carry its own `tracked`.", many=True),
+           "record may carry its own `tracked`."
+           " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("adapter", "adapter/lora",
            "A LoRA adapter to fuse on top of the model for this node only — "
            "from an `adapter/train` node, a `{\"$ref\": {\"hf_adapter\": {\"repo\": …}}}` "

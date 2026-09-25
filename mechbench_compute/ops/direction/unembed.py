@@ -27,6 +27,13 @@ direction reads the same as any multiple of it.
 The reading is only literal for directions at the residual stream; a
 direction inside an attention block is not in the space the unembedding
 reads.
+
+Even at the residual stream, the reading is clearest near the last layers,
+where the residual is close to what the unembedding was trained on. A
+direction fitted at a middle layer often reads as noise, with scattered or
+unrelated tokens, even when a probe separates the groups well. That says
+little about the direction itself. To read what a concept looks like in
+tokens, fit its direction at a later layer as well.
 """,
     inputs=(
         In("direction", "direction/vector", "The direction to read."),

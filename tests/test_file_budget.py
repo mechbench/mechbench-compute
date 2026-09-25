@@ -9,7 +9,7 @@ PKG = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
 BUDGET = 600
 
 OVER_BUDGET: dict[str, int] = {
-    "lexicon/kinds.py": 1026,
+    "lexicon/kinds.py": 1022,
     "bench.py": 822,
 }
 

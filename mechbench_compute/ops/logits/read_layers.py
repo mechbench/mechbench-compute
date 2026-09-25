@@ -6,7 +6,8 @@ from mechbench_compute.lexicon._base import In, Op, Output, P
 
 _CHAT_RECORDS = In("records", "records/record",
                    "Chat-shaped records: `user` (required), `system` and "
-                   "`prefill` (optional), an `id`, and optionally `coords`.",
+                   "`prefill` (optional), an `id`, and optionally `coords`."
+                   " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.",
                    many=True)
 
 

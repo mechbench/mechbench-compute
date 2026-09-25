@@ -13,6 +13,25 @@ nothing said so.
 
 ---
 
+## 0.141.0 — 2026-09-25
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+Also: declaration text only. The `records/record` kind says how a model
+reads a record: the first of `user`, `prompt` and `text`; `user` in the
+chat template and the other two raw; a record's `template` overriding.
+Each op whose records a model reads links to it from its records port.
+`direction/fit` describes the two-run pattern for choosing its layer,
+and `direction/unembed` says why middle-layer readings are often noise.
+
+---
+
 ## 0.140.0 — 2026-09-25
 
 ### Changes that raise
