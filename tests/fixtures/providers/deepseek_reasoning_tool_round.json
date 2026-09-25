@@ -1,87 +1,32 @@
 {
+  "name": "deepseek_reasoning_tool_round",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
   "api": null,
+  "credential": {},
+  "tool_answer": "4",
   "calls": [
     {
-      "body": {
-        "max_tokens": 1024,
-        "messages": [
-          {
-            "content": "What is 2+2?",
-            "role": "user"
-          }
-        ],
-        "model": "deepseek-flash",
-        "tools": [
-          {
-            "function": {
-              "description": "Evaluate an arithmetic expression.",
-              "name": "calc",
-              "parameters": {
-                "properties": {
-                  "expression": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "expression"
-                ],
-                "type": "object"
-              }
-            },
-            "type": "function"
-          }
-        ]
-      },
-      "expected": {
-        "cost_usd": 3.9e-05,
-        "empty": null,
-        "ending": "tool_call",
-        "parts": [
-          {
-            "model": "deepseek-flash",
-            "native": {
-              "reasoning_content": "Use the calculator."
-            },
-            "provider": "deepseek",
-            "text": "Use the calculator.",
-            "type": "reasoning"
-          },
-          {
-            "arguments": {
-              "expression": "2+2"
-            },
-            "id": "call_1",
-            "name": "calc",
-            "type": "tool_call"
-          }
-        ],
-        "priced": true,
-        "stop_reason": "tool_calls",
-        "text": "",
-        "usage": {
-          "input_tokens": 10,
-          "output_tokens": 30,
-          "reasoning_tokens": 20
-        }
-      },
       "request": {
-        "max_tokens": 1024,
+        "model": "deepseek-flash",
         "messages": [
           {
+            "role": "user",
             "content": [
               {
-                "text": "What is 2+2?",
-                "type": "text"
+                "type": "text",
+                "text": "What is 2+2?"
               }
-            ],
-            "role": "user"
+            ]
           }
         ],
-        "model": "deepseek-flash",
+        "max_tokens": 1024,
         "tools": [
           {
+            "name": "calc",
             "description": "Evaluate an arithmetic expression.",
             "input_schema": {
+              "type": "object",
               "properties": {
                 "expression": {
                   "type": "string"
@@ -89,177 +34,161 @@
               },
               "required": [
                 "expression"
-              ],
-              "type": "object"
-            },
-            "name": "calc"
+              ]
+            }
+          }
+        ]
+      },
+      "url": "https://api.deepseek.com/chat/completions",
+      "body": {
+        "model": "deepseek-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is 2+2?"
+          }
+        ],
+        "max_tokens": 1024,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "calc",
+              "description": "Evaluate an arithmetic expression.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "expression": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expression"
+                ]
+              }
+            }
           }
         ]
       },
       "response": {
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "model": "x",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 30,
+          "completion_tokens_details": {
+            "reasoning_tokens": 20
+          }
+        },
         "choices": [
           {
-            "finish_reason": "tool_calls",
             "index": 0,
+            "finish_reason": "tool_calls",
             "message": {
+              "role": "assistant",
               "content": null,
               "reasoning_content": "Use the calculator.",
-              "role": "assistant",
               "tool_calls": [
                 {
-                  "function": {
-                    "arguments": "{\"expression\": \"2+2\"}",
-                    "name": "calc"
-                  },
                   "id": "call_1",
-                  "type": "function"
+                  "type": "function",
+                  "function": {
+                    "name": "calc",
+                    "arguments": "{\"expression\": \"2+2\"}"
+                  }
                 }
               ]
             }
           }
-        ],
-        "id": "chatcmpl-1",
-        "model": "x",
-        "object": "chat.completion",
-        "usage": {
-          "completion_tokens": 30,
-          "completion_tokens_details": {
-            "reasoning_tokens": 20
-          },
-          "prompt_tokens": 10
-        }
-      },
-      "url": "https://api.deepseek.com/chat/completions"
-    },
-    {
-      "body": {
-        "max_tokens": 1024,
-        "messages": [
-          {
-            "content": "What is 2+2?",
-            "role": "user"
-          },
-          {
-            "content": null,
-            "reasoning_content": "Use the calculator.",
-            "role": "assistant",
-            "tool_calls": [
-              {
-                "function": {
-                  "arguments": "{\"expression\": \"2+2\"}",
-                  "name": "calc"
-                },
-                "id": "call_1",
-                "type": "function"
-              }
-            ]
-          },
-          {
-            "content": "4",
-            "role": "tool",
-            "tool_call_id": "call_1"
-          }
-        ],
-        "model": "deepseek-flash",
-        "tools": [
-          {
-            "function": {
-              "description": "Evaluate an arithmetic expression.",
-              "name": "calc",
-              "parameters": {
-                "properties": {
-                  "expression": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "expression"
-                ],
-                "type": "object"
-              }
-            },
-            "type": "function"
-          }
         ]
       },
       "expected": {
-        "cost_usd": 3.9e-05,
-        "empty": null,
-        "ending": "end",
         "parts": [
           {
+            "type": "reasoning",
+            "text": "Use the calculator.",
+            "provider": "deepseek",
             "model": "deepseek-flash",
             "native": {
-              "reasoning_content": "It said 4."
-            },
-            "provider": "deepseek",
-            "text": "It said 4.",
-            "type": "reasoning"
+              "reasoning_content": "Use the calculator."
+            }
           },
           {
-            "text": "Four.",
-            "type": "text"
+            "type": "tool_call",
+            "id": "call_1",
+            "name": "calc",
+            "arguments": {
+              "expression": "2+2"
+            }
           }
         ],
-        "priced": true,
-        "stop_reason": "stop",
-        "text": "Four.",
+        "text": "",
+        "stop_reason": "tool_calls",
+        "ending": "tool_call",
         "usage": {
           "input_tokens": 10,
           "output_tokens": 30,
           "reasoning_tokens": 20
-        }
-      },
+        },
+        "empty": null,
+        "cost_usd": 3.9e-05,
+        "priced": true
+      }
+    },
+    {
       "request": {
-        "max_tokens": 1024,
+        "model": "deepseek-flash",
         "messages": [
           {
+            "role": "user",
             "content": [
               {
-                "text": "What is 2+2?",
-                "type": "text"
+                "type": "text",
+                "text": "What is 2+2?"
               }
-            ],
-            "role": "user"
+            ]
           },
           {
+            "role": "assistant",
             "content": [
               {
+                "type": "reasoning",
+                "text": "Use the calculator.",
+                "provider": "deepseek",
                 "model": "deepseek-flash",
                 "native": {
                   "reasoning_content": "Use the calculator."
-                },
-                "provider": "deepseek",
-                "text": "Use the calculator.",
-                "type": "reasoning"
+                }
               },
               {
-                "arguments": {
-                  "expression": "2+2"
-                },
+                "type": "tool_call",
                 "id": "call_1",
                 "name": "calc",
-                "type": "tool_call"
+                "arguments": {
+                  "expression": "2+2"
+                }
               }
-            ],
-            "role": "assistant"
+            ]
           },
           {
+            "role": "user",
             "content": [
               {
-                "content": "4",
+                "type": "tool_result",
                 "tool_call_id": "call_1",
-                "type": "tool_result"
+                "content": "4"
               }
-            ],
-            "role": "user"
+            ]
           }
         ],
-        "model": "deepseek-flash",
+        "max_tokens": 1024,
         "tools": [
           {
+            "name": "calc",
             "description": "Evaluate an arithmetic expression.",
             "input_schema": {
+              "type": "object",
               "properties": {
                 "expression": {
                   "type": "string"
@@ -267,42 +196,113 @@
               },
               "required": [
                 "expression"
-              ],
-              "type": "object"
-            },
-            "name": "calc"
+              ]
+            }
+          }
+        ]
+      },
+      "url": "https://api.deepseek.com/chat/completions",
+      "body": {
+        "model": "deepseek-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is 2+2?"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "reasoning_content": "Use the calculator.",
+            "tool_calls": [
+              {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                  "name": "calc",
+                  "arguments": "{\"expression\": \"2+2\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": "4"
+          }
+        ],
+        "max_tokens": 1024,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "calc",
+              "description": "Evaluate an arithmetic expression.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "expression": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expression"
+                ]
+              }
+            }
           }
         ]
       },
       "response": {
-        "choices": [
-          {
-            "finish_reason": "stop",
-            "index": 0,
-            "message": {
-              "content": "Four.",
-              "reasoning_content": "It said 4.",
-              "role": "assistant"
-            }
-          }
-        ],
         "id": "chatcmpl-2",
-        "model": "x",
         "object": "chat.completion",
+        "model": "x",
         "usage": {
+          "prompt_tokens": 10,
           "completion_tokens": 30,
           "completion_tokens_details": {
             "reasoning_tokens": 20
-          },
-          "prompt_tokens": 10
-        }
+          }
+        },
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Four.",
+              "reasoning_content": "It said 4."
+            }
+          }
+        ]
       },
-      "url": "https://api.deepseek.com/chat/completions"
+      "expected": {
+        "parts": [
+          {
+            "type": "reasoning",
+            "text": "It said 4.",
+            "provider": "deepseek",
+            "model": "deepseek-flash",
+            "native": {
+              "reasoning_content": "It said 4."
+            }
+          },
+          {
+            "type": "text",
+            "text": "Four."
+          }
+        ],
+        "text": "Four.",
+        "stop_reason": "stop",
+        "ending": "end",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30,
+          "reasoning_tokens": 20
+        },
+        "empty": null,
+        "cost_usd": 3.9e-05,
+        "priced": true
+      }
     }
-  ],
-  "credential": {},
-  "model": "deepseek-flash",
-  "name": "deepseek_reasoning_tool_round",
-  "provider": "deepseek",
-  "tool_answer": "4"
+  ]
 }

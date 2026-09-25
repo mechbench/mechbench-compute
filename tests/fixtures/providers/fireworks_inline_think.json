@@ -1,81 +1,81 @@
 {
+  "name": "fireworks_inline_think",
+  "provider": "fireworks",
+  "model": "accounts/fireworks/models/qwen3-235b",
   "api": null,
+  "credential": {},
+  "tool_answer": "4",
   "calls": [
     {
-      "body": {
-        "max_tokens": 1024,
+      "request": {
+        "model": "accounts/fireworks/models/qwen3-235b",
         "messages": [
           {
-            "content": "What is 2+2?",
-            "role": "user"
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is 2+2?"
+              }
+            ]
           }
         ],
-        "model": "accounts/fireworks/models/qwen3-235b"
+        "max_tokens": 1024
+      },
+      "url": "https://api.fireworks.ai/inference/v1/chat/completions",
+      "body": {
+        "model": "accounts/fireworks/models/qwen3-235b",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is 2+2?"
+          }
+        ],
+        "max_tokens": 1024
+      },
+      "response": {
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "model": "x",
+        "usage": {
+          "prompt_tokens": 20,
+          "completion_tokens": 12
+        },
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "<think>Score: 5</think>\n\nScore: 2"
+            }
+          }
+        ]
       },
       "expected": {
-        "cost_usd": 2.88e-05,
-        "empty": null,
-        "ending": "end",
         "parts": [
           {
-            "model": "accounts/fireworks/models/qwen3-235b",
-            "provider": "fireworks",
+            "type": "reasoning",
             "text": "Score: 5",
-            "type": "reasoning"
+            "provider": "fireworks",
+            "model": "accounts/fireworks/models/qwen3-235b"
           },
           {
-            "text": "Score: 2",
-            "type": "text"
+            "type": "text",
+            "text": "Score: 2"
           }
         ],
-        "priced": true,
-        "stop_reason": "stop",
         "text": "Score: 2",
+        "stop_reason": "stop",
+        "ending": "end",
         "usage": {
           "input_tokens": 20,
           "output_tokens": 12
-        }
-      },
-      "request": {
-        "max_tokens": 1024,
-        "messages": [
-          {
-            "content": [
-              {
-                "text": "What is 2+2?",
-                "type": "text"
-              }
-            ],
-            "role": "user"
-          }
-        ],
-        "model": "accounts/fireworks/models/qwen3-235b"
-      },
-      "response": {
-        "choices": [
-          {
-            "finish_reason": "stop",
-            "index": 0,
-            "message": {
-              "content": "<think>Score: 5</think>\n\nScore: 2",
-              "role": "assistant"
-            }
-          }
-        ],
-        "id": "chatcmpl-1",
-        "model": "x",
-        "object": "chat.completion",
-        "usage": {
-          "completion_tokens": 12,
-          "prompt_tokens": 20
-        }
-      },
-      "url": "https://api.fireworks.ai/inference/v1/chat/completions"
+        },
+        "empty": null,
+        "cost_usd": 2.88e-05,
+        "priced": true
+      }
     }
-  ],
-  "credential": {},
-  "model": "accounts/fireworks/models/qwen3-235b",
-  "name": "fireworks_inline_think",
-  "provider": "fireworks",
-  "tool_answer": "4"
+  ]
 }

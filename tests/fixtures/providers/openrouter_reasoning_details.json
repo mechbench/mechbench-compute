@@ -1,22 +1,64 @@
 {
+  "name": "openrouter_reasoning_details",
+  "provider": "openai-compatible",
+  "model": "anthropic/claude-opus-5",
   "api": null,
+  "credential": {
+    "base_url": "https://openrouter.ai/api/v1"
+  },
+  "tool_answer": "4",
   "calls": [
     {
-      "body": {
-        "max_tokens": 1024,
+      "request": {
+        "model": "anthropic/claude-opus-5",
         "messages": [
           {
-            "content": "What is 2+2?",
-            "role": "user"
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is 2+2?"
+              }
+            ]
           }
         ],
-        "model": "anthropic/claude-opus-5",
+        "max_tokens": 1024,
         "tools": [
           {
+            "name": "calc",
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ]
+            }
+          }
+        ]
+      },
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "body": {
+        "model": "anthropic/claude-opus-5",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is 2+2?"
+          }
+        ],
+        "max_tokens": 1024,
+        "tools": [
+          {
+            "type": "function",
             "function": {
-              "description": "Evaluate an arithmetic expression.",
               "name": "calc",
+              "description": "Evaluate an arithmetic expression.",
               "parameters": {
+                "type": "object",
                 "properties": {
                   "expression": {
                     "type": "string"
@@ -24,81 +66,182 @@
                 },
                 "required": [
                   "expression"
-                ],
-                "type": "object"
+                ]
               }
-            },
-            "type": "function"
+            }
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "model": "x",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 30,
+          "completion_tokens_details": {
+            "reasoning_tokens": 20
+          }
+        },
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "reasoning": "Use the tool.",
+              "reasoning_details": [
+                {
+                  "type": "reasoning.text",
+                  "text": "Use the tool.",
+                  "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "id": "r1",
+                  "format": "anthropic-claude-v1",
+                  "index": 0
+                },
+                {
+                  "type": "reasoning.encrypted",
+                  "data": "eyJlbmNyeXB0ZWQiOnRydWV9",
+                  "id": "r2",
+                  "format": "anthropic-claude-v1",
+                  "index": 1
+                }
+              ],
+              "tool_calls": [
+                {
+                  "id": "call_1",
+                  "type": "function",
+                  "function": {
+                    "name": "calc",
+                    "arguments": "{\"expression\": \"2+2\"}"
+                  }
+                }
+              ]
+            }
           }
         ]
       },
       "expected": {
-        "cost_usd": 0.0,
-        "empty": null,
-        "ending": "tool_call",
         "parts": [
           {
+            "type": "reasoning",
+            "text": "Use the tool.",
+            "provider": "openai-compatible",
             "model": "anthropic/claude-opus-5",
             "native": {
               "reasoning": "Use the tool.",
               "reasoning_details": [
                 {
-                  "format": "anthropic-claude-v1",
-                  "id": "r1",
-                  "index": 0,
-                  "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "type": "reasoning.text",
                   "text": "Use the tool.",
-                  "type": "reasoning.text"
+                  "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "id": "r1",
+                  "format": "anthropic-claude-v1",
+                  "index": 0
                 },
                 {
+                  "type": "reasoning.encrypted",
                   "data": "eyJlbmNyeXB0ZWQiOnRydWV9",
-                  "format": "anthropic-claude-v1",
                   "id": "r2",
-                  "index": 1,
-                  "type": "reasoning.encrypted"
+                  "format": "anthropic-claude-v1",
+                  "index": 1
                 }
               ]
-            },
-            "provider": "openai-compatible",
-            "text": "Use the tool.",
-            "type": "reasoning"
+            }
           },
           {
-            "arguments": {
-              "expression": "2+2"
-            },
+            "type": "tool_call",
             "id": "call_1",
             "name": "calc",
-            "type": "tool_call"
+            "arguments": {
+              "expression": "2+2"
+            }
           }
         ],
-        "priced": false,
-        "stop_reason": "tool_calls",
         "text": "",
+        "stop_reason": "tool_calls",
+        "ending": "tool_call",
         "usage": {
           "input_tokens": 10,
           "output_tokens": 30,
           "reasoning_tokens": 20
-        }
-      },
+        },
+        "empty": null,
+        "cost_usd": 0.0,
+        "priced": false
+      }
+    },
+    {
       "request": {
-        "max_tokens": 1024,
+        "model": "anthropic/claude-opus-5",
         "messages": [
           {
+            "role": "user",
             "content": [
               {
-                "text": "What is 2+2?",
-                "type": "text"
+                "type": "text",
+                "text": "What is 2+2?"
               }
-            ],
-            "role": "user"
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "Use the tool.",
+                "provider": "openai-compatible",
+                "model": "anthropic/claude-opus-5",
+                "native": {
+                  "reasoning": "Use the tool.",
+                  "reasoning_details": [
+                    {
+                      "type": "reasoning.text",
+                      "text": "Use the tool.",
+                      "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                      "id": "r1",
+                      "format": "anthropic-claude-v1",
+                      "index": 0
+                    },
+                    {
+                      "type": "reasoning.encrypted",
+                      "data": "eyJlbmNyeXB0ZWQiOnRydWV9",
+                      "id": "r2",
+                      "format": "anthropic-claude-v1",
+                      "index": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "tool_call",
+                "id": "call_1",
+                "name": "calc",
+                "arguments": {
+                  "expression": "2+2"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_call_id": "call_1",
+                "content": "4"
+              }
+            ]
           }
         ],
-        "model": "anthropic/claude-opus-5",
+        "max_tokens": 1024,
         "tools": [
           {
+            "name": "calc",
             "description": "Evaluate an arithmetic expression.",
             "input_schema": {
+              "type": "object",
               "properties": {
                 "expression": {
                   "type": "string"
@@ -106,118 +249,66 @@
               },
               "required": [
                 "expression"
-              ],
-              "type": "object"
-            },
-            "name": "calc"
-          }
-        ]
-      },
-      "response": {
-        "choices": [
-          {
-            "finish_reason": "tool_calls",
-            "index": 0,
-            "message": {
-              "content": null,
-              "reasoning": "Use the tool.",
-              "reasoning_details": [
-                {
-                  "format": "anthropic-claude-v1",
-                  "id": "r1",
-                  "index": 0,
-                  "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                  "text": "Use the tool.",
-                  "type": "reasoning.text"
-                },
-                {
-                  "data": "eyJlbmNyeXB0ZWQiOnRydWV9",
-                  "format": "anthropic-claude-v1",
-                  "id": "r2",
-                  "index": 1,
-                  "type": "reasoning.encrypted"
-                }
-              ],
-              "role": "assistant",
-              "tool_calls": [
-                {
-                  "function": {
-                    "arguments": "{\"expression\": \"2+2\"}",
-                    "name": "calc"
-                  },
-                  "id": "call_1",
-                  "type": "function"
-                }
               ]
             }
           }
-        ],
-        "id": "chatcmpl-1",
-        "model": "x",
-        "object": "chat.completion",
-        "usage": {
-          "completion_tokens": 30,
-          "completion_tokens_details": {
-            "reasoning_tokens": 20
-          },
-          "prompt_tokens": 10
-        }
+        ]
       },
-      "url": "https://openrouter.ai/api/v1/chat/completions"
-    },
-    {
+      "url": "https://openrouter.ai/api/v1/chat/completions",
       "body": {
-        "max_tokens": 1024,
+        "model": "anthropic/claude-opus-5",
         "messages": [
           {
-            "content": "What is 2+2?",
-            "role": "user"
+            "role": "user",
+            "content": "What is 2+2?"
           },
           {
+            "role": "assistant",
             "content": null,
             "reasoning": "Use the tool.",
             "reasoning_details": [
               {
-                "format": "anthropic-claude-v1",
-                "id": "r1",
-                "index": 0,
-                "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "type": "reasoning.text",
                 "text": "Use the tool.",
-                "type": "reasoning.text"
+                "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "id": "r1",
+                "format": "anthropic-claude-v1",
+                "index": 0
               },
               {
+                "type": "reasoning.encrypted",
                 "data": "eyJlbmNyeXB0ZWQiOnRydWV9",
-                "format": "anthropic-claude-v1",
                 "id": "r2",
-                "index": 1,
-                "type": "reasoning.encrypted"
+                "format": "anthropic-claude-v1",
+                "index": 1
               }
             ],
-            "role": "assistant",
             "tool_calls": [
               {
-                "function": {
-                  "arguments": "{\"expression\": \"2+2\"}",
-                  "name": "calc"
-                },
                 "id": "call_1",
-                "type": "function"
+                "type": "function",
+                "function": {
+                  "name": "calc",
+                  "arguments": "{\"expression\": \"2+2\"}"
+                }
               }
             ]
           },
           {
-            "content": "4",
             "role": "tool",
-            "tool_call_id": "call_1"
+            "tool_call_id": "call_1",
+            "content": "4"
           }
         ],
-        "model": "anthropic/claude-opus-5",
+        "max_tokens": 1024,
         "tools": [
           {
+            "type": "function",
             "function": {
-              "description": "Evaluate an arithmetic expression.",
               "name": "calc",
+              "description": "Evaluate an arithmetic expression.",
               "parameters": {
+                "type": "object",
                 "properties": {
                   "expression": {
                     "type": "string"
@@ -225,144 +316,53 @@
                 },
                 "required": [
                   "expression"
-                ],
-                "type": "object"
+                ]
               }
-            },
-            "type": "function"
-          }
-        ]
-      },
-      "expected": {
-        "cost_usd": 0.0,
-        "empty": null,
-        "ending": "end",
-        "parts": [
-          {
-            "text": "Four.",
-            "type": "text"
-          }
-        ],
-        "priced": false,
-        "stop_reason": "stop",
-        "text": "Four.",
-        "usage": {
-          "input_tokens": 10,
-          "output_tokens": 30,
-          "reasoning_tokens": 20
-        }
-      },
-      "request": {
-        "max_tokens": 1024,
-        "messages": [
-          {
-            "content": [
-              {
-                "text": "What is 2+2?",
-                "type": "text"
-              }
-            ],
-            "role": "user"
-          },
-          {
-            "content": [
-              {
-                "model": "anthropic/claude-opus-5",
-                "native": {
-                  "reasoning": "Use the tool.",
-                  "reasoning_details": [
-                    {
-                      "format": "anthropic-claude-v1",
-                      "id": "r1",
-                      "index": 0,
-                      "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                      "text": "Use the tool.",
-                      "type": "reasoning.text"
-                    },
-                    {
-                      "data": "eyJlbmNyeXB0ZWQiOnRydWV9",
-                      "format": "anthropic-claude-v1",
-                      "id": "r2",
-                      "index": 1,
-                      "type": "reasoning.encrypted"
-                    }
-                  ]
-                },
-                "provider": "openai-compatible",
-                "text": "Use the tool.",
-                "type": "reasoning"
-              },
-              {
-                "arguments": {
-                  "expression": "2+2"
-                },
-                "id": "call_1",
-                "name": "calc",
-                "type": "tool_call"
-              }
-            ],
-            "role": "assistant"
-          },
-          {
-            "content": [
-              {
-                "content": "4",
-                "tool_call_id": "call_1",
-                "type": "tool_result"
-              }
-            ],
-            "role": "user"
-          }
-        ],
-        "model": "anthropic/claude-opus-5",
-        "tools": [
-          {
-            "description": "Evaluate an arithmetic expression.",
-            "input_schema": {
-              "properties": {
-                "expression": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "expression"
-              ],
-              "type": "object"
-            },
-            "name": "calc"
+            }
           }
         ]
       },
       "response": {
-        "choices": [
-          {
-            "finish_reason": "stop",
-            "index": 0,
-            "message": {
-              "content": "Four.",
-              "role": "assistant"
-            }
-          }
-        ],
         "id": "chatcmpl-2",
-        "model": "x",
         "object": "chat.completion",
+        "model": "x",
         "usage": {
+          "prompt_tokens": 10,
           "completion_tokens": 30,
           "completion_tokens_details": {
             "reasoning_tokens": 20
-          },
-          "prompt_tokens": 10
-        }
+          }
+        },
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Four."
+            }
+          }
+        ]
       },
-      "url": "https://openrouter.ai/api/v1/chat/completions"
+      "expected": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "Four."
+          }
+        ],
+        "text": "Four.",
+        "stop_reason": "stop",
+        "ending": "end",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30,
+          "reasoning_tokens": 20
+        },
+        "empty": null,
+        "cost_usd": 0.0,
+        "priced": false
+      }
     }
-  ],
-  "credential": {
-    "base_url": "https://openrouter.ai/api/v1"
-  },
-  "model": "anthropic/claude-opus-5",
-  "name": "openrouter_reasoning_details",
-  "provider": "openai-compatible",
-  "tool_answer": "4"
+  ]
 }

@@ -1,95 +1,95 @@
 {
+  "name": "gemini_thoughts_only",
+  "provider": "gemini",
+  "model": "gemini-2.5-flash",
   "api": null,
+  "credential": {},
+  "tool_answer": "4",
   "calls": [
     {
+      "request": {
+        "model": "gemini-2.5-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is 2+2?"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 50
+      },
+      "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
       "body": {
         "contents": [
           {
+            "role": "user",
             "parts": [
               {
                 "text": "What is 2+2?"
               }
-            ],
-            "role": "user"
+            ]
           }
         ],
         "generationConfig": {
           "maxOutputTokens": 50
         }
       },
-      "expected": {
-        "cost_usd": 0.0001274,
-        "empty": {
-          "cause": "reasoning",
-          "message": "gemini: 50 of 50 output tokens went to thoughts (maxOutputTokens 50) and no reply text followed (finishReason MAX_TOKENS). Raise max_tokens so the reply has room after the thinking, or lower the thinking budget with provider_options: {\"gemini\": {\"generationConfig\": {\"thinkingConfig\": {\"thinkingBudget\": 0}}}} (a model that takes a level rather than a budget takes {\"thinkingLevel\": \"low\"})."
-        },
-        "ending": "empty",
-        "parts": [
-          {
-            "model": "gemini-2.5-flash",
-            "native": {
-              "text": "Weighing it.",
-              "thought": true
-            },
-            "provider": "gemini",
-            "text": "Weighing it.",
-            "type": "reasoning"
-          }
-        ],
-        "priced": true,
-        "stop_reason": "max_tokens",
-        "text": "",
-        "usage": {
-          "input_tokens": 8,
-          "output_tokens": 50,
-          "reasoning_tokens": 50
-        }
-      },
-      "request": {
-        "max_tokens": 50,
-        "messages": [
-          {
-            "content": [
-              {
-                "text": "What is 2+2?",
-                "type": "text"
-              }
-            ],
-            "role": "user"
-          }
-        ],
-        "model": "gemini-2.5-flash"
-      },
       "response": {
+        "responseId": "resp-1",
+        "modelVersion": "gemini-2.5-flash",
+        "usageMetadata": {
+          "promptTokenCount": 8,
+          "thoughtsTokenCount": 50,
+          "totalTokenCount": 58
+        },
         "candidates": [
           {
+            "index": 0,
+            "finishReason": "MAX_TOKENS",
             "content": {
+              "role": "model",
               "parts": [
                 {
                   "text": "Weighing it.",
                   "thought": true
                 }
-              ],
-              "role": "model"
-            },
-            "finishReason": "MAX_TOKENS",
-            "index": 0
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "parts": [
+          {
+            "type": "reasoning",
+            "text": "Weighing it.",
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "native": {
+              "text": "Weighing it.",
+              "thought": true
+            }
           }
         ],
-        "modelVersion": "gemini-2.5-flash",
-        "responseId": "resp-1",
-        "usageMetadata": {
-          "promptTokenCount": 8,
-          "thoughtsTokenCount": 50,
-          "totalTokenCount": 58
-        }
-      },
-      "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+        "text": "",
+        "stop_reason": "max_tokens",
+        "ending": "empty",
+        "usage": {
+          "input_tokens": 8,
+          "output_tokens": 50,
+          "reasoning_tokens": 50
+        },
+        "empty": {
+          "cause": "reasoning",
+          "message": "gemini: 50 of 50 output tokens went to thoughts (maxOutputTokens 50) and no reply text followed (finishReason MAX_TOKENS). Raise max_tokens so the reply has room after the thinking, or lower the thinking budget with provider_options: {\"gemini\": {\"generationConfig\": {\"thinkingConfig\": {\"thinkingBudget\": 0}}}} (a model that takes a level rather than a budget takes {\"thinkingLevel\": \"low\"})."
+        },
+        "cost_usd": 0.0001274,
+        "priced": true
+      }
     }
-  ],
-  "credential": {},
-  "model": "gemini-2.5-flash",
-  "name": "gemini_thoughts_only",
-  "provider": "gemini",
-  "tool_answer": "4"
+  ]
 }

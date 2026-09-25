@@ -1,85 +1,85 @@
 {
+  "name": "anthropic_text",
+  "provider": "anthropic",
+  "model": "claude-sonnet-5",
   "api": null,
+  "credential": {},
+  "tool_answer": "4",
   "calls": [
     {
-      "body": {
-        "max_tokens": 1024,
+      "request": {
+        "model": "claude-sonnet-5",
         "messages": [
           {
+            "role": "user",
             "content": [
               {
-                "text": "What is 2+2?",
-                "type": "text"
+                "type": "text",
+                "text": "What is 2+2?"
               }
-            ],
-            "role": "user"
+            ]
           }
         ],
-        "model": "claude-sonnet-5",
+        "max_tokens": 1024,
         "system": "Be brief."
       },
-      "expected": {
-        "cost_usd": 0.0003285,
-        "empty": null,
-        "ending": "end",
-        "parts": [
-          {
-            "text": "Four.",
-            "type": "text"
-          }
-        ],
-        "priced": true,
-        "stop_reason": "end_turn",
-        "text": "Four.",
-        "usage": {
-          "cache_read_tokens": 100,
-          "cache_write_tokens": 50,
-          "input_tokens": 162,
-          "output_tokens": 5
-        }
-      },
-      "request": {
+      "url": "https://api.anthropic.com/v1/messages",
+      "body": {
+        "model": "claude-sonnet-5",
         "max_tokens": 1024,
         "messages": [
           {
+            "role": "user",
             "content": [
               {
-                "text": "What is 2+2?",
-                "type": "text"
+                "type": "text",
+                "text": "What is 2+2?"
               }
-            ],
-            "role": "user"
+            ]
           }
         ],
-        "model": "claude-sonnet-5",
         "system": "Be brief."
       },
       "response": {
-        "content": [
-          {
-            "text": "Four.",
-            "type": "text"
-          }
-        ],
         "id": "msg_1",
-        "model": "claude-sonnet-5",
+        "type": "message",
         "role": "assistant",
+        "model": "claude-sonnet-5",
         "stop_reason": "end_turn",
         "stop_sequence": null,
-        "type": "message",
         "usage": {
-          "cache_creation_input_tokens": 50,
-          "cache_read_input_tokens": 100,
           "input_tokens": 12,
-          "output_tokens": 5
-        }
+          "output_tokens": 5,
+          "cache_read_input_tokens": 100,
+          "cache_creation_input_tokens": 50
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Four."
+          }
+        ]
       },
-      "url": "https://api.anthropic.com/v1/messages"
+      "expected": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "Four."
+          }
+        ],
+        "text": "Four.",
+        "stop_reason": "end_turn",
+        "ending": "end",
+        "usage": {
+          "input_tokens": 162,
+          "output_tokens": 5,
+          "cache_read_tokens": 100,
+          "cache_write_tokens": 50
+        },
+        "empty": null,
+        "cost_usd": 0.0003285,
+        "priced": true
+      }
     }
-  ],
-  "credential": {},
-  "model": "claude-sonnet-5",
-  "name": "anthropic_text",
-  "provider": "anthropic",
-  "tool_answer": "4"
+  ]
 }

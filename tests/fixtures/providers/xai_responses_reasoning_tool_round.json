@@ -1,25 +1,63 @@
 {
+  "name": "xai_responses_reasoning_tool_round",
+  "provider": "xai",
+  "model": "grok-4.7",
   "api": "responses",
+  "credential": {},
+  "tool_answer": "4",
   "calls": [
     {
-      "body": {
-        "include": [
-          "reasoning.encrypted_content"
+      "request": {
+        "model": "grok-4.7",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is 2+2?"
+              }
+            ]
+          }
         ],
+        "max_tokens": 1024,
+        "tools": [
+          {
+            "name": "calc",
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ]
+            }
+          }
+        ],
+        "api": "responses"
+      },
+      "url": "https://api.x.ai/v1/responses",
+      "body": {
+        "model": "grok-4.7",
         "input": [
           {
-            "content": "What is 2+2?",
-            "role": "user"
+            "role": "user",
+            "content": "What is 2+2?"
           }
         ],
         "max_output_tokens": 1024,
-        "model": "grok-4.7",
         "store": false,
         "tools": [
           {
-            "description": "Evaluate an arithmetic expression.",
+            "type": "function",
             "name": "calc",
+            "description": "Evaluate an arithmetic expression.",
             "parameters": {
+              "type": "object",
               "properties": {
                 "expression": {
                   "type": "string"
@@ -27,123 +65,43 @@
               },
               "required": [
                 "expression"
-              ],
-              "type": "object"
-            },
-            "type": "function"
-          }
-        ]
-      },
-      "expected": {
-        "cost_usd": 0.0002125,
-        "empty": null,
-        "ending": "tool_call",
-        "parts": [
-          {
-            "model": "grok-4.7",
-            "native": {
-              "content": [
-                {
-                  "text": "Use the tool.",
-                  "type": "reasoning_text"
-                }
-              ],
-              "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-              "id": "rs_x1",
-              "status": "completed",
-              "summary": [],
-              "type": "reasoning"
-            },
-            "provider": "xai",
-            "text": "Use the tool.",
-            "type": "reasoning"
-          },
-          {
-            "arguments": {
-              "expression": "2+2"
-            },
-            "id": "call_1",
-            "name": "calc",
-            "signature": {
-              "model": "grok-4.7",
-              "provider": "xai",
-              "value": "{\"id\":\"fc_1\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_1\",\"name\":\"calc\",\"arguments\":\"{\\\"expression\\\": \\\"2+2\\\"}\"}"
-            },
-            "type": "tool_call"
+              ]
+            }
           }
         ],
-        "priced": true,
-        "stop_reason": "completed",
-        "text": "",
-        "usage": {
-          "cache_read_tokens": 5,
-          "input_tokens": 20,
-          "output_tokens": 30,
-          "reasoning_tokens": 20
-        }
-      },
-      "request": {
-        "api": "responses",
-        "max_tokens": 1024,
-        "messages": [
-          {
-            "content": [
-              {
-                "text": "What is 2+2?",
-                "type": "text"
-              }
-            ],
-            "role": "user"
-          }
-        ],
-        "model": "grok-4.7",
-        "tools": [
-          {
-            "description": "Evaluate an arithmetic expression.",
-            "input_schema": {
-              "properties": {
-                "expression": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "expression"
-              ],
-              "type": "object"
-            },
-            "name": "calc"
-          }
+        "include": [
+          "reasoning.encrypted_content"
         ]
       },
       "response": {
         "id": "resp_1",
-        "incomplete_details": null,
-        "model": "grok-4.7",
         "object": "response",
+        "model": "grok-4.7",
+        "status": "completed",
+        "incomplete_details": null,
         "output": [
           {
-            "content": [
-              {
-                "text": "Use the tool.",
-                "type": "reasoning_text"
-              }
-            ],
-            "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
             "id": "rs_x1",
+            "type": "reasoning",
             "status": "completed",
             "summary": [],
-            "type": "reasoning"
+            "content": [
+              {
+                "type": "reasoning_text",
+                "text": "Use the tool."
+              }
+            ],
+            "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
           },
           {
-            "arguments": "{\"expression\": \"2+2\"}",
-            "call_id": "call_1",
             "id": "fc_1",
-            "name": "calc",
+            "type": "function_call",
             "status": "completed",
-            "type": "function_call"
+            "call_id": "call_1",
+            "name": "calc",
+            "arguments": "{\"expression\": \"2+2\"}"
           }
         ],
-        "status": "completed",
         "usage": {
           "input_tokens": 20,
           "input_tokens_details": {
@@ -156,177 +114,123 @@
           "total_tokens": 50
         }
       },
-      "url": "https://api.x.ai/v1/responses"
-    },
-    {
-      "body": {
-        "include": [
-          "reasoning.encrypted_content"
-        ],
-        "input": [
-          {
-            "content": "What is 2+2?",
-            "role": "user"
-          },
-          {
-            "content": [
-              {
-                "text": "Use the tool.",
-                "type": "reasoning_text"
-              }
-            ],
-            "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-            "id": "rs_x1",
-            "status": "completed",
-            "summary": [],
-            "type": "reasoning"
-          },
-          {
-            "arguments": "{\"expression\": \"2+2\"}",
-            "call_id": "call_1",
-            "id": "fc_1",
-            "name": "calc",
-            "status": "completed",
-            "type": "function_call"
-          },
-          {
-            "call_id": "call_1",
-            "output": "4",
-            "type": "function_call_output"
-          }
-        ],
-        "max_output_tokens": 1024,
-        "model": "grok-4.7",
-        "store": false,
-        "tools": [
-          {
-            "description": "Evaluate an arithmetic expression.",
-            "name": "calc",
-            "parameters": {
-              "properties": {
-                "expression": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "expression"
-              ],
-              "type": "object"
-            },
-            "type": "function"
-          }
-        ]
-      },
       "expected": {
-        "cost_usd": 0.0002125,
-        "empty": null,
-        "ending": "end",
         "parts": [
           {
+            "type": "reasoning",
+            "text": "Use the tool.",
+            "provider": "xai",
             "model": "grok-4.7",
             "native": {
-              "content": [
-                {
-                  "text": "It said 4.",
-                  "type": "reasoning_text"
-                }
-              ],
-              "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==",
-              "id": "rs_x2",
+              "id": "rs_x1",
+              "type": "reasoning",
               "status": "completed",
               "summary": [],
-              "type": "reasoning"
-            },
-            "provider": "xai",
-            "text": "It said 4.",
-            "type": "reasoning"
+              "content": [
+                {
+                  "type": "reasoning_text",
+                  "text": "Use the tool."
+                }
+              ],
+              "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+            }
           },
           {
-            "signature": {
-              "model": "grok-4.7",
-              "provider": "xai",
-              "value": "{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Four.\",\"annotations\":[]}]}"
+            "type": "tool_call",
+            "id": "call_1",
+            "name": "calc",
+            "arguments": {
+              "expression": "2+2"
             },
-            "text": "Four.",
-            "type": "text"
+            "signature": {
+              "provider": "xai",
+              "model": "grok-4.7",
+              "value": "{\"id\":\"fc_1\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_1\",\"name\":\"calc\",\"arguments\":\"{\\\"expression\\\": \\\"2+2\\\"}\"}"
+            }
           }
         ],
-        "priced": true,
+        "text": "",
         "stop_reason": "completed",
-        "text": "Four.",
+        "ending": "tool_call",
         "usage": {
-          "cache_read_tokens": 5,
           "input_tokens": 20,
           "output_tokens": 30,
+          "cache_read_tokens": 5,
           "reasoning_tokens": 20
-        }
-      },
+        },
+        "empty": null,
+        "cost_usd": 0.0002125,
+        "priced": true
+      }
+    },
+    {
       "request": {
-        "api": "responses",
-        "max_tokens": 1024,
+        "model": "grok-4.7",
         "messages": [
           {
+            "role": "user",
             "content": [
               {
-                "text": "What is 2+2?",
-                "type": "text"
+                "type": "text",
+                "text": "What is 2+2?"
               }
-            ],
-            "role": "user"
+            ]
           },
           {
+            "role": "assistant",
             "content": [
               {
+                "type": "reasoning",
+                "text": "Use the tool.",
+                "provider": "xai",
                 "model": "grok-4.7",
                 "native": {
-                  "content": [
-                    {
-                      "text": "Use the tool.",
-                      "type": "reasoning_text"
-                    }
-                  ],
-                  "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
                   "id": "rs_x1",
+                  "type": "reasoning",
                   "status": "completed",
                   "summary": [],
-                  "type": "reasoning"
-                },
-                "provider": "xai",
-                "text": "Use the tool.",
-                "type": "reasoning"
+                  "content": [
+                    {
+                      "type": "reasoning_text",
+                      "text": "Use the tool."
+                    }
+                  ],
+                  "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+                }
               },
               {
+                "type": "tool_call",
+                "id": "call_1",
+                "name": "calc",
                 "arguments": {
                   "expression": "2+2"
                 },
-                "id": "call_1",
-                "name": "calc",
                 "signature": {
-                  "model": "grok-4.7",
                   "provider": "xai",
+                  "model": "grok-4.7",
                   "value": "{\"id\":\"fc_1\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_1\",\"name\":\"calc\",\"arguments\":\"{\\\"expression\\\": \\\"2+2\\\"}\"}"
-                },
-                "type": "tool_call"
+                }
               }
-            ],
-            "role": "assistant"
+            ]
           },
           {
+            "role": "user",
             "content": [
               {
-                "content": "4",
+                "type": "tool_result",
                 "tool_call_id": "call_1",
-                "type": "tool_result"
+                "content": "4"
               }
-            ],
-            "role": "user"
+            ]
           }
         ],
-        "model": "grok-4.7",
+        "max_tokens": 1024,
         "tools": [
           {
+            "name": "calc",
             "description": "Evaluate an arithmetic expression.",
             "input_schema": {
+              "type": "object",
               "properties": {
                 "expression": {
                   "type": "string"
@@ -334,47 +238,105 @@
               },
               "required": [
                 "expression"
-              ],
-              "type": "object"
-            },
-            "name": "calc"
+              ]
+            }
           }
+        ],
+        "api": "responses"
+      },
+      "url": "https://api.x.ai/v1/responses",
+      "body": {
+        "model": "grok-4.7",
+        "input": [
+          {
+            "role": "user",
+            "content": "What is 2+2?"
+          },
+          {
+            "id": "rs_x1",
+            "type": "reasoning",
+            "status": "completed",
+            "summary": [],
+            "content": [
+              {
+                "type": "reasoning_text",
+                "text": "Use the tool."
+              }
+            ],
+            "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+          },
+          {
+            "id": "fc_1",
+            "type": "function_call",
+            "status": "completed",
+            "call_id": "call_1",
+            "name": "calc",
+            "arguments": "{\"expression\": \"2+2\"}"
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "4"
+          }
+        ],
+        "max_output_tokens": 1024,
+        "store": false,
+        "tools": [
+          {
+            "type": "function",
+            "name": "calc",
+            "description": "Evaluate an arithmetic expression.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ]
+            }
+          }
+        ],
+        "include": [
+          "reasoning.encrypted_content"
         ]
       },
       "response": {
         "id": "resp_2",
-        "incomplete_details": null,
-        "model": "grok-4.7",
         "object": "response",
+        "model": "grok-4.7",
+        "status": "completed",
+        "incomplete_details": null,
         "output": [
           {
-            "content": [
-              {
-                "text": "It said 4.",
-                "type": "reasoning_text"
-              }
-            ],
-            "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==",
             "id": "rs_x2",
+            "type": "reasoning",
             "status": "completed",
             "summary": [],
-            "type": "reasoning"
-          },
-          {
             "content": [
               {
-                "annotations": [],
-                "text": "Four.",
-                "type": "output_text"
+                "type": "reasoning_text",
+                "text": "It said 4."
               }
             ],
+            "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=="
+          },
+          {
             "id": "msg_1",
+            "type": "message",
             "role": "assistant",
             "status": "completed",
-            "type": "message"
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Four.",
+                "annotations": []
+              }
+            ]
           }
         ],
-        "status": "completed",
         "usage": {
           "input_tokens": 20,
           "input_tokens_details": {
@@ -387,12 +349,50 @@
           "total_tokens": 50
         }
       },
-      "url": "https://api.x.ai/v1/responses"
+      "expected": {
+        "parts": [
+          {
+            "type": "reasoning",
+            "text": "It said 4.",
+            "provider": "xai",
+            "model": "grok-4.7",
+            "native": {
+              "id": "rs_x2",
+              "type": "reasoning",
+              "status": "completed",
+              "summary": [],
+              "content": [
+                {
+                  "type": "reasoning_text",
+                  "text": "It said 4."
+                }
+              ],
+              "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=="
+            }
+          },
+          {
+            "type": "text",
+            "text": "Four.",
+            "signature": {
+              "provider": "xai",
+              "model": "grok-4.7",
+              "value": "{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Four.\",\"annotations\":[]}]}"
+            }
+          }
+        ],
+        "text": "Four.",
+        "stop_reason": "completed",
+        "ending": "end",
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 30,
+          "cache_read_tokens": 5,
+          "reasoning_tokens": 20
+        },
+        "empty": null,
+        "cost_usd": 0.0002125,
+        "priced": true
+      }
     }
-  ],
-  "credential": {},
-  "model": "grok-4.7",
-  "name": "xai_responses_reasoning_tool_round",
-  "provider": "xai",
-  "tool_answer": "4"
+  ]
 }

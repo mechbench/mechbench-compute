@@ -260,7 +260,7 @@ def build() -> dict[str, dict[str, Any]]:
 
 
 def dump(fixture: dict[str, Any]) -> str:
-    return json.dumps(fixture, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    return json.dumps(fixture, indent=2, ensure_ascii=False) + "\n"
 
 
 def main() -> None:

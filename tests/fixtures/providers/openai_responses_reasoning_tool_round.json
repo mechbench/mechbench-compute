@@ -1,99 +1,33 @@
 {
+  "name": "openai_responses_reasoning_tool_round",
+  "provider": "openai",
+  "model": "gpt-6-astra",
   "api": "responses",
+  "credential": {},
+  "tool_answer": "4",
   "calls": [
     {
-      "body": {
-        "input": [
-          {
-            "content": "What is 2+2?",
-            "role": "user"
-          }
-        ],
-        "instructions": "Be brief.",
-        "max_output_tokens": 1024,
-        "model": "gpt-6-astra",
-        "store": false,
-        "tools": [
-          {
-            "description": "Evaluate an arithmetic expression.",
-            "name": "calc",
-            "parameters": {
-              "properties": {
-                "expression": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "expression"
-              ],
-              "type": "object"
-            },
-            "type": "function"
-          }
-        ]
-      },
-      "expected": {
-        "cost_usd": 0.001564,
-        "empty": null,
-        "ending": "tool_call",
-        "parts": [
-          {
-            "model": "gpt-6-astra",
-            "native": {
-              "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-              "id": "rs_1",
-              "summary": [],
-              "type": "reasoning"
-            },
-            "provider": "openai",
-            "redacted": true,
-            "text": "",
-            "type": "reasoning"
-          },
-          {
-            "arguments": {
-              "expression": "2+2"
-            },
-            "id": "call_1",
-            "name": "calc",
-            "signature": {
-              "model": "gpt-6-astra",
-              "provider": "openai",
-              "value": "{\"id\":\"fc_1\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_1\",\"name\":\"calc\",\"arguments\":\"{\\\"expression\\\": \\\"2+2\\\"}\"}"
-            },
-            "type": "tool_call"
-          }
-        ],
-        "priced": true,
-        "stop_reason": "completed",
-        "text": "",
-        "usage": {
-          "cache_read_tokens": 4,
-          "input_tokens": 10,
-          "output_tokens": 30,
-          "reasoning_tokens": 20
-        }
-      },
       "request": {
-        "api": "responses",
-        "max_tokens": 1024,
+        "model": "gpt-6-astra",
         "messages": [
           {
+            "role": "user",
             "content": [
               {
-                "text": "What is 2+2?",
-                "type": "text"
+                "type": "text",
+                "text": "What is 2+2?"
               }
-            ],
-            "role": "user"
+            ]
           }
         ],
-        "model": "gpt-6-astra",
+        "max_tokens": 1024,
         "system": "Be brief.",
         "tools": [
           {
+            "name": "calc",
             "description": "Evaluate an arithmetic expression.",
             "input_schema": {
+              "type": "object",
               "properties": {
                 "expression": {
                   "type": "string"
@@ -101,35 +35,65 @@
               },
               "required": [
                 "expression"
-              ],
-              "type": "object"
-            },
-            "name": "calc"
+              ]
+            }
+          }
+        ],
+        "api": "responses"
+      },
+      "url": "https://api.openai.com/v1/responses",
+      "body": {
+        "model": "gpt-6-astra",
+        "input": [
+          {
+            "role": "user",
+            "content": "What is 2+2?"
+          }
+        ],
+        "max_output_tokens": 1024,
+        "store": false,
+        "instructions": "Be brief.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "calc",
+            "description": "Evaluate an arithmetic expression.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ]
+            }
           }
         ]
       },
       "response": {
         "id": "resp_1",
-        "incomplete_details": null,
-        "model": "gpt-6-astra-2026-08-01",
         "object": "response",
+        "model": "gpt-6-astra-2026-08-01",
+        "status": "completed",
+        "incomplete_details": null,
         "output": [
           {
-            "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
             "id": "rs_1",
+            "type": "reasoning",
             "summary": [],
-            "type": "reasoning"
+            "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
           },
           {
-            "arguments": "{\"expression\": \"2+2\"}",
-            "call_id": "call_1",
             "id": "fc_1",
-            "name": "calc",
+            "type": "function_call",
             "status": "completed",
-            "type": "function_call"
+            "call_id": "call_1",
+            "name": "calc",
+            "arguments": "{\"expression\": \"2+2\"}"
           }
         ],
-        "status": "completed",
         "usage": {
           "input_tokens": 10,
           "input_tokens_details": {
@@ -142,161 +106,112 @@
           "total_tokens": 40
         }
       },
-      "url": "https://api.openai.com/v1/responses"
-    },
-    {
-      "body": {
-        "input": [
-          {
-            "content": "What is 2+2?",
-            "role": "user"
-          },
-          {
-            "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-            "id": "rs_1",
-            "summary": [],
-            "type": "reasoning"
-          },
-          {
-            "arguments": "{\"expression\": \"2+2\"}",
-            "call_id": "call_1",
-            "id": "fc_1",
-            "name": "calc",
-            "status": "completed",
-            "type": "function_call"
-          },
-          {
-            "call_id": "call_1",
-            "output": "4",
-            "type": "function_call_output"
-          }
-        ],
-        "instructions": "Be brief.",
-        "max_output_tokens": 1024,
-        "model": "gpt-6-astra",
-        "store": false,
-        "tools": [
-          {
-            "description": "Evaluate an arithmetic expression.",
-            "name": "calc",
-            "parameters": {
-              "properties": {
-                "expression": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "expression"
-              ],
-              "type": "object"
-            },
-            "type": "function"
-          }
-        ]
-      },
       "expected": {
-        "cost_usd": 0.001564,
-        "empty": null,
-        "ending": "end",
         "parts": [
           {
+            "type": "reasoning",
+            "text": "",
+            "redacted": true,
+            "provider": "openai",
             "model": "gpt-6-astra",
             "native": {
-              "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==",
-              "id": "rs_2",
-              "summary": [
-                {
-                  "text": "The tool said 4.",
-                  "type": "summary_text"
-                }
-              ],
-              "type": "reasoning"
-            },
-            "provider": "openai",
-            "text": "The tool said 4.",
-            "type": "reasoning"
+              "id": "rs_1",
+              "type": "reasoning",
+              "summary": [],
+              "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+            }
           },
           {
-            "signature": {
-              "model": "gpt-6-astra",
-              "provider": "openai",
-              "value": "{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Four.\",\"annotations\":[]}]}"
+            "type": "tool_call",
+            "id": "call_1",
+            "name": "calc",
+            "arguments": {
+              "expression": "2+2"
             },
-            "text": "Four.",
-            "type": "text"
+            "signature": {
+              "provider": "openai",
+              "model": "gpt-6-astra",
+              "value": "{\"id\":\"fc_1\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_1\",\"name\":\"calc\",\"arguments\":\"{\\\"expression\\\": \\\"2+2\\\"}\"}"
+            }
           }
         ],
-        "priced": true,
+        "text": "",
         "stop_reason": "completed",
-        "text": "Four.",
+        "ending": "tool_call",
         "usage": {
-          "cache_read_tokens": 4,
           "input_tokens": 10,
           "output_tokens": 30,
+          "cache_read_tokens": 4,
           "reasoning_tokens": 20
-        }
-      },
+        },
+        "empty": null,
+        "cost_usd": 0.001564,
+        "priced": true
+      }
+    },
+    {
       "request": {
-        "api": "responses",
-        "max_tokens": 1024,
+        "model": "gpt-6-astra",
         "messages": [
           {
+            "role": "user",
             "content": [
               {
-                "text": "What is 2+2?",
-                "type": "text"
+                "type": "text",
+                "text": "What is 2+2?"
               }
-            ],
-            "role": "user"
+            ]
           },
           {
+            "role": "assistant",
             "content": [
               {
+                "type": "reasoning",
+                "text": "",
+                "redacted": true,
+                "provider": "openai",
                 "model": "gpt-6-astra",
                 "native": {
-                  "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
                   "id": "rs_1",
+                  "type": "reasoning",
                   "summary": [],
-                  "type": "reasoning"
-                },
-                "provider": "openai",
-                "redacted": true,
-                "text": "",
-                "type": "reasoning"
+                  "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+                }
               },
               {
+                "type": "tool_call",
+                "id": "call_1",
+                "name": "calc",
                 "arguments": {
                   "expression": "2+2"
                 },
-                "id": "call_1",
-                "name": "calc",
                 "signature": {
-                  "model": "gpt-6-astra",
                   "provider": "openai",
+                  "model": "gpt-6-astra",
                   "value": "{\"id\":\"fc_1\",\"type\":\"function_call\",\"status\":\"completed\",\"call_id\":\"call_1\",\"name\":\"calc\",\"arguments\":\"{\\\"expression\\\": \\\"2+2\\\"}\"}"
-                },
-                "type": "tool_call"
+                }
               }
-            ],
-            "role": "assistant"
+            ]
           },
           {
+            "role": "user",
             "content": [
               {
-                "content": "4",
+                "type": "tool_result",
                 "tool_call_id": "call_1",
-                "type": "tool_result"
+                "content": "4"
               }
-            ],
-            "role": "user"
+            ]
           }
         ],
-        "model": "gpt-6-astra",
+        "max_tokens": 1024,
         "system": "Be brief.",
         "tools": [
           {
+            "name": "calc",
             "description": "Evaluate an arithmetic expression.",
             "input_schema": {
+              "type": "object",
               "properties": {
                 "expression": {
                   "type": "string"
@@ -304,45 +219,94 @@
               },
               "required": [
                 "expression"
-              ],
-              "type": "object"
-            },
-            "name": "calc"
+              ]
+            }
+          }
+        ],
+        "api": "responses"
+      },
+      "url": "https://api.openai.com/v1/responses",
+      "body": {
+        "model": "gpt-6-astra",
+        "input": [
+          {
+            "role": "user",
+            "content": "What is 2+2?"
+          },
+          {
+            "id": "rs_1",
+            "type": "reasoning",
+            "summary": [],
+            "encrypted_content": "gAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+          },
+          {
+            "id": "fc_1",
+            "type": "function_call",
+            "status": "completed",
+            "call_id": "call_1",
+            "name": "calc",
+            "arguments": "{\"expression\": \"2+2\"}"
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "4"
+          }
+        ],
+        "max_output_tokens": 1024,
+        "store": false,
+        "instructions": "Be brief.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "calc",
+            "description": "Evaluate an arithmetic expression.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ]
+            }
           }
         ]
       },
       "response": {
         "id": "resp_2",
-        "incomplete_details": null,
-        "model": "gpt-6-astra-2026-08-01",
         "object": "response",
+        "model": "gpt-6-astra-2026-08-01",
+        "status": "completed",
+        "incomplete_details": null,
         "output": [
           {
-            "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==",
             "id": "rs_2",
+            "type": "reasoning",
             "summary": [
               {
-                "text": "The tool said 4.",
-                "type": "summary_text"
+                "type": "summary_text",
+                "text": "The tool said 4."
               }
             ],
-            "type": "reasoning"
+            "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=="
           },
           {
-            "content": [
-              {
-                "annotations": [],
-                "text": "Four.",
-                "type": "output_text"
-              }
-            ],
             "id": "msg_1",
+            "type": "message",
             "role": "assistant",
             "status": "completed",
-            "type": "message"
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Four.",
+                "annotations": []
+              }
+            ]
           }
         ],
-        "status": "completed",
         "usage": {
           "input_tokens": 10,
           "input_tokens_details": {
@@ -355,12 +319,48 @@
           "total_tokens": 40
         }
       },
-      "url": "https://api.openai.com/v1/responses"
+      "expected": {
+        "parts": [
+          {
+            "type": "reasoning",
+            "text": "The tool said 4.",
+            "provider": "openai",
+            "model": "gpt-6-astra",
+            "native": {
+              "id": "rs_2",
+              "type": "reasoning",
+              "summary": [
+                {
+                  "type": "summary_text",
+                  "text": "The tool said 4."
+                }
+              ],
+              "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=="
+            }
+          },
+          {
+            "type": "text",
+            "text": "Four.",
+            "signature": {
+              "provider": "openai",
+              "model": "gpt-6-astra",
+              "value": "{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Four.\",\"annotations\":[]}]}"
+            }
+          }
+        ],
+        "text": "Four.",
+        "stop_reason": "completed",
+        "ending": "end",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30,
+          "cache_read_tokens": 4,
+          "reasoning_tokens": 20
+        },
+        "empty": null,
+        "cost_usd": 0.001564,
+        "priced": true
+      }
     }
-  ],
-  "credential": {},
-  "model": "gpt-6-astra",
-  "name": "openai_responses_reasoning_tool_round",
-  "provider": "openai",
-  "tool_answer": "4"
+  ]
 }
