@@ -1,0 +1,79 @@
+{
+  "api": null,
+  "calls": [
+    {
+      "body": {
+        "max_tokens": 4,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "claude-haiku-4-5"
+      },
+      "expected": {
+        "cost_usd": 2.9e-05,
+        "empty": null,
+        "ending": "max_tokens",
+        "parts": [
+          {
+            "text": "Four, and",
+            "type": "text"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "max_tokens",
+        "text": "Four, and",
+        "usage": {
+          "input_tokens": 9,
+          "output_tokens": 4
+        }
+      },
+      "request": {
+        "max_tokens": 4,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "claude-haiku-4-5"
+      },
+      "response": {
+        "content": [
+          {
+            "text": "Four, and",
+            "type": "text"
+          }
+        ],
+        "id": "msg_1",
+        "model": "claude-haiku-4-5",
+        "role": "assistant",
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "input_tokens": 9,
+          "output_tokens": 4
+        }
+      },
+      "url": "https://api.anthropic.com/v1/messages"
+    }
+  ],
+  "credential": {},
+  "model": "claude-haiku-4-5",
+  "name": "anthropic_max_tokens",
+  "provider": "anthropic",
+  "tool_answer": "4"
+}

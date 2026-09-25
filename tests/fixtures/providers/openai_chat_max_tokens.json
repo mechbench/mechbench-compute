@@ -1,0 +1,79 @@
+{
+  "api": null,
+  "calls": [
+    {
+      "body": {
+        "max_tokens": 4,
+        "messages": [
+          {
+            "content": "What is 2+2?",
+            "role": "user"
+          }
+        ],
+        "model": "gpt-5"
+      },
+      "expected": {
+        "cost_usd": 0.00039,
+        "empty": null,
+        "ending": "max_tokens",
+        "parts": [
+          {
+            "text": "Four, and",
+            "type": "text"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "length",
+        "text": "Four, and",
+        "usage": {
+          "cache_read_tokens": 800,
+          "input_tokens": 1000,
+          "output_tokens": 4
+        }
+      },
+      "request": {
+        "max_tokens": 4,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "gpt-5"
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "length",
+            "index": 0,
+            "message": {
+              "content": "Four, and",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl-1",
+        "model": "x",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 1000,
+          "prompt_tokens_details": {
+            "cached_tokens": 800
+          }
+        }
+      },
+      "url": "https://api.openai.com/v1/chat/completions"
+    }
+  ],
+  "credential": {},
+  "model": "gpt-5",
+  "name": "openai_chat_max_tokens",
+  "provider": "openai",
+  "tool_answer": "4"
+}

@@ -1,0 +1,387 @@
+{
+  "api": null,
+  "calls": [
+    {
+      "body": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "What is 2+2?"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 1024
+        },
+        "tools": [
+          {
+            "functionDeclarations": [
+              {
+                "description": "Evaluate an arithmetic expression.",
+                "name": "calc",
+                "parameters": {
+                  "properties": {
+                    "expression": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "expression"
+                  ],
+                  "type": "object"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "cost_usd": 0.0002625,
+        "empty": null,
+        "ending": "tool_call",
+        "parts": [
+          {
+            "model": "gemini-2.5-pro",
+            "native": {
+              "text": "I should use the calculator.",
+              "thought": true
+            },
+            "provider": "gemini",
+            "text": "I should use the calculator.",
+            "type": "reasoning"
+          },
+          {
+            "arguments": {
+              "expression": "2+2"
+            },
+            "id": "0-1",
+            "name": "calc",
+            "signature": {
+              "model": "gemini-2.5-pro",
+              "provider": "gemini",
+              "value": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            "type": "tool_call"
+          },
+          {
+            "arguments": {
+              "expression": "3+3"
+            },
+            "id": "0-2",
+            "name": "calc",
+            "type": "tool_call"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "stop",
+        "text": "",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 25,
+          "reasoning_tokens": 20
+        }
+      },
+      "request": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "gemini-2.5-pro",
+        "tools": [
+          {
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ],
+              "type": "object"
+            },
+            "name": "calc"
+          }
+        ]
+      },
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "I should use the calculator.",
+                  "thought": true
+                },
+                {
+                  "functionCall": {
+                    "args": {
+                      "expression": "2+2"
+                    },
+                    "name": "calc"
+                  },
+                  "thoughtSignature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                },
+                {
+                  "functionCall": {
+                    "args": {
+                      "expression": "3+3"
+                    },
+                    "name": "calc"
+                  }
+                }
+              ],
+              "role": "model"
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "modelVersion": "gemini-2.5-pro",
+        "responseId": "resp-1",
+        "usageMetadata": {
+          "candidatesTokenCount": 5,
+          "promptTokenCount": 10,
+          "thoughtsTokenCount": 20,
+          "totalTokenCount": 35
+        }
+      },
+      "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
+    },
+    {
+      "body": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "What is 2+2?"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "parts": [
+              {
+                "text": "I should use the calculator.",
+                "thought": true
+              },
+              {
+                "functionCall": {
+                  "args": {
+                    "expression": "2+2"
+                  },
+                  "name": "calc"
+                },
+                "thoughtSignature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "functionCall": {
+                  "args": {
+                    "expression": "3+3"
+                  },
+                  "name": "calc"
+                }
+              }
+            ],
+            "role": "model"
+          },
+          {
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "calc",
+                  "response": {
+                    "content": "4"
+                  }
+                }
+              },
+              {
+                "functionResponse": {
+                  "name": "calc",
+                  "response": {
+                    "content": "4"
+                  }
+                }
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 1024
+        },
+        "tools": [
+          {
+            "functionDeclarations": [
+              {
+                "description": "Evaluate an arithmetic expression.",
+                "name": "calc",
+                "parameters": {
+                  "properties": {
+                    "expression": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "expression"
+                  ],
+                  "type": "object"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "cost_usd": 0.0002625,
+        "empty": null,
+        "ending": "end",
+        "parts": [
+          {
+            "signature": {
+              "model": "gemini-2.5-pro",
+              "provider": "gemini",
+              "value": "Es8CCkYICxIM+sig/B=="
+            },
+            "text": "Four, and six.",
+            "type": "text"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "stop",
+        "text": "Four, and six.",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 25,
+          "reasoning_tokens": 20
+        }
+      },
+      "request": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "model": "gemini-2.5-pro",
+                "native": {
+                  "text": "I should use the calculator.",
+                  "thought": true
+                },
+                "provider": "gemini",
+                "text": "I should use the calculator.",
+                "type": "reasoning"
+              },
+              {
+                "arguments": {
+                  "expression": "2+2"
+                },
+                "id": "0-1",
+                "name": "calc",
+                "signature": {
+                  "model": "gemini-2.5-pro",
+                  "provider": "gemini",
+                  "value": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                },
+                "type": "tool_call"
+              },
+              {
+                "arguments": {
+                  "expression": "3+3"
+                },
+                "id": "0-2",
+                "name": "calc",
+                "type": "tool_call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "content": "4",
+                "tool_call_id": "0-1",
+                "type": "tool_result"
+              },
+              {
+                "content": "4",
+                "tool_call_id": "0-2",
+                "type": "tool_result"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "gemini-2.5-pro",
+        "tools": [
+          {
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ],
+              "type": "object"
+            },
+            "name": "calc"
+          }
+        ]
+      },
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "Four, and six.",
+                  "thoughtSignature": "Es8CCkYICxIM+sig/B=="
+                }
+              ],
+              "role": "model"
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "modelVersion": "gemini-2.5-pro",
+        "responseId": "resp-2",
+        "usageMetadata": {
+          "candidatesTokenCount": 5,
+          "promptTokenCount": 10,
+          "thoughtsTokenCount": 20,
+          "totalTokenCount": 35
+        }
+      },
+      "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
+    }
+  ],
+  "credential": {},
+  "model": "gemini-2.5-pro",
+  "name": "gemini_thought_signature_tool_round",
+  "provider": "gemini",
+  "tool_answer": "4"
+}

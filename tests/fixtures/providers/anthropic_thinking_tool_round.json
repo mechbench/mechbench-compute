@@ -1,0 +1,374 @@
+{
+  "api": null,
+  "calls": [
+    {
+      "body": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "claude-opus-5",
+        "thinking": {
+          "budget_tokens": 1024,
+          "type": "enabled"
+        },
+        "tools": [
+          {
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ],
+              "type": "object"
+            },
+            "name": "calc"
+          }
+        ]
+      },
+      "expected": {
+        "cost_usd": 0.0024,
+        "empty": null,
+        "ending": "tool_call",
+        "parts": [
+          {
+            "model": "claude-opus-5",
+            "native": {
+              "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "thinking": "",
+              "type": "thinking"
+            },
+            "provider": "anthropic",
+            "redacted": true,
+            "text": "",
+            "type": "reasoning"
+          },
+          {
+            "model": "claude-opus-5",
+            "native": {
+              "data": "EmwKAhgBEgy3va3pzix/LafPsn4a",
+              "type": "redacted_thinking"
+            },
+            "provider": "anthropic",
+            "redacted": true,
+            "text": "",
+            "type": "reasoning"
+          },
+          {
+            "arguments": {
+              "expression": "2+2"
+            },
+            "id": "toolu_1",
+            "name": "calc",
+            "type": "tool_call"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "tool_use",
+        "text": "",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30
+        }
+      },
+      "request": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "claude-opus-5",
+        "provider_options": {
+          "anthropic": {
+            "thinking": {
+              "budget_tokens": 1024,
+              "type": "enabled"
+            }
+          }
+        },
+        "tools": [
+          {
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ],
+              "type": "object"
+            },
+            "name": "calc"
+          }
+        ]
+      },
+      "response": {
+        "content": [
+          {
+            "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "thinking": "",
+            "type": "thinking"
+          },
+          {
+            "data": "EmwKAhgBEgy3va3pzix/LafPsn4a",
+            "type": "redacted_thinking"
+          },
+          {
+            "id": "toolu_1",
+            "input": {
+              "expression": "2+2"
+            },
+            "name": "calc",
+            "type": "tool_use"
+          }
+        ],
+        "id": "msg_1",
+        "model": "claude-opus-5",
+        "role": "assistant",
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30
+        }
+      },
+      "url": "https://api.anthropic.com/v1/messages"
+    },
+    {
+      "body": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "thinking": "",
+                "type": "thinking"
+              },
+              {
+                "data": "EmwKAhgBEgy3va3pzix/LafPsn4a",
+                "type": "redacted_thinking"
+              },
+              {
+                "id": "toolu_1",
+                "input": {
+                  "expression": "2+2"
+                },
+                "name": "calc",
+                "type": "tool_use"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "content": "4",
+                "tool_use_id": "toolu_1",
+                "type": "tool_result"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "claude-opus-5",
+        "thinking": {
+          "budget_tokens": 1024,
+          "type": "enabled"
+        },
+        "tools": [
+          {
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ],
+              "type": "object"
+            },
+            "name": "calc"
+          }
+        ]
+      },
+      "expected": {
+        "cost_usd": 0.0024,
+        "empty": null,
+        "ending": "end",
+        "parts": [
+          {
+            "model": "claude-opus-5",
+            "native": {
+              "signature": "Es8CCkYICxIM+sig/B==",
+              "thinking": "The tool said 4.",
+              "type": "thinking"
+            },
+            "provider": "anthropic",
+            "text": "The tool said 4.",
+            "type": "reasoning"
+          },
+          {
+            "text": "Four.",
+            "type": "text"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "end_turn",
+        "text": "Four.",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30
+        }
+      },
+      "request": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "model": "claude-opus-5",
+                "native": {
+                  "signature": "EqQBCkYIBxgCKkDz+/0==xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "thinking": "",
+                  "type": "thinking"
+                },
+                "provider": "anthropic",
+                "redacted": true,
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "model": "claude-opus-5",
+                "native": {
+                  "data": "EmwKAhgBEgy3va3pzix/LafPsn4a",
+                  "type": "redacted_thinking"
+                },
+                "provider": "anthropic",
+                "redacted": true,
+                "text": "",
+                "type": "reasoning"
+              },
+              {
+                "arguments": {
+                  "expression": "2+2"
+                },
+                "id": "toolu_1",
+                "name": "calc",
+                "type": "tool_call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "content": "4",
+                "tool_call_id": "toolu_1",
+                "type": "tool_result"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "claude-opus-5",
+        "provider_options": {
+          "anthropic": {
+            "thinking": {
+              "budget_tokens": 1024,
+              "type": "enabled"
+            }
+          }
+        },
+        "tools": [
+          {
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ],
+              "type": "object"
+            },
+            "name": "calc"
+          }
+        ]
+      },
+      "response": {
+        "content": [
+          {
+            "signature": "Es8CCkYICxIM+sig/B==",
+            "thinking": "The tool said 4.",
+            "type": "thinking"
+          },
+          {
+            "text": "Four.",
+            "type": "text"
+          }
+        ],
+        "id": "msg_2",
+        "model": "claude-opus-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30
+        }
+      },
+      "url": "https://api.anthropic.com/v1/messages"
+    }
+  ],
+  "credential": {},
+  "model": "claude-opus-5",
+  "name": "anthropic_thinking_tool_round",
+  "provider": "anthropic",
+  "tool_answer": "4"
+}

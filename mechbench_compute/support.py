@@ -139,6 +139,7 @@ def provider_models() -> list[dict[str, Any]]:
                 "inputPerMillion": price.input,
                 "outputPerMillion": price.output,
                 "cacheReadPerMillion": price.cache_read,
+                "cacheWritePerMillion": price.cache_write,
                 "reasoning": spec.capabilities.reasoning,
                 "tools": spec.capabilities.tools,
             })

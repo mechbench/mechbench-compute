@@ -1,0 +1,81 @@
+{
+  "api": null,
+  "calls": [
+    {
+      "body": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": "What is 2+2?",
+            "role": "user"
+          }
+        ],
+        "model": "accounts/fireworks/models/qwen3-235b"
+      },
+      "expected": {
+        "cost_usd": 2.88e-05,
+        "empty": null,
+        "ending": "end",
+        "parts": [
+          {
+            "model": "accounts/fireworks/models/qwen3-235b",
+            "provider": "fireworks",
+            "text": "Score: 5",
+            "type": "reasoning"
+          },
+          {
+            "text": "Score: 2",
+            "type": "text"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "stop",
+        "text": "Score: 2",
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 12
+        }
+      },
+      "request": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "accounts/fireworks/models/qwen3-235b"
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "<think>Score: 5</think>\n\nScore: 2",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl-1",
+        "model": "x",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 12,
+          "prompt_tokens": 20
+        }
+      },
+      "url": "https://api.fireworks.ai/inference/v1/chat/completions"
+    }
+  ],
+  "credential": {},
+  "model": "accounts/fireworks/models/qwen3-235b",
+  "name": "fireworks_inline_think",
+  "provider": "fireworks",
+  "tool_answer": "4"
+}

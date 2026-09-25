@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+Also: `tests/fixtures/providers/` holds one JSON file per recorded
+provider exchange (the neutral request, the wire body each adapter
+sends, the provider's response and what the adapter reads from it),
+written by `scripts/dump_provider_fixtures.py` and checked against the
+adapters by `tests/test_provider_fixtures.py`; mechbench-api's thread
+providers are held to the same files. `support.provider_models()` and
+the generated declaration carry `cacheWritePerMillion`.
+
+---
+
 ## 0.138.0 — 2026-09-25
 
 ### Changes that raise

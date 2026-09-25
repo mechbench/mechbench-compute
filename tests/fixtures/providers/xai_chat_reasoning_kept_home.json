@@ -1,0 +1,307 @@
+{
+  "api": null,
+  "calls": [
+    {
+      "body": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": "What is 2+2?",
+            "role": "user"
+          }
+        ],
+        "model": "grok-4.7",
+        "tools": [
+          {
+            "function": {
+              "description": "Evaluate an arithmetic expression.",
+              "name": "calc",
+              "parameters": {
+                "properties": {
+                  "expression": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expression"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          }
+        ]
+      },
+      "expected": {
+        "cost_usd": 0.0002,
+        "empty": null,
+        "ending": "tool_call",
+        "parts": [
+          {
+            "model": "grok-4.7",
+            "native": {
+              "reasoning_content": "Use the tool."
+            },
+            "provider": "xai",
+            "text": "Use the tool.",
+            "type": "reasoning"
+          },
+          {
+            "arguments": {
+              "expression": "2+2"
+            },
+            "id": "call_1",
+            "name": "calc",
+            "type": "tool_call"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "tool_calls",
+        "text": "",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30,
+          "reasoning_tokens": 20
+        }
+      },
+      "request": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "grok-4.7",
+        "tools": [
+          {
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ],
+              "type": "object"
+            },
+            "name": "calc"
+          }
+        ]
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "reasoning_content": "Use the tool.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"expression\": \"2+2\"}",
+                    "name": "calc"
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                }
+              ]
+            }
+          }
+        ],
+        "id": "chatcmpl-1",
+        "model": "x",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 30,
+          "completion_tokens_details": {
+            "reasoning_tokens": 20
+          },
+          "prompt_tokens": 10
+        }
+      },
+      "url": "https://api.x.ai/v1/chat/completions"
+    },
+    {
+      "body": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": "What is 2+2?",
+            "role": "user"
+          },
+          {
+            "content": null,
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "function": {
+                  "arguments": "{\"expression\": \"2+2\"}",
+                  "name": "calc"
+                },
+                "id": "call_1",
+                "type": "function"
+              }
+            ]
+          },
+          {
+            "content": "4",
+            "role": "tool",
+            "tool_call_id": "call_1"
+          }
+        ],
+        "model": "grok-4.7",
+        "tools": [
+          {
+            "function": {
+              "description": "Evaluate an arithmetic expression.",
+              "name": "calc",
+              "parameters": {
+                "properties": {
+                  "expression": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expression"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "function"
+          }
+        ]
+      },
+      "expected": {
+        "cost_usd": 0.0002,
+        "empty": null,
+        "ending": "end",
+        "parts": [
+          {
+            "model": "grok-4.7",
+            "native": {
+              "reasoning_content": "Done."
+            },
+            "provider": "xai",
+            "text": "Done.",
+            "type": "reasoning"
+          },
+          {
+            "text": "Four.",
+            "type": "text"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "stop",
+        "text": "Four.",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30,
+          "reasoning_tokens": 20
+        }
+      },
+      "request": {
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "model": "grok-4.7",
+                "native": {
+                  "reasoning_content": "Use the tool."
+                },
+                "provider": "xai",
+                "text": "Use the tool.",
+                "type": "reasoning"
+              },
+              {
+                "arguments": {
+                  "expression": "2+2"
+                },
+                "id": "call_1",
+                "name": "calc",
+                "type": "tool_call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "content": "4",
+                "tool_call_id": "call_1",
+                "type": "tool_result"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "grok-4.7",
+        "tools": [
+          {
+            "description": "Evaluate an arithmetic expression.",
+            "input_schema": {
+              "properties": {
+                "expression": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expression"
+              ],
+              "type": "object"
+            },
+            "name": "calc"
+          }
+        ]
+      },
+      "response": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "Four.",
+              "reasoning_content": "Done.",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl-2",
+        "model": "x",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 30,
+          "completion_tokens_details": {
+            "reasoning_tokens": 20
+          },
+          "prompt_tokens": 10
+        }
+      },
+      "url": "https://api.x.ai/v1/chat/completions"
+    }
+  ],
+  "credential": {},
+  "model": "grok-4.7",
+  "name": "xai_chat_reasoning_kept_home",
+  "provider": "xai",
+  "tool_answer": "4"
+}

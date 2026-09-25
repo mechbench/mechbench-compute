@@ -1,0 +1,90 @@
+{
+  "api": null,
+  "calls": [
+    {
+      "body": {
+        "max_tokens": 100,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "claude-opus-5"
+      },
+      "expected": {
+        "cost_usd": 0.007575,
+        "empty": {
+          "cause": "reasoning",
+          "message": "anthropic: 100 of 100 output tokens (max_tokens) went to reasoning and no prose followed (content block type(s) thinking). The completion holds reasoning only, kept as the item's `reasoning` and not as a reply. Raise max_tokens so the reply has room after the reasoning, or turn reasoning off with provider_options: {\"anthropic\": {\"thinking\": {\"type\": \"disabled\"}}}."
+        },
+        "ending": "empty",
+        "parts": [
+          {
+            "model": "claude-opus-5",
+            "native": {
+              "signature": "Es8CCkYICxIM+sig/B==",
+              "thinking": "Score: 5",
+              "type": "thinking"
+            },
+            "provider": "anthropic",
+            "text": "Score: 5",
+            "type": "reasoning"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "max_tokens",
+        "text": "",
+        "usage": {
+          "input_tokens": 5,
+          "output_tokens": 100
+        }
+      },
+      "request": {
+        "max_tokens": 100,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "claude-opus-5"
+      },
+      "response": {
+        "content": [
+          {
+            "signature": "Es8CCkYICxIM+sig/B==",
+            "thinking": "Score: 5",
+            "type": "thinking"
+          }
+        ],
+        "id": "msg_1",
+        "model": "claude-opus-5",
+        "role": "assistant",
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "input_tokens": 5,
+          "output_tokens": 100
+        }
+      },
+      "url": "https://api.anthropic.com/v1/messages"
+    }
+  ],
+  "credential": {},
+  "model": "claude-opus-5",
+  "name": "anthropic_reasoning_only",
+  "provider": "anthropic",
+  "tool_answer": "4"
+}

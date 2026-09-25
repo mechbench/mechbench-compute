@@ -1,0 +1,109 @@
+{
+  "api": "responses",
+  "calls": [
+    {
+      "body": {
+        "input": [
+          {
+            "content": "What is 2+2?",
+            "role": "user"
+          }
+        ],
+        "max_output_tokens": 1024,
+        "model": "gpt-6-astra",
+        "store": false
+      },
+      "expected": {
+        "cost_usd": 0.001564,
+        "empty": {
+          "cause": "reasoning",
+          "message": "openai: 20 of 30 output tokens went to reasoning (max_output_tokens 1024) and no reply followed (status incomplete: max_output_tokens). Raise max_tokens so the reply has room after the reasoning, or lower the reasoning effort with provider_options: {\"openai\": {\"reasoning\": {\"effort\": \"low\"}}}."
+        },
+        "ending": "empty",
+        "parts": [
+          {
+            "model": "gpt-6-astra",
+            "native": {
+              "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==",
+              "id": "rs_2",
+              "summary": [
+                {
+                  "text": "The tool said 4.",
+                  "type": "summary_text"
+                }
+              ],
+              "type": "reasoning"
+            },
+            "provider": "openai",
+            "text": "The tool said 4.",
+            "type": "reasoning"
+          }
+        ],
+        "priced": true,
+        "stop_reason": "max_output_tokens",
+        "text": "",
+        "usage": {
+          "cache_read_tokens": 4,
+          "input_tokens": 10,
+          "output_tokens": 30,
+          "reasoning_tokens": 20
+        }
+      },
+      "request": {
+        "api": "responses",
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "content": [
+              {
+                "text": "What is 2+2?",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "gpt-6-astra"
+      },
+      "response": {
+        "id": "resp_1",
+        "incomplete_details": {
+          "reason": "max_output_tokens"
+        },
+        "model": "gpt-6-astra-2026-08-01",
+        "object": "response",
+        "output": [
+          {
+            "encrypted_content": "gAAAAABoBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==",
+            "id": "rs_2",
+            "summary": [
+              {
+                "text": "The tool said 4.",
+                "type": "summary_text"
+              }
+            ],
+            "type": "reasoning"
+          }
+        ],
+        "status": "incomplete",
+        "usage": {
+          "input_tokens": 10,
+          "input_tokens_details": {
+            "cached_tokens": 4
+          },
+          "output_tokens": 30,
+          "output_tokens_details": {
+            "reasoning_tokens": 20
+          },
+          "total_tokens": 40
+        }
+      },
+      "url": "https://api.openai.com/v1/responses"
+    }
+  ],
+  "credential": {},
+  "model": "gpt-6-astra",
+  "name": "openai_responses_reasoning_only",
+  "provider": "openai",
+  "tool_answer": "4"
+}

@@ -98,5 +98,7 @@ def test_provider_models_are_the_price_table_of_every_real_provider() -> None:
     for r in rows:
         price = pricing.PRICES[r["provider"]][r["model"]]
         assert (r["inputPerMillion"], r["outputPerMillion"]) == (price.input, price.output)
+        assert (r["cacheReadPerMillion"], r["cacheWritePerMillion"]) == (
+            price.cache_read, price.cache_write)
         caps = registry()[r["provider"]].capabilities
         assert (r["tools"], r["reasoning"]) == (caps.tools, caps.reasoning)

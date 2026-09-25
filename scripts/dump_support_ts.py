@@ -50,13 +50,15 @@ def main() -> None:
     print()
     print("/** A provider model with its price in US dollars per million tokens. A price applies to "
           "every model id that starts with `model`. `reasoning` says the provider's adapter keeps a "
-          "model's reasoning as its own content; `tools` that it passes tools. */")
+          "model's reasoning as its own content; `tools` that it passes tools. A cache price that is "
+          "null is the input price. */")
     print("export interface ProviderModel {")
     print("  provider: string;")
     print("  model: string;")
     print("  inputPerMillion: number;")
     print("  outputPerMillion: number;")
     print("  cacheReadPerMillion: number | null;")
+    print("  cacheWritePerMillion: number | null;")
     print("  reasoning: boolean;")
     print("  tools: boolean;")
     print("}")
