@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
-import urllib.request
 from pathlib import Path
 from typing import Any
 
+from mechbench_compute.providers import http
 from mechbench_compute.providers.table_check import ServedModel, compare
 
 REPO = Path(__file__).resolve().parent.parent
@@ -37,9 +36,8 @@ KEYS = {
 
 
 def get(url: str, headers: dict[str, str]) -> Any:
-    req = urllib.request.Request(url, headers={"accept": "application/json", **headers})
-    with urllib.request.urlopen(req, timeout=60) as res:
-        return json.load(res)
+    return http.get_json(url, headers={"accept": "application/json", **headers}, timeout=60,
+                         secrets=tuple(headers.values())).body
 
 
 def anthropic(key: str) -> list[ServedModel]:
