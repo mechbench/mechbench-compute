@@ -64,7 +64,8 @@ calls the standard tier.
 1. Read each provider's pages. Never guess a price or a limit; where a
    page does not say, the row does not say. Where two pages disagree,
    take the pricing page and write the disagreement in `note`.
-2. Run `scripts/check_provider_models.py` with the provider keys in
+2. Run `scripts/check_provider_models.py` with the provider keys in `.env`
+   (copy `.env.example`; git ignores `.env`) or in the shell:
    `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
    `XAI_API_KEY`, `DEEPSEEK_API_KEY` (one missing is skipped). It lists
    each provider's served models and reports what the table prices that

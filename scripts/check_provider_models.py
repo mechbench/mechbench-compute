@@ -6,9 +6,26 @@ import json
 import os
 import sys
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from mechbench_compute.providers.table_check import ServedModel, compare
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def read_env_file(path: Path) -> None:
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        value = value.strip().strip("'\"")
+        if value:
+            os.environ.setdefault(name.strip(), value)
+
 
 KEYS = {
     "anthropic": "ANTHROPIC_API_KEY",
@@ -87,11 +104,12 @@ LISTERS = {"anthropic": anthropic, "openai": openai, "gemini": gemini, "xai": xa
 
 
 def main() -> int:
+    read_env_file(REPO / ".env")
     problems = 0
     for provider, env in KEYS.items():
         key = os.environ.get(env)
         if not key:
-            print(f"{provider}: skipped, {env} is not set")
+            print(f"{provider}: skipped, {env} is not set (in the shell or in .env)")
             continue
         try:
             found = compare(provider, LISTERS[provider](key))
