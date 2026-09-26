@@ -90,6 +90,17 @@ def test_the_check_names_what_a_provider_serves_that_the_table_does_not_say():
     assert not any("grok-3" in p for p in problems)
 
 
+def test_the_check_says_nothing_of_a_model_left_out_on_purpose():
+    from mechbench_compute.providers.table_check import EXCLUDED, ServedModel, compare
+
+    served = [ServedModel("grok-4.20-multi-agent-0309"), ServedModel("grok-4.20-multi-agent")]
+    assert not any("multi-agent" in p for p in compare("xai", served).problems)
+    for provider, table in EXCLUDED.items():
+        for model, reason in table.items():
+            assert reason, f"{provider}/{model} is left out without a reason"
+            assert pricing.price_for(provider, model) is None, f"{provider}/{model} is priced and left out"
+
+
 def test_the_check_compares_shutdown_dates():
     from mechbench_compute.providers.table_check import ServedModel, compare
 

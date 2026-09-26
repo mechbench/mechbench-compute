@@ -13,6 +13,34 @@ nothing said so.
 
 ---
 
+## 0.145.0 — 2026-09-26
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- Models OpenAI and Anthropic still serve but 0.144.0 left unpriced are
+  priced from the providers' standard tables, each deprecated with its
+  shutdown date: Claude Sonnet 4.5 ($3 / $15, 2026-09-29); OpenAI
+  `gpt-5-pro` ($15 / $120), `o3-pro` ($20 / $80), `o1` ($15 / $60),
+  `o1-pro` ($150 / $600), `o3-mini` ($1.10 / $4.40), `gpt-4.1-nano`
+  ($0.10 / $0.40), `gpt-4-turbo` ($10 / $30), `gpt-4-0613` and its alias
+  `gpt-4` ($30 / $60), `gpt-3.5-turbo` and `-0125` ($0.50 / $1.50),
+  `gpt-3.5-turbo-1106` ($1 / $2), `gpt-3.5-turbo-instruct` ($1.50 / $2).
+  `gpt-4o-2024-05-13` has its own row ($5 / $15, shutting down
+  2026-10-23); it was billed as `gpt-4o`. `gpt-5.3-codex` is priced
+  ($1.75 / $14).
+
+Also: `providers.table_check.EXCLUDED` records the served models left
+out of the table on purpose, each with its reason (not on the pricing
+page, an alias the provider moves, a model neither threads nor
+`text/chat` can call), and the check says nothing of them. Gemini's Omni
+models count as not text.
+
+---
+
 ## 0.144.0 — 2026-09-26
 
 ### Changes that raise

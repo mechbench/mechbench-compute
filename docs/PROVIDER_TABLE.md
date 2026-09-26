@@ -74,7 +74,12 @@ calls the standard tier.
    gives prices too, and those are compared outright. The others' APIs
    give ids only, so their prices are read from the pages.
 3. Edit the rows. Set `checked` on every row read, changed or not, and
-   bump `TABLE_VERSION` to the day.
+   bump `TABLE_VERSION` to the day. A served model left out on purpose
+   (not on the pricing page, an alias the provider moves, a model neither
+   threads nor `text/chat` can call) goes in `EXCLUDED` in
+   `providers/table_check.py` with its reason, so the check stays quiet
+   about it and the decision is written down; read that list again on
+   every check.
 4. `python -m pytest tests/test_price_table.py`: every row has a source,
    a check date and a known status; aliases and open-ended promotions
    say what they are.

@@ -14,7 +14,34 @@ TEXT_MODEL_PREFIXES: dict[str, tuple[str, ...]] = {
 }
 
 NOT_TEXT_MARKERS = ("audio", "realtime", "image", "tts", "transcribe", "embedding", "search",
-                    "live", "veo", "imagine", "moderation", "computer-use", "robotics", "cyber")
+                    "live", "veo", "imagine", "moderation", "computer-use", "robotics", "cyber",
+                    "omni")
+
+EXCLUDED: dict[str, dict[str, str]] = {
+    "openai": {
+        "gpt-5-codex": "not on the pricing page",
+        "gpt-5.1-codex": "not on the pricing page",
+        "gpt-5.1-codex-mini": "not on the pricing page",
+        "gpt-5.1-codex-max": "not on the pricing page",
+        "gpt-5.2-codex": "not on the pricing page",
+        "gpt-5-chat-latest": "the pricing page names only a generic chat-latest, not this id",
+        "gpt-5.1-chat-latest": "the pricing page names only a generic chat-latest, not this id",
+        "gpt-5.2-chat-latest": "the pricing page names only a generic chat-latest, not this id",
+        "gpt-5.3-chat-latest": "the pricing page names only a generic chat-latest, not this id",
+        "gpt-3.5-turbo-16k": "not on the pricing page",
+    },
+    "gemini": {
+        "gemini-flash-latest": "an alias Google moves between models; call a model by its own id",
+        "gemini-flash-lite-latest": "an alias Google moves between models; call a model by its own id",
+        "gemini-pro-latest": "an alias whose target no page states; call a model by its own id",
+        "gemini-3.1-flash-lite-preview": "shut down 2026-05-25 by the deprecations page, "
+                                         "though the models API still lists it",
+    },
+    "xai": {
+        "grok-4.20-multi-agent": "takes no client tools and no Chat Completions, so neither "
+                                 "threads nor text/chat can call it",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -38,6 +65,10 @@ def is_text_model(provider: str, model_id: str) -> bool:
     return model_id.startswith(prefixes) and not any(m in model_id for m in NOT_TEXT_MARKERS)
 
 
+def is_excluded(provider: str, model_id: str) -> bool:
+    return any(pricing.matches(key, model_id, False) for key in EXCLUDED.get(provider, {}))
+
+
 def compare(provider: str, served: Sequence[ServedModel]) -> Findings:
     found = Findings(provider)
     names = {m.id for m in served} | {a for m in served for a in m.aliases}
@@ -48,7 +79,7 @@ def compare(provider: str, served: Sequence[ServedModel]) -> Findings:
         if not any(pricing.matches(key, name, False) for name in names):
             found.problems.append(f"{key} is priced but not served")
     for model in served:
-        if not is_text_model(provider, model.id):
+        if not is_text_model(provider, model.id) or is_excluded(provider, model.id):
             continue
         price = pricing.price_for(provider, model.id)
         if price is None:
