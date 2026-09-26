@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from mechbench_compute import __version__, support
+from mechbench_compute.interp.constants import MAX_VECTOR_FLOATS
 from mechbench_compute.providers import pricing
 
 
@@ -41,6 +42,8 @@ def main() -> None:
     print("  layerPoints: string[];")
     print("  globalPoints: string[];")
     print("  refusedWhen: { configKey: string; reason: string }[];")
+    print("  /** Values the loader gives the shape keys a config.json leaves out. */")
+    print("  configDefaults: Record<string, number>;")
     print("}")
     print()
     print("export const LOCAL_ARCHITECTURES: LocalArchitecture[] = [")
@@ -82,6 +85,10 @@ def main() -> None:
     print("  reasoning: boolean;")
     print("  tools: boolean;")
     print("}")
+    print()
+    print("/** The most values one activations/capture node may hold: records x layers x heads x "
+          "width. */")
+    print(f"export const CAPTURE_MAX_VALUES = {MAX_VECTOR_FLOATS};")
     print()
     print(f"export const PRICE_TABLE_VERSION = {_ts(pricing.TABLE_VERSION)};")
     print()

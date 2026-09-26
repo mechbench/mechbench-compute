@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -169,6 +170,47 @@ class Arch:
             first_kv_shared_layer=n_layers,
             model_type=family_raw,
         )
+
+
+def read_arch_from_config(config: Mapping[str, Any], model_id: str = "") -> Arch:
+    from .support import BY_MODEL_TYPE
+
+    top = str(config.get("model_type") or "").lower()
+    declared = BY_MODEL_TYPE.get(top)
+    if declared is None:
+        raise NotImplementedError(f"model_type {top!r} is not one compute loads")
+    text = config.get("text_config")
+    source = text if declared.loader == "mlx-vlm" and isinstance(text, Mapping) else config
+    cfg = {**declared.config_defaults, **{k: v for k, v in source.items() if v is not None}}
+    n_heads = int(cfg["num_attention_heads"])
+    layer_types = cfg.get("layer_types")
+    n_layers = len(layer_types) if layer_types else int(cfg["num_hidden_layers"])
+    if layer_types:
+        global_layers = tuple(i for i, t in enumerate(layer_types) if t == "full_attention")
+    elif declared.loader == "mlx-lm":
+        global_layers = tuple(range(n_layers))
+    else:
+        pattern = int(cfg.get("sliding_window_pattern") or 6)
+        global_layers = tuple(i for i in range(n_layers) if (i + 1) % pattern == 0)
+    if declared.loader == "mlx-lm":
+        family, shared, per_layer = top, 0, 0
+    else:
+        inner = str(cfg.get("model_type") or "").lower()
+        family = "gemma3" if inner.startswith("gemma3") else "gemma4"
+        shared = int(cfg.get("num_kv_shared_layers") or 0)
+        per_layer = int(cfg.get("hidden_size_per_layer_input") or 0)
+    return Arch(
+        model_id=model_id,
+        n_layers=n_layers,
+        d_model=int(cfg["hidden_size"]),
+        n_heads=n_heads,
+        n_kv_heads=int(cfg.get("num_key_value_heads") or n_heads),
+        vocab_size=int(cfg["vocab_size"]),
+        hidden_size_per_layer_input=per_layer,
+        global_layers=global_layers,
+        first_kv_shared_layer=n_layers - shared,
+        model_type=family,
+    )
 
 
 E4B_DEFAULT = Arch(

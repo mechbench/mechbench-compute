@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ._arch import GLOBAL_HOOK_POINTS, LAYER_HOOK_POINTS
@@ -41,6 +41,7 @@ class Architecture:
     layer_points: tuple[str, ...]
     global_points: tuple[str, ...]
     refused_when: tuple[Refusal, ...] = ()
+    config_defaults: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def level(self) -> str:
@@ -64,11 +65,21 @@ ARCHITECTURES: tuple[Architecture, ...] = (
             "enable_moe_block",
             "mixture-of-experts layers (Gemma 4 26B A4B) are not wired into the "
             "gemma4 forward; only the dense checkpoints load"),),
+        config_defaults={
+            "hidden_size": 1536, "num_hidden_layers": 35, "num_attention_heads": 8,
+            "num_key_value_heads": 1, "head_dim": 256, "vocab_size": 262144,
+            "num_kv_shared_layers": 20, "hidden_size_per_layer_input": 256,
+            "sliding_window_pattern": 5,
+        },
     ),
     Architecture(
         model_type="gemma3", name="Gemma 3", loader="mlx-vlm",
         generate=True, score=True, train=True,
         layer_points=CORE_LAYER_POINTS, global_points=CORE_GLOBAL_POINTS,
+        config_defaults={
+            "num_attention_heads": 8, "num_key_value_heads": 4, "head_dim": 256,
+            "vocab_size": 262208, "sliding_window_pattern": 6,
+        },
     ),
     Architecture(
         model_type="qwen2", name="Qwen 2", loader="mlx-lm",
@@ -121,6 +132,7 @@ def local_architectures() -> list[dict[str, Any]]:
         "globalPoints": list(a.global_points),
         "refusedWhen": [{"configKey": r.config_key, "reason": r.reason}
                         for r in a.refused_when],
+        "configDefaults": dict(a.config_defaults),
     } for a in ARCHITECTURES]
 
 

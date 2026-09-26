@@ -13,6 +13,37 @@ nothing said so.
 
 ---
 
+## 0.146.0 — 2026-09-26
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+Also: a model's shape can be read from its config.json alone, before
+anything is loaded.
+
+- `_arch.read_arch_from_config(config, model_id)` answers the `Arch`
+  compute's loader would build: the same layer count, width, heads,
+  key/value heads, vocabulary, global layers and key/value sharing.
+- Each architecture states the defaults its loader gives the keys a
+  config.json leaves out (`Architecture.config_defaults`; Gemma 3's
+  config.json omits its head counts, and Gemma 4's layer pattern
+  defaults to 5). A test holds them to mlx-vlm's own classes wherever
+  mlx-vlm is installed.
+- `tests/fixtures/configs/` records eight real configs across the four
+  architectures, each with the `Arch` the loader builds from it
+  (`scripts/dump_config_fixtures.py`); the platform's reading is held to
+  the same files.
+- The generated declaration carries each architecture's
+  `configDefaults`, and `CAPTURE_MAX_VALUES`, the most values one
+  `activations/capture` node holds.
+
+---
+
 ## 0.145.0 — 2026-09-26
 
 ### Changes that raise
