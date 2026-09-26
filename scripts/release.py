@@ -82,6 +82,16 @@ def main() -> None:
     ver = m.group(1)
     print(f"gating mechbench-compute {ver}")
 
+    print("[0/5] provider price table")
+    from datetime import date
+
+    from mechbench_compute.providers import pricing
+
+    stale = pricing.find_table_problems(date.today())
+    if stale:
+        die("provider price table (docs/PROVIDER_TABLE.md says how to check it):\n  "
+            + "\n  ".join(stale))
+
     print("[1/5] release notes")
     problem = check_changelog(ver)
     if problem:

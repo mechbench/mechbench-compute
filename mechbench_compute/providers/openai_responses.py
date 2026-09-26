@@ -10,7 +10,8 @@ from mechbench_compute.providers.base import AdapterResponse, EmptyReply, Usage
 API = "responses"
 
 RESPONSES_BY_DEFAULT: dict[str, tuple[str, ...]] = {
-    "openai": ("gpt-6-astra",),
+    "openai": ("gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.5-pro", "gpt-5.4-pro",
+               "gpt-5.2-pro"),
 }
 
 INCLUDE: dict[str, tuple[str, ...]] = {

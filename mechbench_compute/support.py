@@ -129,6 +129,23 @@ def provider_models() -> list[dict[str, Any]]:
     from .providers.features import find_features
     from .providers.registry import registry
 
+    def rates(price: pricing.Price) -> dict[str, Any]:
+        lc = price.long_context
+        return {
+            "inputPerMillion": price.input,
+            "outputPerMillion": price.output,
+            "cacheReadPerMillion": price.cache_read,
+            "cacheWritePerMillion": price.cache_write,
+            "cacheWrite1hPerMillion": price.cache_write_1h,
+            "longContext": None if lc is None else {
+                "above": lc.above,
+                "inputPerMillion": lc.input,
+                "outputPerMillion": lc.output,
+                "cacheReadPerMillion": lc.cache_read,
+                "cacheWritePerMillion": lc.cache_write,
+            },
+        }
+
     out: list[dict[str, Any]] = []
     for name, spec in registry().items():
         if not spec.base_url:
@@ -137,11 +154,14 @@ def provider_models() -> list[dict[str, Any]]:
             out.append({
                 "provider": name,
                 "model": model,
-                "inputPerMillion": price.input,
-                "outputPerMillion": price.output,
-                "cacheReadPerMillion": price.cache_read,
-                "cacheWritePerMillion": price.cache_write,
-                "cacheWrite1hPerMillion": price.cache_write_1h,
+                **rates(price),
+                "until": price.until,
+                "then": None if price.then is None else rates(price.then),
+                "status": price.status,
+                "shutdown": price.shutdown,
+                "note": price.note,
+                "source": price.source,
+                "checked": price.checked,
                 "effortLevels": list(find_features(name, model).effort),
                 "reasoningDisplays": list(find_features(name, model).reasoning_displays),
                 "promptCache": find_features(name, model).prompt_cache,

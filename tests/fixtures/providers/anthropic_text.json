@@ -49,7 +49,7 @@
         "stop_sequence": null,
         "usage": {
           "input_tokens": 12,
-          "output_tokens": 5,
+          "output_tokens": 100,
           "cache_read_input_tokens": 100,
           "cache_creation_input_tokens": 50
         },
@@ -72,12 +72,12 @@
         "ending": "end",
         "usage": {
           "input_tokens": 162,
-          "output_tokens": 5,
+          "output_tokens": 100,
           "cache_read_tokens": 100,
           "cache_write_tokens": 50
         },
         "empty": null,
-        "cost_usd": 0.0003285,
+        "cost_usd": 0.001169,
         "priced": true
       }
     }

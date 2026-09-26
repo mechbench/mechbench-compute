@@ -107,7 +107,7 @@ CASES: list[dict[str, Any]] = [
     {"name": "anthropic_text", "provider": "anthropic", "model": "claude-sonnet-5",
      "system": "Be brief.", "tools": [],
      "bodies": [anthropic([{"type": "text", "text": "Four."}], model="claude-sonnet-5",
-                          usage={"input_tokens": 12, "output_tokens": 5,
+                          usage={"input_tokens": 12, "output_tokens": 100,
                                  "cache_read_input_tokens": 100,
                                  "cache_creation_input_tokens": 50})]},
     {"name": "anthropic_one_hour_cache", "provider": "anthropic", "model": "claude-opus-5-5",

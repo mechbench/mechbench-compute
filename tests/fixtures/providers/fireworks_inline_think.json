@@ -73,8 +73,8 @@
           "output_tokens": 12
         },
         "empty": null,
-        "cost_usd": 2.88e-05,
-        "priced": true
+        "cost_usd": 0.0,
+        "priced": false
       }
     }
   ]

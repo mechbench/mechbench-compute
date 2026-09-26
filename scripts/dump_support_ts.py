@@ -48,18 +48,34 @@ def main() -> None:
         print(f"  {_ts(a)},")
     print("];")
     print()
-    print("/** A provider model with its price in US dollars per million tokens. A price applies to "
-          "every model id that starts with `model`. `reasoning` says the provider's adapter keeps a "
-          "model's reasoning as its own content; `tools` that it passes tools. A cache price that is "
-          "null is the input price. */")
-    print("export interface ProviderModel {")
-    print("  provider: string;")
-    print("  model: string;")
+    print("/** A price in US dollars per million tokens. A cache price that is null is the input "
+          "price. `longContext` holds the rates for a whole request whose input is more than `above` tokens "
+          "(a null cache rate there is the standard one). */")
+    print("export interface ProviderRates {")
     print("  inputPerMillion: number;")
     print("  outputPerMillion: number;")
     print("  cacheReadPerMillion: number | null;")
     print("  cacheWritePerMillion: number | null;")
     print("  cacheWrite1hPerMillion: number | null;")
+    print("  longContext: { above: number; inputPerMillion: number; outputPerMillion: number; "
+          "cacheReadPerMillion: number | null; cacheWritePerMillion: number | null } | null;")
+    print("}")
+    print()
+    print("/** A provider model and its price. `model` matches that id, a dated snapshot of it "
+          "or its `-latest` alias. The price holds through `until` (inclusive), then `then` "
+          "applies. `source` is the provider's page it was read from, on `checked`. "
+          "`reasoning` says the provider's adapter keeps a model's reasoning as its own content; "
+          "`tools` that it passes tools. */")
+    print("export interface ProviderModel extends ProviderRates {")
+    print("  provider: string;")
+    print("  model: string;")
+    print("  until: string | null;")
+    print("  then: ProviderRates | null;")
+    print("  status: \"current\" | \"preview\" | \"legacy\" | \"deprecated\" | \"alias\";")
+    print("  shutdown: string | null;")
+    print("  note: string;")
+    print("  source: string;")
+    print("  checked: string;")
     print("  effortLevels: string[];")
     print("  reasoningDisplays: string[];")
     print("  promptCache: boolean;")

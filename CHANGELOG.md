@@ -13,6 +13,73 @@ nothing said so.
 
 ---
 
+## 0.144.0 — 2026-09-26
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+The provider table was checked against every provider's own pages on
+2026-09-26 (`docs/PROVIDER_TABLE.md` is the procedure). What a call
+costs, and what a budget allows, changes for these models:
+
+- **A price row now matches its own id only**, with its dated snapshots
+  and its `-latest` alias. It used to match every id that began with it,
+  so `grok-4` priced `grok-4.3` and the `grok-4.20` models at $3 / $15,
+  and `gpt-5` priced any later `gpt-5.x`. An id with no row of its own
+  is now unpriced: its cost is recorded as unpriced and a budget does
+  not hold it back.
+- **Long-context rates.** A request whose input is over a model's
+  threshold is billed whole at its long-context rates: OpenAI's GPT-6,
+  GPT-5.6, GPT-5.5 and GPT-5.4 models above 272K tokens (2x input and
+  cache, 1.5x output); xAI's models from 200K tokens (2x every rate);
+  Gemini 2.5 Pro and 3.1 Pro above 200K.
+- **Claude Sonnet 5**: $2 / $10 (was $3 / $15); cache reads $0.20,
+  writes $2.50 and $4 (one hour).
+- **Gemini**: 2.5 Pro cache reads $0.125 (was $0.31); 2.5 Flash $0.03
+  (was $0.075).
+- **xAI**: `grok-4-0709` and `grok-3` were retired on 2026-05-15 and are
+  served and billed as `grok-4.3`, $1.25 / $2.50 / $0.20 (were $3 / $15).
+  The bare `grok-4` row is gone.
+- **OpenAI**: GPT-6 and GPT-5.6 cache writes are priced (1.25x input).
+- **Fireworks**: the two family rows (`llama`, `qwen`, $0.90 / $0.90)
+  are gone. Fireworks prices its other serverless models by size, which
+  a model id does not say; five models with published prices have rows.
+
+Also:
+
+- **New rows.** Anthropic: Opus 4.8, 4.7, 4.6 and 4.5, Sonnet 4.6.
+  OpenAI: GPT-6 Sol and Luna; GPT-5.6 Sol, Terra and Luna (and the
+  `gpt-5.6` alias); GPT-5.5 and 5.5 Pro; GPT-5.4, Mini, Nano and Pro;
+  GPT-5.2 and 5.2 Pro; GPT-5.1; GPT-5 Mini and Nano; GPT-4.1 Mini;
+  GPT-4o Mini; o4-mini. Gemini: 3.8, 3.7, 3.6 and 3.5 Flash; 3.5 and
+  3.1 Flash-Lite; 3.1 Pro Preview; 3 Flash Preview; 2.5 Flash-Lite.
+  xAI: `grok-4.3`, the `grok-4.20` models, `grok-build-0.1` and their
+  aliases. DeepSeek: the `deepseek-v4-flash` names as aliases of Flash.
+- **Every row says where and when it was read** (`source`, `checked`),
+  its status (`current`, `preview`, `legacy`, `deprecated`, `alias`), a
+  shutdown date when announced, a promotion's end and the price after
+  it (Gemini 3.8, 3.7 and 3.6 Flash double on 2027-01-01), and a `note`
+  for what the table cannot compute (DeepSeek's off-peak half price).
+- **The release gate** refuses to publish while a row was checked more
+  than 60 days ago, a promotion has ended with no price after it, or a
+  model is past its shutdown (`pricing.find_table_problems`).
+- **`scripts/check_provider_models.py`** lists each provider's served
+  models with its key and reports what the table prices that is not
+  served, what is served that it does not price, shutdown dates that
+  differ, and, for xAI, whose API gives prices, prices that differ.
+- **Features**: effort levels for the new OpenAI models (`none` through
+  `max` where stated), xAI's `grok-4.7`, `4.6`, `4.5` and `4.3`, and
+  DeepSeek (`low`, `high`, `max`); Anthropic's legacy models. Opus 4.5
+  and Haiku 4.5 take no reasoning display: they reject adaptive thinking.
+- GPT-6 Sol and Luna and the GPT-5.x Pro models use the Responses API by
+  default (Sol and Luna take tools on Chat Completions only at effort
+  `none`; the Pro models are Responses-only).
+
+---
+
 ## 0.143.0 — 2026-09-26
 
 ### Changes that raise
