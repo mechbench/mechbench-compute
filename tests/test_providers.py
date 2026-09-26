@@ -137,6 +137,23 @@ class TestBudget:
             "cache_write_tokens": 1_000_000})
         assert cost == pytest.approx(12.5)
 
+    def test_one_hour_cache_writes_are_priced_at_their_own_rate(self):
+        cost, _ = pricing.cost_usd("anthropic", "claude-opus-5-5", {
+            "input_tokens": 1_000_000, "output_tokens": 0,
+            "cache_write_tokens": 1_000_000, "cache_write_1h_tokens": 400_000})
+        assert cost == pytest.approx(0.6 * 5.0 + 0.4 * 8.0)
+
+    def test_the_split_of_cache_writes_is_read_from_anthropic(self):
+        from mechbench_compute.providers import anthropic
+        raw = {"content": [{"type": "text", "text": "hi"}], "stop_reason": "end_turn",
+               "usage": {"input_tokens": 10, "output_tokens": 2,
+                         "cache_creation_input_tokens": 100,
+                         "cache_creation": {"ephemeral_5m_input_tokens": 30,
+                                            "ephemeral_1h_input_tokens": 70}}}
+        out = anthropic.read_response(raw, req(model="claude-opus-5-5"))
+        assert out.usage.cache_write_tokens == 100
+        assert out.usage.cache_write_1h_tokens == 70
+
     def test_cached_input_is_priced_at_its_own_rate(self):
         cost, _ = pricing.cost_usd("anthropic", "claude-opus-5", {
             "input_tokens": 1_000_000, "output_tokens": 0,

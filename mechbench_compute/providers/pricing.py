@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-TABLE_VERSION = "2026-09-25"
+TABLE_VERSION = "2026-09-26"
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,7 @@ class Price:
     output: float
     cache_read: float | None = None
     cache_write: float | None = None
+    cache_write_1h: float | None = None
 
     def read_rate(self) -> float:
         return self.input if self.cache_read is None else self.cache_read
@@ -19,15 +20,18 @@ class Price:
     def write_rate(self) -> float:
         return self.input if self.cache_write is None else self.cache_write
 
+    def write_1h_rate(self) -> float:
+        return self.write_rate() if self.cache_write_1h is None else self.cache_write_1h
+
 
 PRICES: dict[str, dict[str, Price]] = {
     "anthropic": {
-        "claude-opus-5-5": Price(4.0, 20.0, 0.2, 5.0),
-        "claude-fable-5-1": Price(10.0, 50.0, 0.25, 12.5),
-        "claude-opus-5": Price(5.0, 25.0, 0.5, 6.25),
-        "claude-sonnet-5": Price(3.0, 15.0, 0.3, 3.75),
-        "claude-haiku-4-5": Price(1.0, 5.0, 0.1, 1.25),
-        "claude-fable-5": Price(10.0, 50.0, 1.0, 12.5),
+        "claude-opus-5-5": Price(4.0, 20.0, 0.2, 5.0, 8.0),
+        "claude-fable-5-1": Price(10.0, 50.0, 0.25, 12.5, 20.0),
+        "claude-opus-5": Price(5.0, 25.0, 0.5, 6.25, 10.0),
+        "claude-sonnet-5": Price(3.0, 15.0, 0.3, 3.75, 6.0),
+        "claude-haiku-4-5": Price(1.0, 5.0, 0.1, 1.25, 2.0),
+        "claude-fable-5": Price(10.0, 50.0, 1.0, 12.5, 20.0),
     },
     "openai": {
         # external: OpenAI — GPT-6 Astra charges 2x input and 1.5x output on a request over 272K input tokens; this is the standard rate
@@ -82,10 +86,12 @@ def cost_usd(provider: str, model: str, usage: Mapping[str, int]) -> tuple[float
         return 0.0, False
     read = int(usage.get("cache_read_tokens", 0) or 0)
     write = int(usage.get("cache_write_tokens", 0) or 0)
+    write_1h = min(write, int(usage.get("cache_write_1h_tokens", 0) or 0))
     plain = max(0, int(usage.get("input_tokens", 0) or 0) - read - write)
     out = int(usage.get("output_tokens", 0) or 0)
     total = (plain * price.input + read * price.read_rate()
-             + write * price.write_rate() + out * price.output) / 1_000_000
+             + (write - write_1h) * price.write_rate()
+             + write_1h * price.write_1h_rate() + out * price.output) / 1_000_000
     return round(total, 8), True
 
 

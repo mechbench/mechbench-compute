@@ -13,6 +13,30 @@ nothing said so.
 
 ---
 
+## 0.142.0 — 2026-09-26
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._ Compute's own calls never ask for a one-hour cache, so no cost
+they record changes.
+
+Also: one-hour cache writes have their own price. `Price.cache_write_1h`
+holds it for every Anthropic model (twice the input price; five-minute
+writes stay at 1.25x), and `support.provider_models()` and the generated
+declaration carry it as `cacheWrite1hPerMillion`. The Anthropic adapter
+reads how many written tokens went to the one-hour cache
+(`usage.cache_creation.ephemeral_1h_input_tokens`) into
+`Usage.cache_write_1h_tokens`, a part of `cache_write_tokens`, and
+`cost_usd` prices that part at the one-hour rate. `TABLE_VERSION` is
+`2026-09-26`. A provider fixture, `anthropic_one_hour_cache`, records
+the split.
+
+---
+
 ## 0.141.0 — 2026-09-25
 
 ### Changes that raise

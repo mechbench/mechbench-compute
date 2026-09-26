@@ -46,6 +46,7 @@ class Usage:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     reasoning_tokens: int = 0
+    cache_write_1h_tokens: int = 0
 
     def to_wire(self) -> dict[str, int]:
         return {k: int(v) for k, v in asdict(self).items() if v}

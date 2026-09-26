@@ -59,6 +59,7 @@ def main() -> None:
     print("  outputPerMillion: number;")
     print("  cacheReadPerMillion: number | null;")
     print("  cacheWritePerMillion: number | null;")
+    print("  cacheWrite1hPerMillion: number | null;")
     print("  reasoning: boolean;")
     print("  tools: boolean;")
     print("}")

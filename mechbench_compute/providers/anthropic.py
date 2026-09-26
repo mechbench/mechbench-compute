@@ -84,6 +84,8 @@ def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
         cache_write_tokens=int(u.get("cache_creation_input_tokens", 0) or 0),
         reasoning_tokens=int((u.get("output_tokens_details") or {})
                              .get("thinking_tokens", 0) or 0),
+        cache_write_1h_tokens=int((u.get("cache_creation") or {})
+                                  .get("ephemeral_1h_input_tokens", 0) or 0),
     )
     stop_reason = str(data.get("stop_reason") or "end_turn")
     empty = None
