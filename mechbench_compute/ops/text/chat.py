@@ -287,6 +287,24 @@ name.
           "the provider's.",
           None),
         P("max_tokens", "int", "The longest reply, in tokens.", 1024),
+        P("effort", "string",
+          "How hard a provider's model works on each reply: `low`, `medium`, "
+          "`high`, `xhigh` or `max` on Anthropic models that have it, "
+          "`minimal` to `high` on OpenAI's reasoning models. Unset leaves the "
+          "model's default. Refused by name where the model has no such "
+          "level, and on local weights.", None),
+        P("reasoning_display", "string",
+          "What an Anthropic model returns of its reasoning: `summarized` "
+          "(summaries, kept in each item's `reasoning`) or `updates` (only "
+          "the short progress notes it writes between tool calls). Unset "
+          "returns none of it. Changes what is kept, not what the model "
+          "writes.", None),
+        P("prompt_cache", "string",
+          "Ask Anthropic to cache each request's prompt, `5m` or `1h`, so "
+          "records that share a long system prompt or conversation read it "
+          "at the cache price. The spend counts cache reads and writes. "
+          "Other providers cache long prompts on their own, and refuse "
+          "this.", None),
         P("stop", "list[string]",
           "Strings at which generation stops; the marker itself is not part "
           "of the reply. Honoured on both paths — the local sampler ends the "

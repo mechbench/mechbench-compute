@@ -227,6 +227,8 @@ class OpenAICompatibleTransport(Transport):
         if req.logprobs is not None:
             body["logprobs"] = True
             body["top_logprobs"] = int(req.logprobs)
+        if req.effort is not None:
+            body["reasoning_effort"] = req.effort
         body.update(req.options_for(self.name))
         return body
 

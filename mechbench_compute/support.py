@@ -126,6 +126,7 @@ def local_architectures() -> list[dict[str, Any]]:
 
 def provider_models() -> list[dict[str, Any]]:
     from .providers import pricing
+    from .providers.features import find_features
     from .providers.registry import registry
 
     out: list[dict[str, Any]] = []
@@ -141,6 +142,9 @@ def provider_models() -> list[dict[str, Any]]:
                 "cacheReadPerMillion": price.cache_read,
                 "cacheWritePerMillion": price.cache_write,
                 "cacheWrite1hPerMillion": price.cache_write_1h,
+                "effortLevels": list(find_features(name, model).effort),
+                "reasoningDisplays": list(find_features(name, model).reasoning_displays),
+                "promptCache": find_features(name, model).prompt_cache,
                 "reasoning": spec.capabilities.reasoning,
                 "tools": spec.capabilities.tools,
             })

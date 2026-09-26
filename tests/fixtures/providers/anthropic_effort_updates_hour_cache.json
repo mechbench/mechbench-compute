@@ -1,0 +1,113 @@
+{
+  "name": "anthropic_effort_updates_hour_cache",
+  "provider": "anthropic",
+  "model": "claude-opus-5-5",
+  "api": null,
+  "credential": {},
+  "tool_answer": "4",
+  "calls": [
+    {
+      "headers": {
+        "anthropic-beta": "thinking-display-updates-2026-08-18"
+      },
+      "request": {
+        "model": "claude-opus-5-5",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is 2+2?"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 1024,
+        "system": "Be brief.",
+        "effort": "high",
+        "reasoning_display": "updates"
+      },
+      "url": "https://api.anthropic.com/v1/messages",
+      "body": {
+        "model": "claude-opus-5-5",
+        "max_tokens": 1024,
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is 2+2?"
+              }
+            ]
+          }
+        ],
+        "system": "Be brief.",
+        "output_config": {
+          "effort": "high"
+        },
+        "thinking": {
+          "type": "adaptive",
+          "display": "updates"
+        },
+        "cache_control": {
+          "type": "ephemeral",
+          "ttl": "1h"
+        }
+      },
+      "response": {
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus-5-5",
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30
+        },
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "Adding the numbers.",
+            "signature": "sig-u"
+          },
+          {
+            "type": "text",
+            "text": "Four."
+          }
+        ]
+      },
+      "expected": {
+        "parts": [
+          {
+            "type": "reasoning",
+            "text": "Adding the numbers.",
+            "provider": "anthropic",
+            "model": "claude-opus-5-5",
+            "native": {
+              "type": "thinking",
+              "thinking": "Adding the numbers.",
+              "signature": "sig-u"
+            }
+          },
+          {
+            "type": "text",
+            "text": "Four."
+          }
+        ],
+        "text": "Four.",
+        "stop_reason": "end_turn",
+        "ending": "end",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 30
+        },
+        "empty": null,
+        "cost_usd": 0.00064,
+        "priced": true
+      }
+    }
+  ]
+}

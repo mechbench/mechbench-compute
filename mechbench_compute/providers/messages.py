@@ -229,6 +229,9 @@ class ChatRequest:
     logprobs: int | None = None
     provider_options: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     api: str | None = None
+    effort: str | None = None
+    reasoning_display: str | None = None
+    prompt_cache: str | None = None
 
     def options_for(self, provider: str) -> dict[str, Any]:
         opts = self.provider_options.get(provider) or {}
@@ -307,6 +310,10 @@ def canonical(req: ChatRequest, *, provider: str | None = None) -> dict[str, Any
         out["stop"] = list(req.stop)
     if req.json_mode:
         out["json_mode"] = True
+    for name in ("effort", "reasoning_display"):
+        v = getattr(req, name)
+        if v is not None:
+            out[name] = v
     if req.api:
         out["api"] = req.api
     opts = ({provider: req.options_for(provider)} if provider

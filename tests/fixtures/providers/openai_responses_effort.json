@@ -1,0 +1,102 @@
+{
+  "name": "openai_responses_effort",
+  "provider": "openai",
+  "model": "gpt-5",
+  "api": "responses",
+  "credential": {},
+  "tool_answer": "4",
+  "calls": [
+    {
+      "request": {
+        "model": "gpt-5",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is 2+2?"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 1024,
+        "system": "Be brief.",
+        "effort": "low",
+        "api": "responses"
+      },
+      "url": "https://api.openai.com/v1/responses",
+      "body": {
+        "model": "gpt-5",
+        "input": [
+          {
+            "role": "user",
+            "content": "What is 2+2?"
+          }
+        ],
+        "max_output_tokens": 1024,
+        "store": false,
+        "instructions": "Be brief.",
+        "reasoning": {
+          "effort": "low"
+        }
+      },
+      "response": {
+        "id": "resp_1",
+        "object": "response",
+        "model": "gpt-5-2026-08-07",
+        "status": "completed",
+        "incomplete_details": null,
+        "output": [
+          {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Four.",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 40,
+          "output_tokens": 150,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens_details": {
+            "reasoning_tokens": 120
+          }
+        }
+      },
+      "expected": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "Four.",
+            "signature": {
+              "provider": "openai",
+              "model": "gpt-5",
+              "value": "{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"Four.\",\"annotations\":[]}]}"
+            }
+          }
+        ],
+        "text": "Four.",
+        "stop_reason": "completed",
+        "ending": "end",
+        "usage": {
+          "input_tokens": 40,
+          "output_tokens": 150,
+          "reasoning_tokens": 120
+        },
+        "empty": null,
+        "cost_usd": 0.00155,
+        "priced": true
+      }
+    }
+  ]
+}

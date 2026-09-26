@@ -161,6 +161,36 @@ class TestBudget:
         assert cost == pytest.approx(100_000 / 1e6 * 5.0 + 900_000 / 1e6 * 0.5)
 
 
+class TestModelFeatures:
+    def anthropic(self):
+        return MockTransport(name="anthropic", capabilities=capabilities("anthropic"))
+
+    def test_effort_is_refused_where_the_model_has_no_such_level(self):
+        with pytest.raises(CapabilityUnsupported, match="has no effort setting"):
+            self.anthropic().chat(req(model="claude-haiku-4-5", effort="low"))
+        with pytest.raises(CapabilityUnsupported, match="takes low, medium"):
+            self.anthropic().chat(req(model="claude-opus-5-5", effort="minimal"))
+        self.anthropic().chat(req(model="claude-opus-5-5", effort="max"))
+
+    def test_progress_updates_only_where_the_model_writes_them(self):
+        with pytest.raises(CapabilityUnsupported, match="reasoning_display 'updates'"):
+            self.anthropic().chat(req(model="claude-opus-5", reasoning_display="updates"))
+        self.anthropic().chat(req(model="claude-opus-5", reasoning_display="summarized"))
+
+    def test_a_prompt_cache_is_asked_of_anthropic_only(self):
+        openai = MockTransport(name="openai", capabilities=capabilities("openai"))
+        with pytest.raises(CapabilityUnsupported, match="caches long prompts on its own"):
+            openai.chat(req(model="gpt-5", prompt_cache="5m"))
+        with pytest.raises(CapabilityUnsupported, match="one of 5m, 1h"):
+            self.anthropic().chat(req(model="claude-opus-5", prompt_cache="10m"))
+
+    def test_the_prompt_cache_leaves_a_reply_s_memo_key_alone(self):
+        from mechbench_compute.providers.messages import request_hash
+        plain = req(model="claude-opus-5")
+        assert request_hash(req(model="claude-opus-5", prompt_cache="1h")) == request_hash(plain)
+        assert request_hash(req(model="claude-opus-5", effort="low")) != request_hash(plain)
+
+
 class TestCapabilities:
     def test_asking_a_provider_for_what_it_lacks_is_refused_by_name(self):
         t = MockTransport(name="anthropic", capabilities=capabilities("anthropic"))

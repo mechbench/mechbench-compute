@@ -196,6 +196,7 @@ class Transport(ABC):
                     raise CapabilityUnsupported(
                         self.name, f"{name} on the Responses API", "it has no such field; "
                         'drop it, or ask for api: "chat_completions"')
+        self._check_features(req)
         if req.tools and not caps.tools:
             raise CapabilityUnsupported(self.name, "tools")
         if req.tool_choice is not None and not req.tools:
@@ -215,6 +216,33 @@ class Transport(ABC):
                 raise CapabilityUnsupported(
                     self.name, "logprobs",
                     f"top-{req.logprobs} requested, {caps.logprobs} is the limit")
+
+    def _check_features(self, req: msg.ChatRequest) -> None:
+        from mechbench_compute.providers.features import PROMPT_CACHES, find_features
+
+        feats = find_features(self.name, req.model)
+        if req.effort is not None and req.effort not in feats.effort:
+            raise CapabilityUnsupported(
+                self.name, f"effort {req.effort!r}",
+                f"{req.model} takes {', '.join(feats.effort)}" if feats.effort
+                else f"{req.model} has no effort setting; drop effort")
+        if (req.reasoning_display is not None
+                and req.reasoning_display not in feats.reasoning_displays):
+            raise CapabilityUnsupported(
+                self.name, f"reasoning_display {req.reasoning_display!r}",
+                f"{req.model} shows {', '.join(feats.reasoning_displays)}"
+                if feats.reasoning_displays
+                else f"{req.model} has no reasoning display setting")
+        if req.prompt_cache is not None:
+            if req.prompt_cache not in PROMPT_CACHES:
+                raise CapabilityUnsupported(
+                    self.name, f"prompt_cache {req.prompt_cache!r}",
+                    f"it is one of {', '.join(PROMPT_CACHES)}")
+            if not feats.prompt_cache:
+                raise CapabilityUnsupported(
+                    self.name, "prompt_cache",
+                    "this provider caches long prompts on its own, or not at all; "
+                    "drop prompt_cache")
 
     def chat(self, req: msg.ChatRequest, *, budget: Budget | None = None,
              limiter: Limiter | None = None, scope: str = "default",

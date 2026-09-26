@@ -13,6 +13,43 @@ nothing said so.
 
 ---
 
+## 0.143.0 — 2026-09-26
+
+### Changes that raise
+
+_None._ The new fields are unset unless asked for, and an unset field
+sends nothing.
+
+### Changes that alter results without raising
+
+_None._
+
+Also: three fields on `ChatRequest`, and `text/chat` params of the same
+names.
+
+- `effort`: how hard the model works on each reply. Anthropic receives
+  it as `output_config.effort` (`low`, `medium`, `high`, `xhigh`, `max`
+  where the model has it), OpenAI as `reasoning.effort` on the Responses
+  API and `reasoning_effort` on Chat Completions (`minimal` to `high`
+  on `gpt-5`). It is part of a reply's memo key.
+- `reasoning_display`: what an Anthropic model returns of its
+  reasoning, `summarized` or `updates` (the short progress notes it
+  writes between tool calls, sent with the
+  `thinking-display-updates-2026-08-18` beta). Also part of the memo key.
+- `prompt_cache`: `5m` or `1h`, sent to Anthropic as the request's
+  top-level `cache_control`. Not part of the memo key, since it changes
+  what a reply costs and not what it says.
+
+`providers.features` says which model takes which (`find_features`), and
+a transport refuses a value the model does not take, naming the ones it
+does. `text/chat` refuses all three on local weights.
+`support.provider_models()` and the generated declaration carry
+`effortLevels`, `reasoningDisplays` and `promptCache` per model. Provider
+fixtures record the Anthropic beta header when one is sent, and three
+new ones cover the fields.
+
+---
+
 ## 0.142.0 — 2026-09-26
 
 ### Changes that raise

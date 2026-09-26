@@ -32,4 +32,7 @@ def build_request(rec: Mapping[str, Any], params: Mapping[str, Any], *,
         "logprobs": params.get("logprobs"),
         "provider_options": dict(provider_options),
         "api": api,
+        "effort": params.get("effort"),
+        "reasoning_display": params.get("reasoning_display"),
+        "prompt_cache": params.get("prompt_cache"),
     })

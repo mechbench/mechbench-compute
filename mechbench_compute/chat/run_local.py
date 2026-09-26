@@ -52,6 +52,12 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     if on_start:
         on_start(len(recs) * n * len(cells))
     items: list[dict[str, Any]] = []
+    remote_only = [k for k in ("effort", "reasoning_display", "prompt_cache")
+                   if params.get(k) is not None]
+    if remote_only:
+        raise ValueError(
+            f"{', '.join(remote_only)} apply to a model a provider runs, not to "
+            "local weights; drop them")
     on_tool_error = str(params.get("on_tool_error", "record"))
     if on_tool_error not in ("record", "fail"):
         raise ValueError(

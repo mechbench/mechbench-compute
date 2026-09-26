@@ -15,6 +15,7 @@ from mechbench_compute.providers.base import (
 from mechbench_compute.providers.errors import AuthError
 
 API_VERSION = "2023-06-01"
+DISPLAY_UPDATES_BETA = "thinking-display-updates-2026-08-18"
 DEFAULT_BASE_URL = "https://api.anthropic.com"
 
 CAPABILITIES = Capabilities(
@@ -151,8 +152,11 @@ class AnthropicTransport(Transport):
         self._base = str(base).rstrip("/")
         self._timeout = timeout
 
-    def _headers(self) -> dict[str, str]:
-        return {"x-api-key": self._token, "anthropic-version": API_VERSION}
+    def _headers(self, req: msg.ChatRequest | None = None) -> dict[str, str]:
+        out = {"x-api-key": self._token, "anthropic-version": API_VERSION}
+        if req is not None and req.reasoning_display == "updates":
+            out["anthropic-beta"] = DISPLAY_UPDATES_BETA
+        return out
 
     def _body(self, req: msg.ChatRequest) -> dict[str, Any]:
         body: dict[str, Any] = {
@@ -176,11 +180,21 @@ class AnthropicTransport(Transport):
             body["top_p"] = req.top_p
         if req.stop:
             body["stop_sequences"] = list(req.stop)
-        body.update(req.options_for(self.name))
+        if req.effort is not None:
+            body["output_config"] = {"effort": req.effort}
+        if req.reasoning_display is not None:
+            body["thinking"] = {"type": "adaptive", "display": req.reasoning_display}
+        if req.prompt_cache is not None:
+            body["cache_control"] = ({"type": "ephemeral", "ttl": "1h"}
+                                     if req.prompt_cache == "1h" else {"type": "ephemeral"})
+        opts = req.options_for(self.name)
+        if isinstance(opts.get("output_config"), Mapping) and "output_config" in body:
+            body["output_config"] = {**body["output_config"], **opts.pop("output_config")}
+        body.update(opts)
         return body
 
     def _chat(self, req: msg.ChatRequest, *, on_token=None) -> AdapterResponse:
-        resp = http.post_json(f"{self._base}/v1/messages", headers=self._headers(),
+        resp = http.post_json(f"{self._base}/v1/messages", headers=self._headers(req),
                               payload=self._body(req), timeout=self._timeout,
                               secrets=(self._token,))
         return read_response(resp.body or {}, req, headers=resp.headers)
@@ -189,7 +203,7 @@ class AnthropicTransport(Transport):
         body = self._body(req)
         body.pop("max_tokens", None)
         resp = http.post_json(f"{self._base}/v1/messages/count_tokens",
-                              headers=self._headers(), payload=body,
+                              headers=self._headers(req), payload=body,
                               timeout=min(self._timeout, 60.0),
                               secrets=(self._token,))
         return int((resp.body or {}).get("input_tokens", 0))

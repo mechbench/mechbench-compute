@@ -106,7 +106,12 @@ def body(req: msg.ChatRequest, provider: str) -> dict[str, Any]:
         out["text"] = {"format": {"type": "json_object"}}
     if provider in INCLUDE:
         out["include"] = list(INCLUDE[provider])
-    out.update(req.options_for(provider))
+    if req.effort is not None:
+        out["reasoning"] = {"effort": req.effort}
+    opts = req.options_for(provider)
+    if isinstance(opts.get("reasoning"), Mapping) and "reasoning" in out:
+        out["reasoning"] = {**out["reasoning"], **opts.pop("reasoning")}
+    out.update(opts)
     return out
 
 

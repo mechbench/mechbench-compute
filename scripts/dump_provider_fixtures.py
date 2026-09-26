@@ -118,6 +118,12 @@ CASES: list[dict[str, Any]] = [
                                  "cache_creation_input_tokens": 50,
                                  "cache_creation": {"ephemeral_5m_input_tokens": 20,
                                                     "ephemeral_1h_input_tokens": 30}})]},
+    {"name": "anthropic_effort_updates_hour_cache", "provider": "anthropic",
+     "model": "claude-opus-5-5", "system": "Be brief.", "tools": [],
+     "effort": "high", "reasoning_display": "updates", "prompt_cache": "1h",
+     "bodies": [anthropic([{"type": "thinking", "thinking": "Adding the numbers.",
+                            "signature": "sig-u"},
+                           {"type": "text", "text": "Four."}], model="claude-opus-5-5")]},
     {"name": "anthropic_thinking_tool_round", "provider": "anthropic",
      "model": "claude-opus-5",
      "provider_options": {"anthropic": {"thinking": {"type": "enabled",
@@ -186,6 +192,15 @@ CASES: list[dict[str, Any]] = [
     {"name": "openai_responses_reasoning_tool_round", "provider": "openai",
      "model": "gpt-6-astra", "system": "Be brief.",
      "bodies": [responses([RS1, FC1]), responses([RS2, MSG], rid="resp_2")]},
+    {"name": "openai_responses_effort", "provider": "openai", "model": "gpt-5",
+     "api": "responses", "system": "Be brief.", "tools": [], "effort": "low",
+     "bodies": [responses([MSG], model="gpt-5-2026-08-07",
+                          usage={"input_tokens": 40, "output_tokens": 150,
+                                 "input_tokens_details": {"cached_tokens": 0},
+                                 "output_tokens_details": {"reasoning_tokens": 120}})]},
+    {"name": "openai_chat_effort", "provider": "openai", "model": "gpt-5",
+     "api": "chat_completions", "system": "Be brief.", "tools": [], "effort": "minimal",
+     "bodies": [chat({"role": "assistant", "content": "Four."}, model="gpt-5")]},
     {"name": "xai_responses_reasoning_tool_round", "provider": "xai", "model": "grok-4.7",
      "api": "responses",
      "bodies": [responses([XRS1, FC1], model="grok-4.7", usage=XAI_USAGE),
@@ -208,7 +223,8 @@ def scripted(bodies: list[dict[str, Any]]) -> Iterator[list[tuple[str, dict[str,
         if url.endswith(("count_tokens", ":countTokens")):
             return http.HttpResponse(status=200, headers={},
                                      body={"input_tokens": 10, "totalTokens": 10})
-        sent.append((url, copy.deepcopy(payload)))
+        beta = {k: v for k, v in headers.items() if k == "anthropic-beta"}
+        sent.append((url, copy.deepcopy(payload), beta))
         return http.HttpResponse(status=200, headers={}, body=queue.pop(0))
 
     original = http.post_json
@@ -229,14 +245,16 @@ def run_case(case: dict[str, Any]) -> dict[str, Any]:
         "messages": [{"role": "user", "content": "What is 2+2?"}],
         "max_tokens": case.get("max_tokens", 1024), "tools": tools,
         "provider_options": case.get("provider_options", {}), "api": api,
+        **{k: case[k] for k in ("effort", "reasoning_display", "prompt_cache") if k in case},
     })
     calls: list[dict[str, Any]] = []
     with scripted(case["bodies"]) as sent:
         transport = make_transport(provider, credential)
         for i, body in enumerate(case["bodies"]):
             out = transport.chat(req)
-            url, wire = sent[-1]
+            url, wire, beta = sent[-1]
             calls.append({
+                **({"headers": beta} if beta else {}),
                 "request": m.canonical(req, provider=provider),
                 "url": url,
                 "body": wire,
