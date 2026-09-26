@@ -255,6 +255,7 @@ def run_case(case: dict[str, Any]) -> dict[str, Any]:
             url, wire, beta = sent[-1]
             calls.append({
                 **({"headers": beta} if beta else {}),
+                **({"prompt_cache": req.prompt_cache} if req.prompt_cache else {}),
                 "request": m.canonical(req, provider=provider),
                 "url": url,
                 "body": wire,
