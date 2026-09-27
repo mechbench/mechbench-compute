@@ -13,6 +13,35 @@ nothing said so.
 
 ---
 
+## 0.147.0 — 2026-09-27
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- **`records/summarize`, `records/contrast`, `records/count` and
+  `records/correlate` put their groups in numeric order**: a numeric
+  group (`layer`) comes 0, 1, 2, …, 10, not 0, 1, 10, 11, …, 2, and
+  numbers come before text. The values are unchanged: `records/contrast`
+  still draws its bootstrap in the old order, so every interval is the
+  same as before; only the rows move. A reader that relied on the row
+  order, rather than the group's value, sees different rows first.
+- **Group columns declare their type from their values**: a `by` column
+  whose values are all numbers is `"dtype": "number"`, not `"string"`.
+  `records/contrast`'s `on`, `a` and `b` columns follow the same rule.
+- **A tracked answer carries its `rank`**: `{token, p, logp, rank,
+  variants}` in `logits/read`, `logits/read-layers`, `intervene/apply`
+  and `intervene/steer`, the better spelling's rank as `logits/scan`
+  reads it (0 is the top-1). A reader that compared tracked entries
+  whole sees a new field.
+
+Also: `records/summarize`'s and `records/contrast`'s `by` say they take
+top-level fields as well as coordinates, and `records/contrast`'s
+`paired` says it can pair on a coordinate when matched records have
+their own ids.
+
 ## 0.146.0 — 2026-09-26
 
 ### Changes that raise

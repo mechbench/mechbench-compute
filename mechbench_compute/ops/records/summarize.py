@@ -7,6 +7,8 @@ from typing import Any
 from mechbench_compute.blocks.expand_cells import expand_cells
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
+from mechbench_compute.blocks.sort_group_key import sort_group_key
+from mechbench_compute.blocks.describe_columns import describe_columns
 from mechbench_compute.blocks.read_interval import read_interval
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
@@ -58,7 +60,8 @@ sweep is a claim with a width, not a number. Whether two groups DIFFER is
           "fields; this names the one the question is about. A dotted "
           "name is a path from the record's root."),
         P("by", "list[string]",
-          "The coordinates to group on. Empty gives one overall row.",
+          "The fields to group on: coordinates (`condition`) or top-level "
+          "fields (`layer`). Empty gives one overall row.",
           None),
         P("on_missing", "string",
           "`\"error\"`: refuse a record without the field. `\"skip\"`: omit "
@@ -120,8 +123,7 @@ def summarize_groups(groups: Mapping[tuple, Sequence[float]], params: Mapping[st
     stats = ["n", "median", "mean", "min", "max", "share_negative"]
     if interval is not None:
         stats += ["lo", "hi"]
-    columns = [{"name": k, "dtype": "string"} for k in by] + [
-        {"name": n, "dtype": "number"} for n in stats]
+    columns = describe_columns(rows, by) + [{"name": n, "dtype": "number"} for n in stats]
     out = {"kind": "records/table",
            "name": params.get("name", f"{value_field}-stats"),
            "description": params.get("description", ""),
@@ -186,7 +188,7 @@ class GroupStats(Monoid):
     def finalize(self, p, params):
         pass
 
-        ordered = {key: list(p[key]) for key in sorted(p, key=lambda k: tuple(str(x) for x in k))}
+        ordered = {key: list(p[key]) for key in sorted(p, key=sort_group_key)}
         return summarize_groups(ordered, params)
 
 

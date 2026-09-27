@@ -116,6 +116,12 @@ class TestTheSetScores:
         preferred = SPACED if lp[SPACED] >= lp[BARE] else BARE
         assert entry["token"]["id"] == preferred
 
+    def test_rank_is_the_better_spellings(self, model):
+        entry = RUNS["logits/read"](model, "Paris")["items"][0]["tracked"]["answer"]
+        lp = _base_lp(model)
+        best = max(lp[SPACED], lp[BARE])
+        assert entry["rank"] == int((lp > best).sum())
+
     def test_rank_is_the_better_variants(self):
         lp = np.log(np.array([0.5, 0.1, 0.3, 0.1]))
         answer = make_answer([1, 2])

@@ -5,6 +5,8 @@ from typing import Any
 
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
+from mechbench_compute.blocks.sort_group_key import sort_group_key
+from mechbench_compute.blocks.describe_columns import describe_columns
 from mechbench_compute.blocks.read_interval import read_interval
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
@@ -52,12 +54,15 @@ of them, each its own contrast.
         P("a", "json", "The value of `on` on the first side; the difference is a minus b."),
         P("b", "json", "The value of `on` on the second side."),
         P("paired", "string",
-          "The field the two sides share, to redraw pairs — `\"id\"` when "
-          "the same records ran under both conditions. None redraws the "
-          "sides independently.",
+          "The field the two sides share, to redraw pairs: `\"id\"` when "
+          "the same records ran under both conditions, or a coordinate "
+          "when matched records have their own ids (`\"fact\"` pairs "
+          "`honest-france` with `lie-france`). None redraws the sides "
+          "independently.",
           None),
         P("by", "list[string]",
-          "Coordinates to hold fixed: one row per combination.",
+          "Fields to hold fixed, coordinates or top-level fields "
+          "(`layer`): one row per combination.",
           None),
         P("interval", "float", "The level of the bootstrap interval.", 0.95),
         P("resamples", "int", "How many bootstrap redraws the interval is read from.", 2000),
@@ -143,9 +148,8 @@ def contrast(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
             "share_positive": round(float((boots > 0).mean()), 3),
         })
         rows.append(row)
-    columns = ([{"name": k, "dtype": "string"} for k in by]
-               + [{"name": "on", "dtype": "string"}, {"name": "a", "dtype": "string"},
-                  {"name": "b", "dtype": "string"}]
+    rows.sort(key=lambda row: sort_group_key(tuple(row[k] for k in by)))
+    columns = (describe_columns(rows, [*by, "on", "a", "b"])
                + [{"name": k, "dtype": "number"}
                   for k in ("n", "mean_a", "mean_b", "diff", "lo", "hi", "share_positive")])
     out = {"kind": "records/table",

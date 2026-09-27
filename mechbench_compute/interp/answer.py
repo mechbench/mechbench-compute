@@ -55,6 +55,7 @@ class Answer:
     def entry(self, tokenizer, lp: np.ndarray) -> dict[str, Any]:
         here = self.anchored(lp)
         return {**S.read_token(tokenizer, here.preferred, self.logp(lp)),
+                "rank": self.rank(lp),
                 "variants": self.variants(tokenizer, lp)}
 
 

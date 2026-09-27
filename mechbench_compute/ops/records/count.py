@@ -8,6 +8,8 @@ from typing import Any
 from mechbench_compute.blocks.match_where import match_where, parse_where
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
+from mechbench_compute.blocks.sort_group_key import sort_group_key
+from mechbench_compute.blocks.describe_columns import describe_columns
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
@@ -189,14 +191,14 @@ class CountShare(Monoid):
         by = params.get("by") or []
         level = _read_level(params)
         rows = []
-        for key in sorted(groups, key=lambda k: tuple(str(x) for x in k)):
+        for key in sorted(groups, key=sort_group_key):
             k, n = groups[key]
             lo, hi = estimate_wilson(k, n, level)
             row = {name: key[i] for i, name in enumerate(by)}
             row.update({"k": k, "n": n, "rate": round(k / n, 4),
                         "lo": round(lo, 4), "hi": round(hi, 4)})
             rows.append(row)
-        columns = ([{"name": name, "dtype": "string"} for name in by]
+        columns = (describe_columns(rows, by)
                    + [{"name": c, "dtype": "number"} for c in ("k", "n", "rate", "lo", "hi")])
         field, conditions = _read_success(params)
         counted = ({"where": [f"{c.path}{c.op}{c.raw}" for c in conditions]}

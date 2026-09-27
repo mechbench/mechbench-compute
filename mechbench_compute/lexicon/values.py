@@ -26,7 +26,7 @@ SPACE = F("object", SPACE_DOC,
           required=["model", "layer", "point", "head", "d"])
 TOP = F("array", "The most likely tokens, ranked by probability, each `{token, p, logp}`.",
         items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}}})
-TRACKED = F("object", "Name → `{token, p, logp, variants}` for the answers the caller asked about, by the names it gave.",
+TRACKED = F("object", "Name → `{token, p, logp, rank, variants}` for the answers the caller asked about, by the names it gave.",
             additionalProperties={"type": "object"})
 VARIANTS = F("array", "Each spelling of a tracked answer, with and without a leading space, as `{token, p, logp}`; one entry when both are the same token.",
              items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}}})
@@ -116,7 +116,7 @@ TRACKED_VALUE = Value(
     "tracked",
     "The tokens a read was asked to follow, by the names the protocol gave them, each with its probability.",
     fields={
-        "<name>": F("object", "`{token, p, logp, variants}` for the answer the name resolved to."),
+        "<name>": F("object", "`{token, p, logp, rank, variants}` for the answer the name resolved to."),
     },
     doc="""\
 A map from the caller's names to what the model said about them. The names
@@ -133,8 +133,9 @@ that prompt, and the read names it so.
 An answer is the set of its spellings with and without a leading space.
 `p` is their summed probability — the chance the model says the answer
 either way — and `logp` its log; `token` is the spelling this read gives
-more probability, and `variants` lists each spelling's own `{token, p,
-logp}`, one entry when both spellings are the same token. A change in
+more probability, `rank` how many tokens the read puts above the better
+spelling (0 is the top-1), and `variants` lists each spelling's own
+`{token, p, logp}`, one entry when both spellings are the same token. A change in
 log-probability is always taken on the set, on both sides; a rank is the
 better spelling's; a logit, which belongs to one token, is the preferred
 spelling's, and the op names it.

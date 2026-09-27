@@ -7,6 +7,8 @@ from typing import Any
 
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
+from mechbench_compute.blocks.sort_group_key import sort_group_key
+from mechbench_compute.blocks.describe_columns import describe_columns
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
@@ -159,7 +161,7 @@ class RankPoints(Monoid):
             if not 0.0 < level < 1.0:
                 raise ValueError(f"interval must be between 0 and 1 exclusive, not {level}")
         rows = []
-        for key in sorted(groups, key=lambda k: tuple(str(x) for x in k)):
+        for key in sorted(groups, key=sort_group_key):
             points = groups[key]
             rho = compute_spearman([x for x, _ in points], [y for _, y in points])
             row = {name: key[i] for i, name in enumerate(by)}
@@ -170,7 +172,7 @@ class RankPoints(Monoid):
                             "hi": None if hi is None else round(hi, 4)})
             rows.append(row)
         stats = ["n", "rho"] + (["lo", "hi"] if level is not None else [])
-        columns = ([{"name": name, "dtype": "string"} for name in by]
+        columns = (describe_columns(rows, by)
                    + [{"name": c, "dtype": "number"} for c in stats])
         out = {"kind": "records/table",
                "name": params.get("name", f"{params['x']}-{params['y']}-correlation"),

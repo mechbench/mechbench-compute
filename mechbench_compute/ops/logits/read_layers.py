@@ -40,7 +40,7 @@ decides. A set of records renders as overlaid curves.
            "scales this one.",
            required=False),
     ),
-    output=Output('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, variants}`: `p` and `logp` of its spellings with and without a leading space together, `token` the spelling that layer prefers, `variants` each spelling's own `{token, p, logp}`). The header carries `layers` and `top_k`."),
+    output=Output('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, rank, variants}`: `p` and `logp` of its spellings with and without a leading space together, `rank` the better spelling's (0 is that layer's top-1), `token` the spelling that layer prefers, `variants` each spelling's own `{token, p, logp}`). The header carries `layers` and `top_k`."),
     params=(
         P("top_k", "int", "How many of the most likely tokens to record per layer.", 5),
         P("tracked", "map[string, string]",

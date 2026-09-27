@@ -53,7 +53,7 @@ For anything beyond one direction at one layer and position, use
            "scales this one.",
            required=False),
     ),
-    output=Output('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, variants}`: `p` and `logp` of its spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling's own `{token, p, logp}`). The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas."),
+    output=Output('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, rank, variants}`: `p` and `logp` of its spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling's own `{token, p, logp}`). The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas."),
     params=(
         P("layer", "int",
           "The layer whose residual stream the direction is added to. Items "
