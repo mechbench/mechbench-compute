@@ -24,6 +24,10 @@ def is_param_ref(v: Any) -> bool:
     return isinstance(v, Mapping) and len(v) == 1 and isinstance(v.get("$param"), str)
 
 
+def is_expr_ref(v: Any) -> bool:
+    return isinstance(v, Mapping) and len(v) == 1 and isinstance(v.get("$expr"), str)
+
+
 def is_object_ref(v: Any) -> bool:
     return isinstance(v, Mapping) and len(v) == 1 and isinstance(v.get("$ref"), Mapping)
 
@@ -248,6 +252,19 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
                 problems.append(f"{nid}.{'.'.join(path)}: unbound param {name!r}")
                 return
             v = bound_params[name]
+        if is_expr_ref(v):
+            from mechbench_compute.blocks.read_expr_params import read_expr_params
+            from mechbench_compute.expr.engine import ExprError
+
+            try:
+                names = read_expr_params(v["$expr"])
+            except ExprError as e:
+                problems.append(f"{nid}.{'.'.join(path)}: {e.detail}: `{v['$expr']}`")
+                return
+            bound_here = local(path) if path[:1] == ["body"] else frozenset()
+            for name in sorted(names - set(bound_params) - bound_here):
+                problems.append(f"{nid}.{'.'.join(path)}: `{v['$expr']}` reads {name!r}, which is not a param")
+            return
         if is_object_ref(v):
             source_of(v)
             site = _inner_ref_site(params, path)

@@ -168,3 +168,36 @@ class TestGroup:
             assert (d["n"], round(d["diff"], 4), round(d["lo"], 4), round(d["hi"], 4),
                     round(d["share_positive"], 3)) == \
                 (row["n"], row["diff"], row["lo"], row["hi"], row["share_positive"])
+
+
+def _run(graph: dict, params: dict) -> dict:
+    from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+
+    out = ProtocolExecutor().run(ProtocolSpec(
+        kind="pipeline", prompt="", model_id=None,
+        extra={"graph": {"dataflow": 2, **graph}, "params": params, "inputs": {}}))
+    return (out.payload if hasattr(out, "payload") else out)["outputs"]
+
+
+class TestThroughAProtocol:
+    def _graph(self, limit) -> dict:
+        items = [{"id": str(i), "e": i} for i in range(6)]
+        return {"edges": [{"from": {"node": "top"}, "to": {"node": "tag", "port": "records"}}], "nodes": [
+            {"id": "top", "block": "records/sort", "params": {"by": ["-e"], "limit": limit},
+             "inputs": {"records": items}},
+            {"id": "tag", "block": "records/derive",
+             "params": {"fields": {"coords.model": "params.model", "big": "e > params.k"}}}]}
+
+    def test_a_param_expression_is_computed_when_the_run_is_bound(self):
+        out = _run(self._graph({"$expr": "params.k - 1"}), {"k": 3, "model": "gemma"})
+        items = out["tag"]["items"]
+        assert sorted(r["e"] for r in items) == [4, 5]
+        assert items[0]["coords"] == {"model": "gemma"} and [r["big"] for r in items] == [True, True]
+
+    def test_an_expression_reading_no_param_is_refused_before_the_run(self):
+        with pytest.raises(ValueError, match="'kk', which is not a param"):
+            _run(self._graph({"$expr": "kk - 1"}), {"k": 3, "model": "gemma"})
+
+    def test_an_expression_with_no_value_is_refused(self):
+        with pytest.raises(ValueError, match="division by zero"):
+            _run(self._graph({"$expr": "params.k // 0"}), {"k": 3, "model": "gemma"})

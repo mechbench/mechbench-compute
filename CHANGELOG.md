@@ -13,6 +13,29 @@ nothing said so.
 
 ---
 
+## 0.152.0 — 2026-09-28
+
+### Changes that raise
+
+- A protocol whose params hold a `{"$expr": ...}` that does not parse,
+  or that reads a name that is not a param of the run, is refused before
+  the run with the other unresolvable references; one whose value is
+  undefined (a division by zero) is refused when it is bound. Before this
+  release a `{"$expr"}` was not a reference at all, and reached the op as
+  a plain object.
+
+### Changes that alter results without raising
+
+_None._
+
+Also: `{"$expr": "params.k - 1"}` in a node's params is computed from the
+run's params when the run is bound (mechbench-expr's protocol scope), as
+`{"$param"}` is substituted; under a map's body it may also read the
+names the map binds. The kinds copy for mechbench-models now lists each
+kind's declared fields, and `scripts/dump_expr_ts.py` gives models the
+engine's module, so the platform checks expressions before a save with
+the bytes compute runs.
+
 ## 0.151.0 — 2026-09-28
 
 ### Changes that raise

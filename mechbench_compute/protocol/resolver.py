@@ -66,6 +66,10 @@ class Resolver:
             if name not in self.bound_params:
                 raise ValueError(f"unbound param: {name!r}")
             return self.resolve_value(self.bound_params[name], keep_reference)
+        if dataflow.is_expr_ref(v):
+            from mechbench_compute.blocks.evaluate_param_expr import evaluate_param_expr
+
+            return evaluate_param_expr(v["$expr"], self.bound_params)
         if dataflow.is_object_ref(v):
             which, source = dataflow.source_of(v)
             if keep_reference:
