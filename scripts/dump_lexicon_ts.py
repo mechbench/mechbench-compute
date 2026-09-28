@@ -35,6 +35,10 @@ export interface LexiconParam {
   stored?: string;
   /** The block takes the reference itself, unresolved. */
   reference?: boolean;
+  /** The input ports an expression is evaluated against, on an op with several. */
+  reads?: string[];
+  /** The param this one stands in for on the ports it reads, when set. */
+  replaces?: string;
 }
 
 /** One input port. */

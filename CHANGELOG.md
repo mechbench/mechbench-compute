@@ -13,6 +13,20 @@ nothing said so.
 
 ---
 
+## 0.160.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._ A param's declaration can say which input ports an expression
+reads (`reads`) and which param it stands in for there (`replaces`);
+`records/join` declares `on` as reading both sides and `on_right` as
+reading the right in its place, so a protocol's checks read each key
+against the records that reach its side. Nothing runs differently.
+
 ## 0.159.0 — 2026-09-28
 
 ### Changes that raise

@@ -228,6 +228,8 @@ class Param:
     fields: tuple[Param, ...] = ()
     stored: str | None = None
     reference: bool = False
+    reads: tuple[str, ...] = ()
+    replaces: str | None = None
 
     @property
     def required(self) -> bool:
@@ -248,6 +250,10 @@ class Param:
             d["stored"] = self.stored
         if self.reference:
             d["reference"] = True
+        if self.reads:
+            d["reads"] = list(self.reads)
+        if self.replaces:
+            d["replaces"] = self.replaces
         return d
 
 
@@ -361,8 +367,10 @@ class Op:
 def P(name: str, type: str, doc: str, default: Any = REQUIRED, *,
       choices: tuple[str, ...] = (), value: str | None = None,
       fields: tuple[Param, ...] = (), stored: str | None = None,
-      reference: bool = False) -> Param:
-    return Param(name, type, doc, default, choices, value, fields, stored, reference)
+      reference: bool = False, reads: tuple[str, ...] = (),
+      replaces: str | None = None) -> Param:
+    return Param(name, type, doc, default, choices, value, fields, stored,
+                 reference, reads, replaces)
 
 
 def In(name: str, kind: str, doc: str, *, required: bool = True,

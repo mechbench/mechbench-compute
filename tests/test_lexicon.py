@@ -68,6 +68,18 @@ def test_no_param_names_a_port(op: Op) -> None:
 
 
 @pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
+def test_an_expression_on_several_ports_says_which_it_reads(op: Op) -> None:
+    exprs = [p for p in op.params if "expression" in p.type]
+    for p in op.params:
+        assert set(p.reads) <= op.port_names, f"{op.name}.{p.name} reads undeclared ports {p.reads}"
+        assert p.replaces is None or p.replaces in op.param_names, f"{op.name}.{p.name} replaces nothing declared"
+        assert not (p.reads or p.replaces) or "expression" in p.type, f"{op.name}.{p.name}: reads is for expressions"
+    if len(op.inputs) > 1:
+        for p in exprs:
+            assert p.reads, f"{op.name}.{p.name}: an expression on an op with several ports declares the ports it reads"
+
+
+@pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
 def test_summary_is_one_sentence_for_a_stranger(op: Op) -> None:
     s = op.summary.strip()
     assert not s.startswith("~canonical/"), f"{op.name}: summary restates the ref"

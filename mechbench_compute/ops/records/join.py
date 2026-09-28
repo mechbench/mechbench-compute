@@ -45,8 +45,10 @@ under `as`. A key that is `None` matches nothing. The left side's
                   doc="The left records, in their order, each with its right match under `as`; "
                       "the header's `unmatched` counts the left records with none."),
     params=(
-        P("on", "expression", "The key, evaluated on both sides."),
-        P("on_right", "expression", "The right side's key, when it is spelled differently there.", None),
+        P("on", "expression", "The key, evaluated on both sides.",
+          reads=("left", "right")),
+        P("on_right", "expression", "The right side's key, when it is spelled differently there.", None,
+          reads=("right",), replaces="on"),
         P("as", "string", "The field the right record is carried under.", "right"),
         P("how", "string", "`inner` drops a left record with no match; `left` keeps it with None.",
           "inner", choices=("inner", "left")),
