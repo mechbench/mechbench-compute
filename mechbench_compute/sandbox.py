@@ -359,8 +359,13 @@ def _pages(holder: list, store) -> int:
         return 0
 
 
+# external: the Go runtime — "out of memory" from the allocator, "cannot allocate memory" when the heap cannot grow
+_OOM_MESSAGES = ("out of memory", "cannot allocate memory")
+
+
 def _oom_exit(holder: list, store, limits: Limits, stderr: str) -> bool:
-    if "out of memory" not in stderr.lower():
+    low = stderr.lower()
+    if not any(m in low for m in _OOM_MESSAGES):
         return False
     return _pages(holder, store) * 65536 >= limits.memory_mb * 1024 * 1024 * 0.5
 

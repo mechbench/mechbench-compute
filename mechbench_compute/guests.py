@@ -40,11 +40,12 @@ class GuestUnavailable(RuntimeError):
 REGISTRY: dict[str, Guest] = {
     "mbshell": Guest(
         name="mbshell",
-        url="https://github.com/mechbench/mechbench-compute/releases/download/mbshell-5090c2c1646c/mbshell-5090c2c1646c.wasm.gz",
-        sha256="5090c2c1646c2b96f32baa7aac87535f8cf5e8895f01fd0cca65c3668a69ae62",
-        size=15426977,
+        url="https://github.com/mechbench/mechbench-compute/releases/download/mbshell-64ac1e4c4962/mbshell-64ac1e4c4962.wasm.gz",
+        sha256="64ac1e4c496291f221026156f1ed29bc54ea4c492d4acbc1ce1881d047b70c64",
+        size=19813478,
         source="guests/mbshell (go-busybox@13f3053 + go-busybox-wasi.patch + "
-               "mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch; go1.27.1 -trimpath -buildvcs=false)"),
+               "mvdan.cc/sh/v3@v3.12.0 + mvdan-sh-wasi.patch + github.com/itchyny/gojq@v0.12.19 + "
+               "gojq-stdio.patch; go1.27.1 -trimpath -buildvcs=false)"),
     "cpython": Guest(
         name="cpython",
         url="https://github.com/mechbench/mechbench-compute/releases/download/cpython-0e9a1065ab0d/python.wasm.gz",

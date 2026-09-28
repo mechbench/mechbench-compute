@@ -22,6 +22,8 @@ import (
 	"os"
 	"path/filepath"
 
+	jq "github.com/itchyny/gojq/cli"
+
 	"github.com/rcarmo/go-busybox/pkg/applets/awk"
 	"github.com/rcarmo/go-busybox/pkg/applets/cat"
 	"github.com/rcarmo/go-busybox/pkg/applets/cp"
@@ -140,6 +142,11 @@ var applets = map[string]appletFunc{
 	"start-stop-daemon": startstopdaemon.Run,
 	"wget":              wget.Run,
 	"nc":                nc.Run,
+	"jq":                runJQ,
+}
+
+func runJQ(stdio *core.Stdio, args []string) int {
+	return jq.RunWith(stdio.In, stdio.Out, stdio.Err, args)
 }
 
 func init() {

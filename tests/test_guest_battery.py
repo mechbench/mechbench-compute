@@ -82,6 +82,8 @@ TEMPLATES: list[tuple[str, list[str] | str, bool]] = [
     ("timeout", ["timeout", "1", "cat", X], False),
     ("xargs", "xargs echo < {x}", False),
     ("xargs -n1", "cat {x} | xargs -n1 echo", False),
+    ("jq", ["jq", ".", X], False),
+    ("jq -r", ["jq", "-r", "-s", "length", X], False),
     ("sh script", ["sh", X], False),
     ("sh pipeline", "cat {x} | wc -l", False),
     ("sh redirect", "grep -c e < {x} > /dev/null; echo $?", False),

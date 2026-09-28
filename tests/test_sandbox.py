@@ -189,3 +189,58 @@ class TestTheShell:
         assert self.sh(shell, "nosuch").exit_code == 127
         assert self.sh(shell, "exit 200").exit_code == 200
         assert self.sh(shell, "exit 3").exit_code == 3
+
+
+JSON = fs.seeded({"data.json": '{"a": {"b": [1, 2, 3]}, "name": "mbshell", "tags": ["x", "y"]}\n',
+                  "rows.json": '{"id": 2, "k": "two"}\n{"id": 1, "k": "one"}\n'})
+
+
+class TestJq:
+    def run(self, shell, argv, **kw):
+        return sandbox.run(JSON, argv, guest=shell, **kw)
+
+    def test_a_filter_on_a_file(self, shell):
+        r = self.run(shell, ["jq", ".a.b | add", "data.json"])
+        assert r.ok and r.stdout == "6\n", r.stderr
+
+    def test_a_pipeline(self, shell):
+        r = self.run(shell, ["sh", "-c", "cat data.json | jq '.tags | length'"])
+        assert r.ok and r.stdout == "2\n", r.stderr
+
+    def test_jq_feeds_the_next_applet(self, shell):
+        r = self.run(shell, ["sh", "-c", "jq -r .k rows.json | sort | head -n 1"])
+        assert r.ok and r.stdout == "one\n", r.stderr
+
+    def test_raw_output(self, shell):
+        r = self.run(shell, ["jq", "-r", ".name", "data.json"])
+        assert r.ok and r.stdout == "mbshell\n"
+
+    def test_compact_output(self, shell):
+        r = self.run(shell, ["jq", "-c", ".a", "data.json"])
+        assert r.ok and r.stdout == '{"b":[1,2,3]}\n'
+
+    def test_slurp_and_null_input(self, shell):
+        r = self.run(shell, ["jq", "-s", "-c", "sort_by(.id) | map(.k)", "rows.json"])
+        assert r.ok and r.stdout == '["one","two"]\n'
+        r = self.run(shell, ["jq", "-n", "--arg", "v", "hi", "{v: $v}", "-c"])
+        assert r.ok and r.stdout == '{"v":"hi"}\n'
+
+    def test_an_invalid_program_fails_with_a_message(self, shell):
+        r = self.run(shell, ["jq", ".a[", "data.json"])
+        assert r.exit_code != 0 and r.limit is None
+        assert "jq" in r.stderr and r.stdout == ""
+
+    def test_invalid_json_input_fails_with_a_message(self, shell):
+        r = self.run(shell, ["sh", "-c", "echo '{not json' | jq ."])
+        assert r.exit_code != 0 and "jq" in r.stderr
+
+    def test_a_missing_file_fails_with_a_message(self, shell):
+        r = self.run(shell, ["jq", ".", "nosuch.json"])
+        assert r.exit_code != 0 and "nosuch.json" in r.stderr
+
+    def test_strict_is_a_function_of_inputs(self, shell):
+        argv = ["sh", "-c", "jq -c '{keys: keys, t: now, e: ($ENV | length)}' data.json"]
+        a = self.run(shell, argv, strict=True)
+        b = self.run(shell, argv, strict=True)
+        assert a.ok, a.stderr
+        assert (a.stdout, a.snapshot.digest()) == (b.stdout, b.snapshot.digest())

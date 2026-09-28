@@ -1,7 +1,8 @@
 # mbshell — the sandbox's shell guest
 
 go-busybox's applets behind an in-process POSIX shell, standard Go
-compiled to `wasip1`.
+compiled to `wasip1`, plus `jq` ([gojq](https://github.com/itchyny/gojq),
+MIT) as one more applet.
 
 ## Why not busybox's own `sh`
 
@@ -25,7 +26,7 @@ found by running it under the sandbox traced to TinyGo's wasm target:
 `os.File.Read` on a directory returns a negative count, which bufio
 panics on (`wc -c .`, `sed p .`); `reflect.Type.NumIn` is missing, so
 `awk` panics. Standard Go's `wasip1` port (official since 1.21) has
-none of these. Same source, one build flag, 15.4 MB (3.8 MB gzipped),
+none of these. Same source, one build flag, 19.8 MB with gojq (4.9 MB gzipped),
 fetched once. 3–5 ms per call.
 
 ## What is patched, and why
@@ -51,6 +52,15 @@ fetched once. 3–5 ms per call.
   the only clock).
 - `ls` reads `Stat_t.Blocks`, which wasip1's `Stat_t` lacks.
 
+`gojq-stdio.patch` (v0.12.19):
+
+- `cli.RunWith(in, out, err, args)`: gojq's command line on the
+  applet's streams. Upstream's `cli.Run` reads `os.Stdin` and
+  `os.Args`, which a pipeline stage on a goroutine cannot use. The
+  whole CLI comes with it — every flag, the exit codes (3 for an
+  invalid program, 5 for invalid input), messages prefixed `gojq:`.
+  Colour is off: an applet's stdout is never a terminal.
+
 `main.go` itself: `/dev/null` from the open handler (one preopened
 directory, no `/dev`); `$0` from `sh -c CMD NAME`; and exit statuses
 ≥ 126 — which WASI hosts refuse to carry — written to
@@ -70,7 +80,7 @@ directory, no `/dev`); `$0` from `sh -c CMD NAME`; and exit statuses
 Reproducible: `-trimpath`, `-buildvcs=false` (the recipe lives inside
 a git repo and Go would otherwise stamp the binary with its commit and
 dirty flag — CI caught that), pinned upstream commit and module
-version, toolchain named in the output (go 1.27.1 for the recorded
+versions, toolchain named in the output (go 1.27.1 for the recorded
 hash). Same hash from inside the repo and from a copy outside any git
 repo. Needs `go` on PATH.
 
@@ -85,8 +95,10 @@ create a release with the new tag and assets, update the pin and URL.
 
 `NOTICE` carries every license in the binary: go-busybox is MIT **as
 declared in its README** (the tree has no LICENSE file; upstream
-issue #3 asks for one), mvdan/sh BSD-3-Clause, goawk MIT, golang.org/x
-and the Go runtime BSD-3-Clause.
+issue #3 asks for one), mvdan/sh BSD-3-Clause, goawk MIT, gojq MIT,
+its dependencies timefmt-go, go-isatty, go-runewidth, uax29 and
+stringish MIT, go-yaml Apache-2.0 (with its NOTICE; the parts ported
+from libyaml MIT), golang.org/x and the Go runtime BSD-3-Clause.
 
 Nobody needs Go to *use* the guest. Rebuilding it needs go 1.27.1
 (a 65 MB download, 270 MB installed), git, patch, and network access

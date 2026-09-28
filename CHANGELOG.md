@@ -13,6 +13,31 @@ nothing said so.
 
 ---
 
+## 0.149.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- A sandbox run whose Go guest dies with `fatal error: runtime: cannot
+  allocate memory` now reports `limit: "memory_mb"`; it reported no
+  limit, only exit 2. The Go runtime says this, not "out of memory",
+  when the heap cannot grow, and the larger guest below hits the cap
+  there (`sort` on a 5 MB file under `memory_mb=16`).
+
+Also: `jq` in the sandbox shell. The mbshell guest carries gojq 0.12.19
+as the `jq` applet, on the same stdio as every other applet, so it runs
+standalone, in pipelines (`cat f.json | jq .a`, `jq -r .k f | sort`) and
+on files given as arguments, with gojq's flags (`-r`, `-c`, `-s`, `-n`,
+`--arg`, `-e`, …) and its exit codes: an invalid program exits 3, invalid
+JSON input 5, each with a `gojq:` message on stderr. Under `strict`,
+`now` reads the virtual clock, so a jq program is a function of its
+inputs like any other command. The guest is re-pinned (sha256
+`64ac1e4c4962…`, 19,813,478 bytes, from 15,426,977) and fetched once on
+first use; a command that named `jq` used to exit 127.
+
 ## 0.148.0 — 2026-09-27
 
 ### Changes that raise
