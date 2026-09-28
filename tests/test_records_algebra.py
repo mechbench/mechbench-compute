@@ -73,6 +73,14 @@ class TestFilterAndSort:
         assert [r["id"] for r in out["items"]] == ["c", "d", "a"]
 
 
+class TestNaturalOrder:
+    def test_digits_in_text_compare_as_numbers(self):
+        ids = ["flash-s10", "flash-s2", "flash-s1", "pro-s0", "flash-s01", "10", "2", "a", "", "x9y", "x10"]
+        stored = K.canonical_collection(_collection([{"id": i} for i in ids]))
+        assert [r["id"] for r in stored["items"]] == [
+            "", "2", "10", "a", "flash-s1", "flash-s01", "flash-s2", "flash-s10", "pro-s0", "x9y", "x10"]
+
+
 class TestOrder:
     def _sorted(self) -> dict:
         items = [{"id": str(i), "e": e} for i, e in enumerate([3, 11, 7, 2])]
@@ -140,7 +148,16 @@ class TestGroup:
 
     def test_a_group_of_none_is_the_whole_input(self):
         out = group_records(_collection(_records()), {"aggregates": {"n": "count()"}}, {})
-        assert out["items"] == [{"id": "0", "n": 60}]
+        assert out["items"] == [{"id": "all", "n": 60}]
+
+    def test_a_group_is_named_by_its_key(self):
+        items = [{"id": str(i), "g": g, "k": k} for i, (g, k) in enumerate([("b", 10), ("a", 2), ("b", 10), ("a", None)])]
+        out = group_records(_collection(items), {"by": {"g": "g", "k": "k"}, "aggregates": {"n": "count()"}}, {})
+        assert [(r["id"], r["n"]) for r in out["items"]] == [("b|10", 2), ("a|2", 1), ("a|null", 1)]
+        clash = [{"id": "0", "a": "x|y", "b": "z"}, {"id": "1", "a": "x", "b": "y|z"}]
+        ids = [r["id"] for r in group_records(_collection(clash), {"by": {"a": "a", "b": "b"},
+                                                                    "aggregates": {"n": "count()"}}, {})["items"]]
+        assert ids == ['["x|y", "z"]', '["x", "y|z"]']
 
     @pytest.mark.parametrize("bad,match", [
         ("nope(p)", "not an aggregate"), ("mean()", "takes 1 expression"),

@@ -49,7 +49,10 @@ keys as text. Numbers are not rounded; round them in a derive.
 
 A value that is `None` is skipped by every aggregate and counted in the
 header's `missing`, by aggregate; `on_missing: fail` refuses it instead.
-Groups come out in the order their first record arrived.
+A group's id is its `by` values joined by `|` (`noir|flash`), or `all`
+when there is no `by`, so the stored groups are in the order of their
+keys; where two groups' values would join to one id, each id is its
+values as a JSON list instead.
 """,
     inputs=(In("records", "collection | records/table",
                "The records to group: any collection whose items are records, or a table's rows.",
@@ -132,14 +135,21 @@ def group_records(records: Any, params: Mapping[str, Any], run_params: Mapping[s
             computed[k][name] = v
         if skipped:
             missing[name] = skipped
+    ids = {k: "|".join(_read_id_part(key_of[k][n]) for n in by) or "all" for k in groups}
+    if len(set(ids.values())) < len(ids):
+        ids = {k: k for k in groups}
     out = []
-    for index, k in enumerate(groups):
-        row: dict[str, Any] = {"id": str(index)}
+    for k in groups:
+        row: dict[str, Any] = {"id": ids[k]}
         for name, value in {**key_of[k], **computed[k]}.items():
             row = set_field(row, name, value)
         out.append(row)
     extra = {"missing": missing} if missing else {}
     return K.collection("records/record", out, **extra)
+
+
+def _read_id_part(value: Any) -> str:
+    return value if isinstance(value, str) else json.dumps(value)
 
 
 def _read_args(call: Mapping[str, Any]) -> Sequence[str]:

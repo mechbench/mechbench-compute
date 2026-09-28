@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## 0.154.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- Stored collections order strings naturally: runs of digits compare as
+  numbers (`flash-s2` before `flash-s10`, `"2"` before `"10"`), then by
+  length (`s1` before `s01`), text by code point. Before this release
+  strings compared by code point alone, so a run's samples were stored
+  `s0, s1, s10, s11, s2, …`. Only the order of items changes, never an
+  id, so the bytes and content hash of any collection keyed by such
+  strings differ from an earlier release while its items are equal. The
+  UI and the API's `?sort=` already ordered strings this way.
+- `records/group` (0.150.0) names each group by its `by` values joined by
+  `|` (`noir|flash`), or `all` with no `by`, where it numbered them `"0"`,
+  `"1"`, …; its stored groups are in the order of their keys.
+
 ## 0.153.0 — 2026-09-28
 
 ### Changes that raise

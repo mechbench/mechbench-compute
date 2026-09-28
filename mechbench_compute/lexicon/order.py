@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.lexicon._base import COLLECTION
 
 _SPACE_ORDER = ("model", "layer", "point", "head", "d")
+_DIGITS = re.compile(r"([0-9]+)")
 
 
 def _sort_value(v: Any) -> tuple[int, Any]:
@@ -17,13 +19,18 @@ def _sort_value(v: Any) -> tuple[int, Any]:
     if isinstance(v, (int, float)):
         return (1, v)
     if isinstance(v, str):
-        return (2, v)
+        return (2, _natural(v))
     if isinstance(v, Mapping):
         keys = (_SPACE_ORDER if set(v) == set(_SPACE_ORDER) else tuple(sorted(v)))
         return (3, tuple((k, _sort_value(v[k])) for k in keys))
     if isinstance(v, (list, tuple)):
         return (4, tuple(_sort_value(x) for x in v))
     return (5, json.dumps(v, sort_keys=True, default=str))
+
+
+def _natural(s: str) -> tuple[Any, ...]:
+    parts = _DIGITS.split(s)
+    return tuple(p if i % 2 == 0 else (int(p), len(p)) for i, p in enumerate(parts))
 
 
 def _read_path(item: Any, path: str) -> Any:
