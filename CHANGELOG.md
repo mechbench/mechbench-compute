@@ -13,6 +13,34 @@ nothing said so.
 
 ---
 
+## 0.157.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+Also: two escape hatches for what the records algebra does not say,
+each run in the sandbox (WebAssembly, strict mode: no network, an empty
+filesystem, a virtual clock and seeded randomness, so the same code over
+the same records gives the same bytes on every machine), each with its
+code as a param and so in the protocol's hash:
+
+- `records/python`: `source` defines `transform(records, header, params)`
+  (or, with `over: record`, `transform(record, header, params)`, which
+  may return a record, a list or `None`), run in the CPython 3.13 guest.
+- `records/jq`: `program` is a jq program over the records as `.`, with
+  `$header` and `$params`, run by gojq in the shell guest; it may write a
+  list of records or a stream of them.
+
+Both refuse a failure with its own message (the end of a Python
+traceback, jq's parse error) and name a ceiling that trips (`seconds`,
+`memory_mb`, `output_mb`, fuel). Records returned without ids are
+numbered; some with and some without is refused.
+
 ## 0.156.0 — 2026-09-28
 
 ### Changes that raise

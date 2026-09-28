@@ -113,6 +113,12 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/cross.py", "_sample_value"),
         ("ops/records/cross.py", "_materialize_levels"),
         ("ops/records/cross.py", "cross_factors")],
+    "records/python": [
+        ("ops/records/python.py", "run"),
+        ("ops/records/python.py", "transform_records")],
+    "records/jq": [
+        ("ops/records/jq.py", "run"),
+        ("ops/records/jq.py", "reshape_records")],
     "records/derive": [
         ("ops/records/derive.py", "run"),
         ("ops/records/derive.py", "derive")],
