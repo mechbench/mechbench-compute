@@ -10,8 +10,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-ENGINE_VERSION = "v0.1.0"
-ENGINE_SHA256 = "b7eac4d2368cd9db2319590c28509e6346fe62afaecde1ace7e8bcd9b48f814b"
+ENGINE_VERSION = "v0.2.0"
+ENGINE_SHA256 = "5a0b2996be6c922bf482c4c4712fd139f82281219704ea188222f0fe7c5ffcb9"
 ENGINE_URL = (
     "https://github.com/mechbench/mechbench-expr/releases/download/"
     f"{ENGINE_VERSION}/mbexpr-{ENGINE_VERSION}.wasm"

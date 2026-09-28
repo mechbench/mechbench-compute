@@ -13,6 +13,23 @@ nothing said so.
 
 ---
 
+## 0.151.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- An expression's conditional whose condition is `None`,
+  `a if c else b` with `c` missing or null, is now `None` and counted in
+  the header's `undefined` as "a condition that was None"; it took the
+  `else` branch. The expression engine is mechbench-expr v0.2.0 (sha256
+  `5a0b2996be6c…`), from v0.1.0. Only the records algebra of 0.150.0
+  reads expressions, so no earlier operation's results change.
+  `coalesce(a if c else b, fallback)` gives the old answer where it was
+  wanted.
+
 ## 0.150.0 — 2026-09-28
 
 ### Changes that raise
