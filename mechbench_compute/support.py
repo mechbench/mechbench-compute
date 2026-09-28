@@ -177,6 +177,7 @@ def provider_models() -> list[dict[str, Any]]:
                 "effortLevels": list(find_features(name, model).effort),
                 "reasoningDisplays": list(find_features(name, model).reasoning_displays),
                 "promptCache": find_features(name, model).prompt_cache,
+                "images": find_features(name, model).images,
                 "reasoning": spec.capabilities.reasoning,
                 "tools": spec.capabilities.tools,
             })

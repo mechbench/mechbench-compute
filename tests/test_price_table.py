@@ -71,6 +71,26 @@ def test_features_name_only_models_the_table_prices():
             assert pricing.price_for(provider, model) is not None, f"{provider}/{model}"
 
 
+@pytest.mark.parametrize(("provider", "model", "price"), ROWS,
+                         ids=[f"{p}/{m}" for p, m, _ in ROWS])
+def test_every_priced_model_has_decided_whether_it_takes_images(provider, model, price):
+    assert model in FEATURES.get(provider, {}), f"{provider}/{model} has no features row"
+
+
+def test_images_go_only_where_a_page_says_so():
+    from mechbench_compute.providers.features import find_features
+    from mechbench_compute.support import provider_models
+
+    assert find_features("anthropic", "claude-haiku-4-5-20251001").images
+    assert find_features("openai", "gpt-4o-2024-08-06").images
+    assert not find_features("openai", "gpt-3.5-turbo-0125").images
+    assert not find_features("deepseek", "deepseek-v4-pro").images
+    assert not find_features("openai", "gpt-unknown").images
+    rows = {(m["provider"], m["model"]): m for m in provider_models()}
+    assert rows[("openai", "o3-mini")]["images"] is False
+    assert rows[("gemini", "gemini-3.8-flash")]["images"] is True
+
+
 def test_the_check_names_what_a_provider_serves_that_the_table_does_not_say():
     from mechbench_compute.providers.table_check import ServedModel, compare
 

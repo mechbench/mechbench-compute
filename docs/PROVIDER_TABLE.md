@@ -55,6 +55,15 @@ a model's memory of a price is not a source.
 - `source` and `checked`: the page read, and the day it was read.
 - Its features: the effort levels and reasoning displays the model
   takes, and whether it caches on request. Only values a page states.
+- Whether it takes images (`images`): true only where the provider's
+  own model page, or its API docs for that model, lists image input
+  (OpenAI's "Input modalities: text, image", Anthropic's "Text and
+  images → text", Gemini's "Inputs", xAI's "Modalities", DeepSeek's
+  "Vision" row, Fireworks' "Support image input"). An alias takes the
+  value of the model the provider says serves it. Where no page says,
+  it stays false, and the platform sends that model no pictures. Every
+  priced model has a row in `FEATURES`, so each one's `images` is a
+  decision rather than a default.
 
 Batch, flex, priority and regional rates are not recorded: compute
 calls the standard tier.

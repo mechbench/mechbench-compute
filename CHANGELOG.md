@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## 0.148.0 — 2026-09-27
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+Also: the provider table says which models take images. `Features`
+has `images`, true where the provider's own page lists image input,
+and every priced model now has a `FEATURES` row, so the value is
+decided for each: every Anthropic and Gemini model, OpenAI's except
+`gpt-4`, `gpt-4-0613`, the `gpt-3.5-turbo` family and `o3-mini`, xAI's
+except `grok-3` and `grok-4-0709`, DeepSeek's `deepseek-flash` and its
+aliases (not `deepseek-v4-pro`), and Fireworks' except `gpt-oss-120b`.
+The platform's copy (`support.generated.ts`) carries it as `images`.
+`grok-4.5` takes the effort levels its page lists, `xhigh` included.
+
 ## 0.147.0 — 2026-09-27
 
 ### Changes that raise

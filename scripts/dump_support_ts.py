@@ -68,7 +68,8 @@ def main() -> None:
           "or its `-latest` alias. The price holds through `until` (inclusive), then `then` "
           "applies. `source` is the provider's page it was read from, on `checked`. "
           "`reasoning` says the provider's adapter keeps a model's reasoning as its own content; "
-          "`tools` that it passes tools. */")
+          "`tools` that it passes tools; `images` that the provider's own pages say the model takes "
+          "image input, so a picture may go to it in a user message or a tool result. */")
     print("export interface ProviderModel extends ProviderRates {")
     print("  provider: string;")
     print("  model: string;")
@@ -82,6 +83,7 @@ def main() -> None:
     print("  effortLevels: string[];")
     print("  reasoningDisplays: string[];")
     print("  promptCache: boolean;")
+    print("  images: boolean;")
     print("  reasoning: boolean;")
     print("  tools: boolean;")
     print("}")
