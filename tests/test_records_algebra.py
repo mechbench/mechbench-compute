@@ -73,6 +73,41 @@ class TestFilterAndSort:
         assert [r["id"] for r in out["items"]] == ["c", "d", "a"]
 
 
+class TestOrder:
+    def _sorted(self) -> dict:
+        items = [{"id": str(i), "e": e} for i, e in enumerate([3, 11, 7, 2])]
+        return sort_records(_collection(items), {"by": ["-e"]}, {})
+
+    def test_a_sort_writes_each_place_and_declares_it(self):
+        out = self._sorted()
+        assert [(r["e"], r["rank"]) for r in out["items"]] == [(11, 1), (7, 2), (3, 3), (2, 4)]
+        assert out["order_by"] == ["rank"]
+
+    def test_storage_keeps_the_declared_order_not_the_key(self):
+        stored = K.canonical_collection(self._sorted())
+        assert [r["e"] for r in stored["items"]] == [11, 7, 3, 2]
+        plain = K.canonical_collection(_collection([{"id": "b"}, {"id": "a"}]))
+        assert [r["id"] for r in plain["items"]] == ["a", "b"]
+
+    def test_filter_derive_and_join_keep_the_order(self):
+        kept = filter_records(self._sorted(), {"where": "e > 2"}, {})
+        assert kept["order_by"] == ["rank"]
+        derived = derive(kept, {"fields": {"half": "e / 2"}}, {})
+        assert derived["order_by"] == ["rank"]
+        assert "order_by" not in derive(kept, {"drop": ["rank"]}, {})
+        joined = join_records(kept, _collection([{"id": "x", "e": 7}]), {"on": "e", "how": "left"}, {})
+        assert joined["order_by"] == ["rank"]
+        assert [r["e"] for r in K.canonical_collection(joined)["items"]] == [11, 7, 3]
+
+    def test_the_older_rank_op_declares_its_order_too(self):
+        from mechbench_compute.ops.records.rank import run
+
+        out = run(None, {"records": _collection([{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 3}])},
+                  {"value": "v", "k": 2})
+        stored = K.canonical_collection(out)
+        assert [(r["id"], r["rank"]) for r in stored["items"]] == [("b", 1), ("c", 2)]
+
+
 class TestJoin:
     def test_inner_and_left(self):
         left = _collection([{"id": "1", "coords": {"f": 1}}, {"id": "2", "coords": {"f": 2}},
@@ -191,7 +226,8 @@ class TestThroughAProtocol:
     def test_a_param_expression_is_computed_when_the_run_is_bound(self):
         out = _run(self._graph({"$expr": "params.k - 1"}), {"k": 3, "model": "gemma"})
         items = out["tag"]["items"]
-        assert sorted(r["e"] for r in items) == [4, 5]
+        assert [(r["e"], r["rank"]) for r in items] == [(5, 1), (4, 2)]
+        assert out["tag"]["order_by"] == ["rank"]
         assert items[0]["coords"] == {"model": "gemma"} and [r["big"] for r in items] == [True, True]
 
     def test_an_expression_reading_no_param_is_refused_before_the_run(self):

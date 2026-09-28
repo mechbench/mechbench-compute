@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-import json
 import warnings
 from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind, Metric, P
+from mechbench_compute.lexicon.order import canonical_collection
 from mechbench_compute.lexicon.values import (  # noqa: F401
-    COORDS, ID, SPACE, SPACE_DOC, TOKEN, TOP, TRACKED, VARIANTS, VEC, F,
+    COORDS,
+    ID,
+    SPACE,
+    SPACE_DOC,
+    TOKEN,
+    TOP,
+    TRACKED,
+    VARIANTS,
+    VEC,
+    F,
 )
 
 DIST = F("object", "A `logits/distribution`: `{entropy_bits, top, tracked?}`.",
@@ -768,20 +777,23 @@ PLATFORM: tuple[Kind, ...] = (
 
 COLLECTION_KIND = Kind(
     COLLECTION,
-    "The one container: items of one kind, identified by the kind's key, sorted by that key when stored, with the header fields the kind declares.",
+    "The one container: items of one kind, identified by the kind's key, sorted when stored by its `order_by` and then by that key, with the header fields the kind declares.",
     fields={"item_kind": F("string", "The kind of every item."),
             "key": F("array", "The item fields that identify an item.", items={"type": "string"}),
             "items": F("array", "The items.", items={"type": "object"}),
             "storage": F("string", "`\"tensor\"` when the items live in shards beside the object rather than in `items`."),
             "shards": F("array", "Under tensor storage: `{name, rows, size, sha256}` per shard, in order.", items={"type": "object"}),
             "n_items": F("integer", "Under tensor storage: how many rows the shards hold."),
-            "d": F("integer", "Under tensor storage: the rows' width.")},
+            "d": F("integer", "Under tensor storage: the rows' width."),
+            "order_by": F("array", "The item fields, in turn, that order the items before the key does: "
+                          "`[\"rank\"]` after a sort.", items={"type": "string"})},
     required=("item_kind", "key", "items"),
     doc="Every plural result is this one shape. The item kind declares the `key` — the fields that identify an "
         "item — and its header, the collection-level facts that ride with the items (a model, a metric, a "
         "pass rate). Items are sorted by key before the object is hashed, so the same items in any order are "
-        "the same object; order that matters is a property of the key (`step`, `layer`), never of the "
-        "container. A port declared as `collection` takes any collection at all. A collection too large for "
+        "the same object; order that matters is a property of the items, never of the container: of the key "
+        "(`step`, `layer`), or of fields named by `order_by`, which orders the items before the key does — a "
+        "sort writes each record's place into `rank` and declares `order_by: [\"rank\"]`. A port declared as `collection` takes any collection at all. A collection too large for "
         "one object — a per-token capture of a hundred thousand tokens — keeps its header here with "
         "`storage: \"tensor\"` and `items` empty, and its rows in safetensors shards stored beside it under "
         "`<label>/shards/`; a reader takes them one shard at a time.",
@@ -979,39 +991,6 @@ def collection(item_kind: str, items: list[Any], **header: Any) -> dict[str, Any
     kind = BY_KIND[item_kind]
     out: dict[str, Any] = {"kind": COLLECTION, "item_kind": item_kind, "key": list(kind.key), "items": list(items)}
     out.update({k: v for k, v in header.items() if v is not None})
-    return out
-
-
-_SPACE_ORDER = ("model", "layer", "point", "head", "d")
-
-
-def _sort_value(v: Any) -> tuple[int, Any]:
-    if v is None:
-        return (0, "")
-    if isinstance(v, bool):
-        return (1, int(v))
-    if isinstance(v, (int, float)):
-        return (1, v)
-    if isinstance(v, str):
-        return (2, v)
-    if isinstance(v, Mapping):
-        keys = (_SPACE_ORDER if set(v) == set(_SPACE_ORDER) else tuple(sorted(v)))
-        return (3, tuple((k, _sort_value(v[k])) for k in keys))
-    if isinstance(v, (list, tuple)):
-        return (4, tuple(_sort_value(x) for x in v))
-    return (5, json.dumps(v, sort_keys=True, default=str))
-
-
-def canonical_collection(obj: Any) -> Any:
-    if not isinstance(obj, Mapping) or obj.get("kind") != COLLECTION:
-        return obj
-    key = list(obj.get("key") or [])
-    items = list(obj.get("items") or [])
-    if key:
-        items = sorted(items, key=lambda it: tuple(_sort_value(it.get(k) if isinstance(it, Mapping) else None)
-                                                   for k in key))
-    out = dict(obj)
-    out["items"] = items
     return out
 
 

@@ -9,7 +9,8 @@ OP = Op(
     summary="The k records with the largest value of a field.",
     description="""\
 Sorted by the field descending, ties broken by `id`, so the result is
-deterministic. An exact reduce: the top-k of a union is the top-k of the
+deterministic. Each record's place, from 1, is written into `rank`, and
+the output declares `order_by: ["rank"]`, so the order survives storage. An exact reduce: the top-k of a union is the top-k of the
 top-ks, so partial results merge without loss.
 """,
     inputs=(In("records", "collection | records/table",
@@ -17,7 +18,7 @@ top-ks, so partial results merge without loss.
                "decision reads, vectors, verdicts, tree summaries — since every "
                "item has an id and its fields; a table's rows are read as records.",
                many=True),),
-    output=Output('records/record', collection=True, doc='The top k, in order.'),
+    output=Output('records/record', collection=True, doc='The top k, each with its place in `rank`, in that order.'),
     params=(
         P("value", "string", "The numeric field to rank by, or a dot path to it."),
         P("k", "int", "How many to keep.", 10),
@@ -54,7 +55,8 @@ class TopK(Monoid):
     def finalize(self, p, params):
         from mechbench_compute.lexicon import kinds as K
 
-        return K.collection("records/record", list(p))
+        return K.collection("records/record", [{**r, "rank": i + 1} for i, r in enumerate(p)],
+                            order_by=["rank"])
 
     def bind(self, params):
         self._f = params["value"]

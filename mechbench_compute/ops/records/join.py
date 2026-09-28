@@ -6,6 +6,7 @@ from typing import Any
 from mechbench_compute.blocks.raise_expr_error import raise_expr_error
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.blocks.read_order_by import read_order_by
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
@@ -31,7 +32,8 @@ The right side's keys must be unique: two right records with one key is an
 error naming the key, since which one to carry would be a guess. With
 `how: inner` (the default) a left record with no match is dropped, and the
 header's `unmatched` counts them; with `how: left` it is kept with `None`
-under `as`. A key that is `None` matches nothing.
+under `as`. A key that is `None` matches nothing. The left side's
+`order_by` (a sort's) is kept.
 """,
     inputs=(
         In("left", "collection | records/table",
@@ -100,4 +102,4 @@ def join_records(left: Any, right: Any, params: Mapping[str, Any], run_params: M
             if how == "inner":
                 continue
         out.append({**record, as_field: match})
-    return K.collection("records/record", out, unmatched=unmatched)
+    return K.collection("records/record", out, unmatched=unmatched, order_by=read_order_by(left))

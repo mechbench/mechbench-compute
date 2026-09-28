@@ -13,6 +13,30 @@ nothing said so.
 
 ---
 
+## 0.153.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- `records/rank` writes each record's place into `rank` and declares
+  `order_by: ["rank"]`; its stored result and what the next node reads
+  are now in rank order. Before this release its output was re-sorted by
+  `id` when stored, so "the top k, in order" held only the membership of
+  the top k, never its order.
+- `records/sort` (0.150.0) does the same, with the field named by its new
+  param `as` (default `rank`). Its order was lost the same way.
+
+Also: a collection's header may declare `order_by`, the item fields that
+order the items before the key does (LEXICON.md §4, which specified it;
+nothing implemented it until now). A stored collection is sorted by
+`order_by` and then its key, so the order is part of the data and the
+hash stays stable. `records/filter`, `records/derive` (unless it drops a
+field `order_by` names) and `records/join` (the left side's) keep it.
+Canonical ordering moves to `lexicon/order.py`.
+
 ## 0.152.0 — 2026-09-28
 
 ### Changes that raise

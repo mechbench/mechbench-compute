@@ -7,6 +7,7 @@ from mechbench_compute.blocks.drop_field import drop_field
 from mechbench_compute.blocks.raise_expr_error import raise_expr_error
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.blocks.read_order_by import read_order_by
 from mechbench_compute.blocks.set_field import set_field
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
@@ -41,7 +42,8 @@ set beside it: two fields cannot build on each other in one node; chain two
 derives when one reads the other.
 
 A number with no value (a division by zero, the log of zero) is null, and
-the header's `undefined` counts them by reason.
+the header's `undefined` counts them by reason. An `order_by` on the
+input (a sort's) is kept unless a field it names is dropped.
 """,
     inputs=(In("records", "collection | records/table",
                "The records to compute on: any collection whose items are "
@@ -110,7 +112,10 @@ def derive(records: Any, params: Mapping[str, Any], run_params: Mapping[str, Any
         out.append(new)
     kind = K.item_kind_of(records) if isinstance(records, Mapping) else None
     kept = kind if kind in K.BY_KIND and not drop else "records/record"
-    extra = {"undefined": undefined} if undefined else {}
+    extra: dict[str, Any] = {"undefined": undefined} if undefined else {}
+    order = read_order_by(records)
+    if order and not any(f == d or f.startswith(f"{d}.") for f in order for d in drop):
+        extra["order_by"] = order
     return K.collection(kept, out, **extra)
 
 

@@ -6,6 +6,7 @@ from typing import Any
 from mechbench_compute.blocks.raise_expr_error import raise_expr_error
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.blocks.set_field import set_field
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
@@ -19,16 +20,23 @@ text or a list). Records whose key is `None` sort last whichever the
 direction, and records with equal keys keep their order, so a sort is
 stable. `limit` keeps the first so many: the ten largest effects are
 `by: ["-effect"], limit: 10`.
+
+Each record's place, from 1, is written into the field `as` names
+(`rank`), and the output declares `order_by: ["rank"]`, so the order is
+part of the data: it survives storage (a stored collection is otherwise
+sorted by its key) and the operations downstream that keep the records.
 """,
     inputs=(In("records", "collection | records/table",
                "The records to order: any collection, or a table's rows.",
                many=True),),
     output=Output("records/record", collection=True,
-                  doc="The records in the new order, of their kind, the first `limit` of them."),
+                  doc="The records in the new order, of their kind, the first `limit` of them, each with its "
+                      "place in `as`; the header's `order_by` names that field."),
     params=(
         P("by", "list[expression]",
           "The keys to order by, compared in turn; a leading `-` reverses one."),
         P("limit", "int", "Keep only the first so many.", None),
+        P("as", "string", "The field each record's place, from 1, is written into.", "rank"),
     ),
     example={"by": ["-effect"], "limit": 10},
     example_inputs={"records": {"$ref": {"bench": "you/lab/results/j_1/effects"}}},
@@ -69,8 +77,10 @@ def sort_records(records: Any, params: Mapping[str, Any], run_params: Mapping[st
     limit = params.get("limit")
     if limit is not None:
         order = order[: int(limit)]
+    place = str(params.get("as") or "rank")
     kind = K.item_kind_of(records) if isinstance(records, Mapping) else None
-    return K.collection(kind if kind in K.BY_KIND else "records/record", [items[j] for j in order])
+    ranked = [set_field(dict(items[j]), place, i + 1) for i, j in enumerate(order)]
+    return K.collection(kind if kind in K.BY_KIND else "records/record", ranked, order_by=[place])
 
 
 def _read_key(value: Any) -> Any:

@@ -6,6 +6,7 @@ from typing import Any
 from mechbench_compute.blocks.raise_expr_error import raise_expr_error
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.blocks.read_order_by import read_order_by
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
@@ -21,7 +22,8 @@ the header's `unknown` counts the ones dropped for being unknown, so a
 condition that silently read nothing shows itself.
 
 A condition that is not a boolean (a number, a string) is an error, not a
-guess: write `theme == 1`, not `theme`.
+guess: write `theme == 1`, not `theme`. The kept records keep their
+order: an `order_by` on the input (a sort's) is kept.
 """,
     inputs=(In("records", "collection | records/table",
                "The records to keep some of: any collection, or a table's rows.",
@@ -55,5 +57,5 @@ def filter_records(records: Any, params: Mapping[str, Any], run_params: Mapping[
     kind = K.item_kind_of(records) if isinstance(records, Mapping) else None
     return K.collection(
         kind if kind in K.BY_KIND else "records/record", kept,
-        dropped=len(items) - len(kept), unknown=got.unknown,
+        dropped=len(items) - len(kept), unknown=got.unknown, order_by=read_order_by(records),
         **({"undefined": got.undefined} if got.undefined else {}))
