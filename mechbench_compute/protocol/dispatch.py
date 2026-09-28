@@ -37,8 +37,15 @@ class Dispatch:
                 run_params=state.bound_params,
                 result_base=state.result_base,
                 resume_items=resume_kwargs.get("resume_items"),
-                resume_state=resume_kwargs.get("resume_state"))
+                resume_state=resume_kwargs.get("resume_state"),
+                on_token=self._node_on_token(nid))
         raise ValueError(f"unknown block: {block!r}")
+
+    def _node_on_token(self, nid):
+        sink = getattr(self, "_on_token", None)
+        if sink is None:
+            return None
+        return lambda key, event: sink(nid, key, event)
 
     def _run_op(self, block, inputs, params, **lent):
         mod = ops.find(block)

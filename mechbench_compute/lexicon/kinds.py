@@ -6,6 +6,7 @@ from typing import Any
 
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind, Metric, P
 from mechbench_compute.lexicon.order import canonical_collection
+from mechbench_compute.lexicon.platform import PLATFORM
 from mechbench_compute.lexicon.values import (  # noqa: F401
     COORDS,
     ID,
@@ -724,40 +725,6 @@ VERDICT = Kind(
         "(the entropy, the KL, the mass) beside the pass, and says why when it could not be judged at all.",
 )
 
-
-PLATFORM: tuple[Kind, ...] = (
-    Kind("sandbox/image", "A sandbox image: base, tools, limits, and the tree it starts from.", platform=True,
-         doc="What a sandboxed conversation starts from. Two sessions on the same image start from the same tree, "
-             "so their snapshots differ only by what the tools did."),
-    Kind("sandbox/snapshot", "A directory as a value: entries sorted by path, mounts by identity.", platform=True,
-         renderer={"primitive": "table", "field_map": {"rows": "entries"}},
-         doc="A filesystem tree as a stored object, so what a session's tools wrote is content-addressed like every "
-             "other result: the same tree from two runs is the same object."),
-    Kind("sandbox/call", "One tool call inside a sandbox session, with what it read and wrote.", platform=True,
-         doc="The record of one invocation: which tool, with what arguments, and the files it read and wrote."),
-    Kind("provider/cassette", "Recorded provider responses keyed by request hash, for replay.", platform=True,
-         doc="The replies a run received from hosted models, keyed by the hash of the request that got them, so a "
-             "re-run replays the same replies without calling the provider again."),
-    Kind("provider/call", "The provenance of one provider call: model version, usage, cost, latency.", platform=True,
-         doc="What one request to a hosted model cost and what served it — the version the provider reported, the "
-             "tokens in and out, the time taken."),
-    Kind("provider/completion", "One provider reply: text, parts, stop reason, usage, and its call.", platform=True,
-         doc="One reply as the provider returned it, with the call that produced it, before it became a document "
-             "or a transcript message."),
-    Kind("model/ref", "A model reference: a base and the adapters that are part of what it means.", platform=True,
-         doc="What a protocol's `model` parameter names and what every space's `model` records. The adapters a "
-             "reference carries are fused before anything else; an adapter arriving on a node's port is fused on "
-             "top, for that node only."),
-    Kind("model/pointer", "Where a published model lives, so a later reference can load it.", platform=True,
-         doc="What `adapter/merge` leaves behind: the location of a merged checkpoint, on the bench or on the hub, "
-             "usable as the base of a later model reference."),
-    Kind("run/ladder", "A ladder of rungs, as the older experiments recorded one.", platform=True,
-         doc="A sequence of training rungs recorded as one object, from before protocols were the unit of a "
-             "run; kept so those results still read."),
-    Kind("run/result", "A protocol run's result: every node's path, the manifest, the spend.", platform=True,
-         doc="Written by the executor when a run completes: the stored object of every node, keyed by node id, "
-             "with the manifest that fingerprints the run and what it spent."),
-)
 
 COLLECTION_KIND = Kind(
     COLLECTION,

@@ -28,10 +28,13 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     from mechbench_compute.distill import encode, prefill_decision
     from mechbench_compute.generate import sample_completion_cached
     from mechbench_compute.seeds import item_seed
+    from mechbench_compute.token_readout import TokenReadout, streaming
 
     max_tool_rounds = int(params.get("max_tool_rounds", 3))
     image, tool_specs = resolve_sandbox_tools(params)
     block_runner = params.get("_block_runner")
+    stream = params.get("_on_token")
+    project = (inputs or {}).get("project")
     tok = model.tokenizer
     dialect = (dialects.dialect_for(tok, model=str(getattr(ref, "base", ref)))
                if tool_specs else None)
@@ -93,10 +96,14 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                         live = plan.live(cell, prompt_tokens, rec)
                     else:
                         prefill, live = prefill_decision(model, ids), None
+                    readout = TokenReadout(model, project) if project is not None else None
+                    pieces: list[str] = []
                     text, out_ids = sample_completion_cached(
                         model, ids, max_tokens=max_tokens, temperature=temperature,
                         top_p=top_p, rng=rng, prefill=prefill, return_ids=True,
                         stop_strings=stop_strings,
+                        **streaming(stream and (lambda e, key=key, r=round_no: stream(key, {**e, "round": r})),
+                                    readout, pieces),
                         **({"interventions": live} if plan else {}))
                     ended = read_local_ending(tok, out_ids, stop_strings=stop_strings,
                                               max_tokens=max_tokens)
@@ -148,6 +155,8 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                                   cell=cell if plan else None)
                 if thoughts and not text:
                     item["metadata"]["empty"] = describe_reasoning_only(model_name, max_tokens)
+                if readout is not None:
+                    item["projection"] = readout.record(pieces)
                 items.append(item)
                 if on_item:
                     on_item(key, item)

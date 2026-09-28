@@ -152,6 +152,11 @@ name.
            required=False),
         In("direction", "direction/vector",
            "A direction that fills any spec item without one.", required=False),
+        In("project", "direction/vector",
+           "A direction to read each generated token against, on local weights: the "
+           "token's residual at the direction's layer and point, projected onto it, "
+           "stored on the reply as `projection` (its tokens beside their coordinates) "
+           "and streamed as the reply is written.", required=False),
         In("source", "activations/vector | intervene/readout",
            "A collection of `activations/vector` — a capture, intervened or "
            "not — that fills any `mean`/`resample`/`patch` item without one. "
@@ -450,6 +455,8 @@ def run(ctx, inputs, params):
         if memo:
             out = ctx.executor._close_memo(memo, out)
         return out
+    if inputs.get("project") is not None and ref.is_endpoint:
+        raise ValueError("text/chat: `project` reads the forward pass, which a remote model does not share")
     return ctx.executor._run_model_block(
-        ctx.executor._block_chat_local, inputs, {**params, "model": ref},
+        ctx.executor._block_chat_local, inputs, {**params, "model": ref, "_on_token": ctx.on_token},
         on_item=ctx.on_item, on_start=ctx.on_start, resume_items=ctx.resume_items)

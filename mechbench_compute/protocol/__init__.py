@@ -27,7 +27,7 @@ class ProtocolExecutor(Chat, Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline
     def __init__(self, on_download=None, on_download_bytes=None, *,
                  on_node_start=None, on_spool_item=None,
                  on_checkpoint=None, on_node_done=None, on_node_kept=None,
-                 limiter=None, budget=None) -> None:
+                 limiter=None, budget=None, on_token=None) -> None:
         self._model: Model | None = None
         self._model_id: str | None = None
         self._on_download = on_download
@@ -39,6 +39,7 @@ class ProtocolExecutor(Chat, Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline
         self._on_node_kept = on_node_kept
         self._limiter = limiter
         self._budget = budget
+        self._on_token = on_token
 
     def run(self, spec: ProtocolSpec, on_progress=None,
             secrets=None, resume=None, budget=None) -> Any:
@@ -51,7 +52,26 @@ class ProtocolExecutor(Chat, Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline
                 self._budget = budget
             return self._run_pipeline(spec, on_progress, secrets=secrets,
                                       resume=resume)
+        if spec.kind == "replay":
+            if budget is not None:
+                self._budget = budget
+            return self._run_replay(spec, on_progress, secrets=secrets)
         raise ValueError(f"unsupported protocolKind: {spec.kind!r}")
+
+
+    def _run_replay(self, spec: ProtocolSpec, on_progress=None, secrets=None) -> Any:
+        from mechbench_compute.live.replay import replay
+
+        extra = spec.extra
+        events = list(extra.get("events") or [])
+
+        def step_done(i, _step):
+            if on_progress is not None:
+                on_progress(i + 1, len(events))
+
+        return replay(self, graph=extra["graph"], params=extra.get("params") or {},
+                      outputs=extra["outputs"], events=events, state=extra["state"],
+                      secrets=secrets, on_step=step_done)
 
 
 def canonical_json(payload: Any) -> str:

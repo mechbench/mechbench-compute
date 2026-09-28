@@ -81,6 +81,11 @@ seed it reproduces the un-intervened sample byte for byte.
            "Where the node also has an inline `spec` or `intervention` "
            "param, the param wins when both are given.",
            required=False),
+        In("project", "direction/vector",
+           "A direction to read each generated token against: the token's residual "
+           "at the direction's layer and point, projected onto it, stored on the item "
+           "as `projection` (its tokens beside their coordinates) and streamed as the "
+           "text is written.", required=False),
         In("direction", "direction/vector",
            "A direction that fills any spec item without one.", required=False),
         In("source", "activations/vector | intervene/readout",
@@ -240,8 +245,10 @@ def run(ctx, inputs, params):
     from mechbench_compute.distill import prefill_decision, render
     from mechbench_compute.generate import sample_completion_cached
     from mechbench_compute.seeds import item_seed
+    from mechbench_compute.token_readout import TokenReadout, streaming
 
     model = ctx.model(params.get("model"))
+    project = inputs.get("project")
     tok = model.tokenizer
     records = lexicon.items_of(inputs.get("records") or [])
     if not records:
@@ -289,11 +296,15 @@ def run(ctx, inputs, params):
                             ctx.on_item(key, ctx.resume_items[key], True)
                         continue
                     rng = _np.random.default_rng(item_seed(seed, rec["id"], k))
+                    readout = TokenReadout(model, project) if project is not None else None
+                    pieces: list[str] = []
                     text, out_ids = sample_completion_cached(
                         model, ids, max_tokens=max_tokens,
                         temperature=temperature, top_p=top_p, rng=rng,
                         prefill=prefill, return_ids=True,
                         stop_strings=stop_strings,
+                        **streaming(ctx.on_token and (lambda e, key=key: ctx.on_token(key, e)),
+                                    readout, pieces),
                         **({"interventions": plan.live(cell, prompt_tokens, rec)} if plan else {}))
                     ended = read_local_ending(tok, out_ids, stop_strings=stop_strings,
                                               max_tokens=max_tokens)
@@ -356,6 +367,8 @@ def run(ctx, inputs, params):
                             full_ids, start=len(ids), pair=THINK.delimiter_ids(tok))
                         if reasoning is not None:
                             item["segmentations"].append(reasoning)
+                    if readout is not None:
+                        item["projection"] = readout.record(pieces)
                     items.append(item)
                     if ctx.on_item:
                         ctx.on_item(key, item)

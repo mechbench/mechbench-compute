@@ -167,7 +167,8 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
                              temperature=0.9, top_p=0.95, rng=None,
                              prefill=None, return_ids=False,
                              stop_strings: Sequence[str] = (),
-                             interventions=None):
+                             interventions=None, on_token=None, readout=None,
+                             pieces_out: list[str] | None = None):
     import numpy as _np
 
     from .distill import _copy_prefix_cache
@@ -187,7 +188,9 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
     lm = model.lm
     out_ids: list[int] = []
     hit_stop = False
-    for _ in range(int(max_tokens)):
+    tracking = on_token is not None or pieces_out is not None
+    said = ""
+    for index in range(int(max_tokens)):
         next_id = _sample_next(row, temperature=temperature,
                                top_p=top_p, rng=rng)
         if next_id in stop:
@@ -198,19 +201,32 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
             if any(s in tail for s in stops):
                 hit_stop = True
                 break
-        if ivs:
+        piece = None
+        if tracking:
+            now = model.tokenizer.decode(out_ids)
+            piece, said = now[len(said):], now
+            if pieces_out is not None:
+                pieces_out.append(piece)
+        coord = None
+        if ivs or readout is not None:
             grew = model.tokenizer.decode([int(next_id)])
             for iv in ivs:
-                on_token = getattr(iv, "on_token", None)
-                if on_token is not None:
-                    on_token(grew)
-            res = model.run(mx.array([[int(next_id)]]), interventions=ivs,
-                            kv_cache=cache)
+                grow = getattr(iv, "on_token", None)
+                if grow is not None:
+                    grow(grew)
+            res = model.run(mx.array([[int(next_id)]]), interventions=ivs or None,
+                            kv_cache=cache,
+                            capture=[readout.hook] if readout is not None else None)
             row = res.logits[0, -1, :].astype(mx.float32)
+            if readout is not None:
+                coord = readout.read(res.cache)
         else:
             o = lm(mx.array([[int(next_id)]]), cache=cache)
             row = (o.logits if hasattr(o, "logits")
                    else o)[0, -1, :].astype(mx.float32)
+        if on_token is not None:
+            on_token({"index": index, "id": int(next_id), "text": piece,
+                      **({"coord": coord} if coord is not None else {})})
     text = model.tokenizer.decode(out_ids)
     if hit_stop:
         text = cut_at_stop(text, stops)
