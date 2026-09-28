@@ -13,6 +13,24 @@ nothing said so.
 
 ---
 
+## 0.162.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._ New, for live runs (epic 000699): `text/chat` and `text/generate`
+take a `project` direction, and each reply stores `projection` (its
+tokens beside their per-token coordinates on the direction); the decode
+loop streams each token through the executor's `on_token` hook.
+`live.run_step` runs a handler once for an event; a `replay` run kind
+folds a handler over recorded events, applying `param` events between
+steps, and returns a `run/replay`. Platform kinds now live one per file
+under `lexicon/platform/`. A reply without `project` is unchanged, and
+the decode loop is called exactly as before when nothing streams.
+
 ## 0.161.0 — 2026-09-28
 
 ### Changes that raise

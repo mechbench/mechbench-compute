@@ -11,6 +11,7 @@ STATE = "state"
 
 def run_step(executor: Any, *, graph: Mapping[str, Any], params: Mapping[str, Any],
              outputs: Sequence[Mapping[str, Any]], event: Mapping[str, Any], state: Any,
+             inputs: Mapping[str, Any] | None = None,
              secrets: Mapping[str, Any] | None = None,
              on_token: Callable[..., None] | None = None) -> dict[str, Any]:
     from mechbench_compute import dataflow as dataflow_mod
@@ -29,7 +30,7 @@ def run_step(executor: Any, *, graph: Mapping[str, Any], params: Mapping[str, An
             kind="pipeline", prompt="", model_id=None,
             extra={"graph": {**graph, "dataflow": dataflow_mod.DATAFLOW},
                    "params": dict(params),
-                   "inputs": {EVENT: [dict(event)], STATE: state},
+                   "inputs": {**dict(inputs or {}), EVENT: [dict(event)], STATE: state},
                    "outputs": [dict(o) for o in outputs],
                    "keep": "all"}),
             secrets=secrets)

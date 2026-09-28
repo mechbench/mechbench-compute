@@ -78,3 +78,18 @@ def test_a_replay_is_a_run_kind_the_runner_can_claim():
             "state": K.collection("records/record", [])}),
         on_progress=lambda done, total: progress.append((done, total)))
     assert out["kind"] == "run/replay" and progress == [(1, 1)]
+
+
+def test_a_step_is_given_the_live_runs_other_inputs_beside_its_event_and_state():
+    graph = {
+        "nodes": [{"id": "said", "block": "records/union", "params": {}, "inputs": {}}],
+        "edges": [
+            {"from": {"input": "state"}, "to": {"node": "said", "port": "before"}},
+            {"from": {"input": "event"}, "to": {"node": "said", "port": "now"}},
+            {"from": {"input": "notes"}, "to": {"node": "said", "port": "notes"}},
+        ],
+    }
+    got = run_step(ProtocolExecutor(), graph=graph, params={}, outputs=OUTPUTS,
+                   event={"id": "e1", "type": "message", "text": "hi"}, state=K.collection("records/record", []),
+                   inputs={"notes": [{"id": "n1", "text": "a note"}]})
+    assert sorted(it.get("text") for it in K.items_of(got["state"])) == ["a note", "hi"]

@@ -71,6 +71,7 @@ class ProtocolExecutor(Chat, Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline
 
         return replay(self, graph=extra["graph"], params=extra.get("params") or {},
                       outputs=extra["outputs"], events=events, state=extra["state"],
+                      inputs=extra.get("inputs"),
                       secrets=secrets, on_step=step_done)
 
 
