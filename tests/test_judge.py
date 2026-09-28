@@ -162,9 +162,9 @@ class TestTheBlock:
 
         out = judged('{"score": 3}')
         stats = ops.run_standalone(
-            "records/summarize", {"records": out}, {"by": ["arm"], "value": "score"})
-        assert stats["kind"] == "records/table"
-        assert {r["arm"] for r in stats["rows"]} == {"base", "tuned"}
+            "records/group", {"records": out}, {"by": {"arm": "coords.arm"}, "aggregates": {"mean": "mean(score)"}})
+        assert stats["kind"] == "collection"
+        assert {r["arm"] for r in stats["items"]} == {"base", "tuned"}
 
     def test_an_unreadable_judge_does_not_become_a_score(self):
         out = judged("I would rather not say.")

@@ -35,7 +35,7 @@ class TestPortArity:
     def test_the_declaration_travels_to_the_docs(self):
         d = BY_NAME["records/zip"].port("branches").to_dict()
         assert d["variadic"] is True and d["min_edges"] == 2
-        assert BY_NAME["records/select"].port("records").to_dict()["variadic"] is False
+        assert BY_NAME["records/filter"].port("records").to_dict()["variadic"] is False
 
 
 class TestEdgeOrder:
@@ -69,7 +69,7 @@ class TestTwoEdgesIntoOnePort:
             "graph": {"dataflow": 2, "nodes": [
                 {"id": "one", "block": "records/cross", "params": dict(CROSS)},
                 {"id": "two", "block": "records/cross", "params": dict(CROSS)},
-                {"id": "pick", "block": "records/select", "params": {}},
+                {"id": "pick", "block": "records/filter", "params": {"where": "True"}},
             ], "edges": [
                 {"from": {"node": "one", "port": "records"},
                  "to": {"node": "pick", "port": port}, "kind": "records"},
@@ -164,10 +164,10 @@ class TestZipInAGraph:
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
             "graph": {"dataflow": 2, "nodes": [
                 {"id": "design", "block": "records/cross", "params": dict(CROSS)},
-                {"id": "left", "block": "records/fill",
-                 "params": {"templates": {"user": "left {x}"}}},
-                {"id": "right", "block": "records/fill",
-                 "params": {"templates": {"user": "right {x}"}}},
+                {"id": "left", "block": "records/derive",
+                 "params": {"templates": {"user": "left {values.x}"}}},
+                {"id": "right", "block": "records/derive",
+                 "params": {"templates": {"user": "right {values.x}"}}},
                 {"id": "pairs", "block": "records/zip",
                  "params": {"names": ["left", "right"]}},
             ], "edges": [

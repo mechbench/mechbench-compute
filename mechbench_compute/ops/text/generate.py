@@ -63,7 +63,7 @@ and then each decoding step, with the same KV cache. So "add the direction
 at layer 14 and read what the model then writes" is this node with one
 item, and a `sweep` over strengths is the same node producing one set of
 samples per factor, `factor` a coordinate on every item, which
-`text/measure`, `eval/judge` and `records/summarize` group by unchanged.
+`text/measure`, `eval/judge` and `records/group` group by unchanged.
 Factor `0` (the `control`, on by default) is plain sampling: under the same
 seed it reproduces the un-intervened sample byte for byte.
 """,

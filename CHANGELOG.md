@@ -13,6 +13,33 @@ nothing said so.
 
 ---
 
+## 0.156.0 — 2026-09-28
+
+### Changes that raise
+
+- Thirteen records operations are removed, with no alias period:
+  `records/select`, `rename`, `count`, `summarize`, `contrast`,
+  `subtract`, `fill`, `correlate`, `total`, `relabel`, `lookup`, `rank`
+  and `bin`. A protocol that names one (or an older spelling of one) is
+  refused before it runs, and the refusal says what to write instead:
+  `records/count` → `records/group` with `wilson(cond)`, and so on
+  (`lexicon.REPLACED`). Every stored protocol on the platform that used
+  them was migrated to a new version first, each proved against its last
+  run's stored inputs (task 000710; the experiments' RERUN files).
+- The kinds `records/histogram` and `records/sum` are removed: only
+  `bin` and `total` made them.
+- `records/group`'s named methods refuse a `level` outside (0, 1), as the
+  retired operations' `interval` did.
+
+### Changes that alter results without raising
+
+- `eval/judge` counts a field that is `None` as missing, as it counted
+  one that was absent or blank; it read `None` as the text "None". A
+  pairwise record whose side is null is now unjudged (or refused under
+  `on_missing: error`) rather than scored.
+- The reduce algebra declares `records/derive`, `filter` and `join` as
+  collect and `records/group` and `sort` as ordered (never chunked).
+
 ## 0.155.0 — 2026-09-28
 
 ### Changes that raise

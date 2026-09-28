@@ -16,5 +16,4 @@ def arch_header(arch: Any) -> dict[str, Any]:
 
 from mechbench_compute.blocks.expand_cells import expand_cells  # noqa: F401
 from mechbench_compute.blocks.expand_grid import expand_grid  # noqa: F401
-from mechbench_compute.blocks.read_group_key import read_group_key  # noqa: F401
 from mechbench_compute.blocks.read_items import read_items  # noqa: F401

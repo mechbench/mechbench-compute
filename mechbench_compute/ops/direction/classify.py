@@ -30,7 +30,7 @@ Run at every layer, the accuracies are a curve: WHERE a distinction
 becomes linearly decodable, which is the standard probing result and the
 thing one difference of centroids cannot produce. Plot it with
 `records/plot x: "layer", y: "accuracy_test"`, or find the layer with
-`records/rank value: "accuracy_test", k: 1`.
+`records/sort by: ["-accuracy_test"], limit: 1`.
 
 Two labels give one direction per space, pointing from the negative label
 towards the positive. More give one per label, each against the rest

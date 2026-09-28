@@ -18,7 +18,7 @@ Each named task is evaluated by the harness with the bound model wrapped as
 its backend, so anything the platform knows how to load — a pinned
 revision, a stacked adapter, a merged checkpoint — is what gets measured.
 Every (task, metric) the harness reports becomes one row, stamped with
-`variant`, ready for `records/union` and `records/subtract` against another run.
+`variant`, ready for `records/union` and a `records/join` against another run.
 
 The harness version is recorded on the table: prompt templates change
 between its releases, so the version is part of the measurement.

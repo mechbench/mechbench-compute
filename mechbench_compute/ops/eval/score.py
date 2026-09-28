@@ -14,7 +14,7 @@ OP = Op(
 The named metric is loaded from the hub and computed over every record's
 `prediction` against its `reference`. Each numeric value the metric
 returns becomes one row, stamped with `variant` so that a base run and an
-adapter run union into one table for `records/subtract`. The metric library's
+adapter run union into one table to `records/join` against a baseline. The metric library's
 version is recorded on the table, because metric definitions change across
 releases.
 """,

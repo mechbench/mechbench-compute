@@ -39,6 +39,10 @@ def aggregate_values(
     if unknown:
         raise ValueError(f"records/group: {name}: {function} takes no {', '.join(unknown)}: `{call['canonical']}`")
     settings.update(call["named"])
+    level = settings.get("level")
+    if level is not None and (isinstance(level, bool) or not isinstance(level, (int, float)) or not 0 < level < 1):
+        raise ValueError(f"records/group: {name}: {function}'s level must be between 0 and 1 exclusive, "
+                         f"not {level!r}: `{call['canonical']}`")
     rng = np.random.default_rng(int(settings["seed"])) if function == "paired_difference" else None
     skipped = 0
     out: dict[str, Any] = {}

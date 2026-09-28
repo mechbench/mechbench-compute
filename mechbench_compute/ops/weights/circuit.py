@@ -42,8 +42,8 @@ influence, not a demonstration of it, and `intervene/path` is what
 demonstrates. The scale is set by chance: read the scores against their own
 median, not against zero.
 
-Every row is an ordinary record, so `records/rank value: "strength"` finds
-the strongest components and `records/select where: {"kind": "q"}` the
+Every row is an ordinary record, so `records/sort by: ["-strength"]` finds
+the strongest components and `records/filter where: kind == "q"` the
 query-side composers.
 """,
     inputs=(In("adapter", "adapter/lora",

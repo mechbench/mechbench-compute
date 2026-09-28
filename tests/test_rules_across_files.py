@@ -19,9 +19,9 @@ from mechbench_compute.providers import openai_responses
 
 
 def test_an_operation_file_imported_first_still_registers_its_operation():
-    code = ("import mechbench_compute.ops.records.select\n"
+    code = ("import mechbench_compute.ops.records.filter\n"
             "from mechbench_compute import lexicon\n"
-            "assert 'records/select' in lexicon.BY_NAME\n")
+            "assert 'records/filter' in lexicon.BY_NAME\n")
     run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert run.returncode == 0, run.stderr
 

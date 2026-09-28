@@ -9,6 +9,8 @@ import pytest
 from mechbench_compute.lexicon import (
     ALIASES_REMOVED_IN,
     BY_NAME,
+    REPLACED,
+    REPLACED_IN,
     RETIRED,
     ROOT,
     canonical_path,
@@ -35,20 +37,36 @@ class TestResolve:
 
     @pytest.mark.parametrize("old,new", sorted(RETIRED.items()))
     def test_a_retired_name_is_refused_and_names_its_replacement(self, old, new):
-        assert new in BY_NAME, f"{new!r} is not an op"
         assert old not in BY_NAME, f"{old!r} is still an op name"
+        replaced = new in REPLACED
+        assert new in BY_NAME or replaced, f"{new!r} is neither an op nor a replaced one"
         for spelling in (old, f"{ROOT}{old}", f"{ROOT}{old}/1", f"{old}/1"):
             with pytest.raises(KeyError):
                 resolve(spelling)
             assert not is_canonical(spelling)
             msg = explain_unknown(spelling)
-            assert new in msg and ALIASES_REMOVED_IN in msg
+            if replaced:
+                assert REPLACED[new] in msg and REPLACED_IN in msg
+            else:
+                assert new in msg and ALIASES_REMOVED_IN in msg
+
+    @pytest.mark.parametrize("old", sorted(REPLACED))
+    def test_a_replaced_op_says_what_to_write_instead(self, old):
+        assert old not in BY_NAME
+        msg = explain_unknown(old)
+        assert REPLACED_IN in msg and REPLACED[old] in msg
+        named = [w for w in ("records/filter", "records/derive", "records/group", "records/sort",
+                             "records/join") if w in REPLACED[old]]
+        assert named and all(w in BY_NAME for w in named)
+
+    def test_count_points_at_group(self):
+        assert "records/group" in explain_unknown("records/count")
 
     def test_the_version_segment_is_refused_on_a_current_name_too(self):
-        for spelling in ("records/select/1", f"{ROOT}records/select/1"):
+        for spelling in ("records/filter/1", f"{ROOT}records/filter/1"):
             with pytest.raises(KeyError):
                 resolve(spelling)
-            assert "records/select" in explain_unknown(spelling)
+            assert "records/filter" in explain_unknown(spelling)
 
     def test_warn_false_is_still_accepted_and_still_resolves(self):
         with warnings.catch_warnings():
@@ -62,7 +80,7 @@ class TestResolve:
                 resolve(s)
             assert not is_canonical(s)
             assert s in explain_unknown(s) or explain_unknown(s)
-        assert is_canonical("records/select")
+        assert is_canonical("records/filter")
         assert "docs.mechbench.ai" in explain_unknown("records/selekt")
 
 
@@ -117,8 +135,9 @@ class TestTheLookupsAroundIt:
 
     def test_reduce_algebra_falls_through(self):
         from mechbench_compute.reduce import algebra
-        assert algebra("records/summarize") == "monoid"
-        assert algebra("group-stats") != "monoid"
+        assert algebra("records/group") == "ordered"
+        assert algebra("records/derive") == "collect"
+        assert algebra("group-stats") == "collect"
 
     def test_check_params_refuses_a_retired_block_by_name(self):
         from mechbench_compute.block_params import check_params

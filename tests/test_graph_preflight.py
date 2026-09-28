@@ -40,8 +40,14 @@ class TestPreflight:
         msg = str(e.value)
         assert "n1" in msg
         assert "records/stats" in msg
-        assert "records/summarize" in msg
-        assert "0.82.0" in msg
+        assert "records/group" in msg
+        assert "0.156.0" in msg
+
+    def test_a_renamed_spelling_names_its_current_op(self):
+        with pytest.raises(ValueError) as e:
+            ProtocolExecutor().run(_spec("records/cross", "records/table"))
+        msg = str(e.value)
+        assert "records/tabulate" in msg and "0.82.0" in msg
 
     def test_every_bad_node_is_reported_not_just_the_first(self):
         with pytest.raises(ValueError) as e:
@@ -49,7 +55,7 @@ class TestPreflight:
                 _spec("records/cross", "records/stats", "records/table"))
         msg = str(e.value)
         assert "2 problems found before anything ran" in msg
-        assert "records/summarize" in msg and "records/tabulate" in msg
+        assert "records/group" in msg and "records/tabulate" in msg
 
     def test_a_node_with_no_block_is_named_too(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
@@ -58,7 +64,7 @@ class TestPreflight:
             ProtocolExecutor().run(spec)
 
     def test_a_good_graph_is_untouched(self):
-        out = ProtocolExecutor().run(_spec("records/cross", "records/select"))
+        out = ProtocolExecutor().run(_spec("records/cross", "records/tabulate"))
         assert out.payload["nodes_executed"] == ["n0", "n1"]
 
 
@@ -97,14 +103,14 @@ class TestParamsAndPorts:
             ProtocolExecutor().run(spec)
         msg = str(e.value)
         assert "2 problems" in msg
-        assert "records/summarize" in msg
+        assert "records/group" in msg
         assert "facters" in msg
 
     def test_an_edge_onto_a_port_that_does_not_exist(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
             "graph": {"dataflow": 2, "nodes": [
                 {"id": "design", "block": "records/cross", "params": dict(CROSS)},
-                {"id": "pick", "block": "records/select", "params": {}},
+                {"id": "pick", "block": "records/filter", "params": {"where": "True"}},
             ], "edges": [{"from": {"node": "design", "port": "records"},
                           "to": {"node": "pick", "port": "recrods"},
                           "kind": "records"}]}})
@@ -114,7 +120,7 @@ class TestParamsAndPorts:
     def test_a_required_port_with_nothing_on_it(self):
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={
             "graph": {"dataflow": 2, "nodes": [
-                {"id": "pick", "block": "records/select", "params": {}},
+                {"id": "pick", "block": "records/filter", "params": {"where": "True"}},
             ], "edges": []}})
         with pytest.raises(ValueError, match="needs an input on its 'records' port"):
             ProtocolExecutor().run(spec)
@@ -124,8 +130,8 @@ class TestParamsAndPorts:
             kind="pipeline", prompt="", model_id=None, extra={
                 "graph": {"dataflow": 2, "nodes": [
                     {"id": "design", "block": "records/cross", "params": dict(CROSS)},
-                    {"id": "pick", "block": "records/select",
-                     "params": {"where": {"x": "a"}}},
+                    {"id": "pick", "block": "records/filter",
+                     "params": {"where": 'coords.x == "a"'}},
                 ], "edges": [{"from": {"node": "design", "port": "records"},
                               "to": {"node": "pick", "port": "records"},
                               "kind": "records"}]}}))

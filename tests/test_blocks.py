@@ -2,7 +2,6 @@ import pytest
 
 from mechbench_compute.ops.eval.expect import check_expectations
 from mechbench_compute.ops.records.cross import cross_factors
-from mechbench_compute.ops.records.fill import fill_templates
 
 WORDS = ["alpha", "bravo", "charlie", "delta", "echo"]
 
@@ -56,18 +55,16 @@ def test_generators_stamp_a_kind_coordinate():
     assert all(r["coords"]["seed_kind"] == "noise-8" for r in recs)
 
 
-def test_template_substitutes_to_fixpoint():
+def test_template_reads_the_designs_values():
+    from mechbench_compute.ops.records.derive import derive
+
     recs = cross_factors({"factors": [
         {"name": "gender", "levels": [{"key": "m", "value": "his"}]},
-        {"name": "opening", "levels": [
-            {"key": "elaborate", "value": "Marcus adjusted {gender} coat."},
-        ]},
+        {"name": "opening", "levels": [{"key": "plain", "value": "Marcus adjusted the coat."}]},
     ]})
-    out = fill_templates(recs, {"templates": {
-        "user": "Continue: {opening}",
-        "system": "No placeholders here.",
-    }})
-    assert out[0]["user"] == "Continue: Marcus adjusted his coat."
+    out = derive(recs, {"templates": {"user": "Continue: {values.opening}", "system": "No placeholders here."},
+                        "keep": ["coords", "user", "system"]}, {})["items"]
+    assert out[0]["user"] == "Continue: Marcus adjusted the coat."
     assert out[0]["system"] == "No placeholders here."
     assert out[0]["coords"]["gender"] == "m"
 
@@ -150,39 +147,15 @@ def test_suite_metric_records_shapes_lm_eval_results():
     assert acc["value"] == 0.74 and acc["stderr"] == 0.02 and acc["n"] == 50
 
 
-class TestRename:
-    def test_moves_fields_and_keeps_the_rest(self):
-        from mechbench_compute.ops.records.rename import rename
-
-        out = rename([{"id": "a", "coords": {"g": "x"}, "question": "Q?", "gold": "42"}],
-                     {"fields": {"question": "user", "gold": "reference"}})
-        assert out == [{"id": "a", "coords": {"g": "x"}, "user": "Q?", "reference": "42"}]
-
-    def test_a_dotted_path_moves_into_and_out_of_a_nested_object(self):
-        from mechbench_compute.ops.records.rename import rename
+class TestMovingAField:
+    def test_derive_moves_fields_into_and_out_of_a_nested_object(self):
+        from mechbench_compute.ops.records.derive import derive
 
         doc = {"id": "s0", "text": "…", "hit": 1, "metadata": {"coords": {"prompt": "flash"}}}
-        out = rename([doc], {"fields": {"metadata.coords": "coords", "hit": "coords.hit"}})
-        assert out[0] == {"id": "s0", "text": "…", "metadata": {},
-                          "coords": {"prompt": "flash", "hit": 1}}
+        out = derive([doc], {"fields": {"coords": "metadata.coords", "coords.hit": "hit"},
+                             "drop": ["metadata.coords", "hit"]}, {})["items"]
+        assert out[0] == {"id": "s0", "text": "…", "metadata": {}, "coords": {"prompt": "flash", "hit": 1}}
         assert doc["hit"] == 1 and doc["metadata"]["coords"] == {"prompt": "flash"}
-
-    def test_a_missing_field_is_left_alone_and_an_empty_map_is_refused(self):
-        from mechbench_compute.ops.records.rename import rename
-
-        assert rename([{"id": "a"}], {"fields": {"nope": "user"}}) == [{"id": "a"}]
-        with pytest.raises(ValueError, match="fields"):
-            rename([{"id": "a"}], {})
-
-    def test_it_is_registered_and_reads_a_collection(self):
-        from mechbench_compute import ops
-        from mechbench_compute.lexicon import kinds as K
-
-        out = ops.run_standalone(
-            "records/rename",
-            {"records": K.collection("records/record", [{"id": "a", "q": 1}])},
-            {"fields": {"q": "user"}})
-        assert out["item_kind"] == "records/record" and out["items"] == [{"id": "a", "user": 1}]
 
 
 def test_every_records_block_reads_a_collection_on_its_port():
@@ -192,16 +165,14 @@ def test_every_records_block_reads_a_collection_on_its_port():
     design = K.collection("records/record", [
         {"id": "a", "coords": {"g": "x"}, "values": {"g": "noir"}, "v": 1.0},
     ])
-    out = ops.run_standalone("records/fill", {"records": design},
-                             {"templates": {"user": "a {g} story"}})
+    out = ops.run_standalone("records/derive", {"records": design},
+                             {"templates": {"user": "a {values.g} story"}, "keep": ["coords", "user"]})
     assert out["items"] == [{"id": "a", "coords": {"g": "x"}, "user": "a noir story"}]
-    for ref, params in (("records/select", {"where": {"g": "x"}}),
-                        ("records/rename", {"fields": {"v": "value"}}),
+    for ref, params in (("records/filter", {"where": 'coords.g == "x"'}),
+                        ("records/derive", {"fields": {"value": "v"}, "drop": ["v"]}),
                         ("records/tabulate", {}),
-                        ("records/total", {"value": "v"}),
-                        ("records/rank", {"value": "v", "k": 1}),
-                        ("records/bin", {"value": "v", "lo": 0, "hi": 2, "bins": 2}),
-                        ("records/summarize", {"value": "v", "by": ["g"]})):
+                        ("records/sort", {"by": ["-v"], "limit": 1}),
+                        ("records/group", {"by": {"g": "coords.g"}, "aggregates": {"n": "count()", "s": "sum(v)"}})):
         ops.run_standalone(ref, {"records": design}, params)
 
 
@@ -221,16 +192,19 @@ def test_table_from_records_flattens_coords_and_types_columns():
     assert table["rows"][1]["delta"] == -0.02
 
 
-def test_suite_records_flow_through_union_and_paired_delta():
+def test_suite_records_flow_through_union_and_a_baseline_join():
     from mechbench_compute.ops.eval.benchmark import build_metric_records
-    from mechbench_compute.ops.records.subtract import subtract_baseline
+    from mechbench_compute.ops.records.derive import derive
+    from mechbench_compute.ops.records.filter import filter_records
+    from mechbench_compute.ops.records.join import join_records
     from mechbench_compute.ops.records.union import union
     base = build_metric_records({"arc_easy": {"acc,none": 0.70}}, {}, "base")
     adapted = build_metric_records({"arc_easy": {"acc,none": 0.73}}, {}, "adapted")
     merged = union({"a_base": base, "b_adapted": adapted}, {})
-    deltas = subtract_baseline(merged, {"match_on": ["task", "metric"],
-                                    "baseline_where": {"variant": "base"},
-                                    "value": "value"})
+    baseline = filter_records(merged, {"where": 'coords.variant == "base"'}, {})
+    treated = filter_records(merged, {"where": 'coords.variant != "base"'}, {})
+    matched = join_records(treated, baseline, {"on": "[coords.task, coords.metric]", "as": "baseline"}, {})
+    deltas = derive(matched, {"fields": {"delta": "value - baseline.value"}}, {})["items"]
     assert len(deltas) == 1
     assert abs(deltas[0]["delta"] - 0.03) < 1e-9
 
@@ -303,8 +277,9 @@ class TestAFigureCarriesItsVocabulary:
                 "items": [{**r, "coords": {"layer": r["layer"]}} for r in self.ROWS],
                 "arch": self.ARCH}
         graph = {"dataflow": 2, "nodes": [
-            {"id": "by-layer", "block": "records/summarize",
-             "params": {"by": ["layer"], "value": "mean"}, "inputs": {"records": coll}},
+            {"id": "by-layer", "block": "records/group",
+             "params": {"by": {"layer": "coords.layer"}, "aggregates": {"mean": "mean(mean)"}},
+             "inputs": {"records": coll}},
             {"id": "figure", "block": "records/plot",
              "params": {"encoding": {"x": "layer", "y": "mean"}}},
         ], "edges": [{"from": {"node": "by-layer"}, "to": {"node": "figure", "port": "records"}}]}
@@ -356,7 +331,7 @@ class TestAFigureCarriesItsVocabulary:
         out = map_op.run(
             ops.Context(executor=Child()),
             {"records": K.collection("records/record", [{"id": "l0", "layer": 0}])},
-            {"body": {"nodes": [{"id": "separation", "block": "records/select"}], "edges": []},
+            {"body": {"nodes": [{"id": "separation", "block": "records/filter"}], "edges": []},
              "bind": {"layer": "layer"}},
         )
         assert out["arch"] == self.ARCH
@@ -393,37 +368,6 @@ def test_uniform_without_any_distribution_is_unjudgeable_not_false():
     row = table["items"][0]
     assert row["pass"] is None and "unjudgeable" in row["note"]
     assert table["summary"]["n_judged"] == 0 and table["summary"]["n_unjudgeable"] == 1
-
-
-JUDGED_ROWS = [
-    {"id": "a", "coords": {"arm": "x"}, "score": 4.0},
-    {"id": "b", "coords": {"arm": "x"}},
-    {"id": "c", "coords": {"arm": "y"}, "score": 2.0},
-]
-
-
-class TestGroupStatsMissingValues:
-    def test_a_missing_value_refuses_by_name_by_default(self):
-        import pytest
-
-        from mechbench_compute.ops.records.summarize import group_stats
-
-        with pytest.raises(ValueError, match="record 'b' has no 'score'"):
-            group_stats(JUDGED_ROWS, {"by": ["arm"], "value": "score"})
-
-    def test_skip_omits_them_and_reports_the_count(self):
-        from mechbench_compute.ops.records.summarize import group_stats
-
-        out = group_stats(JUDGED_ROWS, {"by": ["arm"], "value": "score",
-                                          "on_missing": "skip"})
-        assert out["n_missing"] == 1
-        assert {r["arm"]: r["n"] for r in out["rows"]} == {"x": 1, "y": 1}
-
-    def test_a_clean_table_says_nothing_about_missing(self):
-        from mechbench_compute.ops.records.summarize import group_stats
-
-        out = group_stats(JUDGED_ROWS[:1], {"by": ["arm"], "value": "score"})
-        assert "n_missing" not in out
 
 
 class TestAFigureIsReadAgainstALine:
@@ -465,21 +409,15 @@ class TestASummaryOverAGrid:
     ]}
 
     def test_one_row_per_position_with_the_best_cell_as_max(self):
-        from mechbench_compute.ops.records.summarize import group_stats
+        from mechbench_compute.ops.records.group import group_records
+        from mechbench_compute.ops.records.unnest import unnest
 
-        out = group_stats(self.TRACE, {"by": ["position"], "value": "share"})
-        by_pos = {r["position"]: r for r in out["rows"]}
+        cells = unnest(self.TRACE, {"field": "measures"})
+        out = group_records(cells, {"by": {"position": "coords.position"},
+                                    "aggregates": {"n": "count()", "max": "max(share)"}}, {})
+        by_pos = {r["position"]: r for r in out["items"]}
         assert by_pos[0]["max"] == 1.0 and by_pos[1]["max"] == 1.0
         assert by_pos[0]["n"] == 6
-
-    def test_the_monoid_reads_the_same_cells(self):
-        from mechbench_compute import reduce as rd
-        from mechbench_compute.ops.records.summarize import group_stats
-
-        params = {"by": ["country", "position"], "value": "share"}
-        flat = group_stats(self.TRACE, params)
-        chunked = rd.reduce_chunks("records/summarize", [[self.TRACE["items"][0]], [self.TRACE["items"][1]]], params)
-        assert chunked["rows"] == flat["rows"]
 
 
 A_CORPUS = {"kind": "document_collection", "items": [

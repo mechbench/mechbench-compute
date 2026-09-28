@@ -36,7 +36,7 @@ class TestWhatCountsAsRemote:
     def test_local_weights_are_not(self):
         assert not is_remote("text/chat", {"model": LOCAL})
         assert not is_remote("text/generate", {"model": ENDPOINT})
-        assert not is_remote("records/select", {})
+        assert not is_remote("records/filter", {})
 
 
 class TestBranchesRunTogether:

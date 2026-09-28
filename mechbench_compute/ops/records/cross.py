@@ -15,7 +15,7 @@ _FACTOR_FIELDS = (
     P("levels", "list[object]", "The enumerated levels.", None,
       fields=(
           P("key", "string", "The level's key: its coordinate value, and part of each record's id."),
-          P("value", "string", "The level's text, for `records/fill`; the key by default.", None),
+          P("value", "string", "The level's text, for a `records/derive` template; the key by default.", None),
           P("coords", _COORDS_TYPE, "Further coordinates the level stamps on its records.", None),
       )),
     P("sampled", "object | list[object]",
@@ -59,7 +59,7 @@ The output is one record per combination: `id` joins the level keys
 (`noir-seed-2`), `coords` maps each factor name to its level key (plus any
 `coords` the level or generator attached — generators stamp
 `<name>_kind`), and `values` maps each factor name to its level's text,
-ready for `records/fill`.
+ready for a `records/derive` whose templates read `values`.
 """
 
 

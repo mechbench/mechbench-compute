@@ -21,13 +21,13 @@ COUNTERS = {"kind": "collection", "item_kind": "records/record",
             "items": [{"id": "a", "n": 0, "coords": {"g": "x"}}, {"id": "b", "n": 10, "coords": {"g": "y"}}]}
 
 STEP_BODY = {"nodes": [
-    node("bump", "records/fill", {"templates": {"m": "{n}"}}),
+    node("bump", "records/derive", {"templates": {"m": "{n}"}}),
 ], "edges": [{"from": {"input": "state"}, "to": {"node": "bump", "port": "records"}}]}
 
 
 class TestTheFold:
     def test_the_state_threads_through_the_steps(self):
-        body = {"dataflow": 2, "nodes": [node("stamp", "records/fill", {"templates": {"stamp": {"$param": "step"}}})],
+        body = {"dataflow": 2, "nodes": [node("stamp", "records/derive", {"fields": {"stamp": "str(params.step)"}})],
                 "edges": [{"from": {"input": "state"}, "to": {"node": "stamp", "port": "records"}}]}
         out = _run({"dataflow": 2, "nodes": [
             node("f", "records/fold", {"body": body, "steps": 3}, {"state": COUNTERS})], "edges": []})["f"]
@@ -36,7 +36,7 @@ class TestTheFold:
         assert out["folded"] == {"steps": 3, "stopped": "steps", "body_nodes": ["stamp"]}
 
     def test_over_binds_per_step_and_cycles(self):
-        body = {"nodes": [node("who", "records/fill", {"templates": {"last": {"$param": "who"}}})],
+        body = {"nodes": [node("who", "records/derive", {"fields": {"last": "params.who"}})],
                 "edges": [{"from": {"input": "state"}, "to": {"node": "who", "port": "records"}}]}
         out = _run({"dataflow": 2, "nodes": [
             node("f", "records/fold", {"body": body, "over": [{"who": "ana"}, {"who": "bo"}], "steps": 3},
@@ -44,7 +44,7 @@ class TestTheFold:
         assert out["items"][0]["last"] == "ana"
 
     def test_until_stops_when_every_item_says_so(self):
-        body = {"nodes": [node("mark", "records/fill", {"templates": {"done": {"$param": "flag"}}})],
+        body = {"nodes": [node("mark", "records/derive", {"fields": {"done": "params.flag"}})],
                 "edges": [{"from": {"input": "state"}, "to": {"node": "mark", "port": "records"}}]}
         out = _run({"dataflow": 2, "nodes": [
             node("f", "records/fold", {"body": body, "steps": 5, "until": {"field": "done"},

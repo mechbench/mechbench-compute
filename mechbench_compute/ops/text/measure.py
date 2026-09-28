@@ -32,13 +32,13 @@ tallying: a rating the model wrote, a label it chose, a field of the JSON
 it produced — and a local model is the case that needs it, since
 `json_mode` is refused there and the reply is only ever text. The value
 lands under the name given, as a number when asked, so it can be bound
-into a `records/map`, grouped by `records/summarize` or plotted without a
+into a `records/map`, grouped by `records/group` or plotted without a
 rename. (A `list` measure of one thing could always read it; it wrote
 `<name>_first` and five columns of list statistics to do so.)
 
 In `annotate` mode the output is the records with those fields added —
-ready for `records/select`, `records/summarize` or `trajectory/capture`. To
-group on a measure downstream, `records/rename` it into `coords`. In
+ready for `records/filter`, `records/group` or `trajectory/capture`. To
+group on a measure downstream, `records/derive` it into `coords`. In
 `corpus` mode it is one summary record: per pattern a count and rate,
 corpus-wide word and distinct-word counts and duplication, and the mean of
 each frequency statistic; per list, the parsed, duplicate and valid rates,
@@ -61,7 +61,7 @@ that begins one way a hundred times has one opening.
 A `lexical` measure in `items` mode gives one record per distinct word —
 `item`, `count` (occurrences), `texts` (how many texts use it: its
 document frequency), and `share` (of all words) — so "97 of 100 stories
-say *last*" is a row, and `records/rank` on `texts` lists the words a
+say *last*" is a row, and `records/sort` on `-texts` lists the words a
 corpus converges on. A word is a run of letters, apostrophes and
 hyphens unless `word` says otherwise: a regular expression each match of
 which is one word, so `\\S+` counts whitespace-separated tokens and

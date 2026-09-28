@@ -5,15 +5,11 @@ import random
 import pytest
 
 from mechbench_compute.lexicon import kinds as K
-from mechbench_compute.ops.records.contrast import contrast
-from mechbench_compute.ops.records.correlate import correlate
-from mechbench_compute.ops.records.count import count
 from mechbench_compute.ops.records.derive import derive
 from mechbench_compute.ops.records.filter import filter_records
 from mechbench_compute.ops.records.group import group_records
 from mechbench_compute.ops.records.join import join_records
 from mechbench_compute.ops.records.sort import sort_records
-from mechbench_compute.ops.records.summarize import group_stats
 
 
 def _records() -> list[dict]:
@@ -32,10 +28,6 @@ def _records() -> list[dict]:
 
 def _collection(items: list[dict]) -> dict:
     return K.collection("records/record", items)
-
-
-def _by_genre(out: dict) -> dict:
-    return {r["coords"]["genre"]: r for r in out["items"]}
 
 
 class TestDerive:
@@ -111,14 +103,6 @@ class TestOrder:
         assert joined["order_by"] == ["rank"]
         assert [r["e"] for r in K.canonical_collection(joined)["items"]] == [11, 7, 3]
 
-    def test_the_older_rank_op_declares_its_order_too(self):
-        from mechbench_compute.ops.records.rank import run
-
-        out = run(None, {"records": _collection([{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 3}])},
-                  {"value": "v", "k": 2})
-        stored = K.canonical_collection(out)
-        assert [(r["id"], r["rank"]) for r in stored["items"]] == [("b", 1), ("c", 2)]
-
 
 class TestJoin:
     def test_inner_and_left(self):
@@ -186,58 +170,6 @@ class TestGroup:
         with pytest.raises(ValueError, match=match):
             group_records(_collection(_records()), {"aggregates": {"z": bad}}, {})
 
-    def test_wilson_matches_count(self):
-        recs = _records()
-        old = {r["genre"]: r for r in count(recs, {"field": "ok", "equals": True, "by": ["genre"],
-                                                  "interval": 0.9})["rows"]}
-        new = _by_genre(group_records(_collection(recs), {"by": {"coords.genre": "coords.genre"},
-                                                          "aggregates": {"w": "wilson(ok, level=0.9)"}}, {}))
-        for genre, row in old.items():
-            w = new[genre]["w"]
-            assert (w["k"], w["n"], round(w["rate"], 4), round(w["lo"], 4), round(w["hi"], 4)) == \
-                (row["k"], row["n"], row["rate"], row["lo"], row["hi"])
-
-    def test_bootstrap_mean_and_median_match_summarize(self):
-        recs = _records()
-        old = {r["genre"]: r for r in group_stats(recs, {"value": "p", "by": ["genre"], "interval": 0.95,
-                                                         "resamples": 500})["rows"]}
-        new = _by_genre(group_records(_collection(recs), {"by": {"coords.genre": "coords.genre"}, "aggregates": {
-            "b": "bootstrap_mean(p, resamples=500)", "med": "median(p)", "mn": "min(p)", "mx": "max(p)",
-            "neg": "share(p < 0)"}}, {}))
-        for genre, row in old.items():
-            g = new[genre]
-            assert (round(g["b"]["mean"], 4), round(g["b"]["lo"], 4), round(g["b"]["hi"], 4)) == \
-                (row["mean"], row["lo"], row["hi"])
-            assert (round(g["med"], 4), g["mn"], g["mx"], round(g["neg"], 3)) == \
-                (row["median"], row["min"], row["max"], row["share_negative"])
-
-    def test_spearman_matches_correlate(self):
-        recs = _records()
-        old = {r["genre"]: r for r in correlate(recs, {"x": "p", "y": "q", "by": ["genre"],
-                                                       "interval": 0.95})["rows"]}
-        new = _by_genre(group_records(_collection(recs), {"by": {"coords.genre": "coords.genre"},
-                                                          "aggregates": {"s": "spearman(p, q, level=0.95)"}}, {}))
-        for genre, row in old.items():
-            s = new[genre]["s"]
-            assert (s["n"], round(s["rho"], 4), round(s["lo"], 4), round(s["hi"], 4)) == \
-                (row["n"], row["rho"], row["lo"], row["hi"])
-
-    @pytest.mark.parametrize("paired", [None, "sample"])
-    def test_paired_difference_matches_contrast(self, paired):
-        recs = _records()
-        params = {"value": "p", "on": "prompt", "a": "flash", "b": "pro", "by": ["genre"], "resamples": 300,
-                  "seed": 3}
-        if paired:
-            params["paired"] = paired
-        old = {r["genre"]: r for r in contrast(recs, params)["rows"]}
-        pair = ", coords.sample" if paired else ""
-        new = _by_genre(group_records(_collection(recs), {"by": {"coords.genre": "coords.genre"}, "aggregates": {
-            "d": f'paired_difference(p, coords.prompt, "flash", "pro"{pair}, resamples=300, seed=3)'}}, {}))
-        for genre, row in old.items():
-            d = new[genre]["d"]
-            assert (d["n"], round(d["diff"], 4), round(d["lo"], 4), round(d["hi"], 4),
-                    round(d["share_positive"], 3)) == \
-                (row["n"], row["diff"], row["lo"], row["hi"], row["share_positive"])
 
 
 def _run(graph: dict, params: dict) -> dict:

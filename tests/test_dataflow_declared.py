@@ -214,7 +214,7 @@ TWO_NODES = {
     "nodes": [
         {"id": "grid", "block": "records/cross",
          "params": {"factors": [{"name": "x", "levels": [{"key": "1"}, {"key": "2"}]}]}},
-        {"id": "picked", "block": "records/select", "params": {"where": {"x": "1"}}},
+        {"id": "picked", "block": "records/filter", "params": {"where": 'coords.x == "1"'}},
     ],
     "edges": [{"from": {"node": "grid"}, "to": {"node": "picked", "port": "records"}}],
 }
@@ -317,7 +317,7 @@ def test_a_discard_mode_run_resumes_from_the_held_result_to_the_same_bytes(fake_
 def test_a_failed_discard_mode_run_stores_its_held_intermediates(fake_bench):
     failing = {**TWO_NODES,
                "nodes": [TWO_NODES["nodes"][0],
-                         {"id": "picked", "block": "records/select", "params": {"where": "not a mapping"}}]}
+                         {"id": "picked", "block": "records/filter", "params": {"where": "values.x + 1"}}]}
     with pytest.raises(Exception):
         _run({"graph": failing, "params": {}, "inputs": {}, "keep": "outputs",
               "outputs": [{"name": "kept", "from": {"node": "picked"}}],
@@ -332,8 +332,8 @@ def test_keep_takes_two_words(fake_bench):
 
 
 def test_a_map_over_plain_values_needs_no_corpus(fake_bench):
-    body = {"nodes": [{"id": "say", "block": "records/fill",
-                       "params": {"templates": {"note": "layer {layer}"}},
+    body = {"nodes": [{"id": "say", "block": "records/derive",
+                       "params": {"templates": {"note": "layer {params.layer}"}},
                        "inputs": {"records": [{"id": "x", "coords": {}, "values": {}}]}}],
             "edges": []}
     graph = {"dataflow": 2, "nodes": [
@@ -347,7 +347,7 @@ def test_a_map_over_plain_values_needs_no_corpus(fake_bench):
 
 
 def test_a_map_takes_one_stream_or_the_other(fake_bench):
-    body = {"nodes": [{"id": "n", "block": "records/rename", "params": {"fields": {}}}],
+    body = {"nodes": [{"id": "n", "block": "records/derive", "params": {"drop": []}}],
             "edges": []}
     graph = {"dataflow": 2, "nodes": [
         {"id": "sweep", "block": "records/map",
@@ -420,7 +420,7 @@ def test_a_variadic_port_takes_two_inputs_and_counts_them_as_edges(fake_bench, m
 def test_a_port_that_takes_one_source_still_refuses_an_input_and_an_edge():
     graph = {"dataflow": 2,
              "nodes": [{"id": "a", "block": "records/cross"},
-                       {"id": "b", "block": "records/select"}],
+                       {"id": "b", "block": "records/filter"}],
              "edges": [{"from": {"input": "recs"}, "to": {"node": "b", "port": "records"}},
                        {"from": {"node": "a"}, "to": {"node": "b", "port": "records"}}]}
     with pytest.raises(ValueError, match="one or the other"):

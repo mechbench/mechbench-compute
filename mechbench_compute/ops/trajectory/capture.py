@@ -39,7 +39,7 @@ width), so there are three ways to keep it an object:
 Every item carries the record's `coords`, which is what
 `trajectory/aggregate` groups on. A measurement a record carries as a
 field (what `text/measure` writes) becomes a coordinate through
-`records/rename` — `{"opening": "coords.opening"}` — before the capture.
+`records/derive` — `fields: {"coords.opening": "opening"}` — before the capture.
 
 **Replay.** A record generated at trace fidelity carries the exact token ids
 it was generated as and where generation began. `replay: "auto"` uses those

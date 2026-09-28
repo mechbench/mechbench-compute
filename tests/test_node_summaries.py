@@ -7,7 +7,7 @@ GRAPH = {
         {"id": "design", "block": "records/cross",
          "params": {"factors": [{"name": "x", "levels": [{"key": "a"}, {"key": "b"}, {"key": "c"}]},
                                 {"name": "y", "levels": [{"key": "1"}, {"key": "2"}]}]}},
-        {"id": "prompts", "block": "records/fill", "params": {"templates": {"user": "{x} {y}"}}},
+        {"id": "prompts", "block": "records/derive", "params": {"templates": {"user": "{values.x} {values.y}"}}},
         {"id": "stats", "block": "records/tabulate", "params": {}},
     ],
     "edges": [

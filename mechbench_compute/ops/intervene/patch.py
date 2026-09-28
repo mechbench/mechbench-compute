@@ -51,7 +51,7 @@ model on a 40-token prompt is 1,680 passes per pair. `method:
 the corrupt prompt: the gradient of the metric with respect to each
 activation, dotted with the clean activation minus the corrupt one. The
 grid has the same shape and the same sign, so the two compare cell for
-cell with `records/subtract`; the header's `method` says which ran.
+cell with a `records/join` and a `records/derive`; the header's `method` says which ran.
 
 An attribution is a first-order estimate, and the difference shows in
 two ways. Where the metric saturates — a log-probability near zero, a

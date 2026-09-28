@@ -118,6 +118,26 @@ RETIRED: dict[str, str] = {
 
 ALIASES_REMOVED_IN = "0.82.0"
 
+REPLACED_IN = "0.156.0"
+
+REPLACED: dict[str, str] = {
+    "records/select": 'records/filter (where: `coords.prompt == "flash"`), and records/derive (keep: [...]) for its fields',
+    "records/rename": "records/derive (fields: {new: old}, drop: [old])",
+    "records/count": "records/group (aggregates: {\"k, n, rate, lo, hi\": \"wilson(cond)\"})",
+    "records/summarize": "records/group (aggregates: {n: count(), mean: mean(x), median: median(x), "
+                         "\"lo, hi\": bootstrap_mean(x)})",
+    "records/contrast": "records/group (aggregates: {\"diff, lo, hi\": paired_difference(x, on, a, b, paired)})",
+    "records/correlate": "records/group (aggregates: {\"rho, lo, hi\": spearman(x, y, level=0.95)})",
+    "records/total": "records/group (aggregates: {n: count(), sum: sum(x)})",
+    "records/subtract": "records/filter the baseline, records/join it on the matching coordinates, and "
+                        "records/derive the difference",
+    "records/fill": "records/derive (templates: {user: \"Write a story about {values.animal}.\"})",
+    "records/relabel": "records/derive (fields: {coords.x: '{\"a\": \"its label\"}.get(coords.x, coords.x)'})",
+    "records/lookup": "records/derive (fields: {coords.x: header.table[coords.i]})",
+    "records/rank": "records/sort (by: [\"-x\"], limit: k)",
+    "records/bin": "records/derive the bin (floor((x - lo) / width)), then records/group with count()",
+}
+
 _VERSION_TAIL = re.compile(r"/\d+$")
 
 
@@ -147,6 +167,10 @@ def explain_unknown(block: str) -> str:
     if s.startswith(ROOT):
         s = s[len(ROOT):]
     bare = _VERSION_TAIL.sub("", s)
+    replaced = REPLACED.get(RETIRED.get(bare, bare))
+    if replaced is not None:
+        return (f"unknown block {block!r}: it was retired in mechbench-compute {REPLACED_IN}, "
+                f"when the records operations became expressions. Write {replaced}.")
     target = RETIRED.get(bare) or (bare if bare in BY_NAME else None)
     if target is not None:
         return (f"unknown block {block!r}: that spelling was retired in "
@@ -157,7 +181,7 @@ def explain_unknown(block: str) -> str:
 
 __all__ = [
     "ALIASES_REMOVED_IN", "BY_FAMILY", "BY_NAME", "BY_VALUE", "COMMON",
-    "FAMILIES", "OPS", "REQUIRED", "RETIRED", "ROOT", "VALUES", "WILDCARD",
+    "FAMILIES", "OPS", "REPLACED", "REPLACED_IN", "REQUIRED", "RETIRED", "ROOT", "VALUES", "WILDCARD",
     "Family", "In", "Op", "Otherwise", "P", "Param", "Port", "RetiredKindName", "Value",
     "ancestry", "canonical_path", "explain_unknown", "is_canonical",
     "display_name", "name_of_title", "resolve", "satisfies", "title",

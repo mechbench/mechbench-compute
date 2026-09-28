@@ -13,8 +13,8 @@ BODY = {"nodes": [
      "params": {"factors": [
          {"name": "n", "levels": [{"key": "1"}, {"key": "2"}]},
          {"name": "topic", "levels": [{"key": {"$param": "topic"}}]}]}},
-    {"id": "write", "block": "records/fill",
-     "params": {"templates": {"text": "{topic}-{n}"}}},
+    {"id": "write", "block": "records/derive",
+     "params": {"templates": {"text": "{values.topic}-{values.n}"}}},
 ], "edges": [
     {"from": {"node": "design"},
      "to": {"node": "write", "port": "records"}, "kind": "records"},
@@ -115,8 +115,8 @@ class TestTheBody:
              "params": {"factors": [
                  {"name": "topic", "levels": [{"key": {"$param": "topic"}}]},
                  {"name": "era", "levels": [{"key": {"$param": "era"}}]}]}},
-            {"id": "write", "block": "records/fill",
-             "params": {"templates": {"text": "{topic} in {era}"}}},
+            {"id": "write", "block": "records/derive",
+             "params": {"templates": {"text": "{values.topic} in {values.era}"}}},
         ], "edges": list(BODY["edges"])}
         graph = {"dataflow": 2, "nodes": [
             {"id": "each", "block": "records/map",
@@ -186,8 +186,8 @@ class TestParamsInTheBody:
                  {"name": "n", "levels": [{"key": "1"}, {"key": "2"}]},
                  {"name": "topic", "levels": [{"key": {"$param": "topic"}}]},
                  {"name": "tag", "levels": [{"key": {"$param": "tag"}}]}]}},
-            {"id": "write", "block": "records/fill",
-             "params": {"templates": {"text": "{tag}:{topic}-{n}"}}},
+            {"id": "write", "block": "records/derive",
+             "params": {"templates": {"text": "{values.tag}:{values.topic}-{values.n}"}}},
         ], "edges": [
             {"from": {"node": "design"}, "to": {"node": "write", "port": "records"}},
         ]}

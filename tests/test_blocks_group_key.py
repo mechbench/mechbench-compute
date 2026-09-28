@@ -3,47 +3,7 @@ from __future__ import annotations
 import pytest
 
 from mechbench_compute import blocks
-from mechbench_compute.ops.records.summarize import GroupStats
-from mechbench_compute.ops.records.summarize import group_stats
 from mechbench_compute.ops.records.plot import build_chart
-
-
-ROWS = [
-    {"id": "a", "layer": 0, "delta": -8.0},
-    {"id": "b", "layer": 0, "delta": -6.0},
-    {"id": "c", "layer": 1, "delta": -2.0},
-]
-COORD_ROWS = [
-    {"id": "a", "coords": {"layer": 0}, "delta": -8.0},
-    {"id": "b", "coords": {"layer": 1}, "delta": -2.0},
-]
-
-
-def _by_layer(rows):
-    out = group_stats({"kind": "collection", "items": rows},
-                      {"value": "delta", "by": ["layer"]})
-    return {r["layer"]: r["n"] for r in out["rows"]}
-
-
-def test_a_top_level_field_groups():
-    assert _by_layer(ROWS) == {0: 2, 1: 1}
-
-
-def test_a_coordinate_still_groups():
-    assert _by_layer(COORD_ROWS) == {0: 1, 1: 1}
-
-
-def test_a_coordinate_wins_over_a_top_level_field_of_the_same_name():
-    rows = [{"id": "a", "layer": 9, "coords": {"layer": 0}, "delta": -1.0}]
-    assert _by_layer(rows) == {0: 1}
-
-
-def test_the_monoid_agrees_with_the_flat_block():
-    m = GroupStats()
-    params = {"value": "delta", "by": ["layer"]}
-    part = m.merge(m.partial(ROWS[:2], params), m.partial(ROWS[2:], params))
-    flat = group_stats({"kind": "collection", "items": ROWS}, params)
-    assert m.finalize(part, params)["rows"] == flat["rows"]
 
 
 class TestChartMarks:

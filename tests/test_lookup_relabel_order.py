@@ -6,9 +6,6 @@ import pytest
 from mechbench_schema import dump_canonical
 
 from mechbench_compute import bench
-from mechbench_compute.lexicon import kinds as K
-from mechbench_compute.ops.records.lookup import lookup
-from mechbench_compute.ops.records.relabel import relabel
 from mechbench_compute.ops.records.tabulate import tabulate_records
 from mechbench_compute.ops.records.union import union
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
@@ -19,75 +16,6 @@ ARCH = {"n_layers": 6, "global_layers": [1, 5], "first_kv_shared_layer": 4}
 def _table(means):
     return {"kind": "records/table", "arch": ARCH, "columns": [],
             "rows": [{"layer": i, "mean": m} for i, m in enumerate(means)]}
-
-
-class TestLookup:
-    def test_a_layer_is_read_through_the_headers_global_layers(self):
-        out = lookup(_table([0.1] * 6), _table([]), {
-            "field": "layer", "in": "arch.global_layers", "by": "member", "as": "global"})
-        assert [r["coords"]["global"] for r in out["items"]] == [False, True, False, False, False, True]
-        assert out["lookup"] == {"field": "layer", "in": "arch.global_layers",
-                                 "by": "member", "as": "global"}
-
-    def test_an_index_names_its_place_through_a_list_the_header_carries(self):
-        cells = K.collection("records/record", [
-            {"id": "p/0", "coords": {"component": 0}},
-            {"id": "p/2", "coords": {"component": 2}}])
-        header = {"kind": "collection", "components": ["embed", "L0", "L1"], "items": []}
-        out = lookup(cells, header, {"field": "component", "in": "components"})
-        assert [r["coords"]["component"] for r in out["items"]] == ["embed", "L1"]
-
-    def test_a_map_is_read_at_the_values_key(self):
-        recs = [{"id": "a", "coords": {"layer": 3}}]
-        out = lookup(recs, {"names": {"3": "the third"}}, {"field": "layer", "in": "names"})
-        assert out["items"][0]["coords"]["layer"] == "the third"
-
-    def test_a_value_the_list_has_no_place_for_is_refused_unless_null_is_asked_for(self):
-        recs = [{"id": "a", "coords": {"component": 7}}]
-        header = {"components": ["embed", "L0"]}
-        with pytest.raises(ValueError, match="'a' has component=7"):
-            lookup(recs, header, {"field": "component", "in": "components"})
-        out = lookup(recs, header, {"field": "component", "in": "components", "on_missing": "null"})
-        assert out["items"][0]["coords"]["component"] is None
-
-    def test_a_header_without_the_path_says_what_it_has(self):
-        with pytest.raises(ValueError, match=r"no list or map at 'arch.global_layers'; its fields are \['columns', 'kind'\]"):
-            lookup([], {"kind": "records/table", "columns": [], "rows": []},
-                    {"field": "layer", "in": "arch.global_layers", "by": "member"})
-
-    def test_a_top_level_field_it_replaces_becomes_the_coordinate(self):
-        out = lookup([{"id": "a", "layer": 1}], {"arch": ARCH},
-                      {"field": "layer", "in": "arch.global_layers", "by": "member"})
-        assert out["items"][0] == {"id": "a", "coords": {"layer": True}}
-
-
-class TestRelabel:
-    def test_a_boolean_is_labelled_by_its_json_spelling(self):
-        recs = [{"id": "a", "coords": {"global": True}}, {"id": "b", "coords": {"global": False}}]
-        out = relabel(recs, {"field": "global",
-                             "labels": {"true": "global attention", "false": "local attention"}})
-        assert [r["coords"]["global"] for r in out] == ["global attention", "local attention"]
-
-    def test_a_number_matches_its_spelling_and_an_unnamed_value_is_kept(self):
-        out = relabel([{"id": "a", "n": 12}, {"id": "b", "n": 13}],
-                      {"field": "n", "labels": {"12": "twelve"}})
-        assert [r["n"] for r in out] == ["twelve", 13]
-
-    def test_others_error_is_the_check_that_every_value_has_a_label(self):
-        with pytest.raises(ValueError, match="'b' has port='mlp'"):
-            relabel([{"id": "a", "coords": {"port": "attn"}}, {"id": "b", "coords": {"port": "mlp"}}],
-                    {"field": "port", "labels": {"attn": "its attention only"}, "others": "error"})
-
-    def test_as_writes_a_coordinate_and_keeps_the_original(self):
-        out = relabel([{"id": "a", "coords": {"port": "attn"}}],
-                      {"field": "port", "labels": {"attn": "its attention only"}, "as": "removed"})
-        assert out[0]["coords"] == {"port": "attn", "removed": "its attention only"}
-
-    def test_a_dot_path_is_written_where_it_was_read_without_touching_the_input(self):
-        rec = {"id": "a", "metadata": {"model": "m1"}}
-        out = relabel([rec], {"field": "metadata.model", "labels": {"m1": "Model one"}})
-        assert out[0]["metadata"] == {"model": "Model one"}
-        assert rec["metadata"] == {"model": "m1"}
 
 
 class TestTabulateOrder:
@@ -153,13 +81,12 @@ def test_a_figure_is_coloured_by_attention_kind_from_the_results_own_arch(fake_b
         "dataflow": 2,
         "nodes": [
             {"id": "sweeps", "block": "records/union", "params": {"batch_axis": "removed"}},
-            {"id": "named", "block": "records/relabel", "params": {
-                "field": "removed", "labels": {"attn": "its attention only", "whole": "the whole layer"},
-                "others": "error"}},
-            {"id": "kind", "block": "records/lookup", "params": {
-                "field": "layer", "in": "arch.global_layers", "by": "member", "as": "attention"}},
-            {"id": "worded", "block": "records/relabel", "params": {
-                "field": "attention", "labels": {"true": "global attention", "false": "local attention"}}},
+            {"id": "named", "block": "records/derive", "params": {"fields": {
+                "coords.removed": '{"attn": "its attention only", "whole": "the whole layer"}[coords.removed]'}}},
+            {"id": "kind", "block": "records/derive", "params": {"fields": {
+                "coords.attention": "layer in header.arch.global_layers"}}},
+            {"id": "worded", "block": "records/derive", "params": {"fields": {
+                "coords.attention": '"global attention" if coords.attention else "local attention"'}}},
             {"id": "rows", "block": "records/tabulate", "params": {
                 "by": ["removed", "layer"], "order": {"removed": ["the whole layer", "its attention only"]}}},
             {"id": "chart", "block": "records/plot", "params": {

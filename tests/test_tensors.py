@@ -160,11 +160,11 @@ class TestTheExecutorMovesShards:
         graph = {"dataflow": 2, "nodes": [
             {"id": "cap", "block": "activations/capture-tokens", "params": {"model": "fake/m", "layers": [0, 1]},
              "inputs": {"records": [{"id": "r", "user": "x"}]}},
-            {"id": "sum", "block": "records/summarize", "params": {"value": "n_tok", "by": []}, "inputs": {}},
+            {"id": "sum", "block": "records/group", "params": {"aggregates": {"n": "count()"}}, "inputs": {}},
         ], "edges": [{"from": {"node": "cap"}, "to": {"node": "sum", "port": "records"}}]}
         out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,
                                                   extra={"graph": graph, "resultPath": "you/lab/results/j1"}))
-        assert out.payload["outputs"]["sum"]["rows"][0]["n"] == 10
+        assert out.payload["outputs"]["sum"]["items"][0]["n"] == 10
         assert [p[0] for p in put] == [f"you/lab/results/j1/cap/shards/shard-000{k}.safetensors" for k in range(3)]
         header = emitted["you/lab/results/j1/cap"]
         assert header["storage"] == "tensor" and len(header["shards"]) == 3 and "_shard_dir" not in header
@@ -184,8 +184,8 @@ class TestTheExecutorMovesShards:
         monkeypatch.setattr(bench, "get_file_chunks", lambda label: [files[label]])
         monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "home")
         graph = {"dataflow": 2, "nodes": [
-            {"id": "sum", "block": "records/summarize", "params": {"value": "n_tok", "by": []},
+            {"id": "sum", "block": "records/group", "params": {"aggregates": {"n": "count()"}},
              "inputs": {"records": {"$ref": {"bench": "you/lab/big"}}}}], "edges": []}
         out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
-        assert out.payload["outputs"]["sum"]["rows"][0]["n"] == 10
+        assert out.payload["outputs"]["sum"]["items"][0]["n"] == 10
         assert (tmp_path / "home" / ".mechbench" / "tensors").exists()

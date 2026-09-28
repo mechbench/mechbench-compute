@@ -7,7 +7,7 @@ import pytest
 from mechbench_compute import ops, trajectory
 from mechbench_compute.block_params import check_params
 from mechbench_compute.ops.direction.fit import fit_mean_difference
-from mechbench_compute.ops.records.select import select
+from mechbench_compute.ops.records.filter import filter_records
 from mechbench_compute.ops.records.union import union
 from mechbench_compute.ops.text.measure import measure_texts
 from mechbench_compute.ops.trajectory.aggregate import aggregate
@@ -140,10 +140,10 @@ class TestCapturePositionsAxis:
         assert [r["position"] for r in out["items"]] == [1, 2, 3]
 
     def test_a_measurement_groups_once_it_is_a_coordinate(self):
-        from mechbench_compute.ops.records.rename import rename
+        from mechbench_compute.ops.records.derive import derive
 
         m = StubModel()
-        recs = rename([{"id": "a", "text": "x", "hit": 1}], {"fields": {"hit": "coords.hit"}})
+        recs = derive([{"id": "a", "text": "x", "hit": 1}], {"fields": {"coords.hit": "hit"}, "drop": ["hit"]}, {})["items"]
         assert recs == [{"id": "a", "text": "x", "coords": {"hit": 1}}]
         out = capture(m, recs, {"axis": "positions", "layer": 0,
                                            "positions": "all"})
@@ -320,8 +320,8 @@ class TestWiring:
     def test_select_reads_an_annotated_field(self):
         recs = [{"id": "a", "coords": {"p": "flash"}, "hit": 1},
                 {"id": "b", "coords": {"p": "flash"}, "hit": 0}]
-        assert [r["id"] for r in select(recs, {"where": {"hit": 1}})] == ["a"]
-        assert len(select(recs, {"where": {"p": "flash"}})) == 2
+        assert [r["id"] for r in filter_records(recs, {"where": "hit == 1"}, {})["items"]] == ["a"]
+        assert len(filter_records(recs, {"where": 'coords.p == "flash"'}, {})["items"]) == 2
 
     def test_union_of_vector_records_stays_a_vector_record(self):
         def vec(label_rows):

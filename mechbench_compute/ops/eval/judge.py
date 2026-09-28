@@ -31,7 +31,7 @@ Each record's `text` (for a pairwise scale, its `text_a` and `text_b`) is
 shown to the judge — that field and nothing else, so it cannot see the
 condition labels — together with the rubric and an instruction to answer in
 JSON. A record that carries the text under another name goes through
-`records/rename` first. Three commitments make the numbers usable:
+`records/derive` first. Three commitments make the numbers usable:
 
 * **Votes, not a verdict.** `n_votes` repeats the call. Numeric scores
   are averaged and their spread kept; labels and preferences take the
@@ -370,7 +370,7 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         raise ValueError(
             f"on_missing is 'error' or 'skip', not {on_missing!r}")
     def absent(rec):
-        return [f for f in want if not str(rec.get(f, "")).strip()]
+        return [f for f in want if rec.get(f) is None or not str(rec.get(f)).strip()]
 
     empty = {id(s): absent(s) for s in subjects if absent(s)}
     if empty and on_missing == "error":

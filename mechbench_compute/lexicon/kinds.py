@@ -34,11 +34,11 @@ RECORD = Kind(
     header={"segments": "When the collection was made by `records/union`: the ports it came from and how many records each contributed."},
     renderer=_TABLE_RENDERER,
     doc="The root of the lattice: a condition, a pair, a document, a vector and a grid extend it, so a port "
-        "typed `records/record` takes any of them. The ops that reshape and summarise records — `select`, "
-        "`rename`, `union`, `delta`, `stats`, `sum`, `top-k`, `histogram`, `table`, `chart` — take any "
+        "typed `records/record` takes any of them. The ops that reshape and summarise records — `derive`, "
+        "`filter`, `sort`, `join`, `group`, `union`, `unnest`, `tabulate`, `plot` — take any "
         "collection at all, whatever its item kind, since every item has an id and its fields. Fields beyond "
         "`id` and `coords` are whatever the producing op wrote; a consumer that needs one under another name "
-        "gets it through `records/rename`, never through a parameter. When a model reads a record, its "
+        "gets it through `records/derive`, never through a parameter. When a model reads a record, its "
         "prompt is the first of `user`, `prompt` and `text` that it has. `user` is wrapped in the model's "
         "chat template, with the record's `system` as the system turn; `prompt` and `text` go in raw, as "
         "written. A record's `template` field overrides this: `\"chat\"` (or `true`) wraps any of the three, `\"raw\"` "
@@ -66,7 +66,7 @@ CONDITION = Kind(
     doc="Every model-running op renders a condition the same way: `system` and `user` through the model's chat "
         "template as one user turn, the assistant's turn begun with `prefill`, so the decision point — where "
         "`logits/read` reads — is the first token after the prefill, and every capture, sweep and lens can "
-        "read there too. `records/fill` writes conditions from a design; a record carrying only `text` or "
+        "read there too. `records/derive` writes conditions from a design with templates; a record carrying only `text` or "
         "`prompt` is tokenized raw instead, as is one that says `template: false`.",
 )
 
@@ -96,24 +96,8 @@ TABLE = Kind(
     renderer={"primitive": "table", "field_map": {"rows": "rows"}},
     doc="A table is for reading, not for further computation: its rows are plain objects typed by `columns`, "
         "not items of a kind, so nothing downstream reads a table but a chart and a person. `records/tabulate` "
-        "makes one from any collection (coordinates become the leading columns), and `records/summarize` produces one "
+        "makes one from any collection (coordinates become the leading columns), and `records/group` summarises records into one "
         "directly.",
-)
-
-HISTOGRAM = Kind(
-    "records/histogram",
-    "Counts of a numeric field in fixed, equal-width bins, with the counts that fell outside.",
-    fields={"bins": F("array", "The count per bin, in order.", items={"type": "integer"}),
-            "below": F("integer", "Values below the first bin."),
-            "above": F("integer", "Values at or above the last bin's upper edge.")},
-    required=("bins", "below", "above"),
-)
-
-SUM = Kind(
-    "records/sum",
-    "The exact sum of a numeric field over a collection, with the count.",
-    fields={"n": F("integer", "How many values were summed."), "sum": F("number", "Their sum.")},
-    required=("n", "sum"),
 )
 
 CHART = Kind(
@@ -167,7 +151,7 @@ DOCUMENT = Kind(
     doc="What `text/generate` and `text/chat` write, one per completion. The collection's `fidelity` says how "
         "much was kept: `text` alone, `segments` (which spans are prompt and which are body), or `trace` (the "
         "token ids and offsets, which `text/score` and a positions trajectory need). A document is a record, so a "
-        "corpus flows into `text/measure`, `records/select` and `activations/capture` unchanged.",
+        "corpus flows into `text/measure`, `records/filter` and `activations/capture` unchanged.",
 )
 
 TRANSCRIPT = Kind(
@@ -800,7 +784,7 @@ COLLECTION_KIND = Kind(
 )
 
 KINDS: tuple[Kind, ...] = (
-    RECORD, CONDITION, PAIR, TABLE, HISTOGRAM, SUM, CHART, WORD_LIST,
+    RECORD, CONDITION, PAIR, TABLE, CHART, WORD_LIST,
     DOCUMENT, TRANSCRIPT, ANNOTATION, TOKENIZATION,
     DISTRIBUTION, DECISION, FUNNEL, LENS, ATTRIBUTION,
     VECTOR, COORDINATE, GRID, DIVERGENCE, ATTENTION,
@@ -842,7 +826,6 @@ KIND_ALIASES: dict[str, tuple[str, bool]] = {
     "provider_cassette": ("provider/cassette", False),
     "completion": ("provider/completion", False),
     "metric_table": ("records/table", False),
-    "histogram": ("records/histogram", False),
     "viz_spec": ("records/chart", False),
     "chart_spec": ("records/chart", False),
     "word_list": ("text/word-list", False),

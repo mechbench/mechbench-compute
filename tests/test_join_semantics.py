@@ -8,7 +8,7 @@ CROSS = {"factors": [{"name": "x", "levels": [{"key": "a"}, {"key": "b"}]}]}
 
 
 def _graph(policy=None):
-    bad_params = {"templates": {"user": "{x}"}}
+    bad_params = {"templates": {"user": "{values.x}"}}
     edge = {"from": {"node": "bad", "port": "records"},
             "to": {"node": "pairs", "port": "branches"}, "kind": "records",
             "index": 1}
@@ -16,9 +16,9 @@ def _graph(policy=None):
         edge["on_missing"] = policy
     return {"dataflow": 2, "nodes": [
         {"id": "design", "block": "records/cross", "params": dict(CROSS)},
-        {"id": "good", "block": "records/fill",
-         "params": {"templates": {"user": "good {x}"}}},
-        {"id": "bad", "block": "records/fill", "params": bad_params},
+        {"id": "good", "block": "records/derive",
+         "params": {"templates": {"user": "good {values.x}"}}},
+        {"id": "bad", "block": "records/derive", "params": bad_params},
         {"id": "pairs", "block": "records/zip",
          "params": {"names": ["good", "bad"], "on_mismatch": "placeholder"}},
     ], "edges": [
@@ -34,13 +34,13 @@ def _graph(policy=None):
 
 
 def _run(graph, monkeypatch, break_node="bad"):
-    from mechbench_compute.ops.records import fill
+    from mechbench_compute.ops.records import derive as fill
 
     real = fill.run
     seen = {"ran": []}
 
     def flaky(ctx, inputs, params):
-        if params.get("templates", {}).get("user", "").startswith("{x}"):
+        if params.get("templates", {}).get("user", "").startswith("{values.x}"):
             raise RuntimeError("this branch died")
         seen["ran"].append(params["templates"]["user"])
         return real(ctx, inputs, params)
@@ -57,14 +57,14 @@ class TestDefaultIsUnchanged:
             _run(_graph(), monkeypatch)
 
     def test_the_sibling_branch_finishes_first(self, monkeypatch):
-        from mechbench_compute.ops.records import fill
+        from mechbench_compute.ops.records import derive as fill
 
         real = fill.run
         ran = []
 
         def flaky(ctx, inputs, params):
             user = params.get("templates", {}).get("user", "")
-            if user.startswith("{x}"):
+            if user.startswith("{values.x}"):
                 raise RuntimeError("this branch died")
             ran.append(user)
             return real(ctx, inputs, params)
@@ -74,7 +74,7 @@ class TestDefaultIsUnchanged:
             ProtocolExecutor().run(ProtocolSpec(
                 kind="pipeline", prompt="", model_id=None,
                 extra={"graph": _graph()}))
-        assert ran == ["good {x}"], "the sibling never ran"
+        assert ran == ["good {values.x}"], "the sibling never ran"
 
 
 class TestSkip:
@@ -115,12 +115,12 @@ class TestWithResultsStored:
         spec = ProtocolSpec(kind="pipeline", prompt="", model_id=None,
                             extra={"graph": _graph("placeholder"),
                                    "resultPath": "u/p/results/j_1"})
-        from mechbench_compute.ops.records import fill
+        from mechbench_compute.ops.records import derive as fill
 
         real = fill.run
 
         def flaky(ctx, inputs, params):
-            if params.get("templates", {}).get("user", "").startswith("{x}"):
+            if params.get("templates", {}).get("user", "").startswith("{values.x}"):
                 raise RuntimeError("this branch died")
             return real(ctx, inputs, params)
 
@@ -150,8 +150,8 @@ class TestTheWholePathWithoutAMonkeypatch:
             {"id": "pairs", "block": "records/zip",
              "params": {"by": ["prompt"], "flatten": True,
                         "on_mismatch": "placeholder"}},
-            {"id": "sides", "block": "records/rename",
-             "params": {"fields": {"up_text": "text_a", "down_text": "text_b"}}},
+            {"id": "sides", "block": "records/derive",
+             "params": {"fields": {"text_a": "up_text", "text_b": "down_text"}, "drop": ["up_text", "down_text"]}},
             {"id": "verdicts", "block": "eval/judge",
              "params": {"judge": {"model": self.ENDPOINT},
                         "rubric": "which is better written",

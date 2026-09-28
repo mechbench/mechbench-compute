@@ -16,7 +16,7 @@ def coerce_array(d: Mapping[str, Any]) -> np.ndarray:
         if len(items) != 1:
             raise ValueError(
                 f"expected one direction, not a collection of {len(items)} — "
-                "select the one you mean (records/select, records/rank k: 1)")
+                "select the one you mean (records/filter, or records/sort with limit: 1)")
         d = items[0]
     if not is_direction(d):
         raise ValueError("expected a direction object (kind 'direction/vector')")

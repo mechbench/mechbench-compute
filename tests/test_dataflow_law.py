@@ -8,7 +8,6 @@ import pytest
 from mechbench_compute import isomorphism as iso
 from mechbench_compute import ops, seeds
 from mechbench_compute import reduce as rd
-from mechbench_compute.ops.records.total import FloatSum
 
 
 def _leaves(n=60, seed=0):
@@ -20,81 +19,37 @@ def _leaves(n=60, seed=0):
     return out
 
 
-class TestMonoidLaws:
-    @pytest.mark.parametrize("block,params", [
-        ("records/summarize", {"by": ["g"], "value": "delta"}),
-        ("records/summarize", {"by": ["g"], "value": "delta", "interval": 0.9, "resamples": 300}),
-        ("records/total", {"value": "delta"}),
-        ("records/rank", {"value": "score", "k": 5}),
-        ("records/bin", {"value": "delta", "lo": -5, "hi": 5, "bins": 10}),
-    ])
-    def test_identity_and_associativity(self, block, params):
-        m = rd.find_monoid(block, params)
-        leaves = _leaves()
-        a, b, c = m.partial(leaves[:20], params), m.partial(leaves[20:45], params), m.partial(leaves[45:], params)
-        assert m.merge(m.identity(), a) == a and m.merge(a, m.identity()) == a
-        assert m.merge(m.merge(a, b), c) == m.merge(a, m.merge(b, c))
-        assert m.merge(a, b) == m.merge(b, a)
-
-    def test_group_stats_monoid_equals_the_flat_block_exactly(self):
-        leaves = _leaves(200, seed=3)
-        params = {"by": ["g"], "value": "delta"}
-        flat = ops.run_standalone("records/summarize", {"records": leaves}, params)
-        chunks = [leaves[i:i + 37] for i in range(0, len(leaves), 37)]
-        chunked = rd.reduce_chunks("records/summarize", chunks, params)
-        def key(r):
-            return r["g"]
-
-        assert sorted(flat["rows"], key=key) == sorted(chunked["rows"], key=key)
-
+class TestMergeTree:
     def test_merge_tree_shape_depends_only_on_n(self):
-        calls = []
-
         class Spy(rd.Monoid):
             def identity(self):
                 return "e"
 
             def merge(self, a, b):
-                calls.append((a, b))
                 return f"({a}{b})"
 
-        out = rd.merge_tree(Spy(), list("abcde"))
-        assert out == "(((ab)(cd))e)"
+        assert rd.merge_tree(Spy(), list("abcde")) == "(((ab)(cd))e)"
 
 
 class TestHarness:
-    @pytest.mark.parametrize("block,params", [
-        ("records/summarize", {"by": ["g"], "value": "delta"}),
-        ("records/total", {"value": "delta"}),
-        ("records/rank", {"value": "score", "k": 7}),
-        ("records/bin", {"value": "delta", "lo": -5, "hi": 5, "bins": 8}),
-        ("records/select", {"where": {"g": "a"}}),
-        ("records/tabulate", {"columns": ["id", "delta"]}),
+    @pytest.mark.parametrize("block,params,leaves,extra", [
+        ("records/filter", {"where": 'coords.g == "a"'}, None, {}),
+        ("records/derive", {"fields": {"half": "delta / 2"}, "templates": {"g": "{coords.g}!"}}, None, {}),
+        ("records/join", {"on": "coords.item", "on_right": "item", "as": "w"}, "paired",
+         {"port": "left", "inputs": {"right": [{"id": f"i{i}", "item": str(i), "weight": i} for i in range(40)]}}),
+        ("records/tabulate", {"columns": ["id", "delta"]}, None, {}),
     ])
-    def test_random_nested_partitions_reduce_to_the_flat_result(self, block, params):
-        report = iso.check(block, _leaves(120, seed=5), params, trials=25, seed=11)
+    def test_random_nested_partitions_reduce_to_the_flat_result(self, block, params, leaves, extra):
+        data = _paired_leaves() if leaves == "paired" else _leaves(120, seed=5)
+        report = iso.check(block, data, params, trials=25, seed=11, **extra)
         assert report["exact"] is True
 
-    def test_an_ordered_block_is_refused_from_chunking(self, monkeypatch):
-        monkeypatch.setitem(rd.REDUCE_ALGEBRA, "records/select", "ordered")
-        report = iso.check("records/select", _leaves(10), {"where": {}}, trials=1)
-        assert report["refused"] is True
-
-    def test_a_broken_monoid_is_caught(self, monkeypatch):
-        class Bad(FloatSum):
-            def merge(self, a, b):
-                return tuple(sorted((a + b)[:-1])) if len(a + b) > 3 else tuple(sorted(a + b))
-
-        from mechbench_compute.ops.records import total
-
-        monkeypatch.setattr(total, "MONOID", Bad)
-        with pytest.raises(AssertionError):
-            iso.check("records/total", _leaves(40), {"value": "delta"}, trials=10)
-
-    def test_fsum_makes_float_sums_partition_independent(self):
-        leaves = [{"id": str(i), "v": (0.1 * i) ** 3 * (-1) ** i} for i in range(500)]
-        report = iso.check("records/total", leaves, {"value": "v"}, trials=30)
-        assert report["exact"] is True
+    @pytest.mark.parametrize("block,params", [
+        ("records/group", {"by": {"g": "coords.g"}, "aggregates": {"n": "count()"}}),
+        ("records/sort", {"by": ["-score"], "limit": 5}),
+    ])
+    def test_an_ordered_block_is_refused_from_chunking(self, block, params):
+        assert iso.check(block, _leaves(10), params, trials=1)["refused"] is True
 
 
 def _text_leaves(n=40, seed=2):
@@ -133,54 +88,11 @@ def _nested_leaves(n=30, seed=12):
             for i in range(n)]
 
 
-def _template_leaves(n=25, seed=8):
-    rng = random.Random(seed)
-    return [{"id": f"v{i}", "coords": {"g": rng.choice(["a", "b"])},
-             "values": {"g": rng.choice(["dusk", "dawn"]), "n": i}}
-            for i in range(n)]
-
-
 CATALOG: dict[str, dict] = {
-    "records/summarize": {
-        "leaves": _leaves(120, seed=5), "params": {"by": ["g"], "value": "delta"}},
-    "records/total": {
-        "leaves": _leaves(120, seed=5), "params": {"value": "delta"}},
-    "records/rank": {
-        "leaves": _leaves(120, seed=5), "params": {"value": "score", "k": 7}},
-    "records/bin": {
-        "leaves": _leaves(120, seed=5),
-        "params": {"value": "delta", "lo": -5, "hi": 5, "bins": 8}},
-    "records/select": {
-        "leaves": _leaves(120, seed=5), "params": {"where": {"g": ["a", "b"]}}},
-    "records/rename": {
-        "leaves": _leaves(120, seed=5), "params": {"fields": {"v": "value"}}},
     "records/tabulate": {
         "leaves": _leaves(120, seed=5), "params": {"name": "leaves"}},
-    "records/fill": {
-        "leaves": _template_leaves(),
-        "params": {"templates": {"prompt": "a {g} of {n}"}}},
-    "records/subtract": {
-        "leaves": _paired_leaves(),
-        "params": {"match_on": ["item"], "baseline_where": {"arm": "base"},
-                   "value": "delta"}},
-    "records/count": {
-        "leaves": _leaves(120, seed=5), "params": {"field": "g", "equals": "a"}},
-    "records/correlate": {
-        "leaves": _leaves(120, seed=5),
-        "params": {"x": "delta", "y": "score", "by": ["g"], "interval": 0.9}},
     "records/unnest": {
         "leaves": _nested_leaves(), "params": {"field": "votes", "index": "vote"}},
-    "records/lookup": {
-        "leaves": _leaves(120, seed=5),
-        "inputs": {"header": {"names": {"a": "first", "b": "second", "c": "third"}}},
-        "params": {"field": "g", "in": "names", "as": "name"}},
-    "records/relabel": {
-        "leaves": _leaves(120, seed=5),
-        "params": {"field": "g", "labels": {"a": "first", "b": "second"}}},
-    "records/contrast": {
-        "leaves": _paired_leaves(),
-        "params": {"value": "delta", "on": "arm", "a": "test", "b": "base",
-                   "paired": "item", "resamples": 300}},
     "text/measure": {
         "leaves": _text_leaves(),
         "params": {"field": "text", "mode": "corpus", "measures": [

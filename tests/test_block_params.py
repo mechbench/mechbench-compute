@@ -113,18 +113,6 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/cross.py", "_sample_value"),
         ("ops/records/cross.py", "_materialize_levels"),
         ("ops/records/cross.py", "cross_factors")],
-    "records/fill": [
-        ("ops/records/fill.py", "run"),
-        ("ops/records/fill.py", "fill_templates")],
-    "records/rename": [
-        ("ops/records/rename.py", "run"),
-        ("ops/records/rename.py", "_pop_path"),
-        ("ops/records/rename.py", "_set_path"),
-        ("ops/records/rename.py", "rename")],
-    "records/select": [
-        ("ops/records/select.py", "run"),
-        ("ops/records/select.py", "select"),
-        ("ops/records/select.py", "_select_items")],
     "records/derive": [
         ("ops/records/derive.py", "run"),
         ("ops/records/derive.py", "derive")],
@@ -140,30 +128,9 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "records/group": [
         ("ops/records/group.py", "run"),
         ("ops/records/group.py", "group_records")],
-    "records/subtract": [
-        ("ops/records/subtract.py", "run"),
-        ("ops/records/subtract.py", "subtract_baseline")],
-    "records/summarize": [
-        ("ops/records/summarize.py", "run"),
-        ("ops/records/summarize.py", "summarize_groups"),
-        ("ops/records/summarize.py", "group_stats"),
-        ("ops/records/summarize.py", "GroupStats")],
     "records/diff": [
         ("ops/records/diff.py", "run"),
         ("ops/records/diff.py", "diff_collections")],
-    "records/contrast": [
-        ("ops/records/contrast.py", "run"),
-        ("ops/records/contrast.py", "_read_field"),
-        ("ops/records/contrast.py", "contrast")],
-    "records/count": [
-        ("ops/records/count.py", "run"),
-        ("ops/records/count.py", "count"),
-        ("ops/records/count.py", "_read_level"),
-        ("ops/records/count.py", "CountShare")],
-    "records/correlate": [
-        ("ops/records/correlate.py", "run"),
-        ("ops/records/correlate.py", "correlate"),
-        ("ops/records/correlate.py", "RankPoints")],
     "records/unnest": [
         ("ops/records/unnest.py", "run"),
         ("ops/records/unnest.py", "unnest")],
@@ -184,12 +151,6 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/tabulate.py", "run"),
         ("ops/records/tabulate.py", "tabulate_records"),
         ("ops/records/tabulate.py", "sort_records")],
-    "records/lookup": [
-        ("ops/records/lookup.py", "run"),
-        ("ops/records/lookup.py", "lookup")],
-    "records/relabel": [
-        ("ops/records/relabel.py", "run"),
-        ("ops/records/relabel.py", "relabel")],
     "records/union": [
         ("ops/records/union.py", "run"),
         ("ops/records/union.py", "union"),
@@ -270,15 +231,6 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "trajectory/aggregate": [
         ("ops/trajectory/aggregate.py", "run"),
         ("ops/trajectory/aggregate.py", "aggregate")],
-    "records/total": [
-        ("ops/records/total.py", "run"),
-        ("ops/records/total.py", "FloatSum")],
-    "records/rank": [
-        ("ops/records/rank.py", "run"),
-        ("ops/records/rank.py", "TopK")],
-    "records/bin": [
-        ("ops/records/bin.py", "run"),
-        ("ops/records/bin.py", "Histogram")],
     "adapter/measure": [
         ("ops/adapter/measure.py", "run"),
         ("ops/adapter/measure.py", "_measure_adapter"),

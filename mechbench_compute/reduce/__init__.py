@@ -9,10 +9,12 @@ from mechbench_compute.reduce.monoid import Monoid
 ALGEBRAS = ("collect", "monoid", "ordered")
 
 REDUCE_ALGEBRA: dict[str, str] = {
-    "records/summarize": "monoid",
     "records/union": "collect",
-    "records/select": "collect",
-    "records/subtract": "collect",
+    "records/derive": "collect",
+    "records/filter": "collect",
+    "records/join": "collect",
+    "records/group": "ordered",
+    "records/sort": "ordered",
     "records/tabulate": "collect",
     "text/measure": "collect",
     "eval/expect": "collect",
