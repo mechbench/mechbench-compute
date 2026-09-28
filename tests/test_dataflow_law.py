@@ -148,6 +148,12 @@ NOT_LEAF_STREAM: dict[str, str] = {
     "eval/score":
         "one collection scored against a reference by a metric; it became "
         "callable by name when its file made it standalone (docs/OPS_LAYOUT.md)",
+    "records/python":
+        "code over the whole collection at once (`over: records`); what it "
+        "returns for one chunk need not be its part of the whole",
+    "records/jq":
+        "a program over the whole collection at once (`.` is the list); what "
+        "it writes for one chunk need not be its part of the whole",
     "tools/calc":
         "a tool handler: its input is one call's arguments, not a leaf stream",
     "tools/lookup":

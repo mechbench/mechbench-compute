@@ -21,8 +21,9 @@ default) it is called once, `transform(records, header, params)`, and
 returns the new records as a list; with `over: record` it is called per
 record, `transform(record, header, params)`, and returns a record, a
 list of them, or `None` to drop it. `records` are the input's items as
-JSON values (dicts and lists), `header` its header, `params` the run's
-params.
+JSON values (dicts and lists), `header` its header, `params` the node's
+`params`: the values it names, usually the protocol's params
+(`{"cut": {"$param": "cut"}}`), and nothing else.
 
 ```python
 def transform(records, header, params):
@@ -56,6 +57,10 @@ drawn as code.
                   doc="The records the function returned, in its order."),
     params=(
         P("source", "string", "Python source that defines `transform`."),
+        P("params", "map[string, json]",
+          "What the function is given as `params`: names to values, each usually a protocol param "
+          "(`{\"$param\": \"cut\"}`), so the diagram draws what the code reads and nothing else reaches it.",
+          {}),
         P("over", "string",
           "`records`: call `transform` once with them all; `record`: once per record.",
           "records", choices=("records", "record")),
@@ -97,17 +102,17 @@ sys.stdout.write(json.dumps(out, allow_nan=False, ensure_ascii=False))
 
 
 def run(ctx, inputs, params):
-    return transform_records(inputs["records"], params, getattr(ctx, "run_params", None) or {})
+    return transform_records(inputs["records"], params, params.get("params") or {})
 
 
-def transform_records(records: Any, params: Mapping[str, Any], run_params: Mapping[str, Any]) -> dict[str, Any]:
+def transform_records(records: Any, params: Mapping[str, Any], given: Mapping[str, Any]) -> dict[str, Any]:
     from mechbench_compute.lexicon import kinds as K
 
     over = str(params.get("over", "records"))
     if over not in ("records", "record"):
         raise ValueError(f"records/python: over is records or record, not {over!r}")
     request = {"source": str(params["source"]), "over": over, "records": read_items(records),
-               "header": read_header(records), "params": dict(run_params)}
+               "header": read_header(records), "params": dict(given)}
     values = run_guest_json("records/python", "cpython", ["python", "-c", HARNESS], request,
                             memory_mb=int(params.get("memory_mb", 512)),
                             seconds=float(params.get("seconds", 60.0)),

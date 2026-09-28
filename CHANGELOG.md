@@ -13,6 +13,21 @@ nothing said so.
 
 ---
 
+## 0.161.0 — 2026-09-28
+
+### Changes that raise
+
+- `records/python` and `records/jq` hand their code the node's own
+  `params` (a new param: names to values, usually `{"$param": …}`), not
+  the run's params. Code that reads a param the node does not pass now
+  finds it missing: a `KeyError` in Python, `null` in jq. Name what the
+  code reads in `params`; the diagram then draws it, and the protocol's
+  checks count it as used.
+
+### Changes that alter results without raising
+
+_None._
+
 ## 0.160.0 — 2026-09-28
 
 ### Changes that raise

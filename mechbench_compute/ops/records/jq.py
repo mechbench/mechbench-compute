@@ -19,11 +19,12 @@ OP = Op(
     description="""\
 `program` is a jq program (gojq 0.12, the jq language) whose input `.`
 is the records, as a list; `$header` is the input's header and `$params`
-the run's params. Its output is the new records: one list of them, or a
+the node's `params`: the values it names, usually the protocol's params
+(`{"cut": {"$param": "cut"}}`), and nothing else. Its output is the new records: one list of them, or a
 stream of objects, one per record.
 
 ```
-map(select(.coords.prompt == $params.prompt) | {id, text, words: (.text | split(" ") | length)})
+map(select(.p > $params.cut) | {id, text, words: (.text | split(" ") | length)})
 .[] | .votes[] as $v | {id: "\\(.id)/\\($v.vote)", coords, winner: $v.winner}
 group_by(.coords.genre) | map({id: .[0].coords.genre, n: length})
 ```
@@ -50,6 +51,10 @@ drawn as code.
                   doc="The records the program wrote, in its order."),
     params=(
         P("program", "string", "A jq program over the records (`.`), with `$header` and `$params`."),
+        P("params", "map[string, json]",
+          "What the program sees as `$params`: names to values, each usually a protocol param "
+          "(`{\"$param\": \"cut\"}`), so the diagram draws what the code reads and nothing else reaches it.",
+          {}),
         P("seconds", "float", "The longest the program may run.", 60.0),
         P("memory_mb", "int", "The most memory the guest may use.", 512),
         P("rank", "string",
@@ -64,15 +69,15 @@ drawn as code.
 
 
 def run(ctx, inputs, params):
-    return reshape_records(inputs["records"], params, getattr(ctx, "run_params", None) or {})
+    return reshape_records(inputs["records"], params, params.get("params") or {})
 
 
-def reshape_records(records: Any, params: Mapping[str, Any], run_params: Mapping[str, Any]) -> dict[str, Any]:
+def reshape_records(records: Any, params: Mapping[str, Any], given: Mapping[str, Any]) -> dict[str, Any]:
     from mechbench_compute.lexicon import kinds as K
 
     program = str(params["program"])
     argv = ["jq", "-c", "--argjson", "header", json.dumps(read_header(records), ensure_ascii=False),
-            "--argjson", "params", json.dumps(dict(run_params), ensure_ascii=False), program]
+            "--argjson", "params", json.dumps(dict(given), ensure_ascii=False), program]
     values = run_guest_json("records/jq", "mbshell", argv, read_items(records),
                             memory_mb=int(params.get("memory_mb", 512)),
                             seconds=float(params.get("seconds", 60.0)),

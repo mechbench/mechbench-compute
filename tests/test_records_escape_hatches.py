@@ -49,6 +49,15 @@ class TestPython:
         out = transform_records(RECORDS, {"source": src}, {"cut": 0.5})
         assert [(r["id"], r["big"], r["note"]) for r in out["items"]] == [("a", False, "h"), ("b", True, "h")]
 
+    def test_the_function_is_given_the_nodes_params_and_nothing_else(self):
+        from mechbench_compute.ops import Context
+        from mechbench_compute.ops.records.python import run
+
+        src = "def transform(records, header, params):\n    return [{'id': 'p', 'seen': sorted(params)}]\n"
+        ctx = Context(run_params={"cut": 0.5, "secret": 1})
+        out = run(ctx, {"records": RECORDS}, {"source": src, "params": {"cut": 0.5}})
+        assert out["items"][0]["seen"] == ["cut"]
+
     def test_per_record_may_drop_or_split(self):
         from mechbench_compute.ops.records.python import transform_records
 
@@ -94,6 +103,14 @@ class TestJq:
 
         out = reshape_records(RECORDS, {"program": "map(select(.p > $params.cut) | .note = $header.note)"}, {"cut": 0.5})
         assert [(r["id"], r["note"]) for r in out["items"]] == [("b", "h")]
+
+    def test_the_program_is_given_the_nodes_params_and_nothing_else(self):
+        from mechbench_compute.ops import Context
+        from mechbench_compute.ops.records.jq import run
+
+        ctx = Context(run_params={"cut": 0.5, "secret": 1})
+        out = run(ctx, {"records": RECORDS}, {"program": "[{id: \"p\", seen: ($params | keys)}]", "params": {"cut": 0.5}})
+        assert out["items"][0]["seen"] == ["cut"]
 
     def test_a_stream_unnests(self):
         from mechbench_compute.ops.records.jq import reshape_records
