@@ -34,7 +34,12 @@ class TokenReadout:
         self.coords: list[float] = []
 
     def read(self, cache: Mapping[str, Any]) -> float:
-        row = np.asarray(cache[self.hook][0, -1], dtype=np.float32)
+        row = cache[self.hook][0, -1]
+        if not isinstance(row, np.ndarray):
+            import mlx.core as mx
+
+            row = row.astype(mx.float32)
+        row = np.asarray(row, dtype=np.float32)
         coord = round(float(row @ self.vector), 6)
         self.coords.append(coord)
         return coord

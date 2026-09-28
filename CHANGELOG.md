@@ -13,6 +13,18 @@ nothing said so.
 
 ---
 
+## 0.162.1 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._ A `project` readout on a model whose activations are bfloat16
+(most local weights) no longer fails: the captured row is cast in MLX
+before NumPy reads it.
+
 ## 0.162.0 — 2026-09-28
 
 ### Changes that raise

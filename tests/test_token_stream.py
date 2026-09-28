@@ -38,7 +38,8 @@ class _Model:
 
     def run(self, input_ids, *, interventions=None, kv_cache=None, capture=None, hooks=None):
         t = int(np.array(input_ids)[0, -1])
-        cache = {name: mx.array(np.array([[[float(t), 1.0, 0.0]]], dtype=np.float32)) for name in (capture or [])}
+        cache = {name: mx.array(np.array([[[float(t), 1.0, 0.0]]], dtype=np.float32)).astype(mx.bfloat16)
+                 for name in (capture or [])}
         return _Result(self._logits(t), cache)
 
     def lm(self, input_ids, cache=None):
