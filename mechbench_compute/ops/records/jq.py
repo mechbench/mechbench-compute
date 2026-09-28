@@ -4,6 +4,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from mechbench_compute.blocks.rank_guest_records import rank_guest_records
 from mechbench_compute.blocks.read_guest_records import read_guest_records
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
@@ -30,7 +31,9 @@ It runs in the sandbox's shell guest (WebAssembly; no network, an empty
 filesystem) in strict mode, so the same program over the same records
 gives the same bytes on every machine. The program is a param, so it is
 part of the protocol and its hash. A record without an `id` is numbered
-when none has one; some with and some without is an error. A program
+when none has one; some with and some without is an error. Stored
+records are ordered by id, as every collection is; to keep the order the
+program wrote (a `sort_by`, a ranking), name a field in `rank`. A program
 that does not parse is refused with jq's own message; a ceiling that
 trips (`seconds`, `memory_mb`) is named.
 
@@ -47,6 +50,10 @@ drawn as code.
         P("program", "string", "A jq program over the records (`.`), with `$header` and `$params`."),
         P("seconds", "float", "The longest the program may run.", 60.0),
         P("memory_mb", "int", "The most memory the guest may use.", 512),
+        P("rank", "string",
+          "A field to write each record's place into, from 1, so the order the program wrote is kept "
+          "(declared as the collection's `order_by`); without one, records are stored in id order.",
+          None),
         P("output_mb", "int", "The most JSON the program may write.", 64),
     ),
     example={"program": "map(select(.p > 0.5))"},
@@ -68,4 +75,5 @@ def reshape_records(records: Any, params: Mapping[str, Any], run_params: Mapping
                             memory_mb=int(params.get("memory_mb", 512)),
                             seconds=float(params.get("seconds", 60.0)),
                             output_mb=int(params.get("output_mb", 64)))
-    return K.collection("records/record", read_guest_records("records/jq", values))
+    items, header = rank_guest_records(read_guest_records("records/jq", values), params.get("rank"))
+    return K.collection("records/record", items, **header)

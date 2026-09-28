@@ -92,6 +92,14 @@ class TestJq:
         out = reshape_records(RECORDS, {"program": program}, {})
         assert [(r["id"], r["winner"]) for r in out["items"]] == [("a/0", "A"), ("a/1", "B")]
 
+    def test_rank_keeps_the_order_the_program_wrote(self):
+        from mechbench_compute.ops.records.jq import reshape_records
+
+        out = reshape_records(RECORDS, {"program": "sort_by(-.p)", "rank": "rank"}, {})
+        stored = K.canonical_collection(out)
+        assert [(r["id"], r["rank"]) for r in stored["items"]] == [("b", 1), ("a", 2)]
+        assert out["order_by"] == ["rank"]
+
     def test_a_bad_program_is_refused_with_jqs_message(self):
         from mechbench_compute.ops.records.jq import reshape_records
 

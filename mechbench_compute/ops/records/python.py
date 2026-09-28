@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from mechbench_compute.blocks.rank_guest_records import rank_guest_records
 from mechbench_compute.blocks.read_guest_records import read_guest_records
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
@@ -36,7 +37,9 @@ only), in strict mode: the clock is virtual and `random` is seeded from
 the input, so the same source over the same records gives the same
 bytes on every machine. The source is a param, so it is part of the
 protocol and its hash. A record the function returns without an `id` is
-numbered when none has one; some with and some without is an error. A
+numbered when none has one; some with and some without is an error.
+Stored records are ordered by id, as every collection is; to keep the
+order the code wrote (a ranking, a sort), name a field in `rank`. A
 failure is refused with the end of the traceback; a ceiling that trips
 (`seconds`, `memory_mb`, the fuel every guest runs under) is named.
 
@@ -56,6 +59,10 @@ drawn as code.
           "records", choices=("records", "record")),
         P("seconds", "float", "The longest the function may run.", 60.0),
         P("memory_mb", "int", "The most memory the guest may use.", 512),
+        P("rank", "string",
+          "A field to write each record's place into, from 1, so the order the code wrote is kept "
+          "(declared as the collection's `order_by`); without one, records are stored in id order.",
+          None),
         P("output_mb", "int", "The most JSON the function may return.", 64),
     ),
     example={"source": "def transform(records, header, params):\n    return [r for r in records if r['p'] > 0.5]\n"},
@@ -103,4 +110,5 @@ def transform_records(records: Any, params: Mapping[str, Any], run_params: Mappi
                             memory_mb=int(params.get("memory_mb", 512)),
                             seconds=float(params.get("seconds", 60.0)),
                             output_mb=int(params.get("output_mb", 64)))
-    return K.collection("records/record", read_guest_records("records/python", values))
+    items, header = rank_guest_records(read_guest_records("records/python", values), params.get("rank"))
+    return K.collection("records/record", items, **header)

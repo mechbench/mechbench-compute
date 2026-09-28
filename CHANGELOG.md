@@ -13,6 +13,21 @@ nothing said so.
 
 ---
 
+## 0.158.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+Also: `records/python` and `records/jq` take `rank`, a field to write each
+record's place into, declared as the collection's `order_by`, so the
+order the code wrote (a `sort_by`, a ranking) survives storage; without
+it their records are stored in id order, as every collection is.
+
 ## 0.157.0 — 2026-09-28
 
 ### Changes that raise
