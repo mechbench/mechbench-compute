@@ -134,6 +134,13 @@ def main(out: Any = sys.stdout) -> None:
             d["choices"] = list(v.choices)
         values[v.name] = d
     w(json.dumps(values, indent=1, ensure_ascii=False))
+    w(";\n\n")
+    w("/** Operations retired for others, by every name they went by: what to write instead. */\n")
+    w(f"export const REPLACED_IN = {json.dumps(lexicon.REPLACED_IN)};\n")
+    w("export const REPLACED_OPS: Record<string, string> = ")
+    replaced = dict(lexicon.REPLACED)
+    replaced.update({old: lexicon.REPLACED[new] for old, new in lexicon.RETIRED.items() if new in lexicon.REPLACED})
+    w(json.dumps(dict(sorted(replaced.items())), indent=1, ensure_ascii=False))
     w(";\n")
 
 
