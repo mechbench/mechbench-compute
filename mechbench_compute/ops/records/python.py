@@ -7,6 +7,7 @@ from mechbench_compute.blocks.rank_guest_records import rank_guest_records
 from mechbench_compute.blocks.read_guest_records import read_guest_records
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.blocks.read_order_by import read_order_by
 from mechbench_compute.blocks.run_guest_json import run_guest_json
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
@@ -39,7 +40,8 @@ bytes on every machine. The source is a param, so it is part of the
 protocol and its hash. A record the function returns without an `id` is
 numbered when none has one; some with and some without is an error.
 Stored records are ordered by id, as every collection is; to keep the
-order the code wrote (a ranking, a sort), name a field in `rank`. A
+order the code wrote (a ranking, a sort), name a field in `rank`. An input's `order_by` (a sort's) is kept when
+every record returned still has its fields. A
 failure is refused with the end of the traceback; a ceiling that trips
 (`seconds`, `memory_mb`, the fuel every guest runs under) is named.
 
@@ -110,5 +112,6 @@ def transform_records(records: Any, params: Mapping[str, Any], run_params: Mappi
                             memory_mb=int(params.get("memory_mb", 512)),
                             seconds=float(params.get("seconds", 60.0)),
                             output_mb=int(params.get("output_mb", 64)))
-    items, header = rank_guest_records(read_guest_records("records/python", values), params.get("rank"))
+    items, header = rank_guest_records(read_guest_records("records/python", values), params.get("rank"),
+                                       read_order_by(records))
     return K.collection("records/record", items, **header)

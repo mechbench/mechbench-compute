@@ -56,6 +56,16 @@ class TestPython:
         out = transform_records(RECORDS, {"source": src, "over": "record"}, {})
         assert [r["id"] for r in out["items"]] == ["b/1", "b/2"]
 
+    def test_the_inputs_order_is_kept_while_its_fields_are(self):
+        from mechbench_compute.ops.records.python import transform_records
+        from mechbench_compute.ops.records.sort import sort_records
+
+        ranked = sort_records(RECORDS, {"by": ["-p"]}, {})
+        kept = transform_records(ranked, {"source": "def transform(rs, h, p):\n    return [dict(r, q=1) for r in rs]\n"}, {})
+        assert kept["order_by"] == ["rank"]
+        dropped = transform_records(ranked, {"source": "def transform(rs, h, p):\n    return [{'id': r['id']} for r in rs]\n"}, {})
+        assert "order_by" not in dropped
+
     def test_random_is_seeded_from_the_input(self):
         from mechbench_compute.ops.records.python import transform_records
 

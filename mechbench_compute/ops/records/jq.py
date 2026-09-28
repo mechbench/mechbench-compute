@@ -8,6 +8,7 @@ from mechbench_compute.blocks.rank_guest_records import rank_guest_records
 from mechbench_compute.blocks.read_guest_records import read_guest_records
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.blocks.read_order_by import read_order_by
 from mechbench_compute.blocks.run_guest_json import run_guest_json
 from mechbench_compute.lexicon._base import In, Op, Output, P
 
@@ -33,7 +34,8 @@ gives the same bytes on every machine. The program is a param, so it is
 part of the protocol and its hash. A record without an `id` is numbered
 when none has one; some with and some without is an error. Stored
 records are ordered by id, as every collection is; to keep the order the
-program wrote (a `sort_by`, a ranking), name a field in `rank`. A program
+program wrote (a `sort_by`, a ranking), name a field in `rank`. An input's `order_by` (a sort's) is kept when
+every record returned still has its fields. A program
 that does not parse is refused with jq's own message; a ceiling that
 trips (`seconds`, `memory_mb`) is named.
 
@@ -75,5 +77,6 @@ def reshape_records(records: Any, params: Mapping[str, Any], run_params: Mapping
                             memory_mb=int(params.get("memory_mb", 512)),
                             seconds=float(params.get("seconds", 60.0)),
                             output_mb=int(params.get("output_mb", 64)))
-    items, header = rank_guest_records(read_guest_records("records/jq", values), params.get("rank"))
+    items, header = rank_guest_records(read_guest_records("records/jq", values), params.get("rank"),
+                                       read_order_by(records))
     return K.collection("records/record", items, **header)

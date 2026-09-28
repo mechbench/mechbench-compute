@@ -13,6 +13,18 @@ nothing said so.
 
 ---
 
+## 0.159.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- `records/python` and `records/jq` keep their input's `order_by` (a
+  sort's `rank`) when every record they return still has its fields, as
+  `records/filter` and `records/derive` do; they declared none.
+
 ## 0.158.0 — 2026-09-28
 
 ### Changes that raise
