@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.blocks.build_collection import build_collection
+from mechbench_compute.blocks.expand_grid import expand_grid
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import In, Op, Output, P
@@ -33,6 +34,14 @@ coordinate, or in a `records/zip` with the parents afterwards.
 An empty list contributes no records. A record without the field is
 refused by name; `on_missing: "skip"` passes over it and reports the
 count as `n_missing`.
+
+`field: measures` on a grid (an `activations/grid` and every kind that
+extends it: a trace, a lens, an attribution) makes one record per cell:
+each axis a coordinate (`layer`, `position`), the token when an axis is
+the position, and each measure a field, so a trace's cells group and
+filter like any records. The collection keeps its input's header (a
+grid's `components`, its `arch`), so an expression downstream reads
+`header.components[coords.component]`.
 """,
     inputs=(In("records", "collection | records/table",
                "The records to work on: any collection of items — records, "
@@ -73,6 +82,10 @@ def unnest(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     out: list[dict[str, Any]] = []
     parents = missing = 0
     for r in read_items(records):
+        if field == "measures" and expand_grid(r) is not None:
+            parents += 1
+            out.extend(_read_cells(r))
+            continue
         elements = read_field(r, field)
         if elements is None:
             if on_missing == "skip":
@@ -103,5 +116,21 @@ def unnest(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     unnested = {"field": field, "parents": parents, "records": len(out)}
     if missing:
         unnested["n_missing"] = missing
-    return build_collection(out, unnested=unnested, name=params.get("name"),
+    kept = {k: v for k, v in (records.items() if isinstance(records, Mapping) else ())
+            if k not in ("kind", "item_kind", "key", "items", "rows", "columns", "name", "description",
+                         "unnested", "order_by", "segments", "dropped", "unknown", "undefined",
+                         "missing", "unmatched", "n_missing")}
+    return build_collection(out, **kept, unnested=unnested, name=params.get("name"),
                             description=params.get("description"))
+
+
+def _read_cells(grid: Mapping[str, Any]) -> list[dict[str, Any]]:
+    axes = [str(a) for a in grid["axes"]]
+    coords = dict(grid.get("coords") or {})
+    out = []
+    for i, cell in enumerate(expand_grid(grid) or []):
+        rec = {k: v for k, v in cell.items() if k not in ("id", *coords, *axes)}
+        rec.update({"id": f"{grid.get('id')}/{i}", "parent": grid.get("id"),
+                    "coords": {**coords, **{a: cell[a] for a in axes}}})
+        out.append(rec)
+    return out

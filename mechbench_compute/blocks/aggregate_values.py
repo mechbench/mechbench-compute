@@ -15,6 +15,7 @@ AGGREGATES: dict[str, tuple[int, int]] = {
     "share": (1, 1), "any": (1, 1), "all": (1, 1), "first": (1, 1), "last": (1, 1), "collect": (1, 1),
     "wilson": (1, 1), "bootstrap_mean": (1, 1), "spearman": (2, 2), "paired_difference": (4, 5),
 }
+OBJECT_AGGREGATES = frozenset({"wilson", "bootstrap_mean", "spearman", "paired_difference"})
 SETTINGS: dict[str, dict[str, Any]] = {
     "wilson": {"level": 0.95},
     "bootstrap_mean": {"level": 0.95, "resamples": 2000, "seed": 0},

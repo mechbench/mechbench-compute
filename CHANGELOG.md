@@ -13,6 +13,33 @@ nothing said so.
 
 ---
 
+## 0.155.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- `records/unnest` keeps its input's header (less `name`, `description`
+  and the headers that describe an earlier operation's work, such as
+  `dropped`), where it kept only `arch`: an unnested attribution still
+  carries its `components`.
+- `records/group` with no `by` answers one record even over an empty
+  input (`count()` 0, `sum` 0, `mean` None), where it answered none.
+
+Also, for the records algebra, and the forms the migration of stored
+protocols onto it writes:
+
+- `records/derive` takes `keep`: the only fields to keep, by path, and
+  the id.
+- `records/group`'s aggregate names may list several, comma-separated,
+  to unpack a named method's object into flat fields:
+  `rate, lo, hi: wilson(lied)`.
+- `records/unnest` with `field: measures` on a grid makes one record per
+  cell: each axis a coordinate, the token at a position, each measure a
+  field.
+
 ## 0.154.0 — 2026-09-28
 
 ### Changes that raise

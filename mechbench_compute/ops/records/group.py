@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from mechbench_compute.blocks.aggregate_values import AGGREGATES, aggregate_values
+from mechbench_compute.blocks.aggregate_values import AGGREGATES, OBJECT_AGGREGATES, aggregate_values
 from mechbench_compute.blocks.raise_expr_error import raise_expr_error
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
@@ -20,7 +20,8 @@ OP = Op(
     description="""\
 `by` names the group's fields and the expression each is read from (the
 language is in mechbench-expr's SPEC.md); records whose values agree are
-one group, and a group of none is the whole input. `aggregates` names each
+one group, and a group of none is the whole input: one record, even
+when the input is empty (`count()` is then 0). `aggregates` names each
 output field and the aggregate call that computes it; the call's positional
 arguments are expressions read per record, its named ones settings read
 once:
@@ -46,6 +47,18 @@ is `{n, mean_a, mean_b, diff, lo, hi, share_positive}`, the records where
 `on == a` against those where `on == b`, matched by `paired` when it is
 given, the groups drawn in turn from one generator in the order of their
 keys as text. Numbers are not rounded; round them in a derive.
+
+A name that lists several, comma-separated, unpacks a named method's
+object into those fields, flat:
+
+```
+aggregates:
+  rate, lo, hi: wilson(lied)
+  n, mean: bootstrap_mean(p)
+```
+
+Each listed name must be one of the object's fields (`rate`, `lo` and
+`hi` of `wilson`'s `{k, n, rate, lo, hi}`); the others are left out.
 
 A value that is `None` is skipped by every aggregate and counted in the
 header's `missing`, by aggregate; `on_missing: fail` refuses it instead.
@@ -109,6 +122,10 @@ def group_records(records: Any, params: Mapping[str, Any], run_params: Mapping[s
         if not low <= len(call["args"]) <= high:
             takes = (f"{low}" if low == high else f"{low} to {high}") + (" expression" if high == 1 else " expressions")
             raise ValueError(f"records/group: {name}: {call['function']} takes {takes}: `{src}`")
+        if "," in name and call["function"] not in OBJECT_AGGREGATES:
+            raise ValueError(
+                f"records/group: {name}: only {', '.join(sorted(OBJECT_AGGREGATES))} answer an object "
+                f"to unpack into several fields, not {call['function']}: `{src}`")
         calls[name] = call
         for i, arg in enumerate(_read_args(call)):
             reads[f"{name}#{i}"] = arg
@@ -117,8 +134,8 @@ def group_records(records: Any, params: Mapping[str, Any], run_params: Mapping[s
         values = engine.evaluate(reads, items, run_params, header).values if reads else [{} for _ in items]
     except ExprError as e:
         raise_expr_error("records/group", e, items)
-    groups: dict[str, list[int]] = {}
-    key_of: dict[str, dict[str, Any]] = {}
+    groups: dict[str, list[int]] = {} if by else {"[]": []}
+    key_of: dict[str, dict[str, Any]] = {} if by else {"[]": {}}
     for i, key in enumerate(keys):
         k = json.dumps([key[n] for n in by], sort_keys=True)
         groups.setdefault(k, []).append(i)
@@ -141,11 +158,26 @@ def group_records(records: Any, params: Mapping[str, Any], run_params: Mapping[s
     out = []
     for k in groups:
         row: dict[str, Any] = {"id": ids[k]}
-        for name, value in {**key_of[k], **computed[k]}.items():
+        for name, value in key_of[k].items():
             row = set_field(row, name, value)
+        for name, value in computed[k].items():
+            for field, v in _unpack(name, value).items():
+                row = set_field(row, field, v)
         out.append(row)
     extra = {"missing": missing} if missing else {}
     return K.collection("records/record", out, **extra)
+
+
+def _unpack(name: str, value: Any) -> dict[str, Any]:
+    if "," not in name:
+        return {name: value}
+    names = [n.strip() for n in name.split(",")]
+    if value is None:
+        return dict.fromkeys(names)
+    absent = [n for n in names if n not in value]
+    if absent:
+        raise ValueError(f"records/group: {name}: the answer has no {', '.join(absent)} (it has {', '.join(value)})")
+    return {n: value[n] for n in names}
 
 
 def _read_id_part(value: Any) -> str:

@@ -50,6 +50,10 @@ class TestDerive:
         assert first["label"] == f"noir: {_records()[0]['q']:.1f}"
         assert "ok" not in first and first["neg"] == (_records()[0]["p"] < 0)
 
+    def test_keep_keeps_only_the_named_fields_and_the_id(self):
+        out = derive(_collection(_records()[:1]), {"fields": {"neg": "p < 0"}, "keep": ["coords.genre", "neg", "absent"]}, {})
+        assert out["items"][0] == {"id": "0", "coords": {"genre": "noir"}, "neg": _records()[0]["p"] < 0}
+
     def test_undefined_numbers_are_null_and_counted(self):
         out = derive(_collection([{"id": "a", "x": 0}, {"id": "b", "x": 2}]), {"fields": {"inv": "1 / x"}}, {})
         assert [r["inv"] for r in out["items"]] == [None, 0.5]
@@ -145,6 +149,20 @@ class TestGroup:
         assert out["missing"] == {"sum": 1, "mean": 1, "xs": 1, "top": 1}
         with pytest.raises(ValueError, match="None"):
             group_records(_collection(items), {"aggregates": {"m": "mean(x)"}, "on_missing": "fail"}, {})
+
+    def test_a_named_method_unpacks_into_flat_fields(self):
+        out = group_records(_collection(_records()), {"by": {"genre": "coords.genre"}, "aggregates": {
+            "rate, lo, hi": "wilson(ok)", "n": "count()"}}, {})
+        row = out["items"][0]
+        assert set(row) == {"id", "genre", "rate", "lo", "hi", "n"} and 0 <= row["lo"] <= row["rate"] <= row["hi"] <= 1
+        with pytest.raises(ValueError, match="has no rho"):
+            group_records(_collection(_records()), {"aggregates": {"rate, rho": "wilson(ok)"}}, {})
+        with pytest.raises(ValueError, match="answer an object"):
+            group_records(_collection(_records()), {"aggregates": {"a, b": "mean(p)"}}, {})
+
+    def test_no_by_answers_one_record_even_over_nothing(self):
+        out = group_records(_collection([]), {"aggregates": {"n": "count()", "s": "sum(x)", "m": "mean(x)"}}, {})
+        assert out["items"] == [{"id": "all", "n": 0, "s": 0, "m": None}]
 
     def test_a_group_of_none_is_the_whole_input(self):
         out = group_records(_collection(_records()), {"aggregates": {"n": "count()"}}, {})
@@ -254,3 +272,17 @@ class TestThroughAProtocol:
     def test_an_expression_with_no_value_is_refused(self):
         with pytest.raises(ValueError, match="division by zero"):
             _run(self._graph({"$expr": "params.k // 0"}), {"k": 3, "model": "gemma"})
+
+
+class TestUnnestGrids:
+    def test_a_grid_unnests_into_its_cells_and_keeps_the_header(self):
+        from mechbench_compute.ops.records.unnest import unnest
+
+        grid = {"id": "g1", "coords": {"country": "FR"}, "axes": ["layer", "position"],
+                "measures": {"share": [[0.1, 0.2], [0.3, 0.4]]}, "tokens": ["Paris", "!"]}
+        out = unnest(K.collection("intervene/trace", [grid], components=["embed", "L0"]), {"field": "measures"})
+        assert out["components"] == ["embed", "L0"] and out["unnested"]["records"] == 4
+        assert out["items"][1] == {"id": "g1/1", "parent": "g1", "token": "!", "share": 0.2,
+                                   "coords": {"country": "FR", "layer": 0, "position": 1}}
+        cells = group_records(out, {"by": {"layer": "coords.layer"}, "aggregates": {"m": "mean(share)"}}, {})
+        assert [round(r["m"], 6) for r in cells["items"]] == [0.15, 0.35]
