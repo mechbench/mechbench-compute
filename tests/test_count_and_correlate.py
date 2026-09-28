@@ -9,12 +9,11 @@ from mechbench_schema import dump_canonical
 from mechbench_compute import bench, ops
 from mechbench_compute import isomorphism as iso
 from mechbench_compute import reduce as rd
-from mechbench_compute.ops.records.correlate import (
-    compute_spearman,
-    correlate,
-    estimate_fisher_interval,
-)
-from mechbench_compute.ops.records.count import count, estimate_wilson
+from mechbench_compute.blocks.compute_spearman import compute_spearman
+from mechbench_compute.blocks.estimate_fisher_interval import estimate_fisher_interval
+from mechbench_compute.blocks.estimate_wilson import estimate_wilson
+from mechbench_compute.ops.records.correlate import correlate
+from mechbench_compute.ops.records.count import count
 from mechbench_compute.ops.records.unnest import unnest
 from mechbench_compute.ops.records.zip import zip_branches
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec

@@ -13,6 +13,45 @@ nothing said so.
 
 ---
 
+## 0.150.0 — 2026-09-28
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+Also: the records algebra, five operations whose conditions, keys and
+fields are expressions in the language of
+[mechbench-expr](https://github.com/mechbench/mechbench-expr) (its
+SPEC.md), evaluated by that engine's WebAssembly build, v0.1.0, vendored
+in the wheel and checked against its pinned sha256 (`b7eac4d2368c…`) on
+load:
+
+- `records/derive` sets fields from expressions and text from templates,
+  and drops fields; an undefined number (a division by zero) is `None`
+  and counted in the header's `undefined`.
+- `records/filter` keeps the records whose `where` is true; the header
+  counts the `dropped` and, of those, the `unknown` (the condition was
+  `None`).
+- `records/sort` orders by a list of expressions, `-` for descending,
+  nulls last, stable, with a `limit`.
+- `records/join` carries each left record's right match (by `on`, or
+  `on`/`on_right`) under a field named `as`; `how` is inner or left; the
+  right side's keys must be unique.
+- `records/group` gathers records by `by` expressions and computes
+  aggregate calls over each group: `count`, `sum`, `mean`, `median`,
+  `min`, `max`, `share`, `any`, `all`, `first`, `last`, `collect`, and
+  the named methods `wilson`, `bootstrap_mean`, `spearman` and
+  `paired_difference`, whose numbers are those of `count`, `summarize`,
+  `correlate` and `contrast` before rounding (the tests hold them equal).
+
+The parameter types `expression` and `template` join the type grammar.
+The older records operations are unchanged; re-expressing them in these
+five comes next.
+
 ## 0.149.0 — 2026-09-28
 
 ### Changes that raise

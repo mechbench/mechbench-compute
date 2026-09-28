@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
-from statistics import NormalDist
 from typing import Any
 
+from mechbench_compute.blocks.compute_spearman import compute_spearman
+from mechbench_compute.blocks.describe_columns import describe_columns
+from mechbench_compute.blocks.estimate_fisher_interval import estimate_fisher_interval
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
-from mechbench_compute.blocks.sort_group_key import sort_group_key
-from mechbench_compute.blocks.describe_columns import describe_columns
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.blocks.sort_group_key import sort_group_key
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
 
@@ -84,40 +84,6 @@ def run(ctx, inputs, params):
 def correlate(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     m = MONOID()
     return m.finalize(m.partial(read_items(records), params), params)
-
-
-def rank_average(values: Sequence[float]) -> list[float]:
-    order = sorted(range(len(values)), key=lambda i: values[i])
-    ranks = [0.0] * len(values)
-    i = 0
-    while i < len(order):
-        j = i
-        while j + 1 < len(order) and values[order[j + 1]] == values[order[i]]:
-            j += 1
-        for k in range(i, j + 1):
-            ranks[order[k]] = (i + j) / 2
-        i = j + 1
-    return ranks
-
-
-def compute_spearman(xs: Sequence[float], ys: Sequence[float]) -> float | None:
-    if len(xs) < 3:
-        return None
-    rx, ry = rank_average(xs), rank_average(ys)
-    mx, my = math.fsum(rx) / len(rx), math.fsum(ry) / len(ry)
-    num = math.fsum((a - mx) * (b - my) for a, b in zip(rx, ry))
-    den = math.sqrt(math.fsum((a - mx) ** 2 for a in rx) * math.fsum((b - my) ** 2 for b in ry))
-    return num / den if den else None
-
-
-def estimate_fisher_interval(rho: float | None, n: int, level: float) -> tuple[float | None, float | None]:
-    if rho is None or n < 4 or abs(rho) >= 1.0:
-        return None, None
-    z = NormalDist().inv_cdf(0.5 + level / 2)
-    se = math.sqrt((1 + rho * rho / 2) / (n - 3))
-    centre = math.atanh(rho)
-    return math.tanh(centre - z * se), math.tanh(centre + z * se)
-
 
 
 class RankPoints(Monoid):

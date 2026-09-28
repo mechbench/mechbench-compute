@@ -4,13 +4,14 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from mechbench_compute.blocks.describe_columns import describe_columns
+from mechbench_compute.blocks.estimate_bootstrap_mean import estimate_bootstrap_mean
 from mechbench_compute.blocks.expand_cells import expand_cells
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
-from mechbench_compute.blocks.sort_group_key import sort_group_key
-from mechbench_compute.blocks.describe_columns import describe_columns
 from mechbench_compute.blocks.read_interval import read_interval
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.blocks.sort_group_key import sort_group_key
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
 
@@ -84,20 +85,6 @@ def run(ctx, inputs, params):
     return group_stats(inputs["records"], params)
 
 
-def _bootstrap_mean(values: Sequence[float], level: float, resamples: int,
-                    seed: int) -> tuple[float, float]:
-    import numpy as np
-
-    v = np.sort(np.asarray(values, dtype=np.float64))
-    if v.size < 2:
-        return float(v[0]), float(v[0])
-    rng = np.random.default_rng(seed)
-    idx = rng.integers(0, v.size, size=(int(resamples), v.size))
-    means = v[idx].mean(axis=1)
-    lo, hi = np.percentile(means, [50 * (1 - level), 50 * (1 + level)])
-    return float(lo), float(hi)
-
-
 def summarize_groups(groups: Mapping[tuple, Sequence[float]], params: Mapping[str, Any]) -> dict[str, Any]:
     from statistics import median
 
@@ -117,7 +104,7 @@ def summarize_groups(groups: Mapping[tuple, Sequence[float]], params: Mapping[st
             "share_negative": round(sum(v < 0 for v in vals) / len(vals), 3),
         })
         if interval is not None:
-            lo, hi = _bootstrap_mean(vals, *interval)
+            lo, hi = estimate_bootstrap_mean(vals, *interval)
             row.update({"lo": round(lo, 4), "hi": round(hi, 4)})
         rows.append(row)
     stats = ["n", "median", "mean", "min", "max", "share_negative"]

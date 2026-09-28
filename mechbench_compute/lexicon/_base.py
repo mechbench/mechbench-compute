@@ -160,7 +160,7 @@ REQUIRED: Any = _Required()
 
 TYPE_WORDS = frozenset({"string", "int", "float", "bool", "null",
                         "selector", "model", "object", "json", "callable",
-                        "ref"})
+                        "ref", "expression", "template"})
 
 
 @dataclass(frozen=True)

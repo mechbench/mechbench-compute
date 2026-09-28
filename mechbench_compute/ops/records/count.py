@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
-from statistics import NormalDist
 from typing import Any
 
+from mechbench_compute.blocks.describe_columns import describe_columns
+from mechbench_compute.blocks.estimate_wilson import estimate_wilson
 from mechbench_compute.blocks.match_where import match_where, parse_where
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_group_key import read_group_key
-from mechbench_compute.blocks.sort_group_key import sort_group_key
-from mechbench_compute.blocks.describe_columns import describe_columns
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.blocks.sort_group_key import sort_group_key
 from mechbench_compute.lexicon._base import In, Op, Output, P
 from mechbench_compute.reduce.monoid import Monoid
 
@@ -114,16 +113,6 @@ def run(ctx, inputs, params):
 def count(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
     m = MONOID()
     return m.finalize(m.partial(read_items(records), params), params)
-
-
-def estimate_wilson(k: int, n: int, level: float) -> tuple[float, float]:
-    z = NormalDist().inv_cdf(0.5 + level / 2)
-    p = k / n
-    d = 1 + z * z / n
-    centre = (p + z * z / (2 * n)) / d
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
-    return max(0.0, centre - half), min(1.0, centre + half)
-
 
 
 def _matches(value: Any, equals: Any) -> bool:

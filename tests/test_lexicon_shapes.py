@@ -208,6 +208,18 @@ def _fits(v: Any, a: TypeNode, p: Param, where: str) -> list[str]:
             return no
         c = _choices(p)
         return [] if not c or v in c else [f"{where}: {v!r} is not one of {c}"]
+    if w in ("expression", "template"):
+        if not isinstance(v, str):
+            return no
+        from mechbench_compute.expr.engine import ExprError, load_engine
+        try:
+            if w == "expression":
+                load_engine().check(v.removeprefix("-") if p.type.startswith("list") else v)
+            else:
+                load_engine().render(v, [{}])
+        except ExprError as e:
+            return [f"{where}: {v!r} is not a {w}: {e.detail}"]
+        return []
     if w == "int":
         return [] if isinstance(v, int) and not isinstance(v, bool) else no
     if w == "float":

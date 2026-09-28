@@ -17,7 +17,7 @@ VERBS = {
     "bin", "bootstrap", "build", "bump", "cache", "calculate", "call", "cap",
     "capture", "chat", "check", "choose", "classify", "clamp", "clear",
     "close", "coerce", "collect", "compare", "compile", "compute", "contrast",
-    "convert", "copy", "correlate", "count", "cross", "decode", "decompose", "delete",
+    "convert", "copy", "correlate", "count", "cross", "decode", "decompose", "delete", "derive",
     "describe", "diff", "digest", "dispatch", "drop", "dump", "edit", "emit",
     "encode", "ensure", "estimate", "expand", "expect", "extend", "extract",
     "fetch", "fill", "filter", "find", "finish", "fit", "flatten",

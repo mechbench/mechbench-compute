@@ -125,12 +125,26 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/select.py", "run"),
         ("ops/records/select.py", "select"),
         ("ops/records/select.py", "_select_items")],
+    "records/derive": [
+        ("ops/records/derive.py", "run"),
+        ("ops/records/derive.py", "derive")],
+    "records/filter": [
+        ("ops/records/filter.py", "run"),
+        ("ops/records/filter.py", "filter_records")],
+    "records/sort": [
+        ("ops/records/sort.py", "run"),
+        ("ops/records/sort.py", "sort_records")],
+    "records/join": [
+        ("ops/records/join.py", "run"),
+        ("ops/records/join.py", "join_records")],
+    "records/group": [
+        ("ops/records/group.py", "run"),
+        ("ops/records/group.py", "group_records")],
     "records/subtract": [
         ("ops/records/subtract.py", "run"),
         ("ops/records/subtract.py", "subtract_baseline")],
     "records/summarize": [
         ("ops/records/summarize.py", "run"),
-        ("ops/records/summarize.py", "_bootstrap_mean"),
         ("ops/records/summarize.py", "summarize_groups"),
         ("ops/records/summarize.py", "group_stats"),
         ("ops/records/summarize.py", "GroupStats")],

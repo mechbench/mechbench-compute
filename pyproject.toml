@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mechbench-compute"
-version = "0.149.0"
+version = "0.150.0"
 description = "Composable mechanistic-interpretability primitives: hook-aware forward, interventions, activation cache, logit lens, probes, and geometry."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -51,3 +51,6 @@ Website = "https://mechbench.ai"
 [tool.setuptools.packages.find]
 include = ["mechbench_compute*"]
 exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"mechbench_compute.expr" = ["mbexpr.wasm"]
