@@ -78,7 +78,7 @@ class ModelLoading:
             handles = fuse_adapter_stack(
                 model.lm, payloads, override,
                 skip_missing=bool(params.get("adapter_skip_missing", False)),
-                skipped=skipped)
+                skipped=skipped, keys=model.architecture.adapter_keys)
             try:
                 yield handles
             finally:

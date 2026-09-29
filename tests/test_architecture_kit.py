@@ -1,0 +1,247 @@
+from __future__ import annotations
+
+import dataclasses
+import json
+import pathlib
+import re
+
+import mlx.core as mx
+import numpy as np
+import pytest
+from mlx.utils import tree_flatten
+
+from mechbench_compute import attribution, dialects, support
+from mechbench_compute.architectures import ARCHITECTURES, BY_MODEL_TYPE
+from mechbench_compute.architectures import llama as llama_arch
+from mechbench_compute.interventions import Ablate
+from mechbench_compute.lora import apply_lora
+from mechbench_compute.points import LAYOUT
+from mechbench_compute.tools import build_toolbox
+from tests.tiny_models import BUILDERS, WINDOW, build_tiny_model
+
+IDS = mx.array([[1, 5, 9, 2, 7, 3, 11, 4]])
+
+RESIDUAL_TOLERANCE = 2.0 ** -6
+
+TEMPLATES = pathlib.Path(__file__).parent / "fixtures" / "chat_templates.json"
+
+TEMPLATE_OF = {
+    "gemma3": "mlx-community/gemma-3-4b-it-bf16",
+    "gemma4": "mlx-community/gemma-4-e2b-it-bf16",
+    "llama": "mlx-community/Llama-3.2-3B-Instruct-bf16",
+    "qwen2": "mlx-community/Qwen2.5-3B-Instruct-bf16",
+}
+
+
+@pytest.fixture(scope="module", params=ARCHITECTURES, ids=lambda a: a.model_type)
+def tiny(request):
+    return build_tiny_model(request.param.model_type, request.param)
+
+
+def read_f64(value) -> np.ndarray:
+    return np.array(mx.array(value).astype(mx.float32), dtype=np.float64)
+
+
+def list_declared_names(model) -> list[str]:
+    a = model.architecture
+    return ([f"blocks.{i}.{p}" for i in range(model.arch.n_layers) for p in a.layer_points]
+            + list(a.global_points))
+
+
+def read_law_terms(law: str) -> list[str]:
+    return sorted(set(re.findall(r"([a-z_]+)\[i(?:\+1)?\]", law)))
+
+
+def check_residual_law(model, ids=IDS) -> None:
+    architecture = model.architecture
+    law = architecture.residual_law
+    n = model.arch.n_layers
+    terms = read_law_terms(law)
+    points = [t for t in terms if t != "layer_scalar"]
+    unknown = [p for p in points if not architecture.supports(p, layer_scoped=True)]
+    assert not unknown, (
+        f"{architecture.model_type}: residual law {law!r} names points it does not declare: {unknown}")
+    result = model.run(ids, capture=[f"blocks.{i}.{p}" for i in range(n) for p in points])
+    names = {p: [read_f64(result.cache[f"blocks.{i}.{p}"]) for i in range(n)] for p in points}
+    if "layer_scalar" in terms:
+        names["layer_scalar"] = [read_f64(layer.layer_scalar) for layer in model.lm.model.layers]
+    sides = [s.strip() for s in law.split("==")]
+    for i in range(n):
+        values = [(side, eval(side, {}, {**names, "i": i}))
+                  for side in sides if not ("[i+1]" in side and i == n - 1)]
+        for (left, a), (right, b) in zip(values, values[1:]):
+            allowed = RESIDUAL_TOLERANCE * max(1.0, float(np.abs(a).max()))
+            err = float(np.abs(a - b).max())
+            if err > allowed:
+                raise AssertionError(
+                    f"{architecture.model_type}: residual law {law!r} fails at layer {i}: "
+                    f"{left} != {right} (max |diff| {err:.3g}, allowed {allowed:.3g})")
+
+
+def test_every_architecture_has_a_tiny_model():
+    assert set(BY_MODEL_TYPE) == set(BUILDERS)
+    assert set(BY_MODEL_TYPE) == set(TEMPLATE_OF)
+
+
+def test_the_declared_points_are_present_at_the_declared_level(tiny):
+    a = tiny.architecture
+    assert a.level in support.LEVELS and a.loader in support.LOADERS
+    names = list_declared_names(tiny)
+    result = tiny.run(IDS, capture=names)
+    n_tokens = IDS.shape[1]
+    heads = {tiny.arch.n_heads, tiny.arch.n_kv_heads}
+    for name in names:
+        assert name in result.cache, f"{a.model_type}: {name} was declared and not captured"
+        shape = tuple(result.cache[name].shape)
+        point = name.split(".", 2)[-1] if name.startswith("blocks.") else name
+        if point == "final_norm.scale":
+            assert shape == (1, n_tokens), f"{a.model_type}: {name} {shape}"
+            continue
+        position, head, feature = LAYOUT[point]
+        assert len(shape) == feature + 1 and shape[0] == 1, f"{a.model_type}: {name} {shape}"
+        assert shape[position] == n_tokens, f"{a.model_type}: {name} {shape}"
+        if head is not None:
+            assert shape[head] in heads, f"{a.model_type}: {name} {shape}"
+
+
+def test_the_global_points_agree_with_the_residual_stream(tiny):
+    a = tiny.architecture
+    last = tiny.arch.n_layers - 1
+    wanted = ["blocks.0.resid_pre", f"blocks.{last}.resid_post", *a.global_points]
+    result = tiny.run(IDS, capture=wanted)
+    cache = result.cache
+    if "embed" in a.global_points:
+        assert np.array_equal(read_f64(cache["embed"]), read_f64(cache["blocks.0.resid_pre"]))
+    if "final_norm" in a.global_points:
+        normed = a.attribution_unembed(tiny._model).norm(cache[f"blocks.{last}.resid_post"])
+        assert np.array_equal(read_f64(cache["final_norm"]), read_f64(normed))
+    if "logits" in a.global_points:
+        assert np.array_equal(read_f64(cache["logits"]), read_f64(result.logits))
+        head = tiny.head_logits(cache["final_norm"])
+        assert np.array_equal(read_f64(head), read_f64(result.logits))
+
+
+def test_the_residual_law_holds(tiny):
+    check_residual_law(tiny)
+
+
+def forward_with_a_wrong_residual(model, input_ids, *, hooks=None, capture=None,
+                                  arch=None, kv_cache=None):
+    hooks = dict(hooks or {})
+    for i in range(arch.n_layers):
+        hooks.setdefault(f"blocks.{i}.resid_post", lambda act, info: act * 1.5)
+    return llama_arch.ARCH.forward(model, input_ids, hooks=hooks, capture=capture,
+                                   arch=arch, kv_cache=kv_cache)
+
+
+BROKEN = dataclasses.replace(llama_arch.ARCH, model_type="llama-broken",
+                             name="Llama with a wrong residual",
+                             forward=forward_with_a_wrong_residual)
+
+
+def test_an_architecture_with_a_wrong_residual_fails_the_law_by_name():
+    model = build_tiny_model("llama", BROKEN)
+    with pytest.raises(AssertionError,
+                       match=r"llama-broken: residual law .* fails at layer 0"):
+        check_residual_law(model)
+
+
+def test_direct_logit_attribution_with_the_final_norm_sums_to_the_true_logit(tiny):
+    n = tiny.arch.n_layers
+    result = tiny.run(IDS, capture=[*(f"blocks.{i}.resid_post" for i in range(n)),
+                                    "blocks.0.resid_pre", "final_norm.scale"])
+    last = read_f64(result.logits)[0, -1]
+    cap = tiny.architecture.attribution_unembed(tiny._model).softcap
+    if cap:
+        last = cap * np.arctanh(last / cap)
+    acc = attribution.accumulated_resid(result.cache, include_pre=True)
+    components = np.diff(acc, axis=0, prepend=np.zeros_like(acc[:1]))
+    ln_scale = read_f64(result.cache["final_norm.scale"]).reshape(-1)
+    targets = [int(np.argmax(last)), int(np.argmin(last)), 17]
+    attrs = attribution.logit_attrs(tiny, components, targets, apply_ln=True,
+                                    ln_scale=ln_scale)
+    assert np.allclose(attrs.sum(axis=0), last[targets], atol=2e-3, rtol=1e-3)
+
+
+@pytest.mark.parametrize("n_tokens", [WINDOW, 3 * WINDOW + 1])
+def test_capturing_attention_internals_at_every_layer_leaves_the_logits_alone(tiny, n_tokens):
+    ids = mx.array([[1, 5, 9, 2, 7, 3, 11, 4, 8, 6][:n_tokens]])
+    plain = read_f64(tiny.run(ids).logits)
+    probed = tiny.run(ids, capture=[f"blocks.{i}.attn.weights"
+                                    for i in range(tiny.arch.n_layers)])
+    assert np.abs(plain).max() > 1.0
+    assert np.allclose(read_f64(probed.logits), plain, atol=1e-4, rtol=1e-4)
+    for i in range(tiny.arch.n_layers):
+        weights = read_f64(probed.cache[f"blocks.{i}.attn.weights"])[0]
+        assert np.allclose(np.triu(weights, k=1), 0.0)
+
+
+def test_ablating_every_head_equals_zeroing_attn_out(tiny):
+    for layer in range(tiny.arch.n_layers):
+        heads = tiny.run(IDS, interventions=[Ablate.head(layer, h)
+                                             for h in range(tiny.arch.n_heads)])
+        zeroed = tiny.run(IDS, interventions=[Ablate.attention(layer)])
+        assert np.allclose(read_f64(heads.logits), read_f64(zeroed.logits),
+                           atol=1e-4, rtol=1e-4), (
+            f"{tiny.architecture.model_type}: layer {layer}")
+
+
+def test_a_double_run_is_bit_identical(tiny):
+    names = list_declared_names(tiny)
+    first = tiny.run(IDS, capture=names)
+    second = tiny.run(IDS, capture=names)
+    assert np.array_equal(read_f64(first.logits), read_f64(second.logits))
+    for name in names:
+        assert np.array_equal(read_f64(first.cache[name]), read_f64(second.cache[name])), name
+
+
+def test_tokenize_round_trips_through_the_tokenizer(tiny):
+    prompt = "the cat sat on a mat"
+    plain = tiny.tokenize(prompt, chat_template=False)[0].tolist()
+    assert tiny.tokenizer.decode(plain) == prompt
+    chat = tiny.tokenize(prompt, chat_template=True)[0].tolist()
+    assert any(chat[i:i + len(plain)] == plain for i in range(len(chat))), chat
+    assert len(chat) > len(plain)
+
+
+def test_the_dialect_parses_its_own_rendered_call():
+    captured = json.loads(TEMPLATES.read_text())
+    calc = build_toolbox(["calc"]).tools
+    for a in ARCHITECTURES:
+        record = captured[TEMPLATE_OF[a.model_type]]
+        if a.dialect is None:
+            assert record["tools_change_the_prompt"] is False, a.model_type
+            continue
+        rendered = record["round_trip"]
+        assert a.dialect.signature in rendered, a.model_type
+        _, calls = a.dialect.parse(rendered, calc)
+        assert [(c.name, c.arguments) for c in calls] == [("calc", dialects.PROBE_ARGS)], a.model_type
+        assert any(m in rendered for m in a.dialect.attempting), a.model_type
+        assert dialects.identify(dialects.TemplateProbe(True, rendered)) is a.dialect
+
+
+@pytest.mark.parametrize("architecture", ARCHITECTURES, ids=lambda a: a.model_type)
+def test_the_adapter_keys_reach_every_projection(architecture):
+    model = build_tiny_model(architecture.model_type, architecture)
+    keys = architecture.adapter_keys
+    params = dict(tree_flatten(model.lm.parameters()))
+    for i in range(model.arch.n_layers):
+        for proj, container in keys.containers.items():
+            stem = f"model.layers.{i}.{container}.{proj}"
+            assert f"{stem}.weight" in params, stem
+            assert keys.key_re.match(f"{stem}.lora_a"), stem
+            assert keys.peft_re.search(f"base_model.model.{stem}.lora_A.weight"), stem
+    assert apply_lora(model.lm, rank=2, targets=tuple(keys.containers), keys=keys) > 0
+
+
+def test_head_weights_reads_a_head_or_refuses_by_name(tiny):
+    a = tiny.architecture
+    try:
+        spec = a.head_weights(tiny._model, 0, 1)
+    except NotImplementedError as e:
+        assert a.model_type in str(e)
+        pytest.xfail(f"kit finding: {e}")
+    d, head_dim = tiny.arch.d_model, spec.head_dim
+    assert spec.W_Q.shape == (head_dim, d) and spec.W_K.shape == (head_dim, d)
+    assert spec.W_V.shape == (head_dim, d) and spec.W_O.shape == (d, head_dim)
+    assert (spec.n_heads, spec.n_kv_heads) == (tiny.arch.n_heads, tiny.arch.n_kv_heads)

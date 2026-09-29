@@ -4,30 +4,39 @@ import mlx.core as mx
 from mlx_vlm.models import cache as cache_mod
 from mlx_vlm.models.base import create_attention_mask
 
-from . import _arch
-from ._attention_mask import apply_mask
-from .cache import ActivationCache, kv_offset
-from .hooks import HookFn, HookInfo, attn_internal_layers
+from mechbench_compute._arch import Arch
+from mechbench_compute._attention_mask import apply_mask
+from mechbench_compute.architectures._dispatch import dispatch, run_head
+from mechbench_compute.architectures._head import (
+    make_head_logits,
+    make_project_to_logits,
+    refuse_head_weights,
+)
+from mechbench_compute.architectures._vlm import (
+    load_vlm,
+    make_vlm_cache,
+    read_language_model,
+    read_vlm_arch,
+    tokenize_vlm,
+)
+from mechbench_compute.cache import ActivationCache, kv_offset
+from mechbench_compute.hooks import HookFn, attn_internal_layers
+from mechbench_compute.lora import ADAPTER_KEYS
+from mechbench_compute.support import (
+    CORE_GLOBAL_POINTS,
+    CORE_LAYER_POINTS,
+    Architecture,
+    Unembed,
+)
 
 
-def _dispatch(
-    name: str,
-    layer: int | None,
-    point: str,
-    activation: mx.array,
-    hooks: dict[str, HookFn],
-    capture_set: set[str],
-    cache: ActivationCache,
-) -> mx.array:
-    fn = hooks.get(name)
-    if fn is not None:
-        info = HookInfo(name=name, layer=layer, point=point, offset=cache.offset)
-        new = fn(activation, info)
-        if new is not None:
-            activation = new
-    if name in capture_set:
-        cache[name] = activation
-    return activation
+def read_unembed(model) -> Unembed:
+    lm = model.language_model
+    return Unembed(norm=lm.model.norm, project=lm.lm_head)
+
+
+def read_arch(model, model_id: str | None = None) -> Arch:
+    return read_vlm_arch("gemma3", model.config.text_config, model_id)
 
 
 def _attention_with_internals(
@@ -57,15 +66,15 @@ def _attention_with_internals(
     if c is not None:
         k, v = c.update_and_fetch(k, v)
 
-    q = _dispatch(
+    q = dispatch(
         f"blocks.{layer_idx}.attn.q", layer_idx, "attn.q", q,
         hooks, capture_set, cache,
     )
-    k = _dispatch(
+    k = dispatch(
         f"blocks.{layer_idx}.attn.k", layer_idx, "attn.k", k,
         hooks, capture_set, cache,
     )
-    v = _dispatch(
+    v = dispatch(
         f"blocks.{layer_idx}.attn.v", layer_idx, "attn.v", v,
         hooks, capture_set, cache,
     )
@@ -80,13 +89,13 @@ def _attention_with_internals(
     scores = apply_mask(scores, mask)
 
     weights = mx.softmax(scores, axis=-1)
-    weights = _dispatch(
+    weights = dispatch(
         f"blocks.{layer_idx}.attn.weights", layer_idx, "attn.weights", weights,
         hooks, capture_set, cache,
     )
 
     per_head_out = weights @ v
-    per_head_out = _dispatch(
+    per_head_out = dispatch(
         f"blocks.{layer_idx}.attn.per_head_out", layer_idx, "attn.per_head_out",
         per_head_out, hooks, capture_set, cache,
     )
@@ -96,13 +105,13 @@ def _attention_with_internals(
 
 
 # external: mlx-vlm — this mirrors models/gemma3/language.py (Gemma3Model, TransformerBlock, Attention, LanguageModel __call__)
-def run_forward_gemma3(
+def run_forward(
     model,
     input_ids: mx.array,
     *,
     hooks: dict[str, HookFn] | None = None,
     capture: list[str] | None = None,
-    arch: _arch.Arch | None = None,
+    arch: Arch | None = None,
     kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
     hooks = dict(hooks or {})
@@ -117,6 +126,7 @@ def run_forward_gemma3(
 
     h = tm.embed_tokens(input_ids)
     h = h * mx.array(tm.config.hidden_size ** 0.5, mx.bfloat16).astype(h.dtype)
+    h = dispatch("embed", None, "embed", h, hooks, capture_set, cache)
 
     if kv_cache is None:
         kv_cache = cache_mod.make_prompt_cache(lm)
@@ -136,7 +146,7 @@ def run_forward_gemma3(
         is_global = (i + 1) % pattern == 0
         local_mask = global_mask if is_global else sliding_mask
 
-        h = _dispatch(
+        h = dispatch(
             f"blocks.{i}.resid_pre", i, "resid_pre", h, hooks, capture_set, cache,
         )
         resid_pre = h
@@ -150,7 +160,7 @@ def run_forward_gemma3(
         else:
             a = layer.self_attn(x_normed, local_mask, c)
         a = layer.post_attention_layernorm(a)
-        a = _dispatch(
+        a = dispatch(
             f"blocks.{i}.attn_out", i, "attn_out", a, hooks, capture_set, cache,
         )
         h = resid_pre + a
@@ -159,24 +169,40 @@ def run_forward_gemma3(
         m_in = layer.pre_feedforward_layernorm(mid)
         m_out = layer.mlp(m_in)
         m_out = layer.post_feedforward_layernorm(m_out)
-        m_out = _dispatch(
+        m_out = dispatch(
             f"blocks.{i}.mlp_out", i, "mlp_out", m_out, hooks, capture_set, cache,
         )
         h = mid + m_out
 
-        h = _dispatch(
+        h = dispatch(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
-    if "final_norm.scale" in capture_set or "final_norm.scale" in hooks:
-        f32 = h.astype(mx.float32)
-        eps = float(getattr(tm.norm, "eps", 1e-6))
-        rms = mx.sqrt(mx.mean(f32 * f32, axis=-1) + eps)
-        _dispatch("final_norm.scale", None, "final_norm.scale", rms,
-                  hooks, capture_set, cache)
-
-    h_final = tm.norm(h)
-    logits = lm.lm_head(h_final)
-
-    mx.eval([logits] + list(cache.values()))
+    logits = run_head(h, norm=tm.norm, unembed=lm.lm_head,
+                      hooks=hooks, capture_set=capture_set, cache=cache)
     return logits, cache
+
+
+ARCH = Architecture(
+    model_type="gemma3", name="Gemma 3", loader="mlx-vlm",
+    generate=True, score=True, train=True,
+    layer_points=CORE_LAYER_POINTS, global_points=CORE_GLOBAL_POINTS,
+    residual_law="resid_post[i] == resid_pre[i] + attn_out[i] + mlp_out[i] == resid_pre[i+1]",
+    load=load_vlm,
+    arch_of=read_arch,
+    forward=run_forward,
+    lm=read_language_model,
+    prompt_cache=make_vlm_cache,
+    head_logits=make_head_logits(read_unembed),
+    project_to_logits=make_project_to_logits(read_unembed),
+    tokenize=tokenize_vlm,
+    attribution_unembed=read_unembed,
+    head_weights=refuse_head_weights("gemma3"),
+    dialect=None,
+    reasoning=(),
+    adapter_keys=ADAPTER_KEYS,
+    config_defaults={
+        "num_attention_heads": 8, "num_key_value_heads": 4, "head_dim": 256,
+        "vocab_size": 262208, "sliding_window_pattern": 6,
+    },
+)

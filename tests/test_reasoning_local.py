@@ -7,9 +7,10 @@ import pytest
 
 from mechbench_compute import chat as chat_mod
 from mechbench_compute import model_ref as mr
-from mechbench_compute.chat.split_reasoning import DELIMITERS, find_delimiters, split_reasoning
+from mechbench_compute.architectures import BY_MODEL_TYPE
+from mechbench_compute.chat.split_reasoning import find_delimiters, split_reasoning
 
-GEMMA4 = DELIMITERS[0]
+GEMMA4 = BY_MODEL_TYPE["gemma4"].reasoning[0]
 HUB = os.path.expanduser("~/.cache/huggingface/hub")
 
 

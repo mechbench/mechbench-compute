@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from mechbench_compute._arch import Arch
-from mechbench_compute.support import BY_MODEL_TYPE
+from mechbench_compute.architectures import BY_MODEL_TYPE
 
 HUB = Path.home() / ".cache" / "huggingface" / "hub"
 OUT = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "configs"

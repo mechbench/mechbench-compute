@@ -72,14 +72,15 @@ class TestFamilySupport:
         for p in _arch.GLOBAL_HOOK_POINTS:
             assert not _arch.family_supports("mamba", p, layer_scoped=False)
 
-    def test_legacy_families_refuse_the_new_points(self):
+    def test_core_architectures_refuse_the_internals_and_carry_the_globals(self):
         for fam in ("gemma3", "qwen2", "llama"):
             assert _arch.family_supports(fam, "resid_post", layer_scoped=True)
             assert _arch.family_supports(fam, "attn.weights", layer_scoped=True)
             assert not _arch.family_supports(fam, "mlp.act", layer_scoped=True)
             assert not _arch.family_supports(fam, "attn.scores", layer_scoped=True)
-            assert not _arch.family_supports(fam, "logits", layer_scoped=False)
             assert not _arch.family_supports(fam, "gate_out", layer_scoped=True)
+            for p in NEW_GLOBAL:
+                assert _arch.family_supports(fam, p, layer_scoped=False)
 
 
 class _FakeModelForValidation:

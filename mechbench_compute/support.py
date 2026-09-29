@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -10,8 +10,8 @@ LEVELS: dict[str, str] = {
     "full": "every hook point: the residual stream, attention and MLP internals, "
             "the per-layer gate, the embedding, the final norm and the logits",
     "core": "the residual stream, attention and MLP outputs, attention weights, "
-            "per-head outputs and q/k/v; no MLP internals, no pre-norm or pre-rope "
-            "points, no embedding, final norm or logits hooks",
+            "per-head outputs, q/k/v, the embedding, the final norm and the logits; "
+            "no MLP internals and no pre-norm or pre-rope points",
     "text": "generation, scoring and training, with no hook points",
 }
 
@@ -21,13 +21,20 @@ CORE_LAYER_POINTS: tuple[str, ...] = (
     "resid_pre", "attn_out", "mlp_out", "resid_post",
     "attn.weights", "attn.per_head_out", "attn.q", "attn.k", "attn.v",
 )
-CORE_GLOBAL_POINTS: tuple[str, ...] = ("final_norm.scale",)
+CORE_GLOBAL_POINTS: tuple[str, ...] = GLOBAL_HOOK_POINTS
 
 
 @dataclass(frozen=True)
 class Refusal:
     config_key: str
     reason: str
+
+
+@dataclass(frozen=True)
+class Unembed:
+    norm: Any
+    project: Callable[[Any], Any]
+    softcap: float | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,20 @@ class Architecture:
     train: bool
     layer_points: tuple[str, ...]
     global_points: tuple[str, ...]
+    residual_law: str
+    load: Callable[..., tuple[Any, Any]]
+    arch_of: Callable[..., Any]
+    forward: Callable[..., tuple[Any, Any]]
+    lm: Callable[[Any], Any]
+    prompt_cache: Callable[[Any], Any]
+    head_logits: Callable[[Any, Any], Any]
+    project_to_logits: Callable[[Any, Any], Any]
+    tokenize: Callable[..., Any]
+    attribution_unembed: Callable[[Any], Unembed]
+    head_weights: Callable[[Any, int, int], Any]
+    dialect: Any
+    reasoning: tuple[Any, ...]
+    adapter_keys: Any
     refused_when: tuple[Refusal, ...] = ()
     config_defaults: Mapping[str, Any] = field(default_factory=dict)
 
@@ -56,61 +77,14 @@ class Architecture:
         return point in (self.layer_points if layer_scoped else self.global_points)
 
 
-ARCHITECTURES: tuple[Architecture, ...] = (
-    Architecture(
-        model_type="gemma4", name="Gemma 4", loader="mlx-vlm",
-        generate=True, score=True, train=True,
-        layer_points=LAYER_HOOK_POINTS, global_points=GLOBAL_HOOK_POINTS,
-        refused_when=(Refusal(
-            "enable_moe_block",
-            "mixture-of-experts layers (Gemma 4 26B A4B) are not wired into the "
-            "gemma4 forward; only the dense checkpoints load"),),
-        config_defaults={
-            "hidden_size": 1536, "num_hidden_layers": 35, "num_attention_heads": 8,
-            "num_key_value_heads": 1, "head_dim": 256, "vocab_size": 262144,
-            "num_kv_shared_layers": 20, "hidden_size_per_layer_input": 256,
-            "sliding_window_pattern": 5,
-        },
-    ),
-    Architecture(
-        model_type="gemma3", name="Gemma 3", loader="mlx-vlm",
-        generate=True, score=True, train=True,
-        layer_points=CORE_LAYER_POINTS, global_points=CORE_GLOBAL_POINTS,
-        config_defaults={
-            "num_attention_heads": 8, "num_key_value_heads": 4, "head_dim": 256,
-            "vocab_size": 262208, "sliding_window_pattern": 6,
-        },
-    ),
-    Architecture(
-        model_type="qwen2", name="Qwen 2", loader="mlx-lm",
-        generate=True, score=True, train=True,
-        layer_points=CORE_LAYER_POINTS, global_points=CORE_GLOBAL_POINTS,
-    ),
-    Architecture(
-        model_type="llama", name="Llama", loader="mlx-lm",
-        generate=True, score=True, train=True,
-        layer_points=CORE_LAYER_POINTS, global_points=CORE_GLOBAL_POINTS,
-    ),
-)
-
-BY_MODEL_TYPE: dict[str, Architecture] = {a.model_type: a for a in ARCHITECTURES}
-
-MODEL_TYPES: tuple[str, ...] = tuple(a.model_type for a in ARCHITECTURES)
-
-MLX_LM_MODEL_TYPES: frozenset[str] = frozenset(
-    a.model_type for a in ARCHITECTURES if a.loader == "mlx-lm")
-
-
-def architecture(model_type: str) -> Architecture | None:
-    return BY_MODEL_TYPE.get((model_type or "").lower())
-
-
 def refusal(config: Mapping[str, Any]) -> str | None:
+    from .architectures import ARCHITECTURES, for_type
+
     model_type = str(config.get("model_type") or "").lower()
-    arch = architecture(model_type)
+    arch = for_type(model_type)
     if arch is None:
         return (f"model_type {model_type!r} is not one compute loads; it loads "
-                f"{', '.join(MODEL_TYPES)}")
+                f"{', '.join(a.model_type for a in ARCHITECTURES)}")
     text = config.get("text_config")
     scopes = [config] + ([text] if isinstance(text, Mapping) else [])
     for r in arch.refused_when:
@@ -120,6 +94,8 @@ def refusal(config: Mapping[str, Any]) -> str | None:
 
 
 def local_architectures() -> list[dict[str, Any]]:
+    from .architectures import ARCHITECTURES
+
     return [{
         "modelType": a.model_type,
         "name": a.name,

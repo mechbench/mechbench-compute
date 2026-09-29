@@ -329,3 +329,78 @@ leaks into them.
 
 The lexicon and the operations do not import each other: the registry
 imports both, and a view imports the registry only when it is read.
+
+## Where an architecture lives
+
+A model architecture — a checkpoint's config.json `model_type` — is one
+file, and its path is its `model_type`:
+
+```
+mechbench_compute/architectures/gemma4.py   ARCH = Architecture(model_type="gemma4", ...)
+mechbench_compute/architectures/gemma3.py
+mechbench_compute/architectures/llama.py
+mechbench_compute/architectures/qwen2.py
+```
+
+`architectures/__init__.py` walks the package (a leaf starting with `_`
+is a shared helper, not an architecture) and refuses a file that
+declares no `ARCH` or declares a `model_type` other than its name.
+`architectures.ARCHITECTURES` is the walked tuple, `for_type(model_type)`
+finds one, `for_model(model)` finds a loaded model's. `support.refusal`,
+`support.local_architectures` and `_arch.family_supports` read the
+walked set; nothing else lists architectures.
+
+`support.Architecture` is the interface. Its declarative fields:
+`model_type`, `name`, `loader`, `generate`/`score`/`train`,
+`layer_points`, `global_points`, `refused_when`, `config_defaults`, and
+`residual_law`, a string the kit evaluates
+(`"resid_post[i] == resid_pre[i] + attn_out[i] + mlp_out[i] == resid_pre[i+1]"`,
+or the architecture's own). Its callables, which `Model` delegates to
+without asking which architecture it holds:
+
+| field | signature |
+|---|---|
+| `load` | `(model_id, **config) -> (model, processor)` |
+| `arch_of` | `(model, model_id=None) -> Arch` |
+| `forward` | `(model, ids, *, hooks, capture, arch, kv_cache) -> (logits, ActivationCache)` |
+| `lm` · `prompt_cache` | `(model) -> ...` |
+| `head_logits` · `project_to_logits` | `(model, hidden) -> logits` |
+| `tokenize` | `(model, processor, prompt, *, chat_template) -> ids` |
+| `attribution_unembed` | `(model) -> Unembed(norm, project, softcap)` |
+| `head_weights` | `(model, layer, head) -> HeadSpec`, or `NotImplementedError` naming the architecture |
+| `dialect` | a `dialects.ToolDialect`, or `None` when the template has no tool protocol |
+| `reasoning` | `thinking.Delimiters` the model's tokenizer may declare |
+| `adapter_keys` | `lora.AdapterKeys(key_re, containers, peft_re)` |
+
+The forwards share `architectures/_dispatch.py` (`dispatch`, the one
+hook-and-capture step, and `run_head`, the final norm and unembedding);
+the two loaders' plumbing is `_vlm.py` and `_mlx_lm.py`.
+
+### The kit
+
+`tests/test_architecture_kit.py` runs over every walked architecture
+with a tiny random model of it (`tests/tiny_models.py`; an
+architecture without one fails the kit):
+
+- every declared point is captured, in the shape `points.LAYOUT` gives;
+- the global points agree with the stream (`embed` is `resid_pre` of
+  layer 0, `final_norm` is the norm of the last `resid_post`, `logits`
+  are `head_logits(final_norm)`);
+- the residual law holds at every layer, to 2^-6 of the largest
+  magnitude (bf16 keeps 8 significant bits; the law is summed in
+  float64 over values the forward added in bf16);
+- direct logit attribution with the final norm sums to the true logit;
+- capturing attention internals leaves the logits alone, and attention
+  is causal;
+- ablating every head of a layer equals zeroing its `attn_out`;
+- a double run is bit-identical;
+- `tokenize` round-trips through the tokenizer;
+- the dialect parses the tool call its own template rendered
+  (`tests/fixtures/chat_templates.json`);
+- the adapter keys reach every q/k/v/o/gate/up/down projection;
+- `head_weights` reads a head, or refuses naming the architecture
+  (an expected failure, reported as such).
+
+A fixture copy of llama with a wrong residual fails the residual law by
+name. A new architecture is admitted by adding its file, its tiny model
+and its captured template, and passing the kit.

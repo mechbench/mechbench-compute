@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from mechbench_compute._arch import read_arch_from_config
-from mechbench_compute.support import ARCHITECTURES
+from mechbench_compute.architectures import ARCHITECTURES
 
 FIXTURES = sorted((Path(__file__).parent / "fixtures" / "configs").glob("*.json"))
 

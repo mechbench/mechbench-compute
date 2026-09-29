@@ -351,7 +351,7 @@ Run any of them after a framework change to catch regressions.
 ## Scope / limitations
 
 - **Gemma 4 E4B only.** Architectural constants are hard-coded in `_arch.py`. Other Gemma variants will need `N_LAYERS` / `GLOBAL_LAYERS` / `D_MODEL` / hook-point specifics updated, and the `_attention_with_internals` branch inspected for per-architecture details (GQA ratios, KV sharing, etc.).
-- **No MoE, vision, or audio paths.** The 26B-A4B MoE variant uses a Router + Experts branch that `_forward.py` doesn't walk. Vision and audio towers are untouched.
+- **No MoE, vision, or audio paths.** The 26B-A4B MoE variant uses a Router + Experts branch that the gemma4 forward (`architectures/gemma4.py`) doesn't walk. Vision and audio towers are untouched.
 - **No general-purpose training / fine-tuning hooks.** The framework is read-side only: you can inspect and modify activations during inference; you can't modify weights.
 - **bf16 rounding non-determinism.** Running the same prompt twice can give bit-equal outputs in practice, but intermediate bf16 products don't promise it. Don't build tests that depend on bitwise equality across model loads.
 
@@ -364,7 +364,7 @@ mechbench_compute/
 ├── __init__.py       # Public API re-exports
 ├── README.md         # This file
 ├── _arch.py          # Constants + hook-point registry (single source of truth)
-├── _forward.py       # Canonical hook-aware forward pass
+├── architectures/    # One file per model_type: ARCH = Architecture(...), its hook-aware forward
 ├── model.py          # Model.load / Model.run / RunResult
 ├── cache.py          # ActivationCache
 ├── hooks.py          # HookInfo + parse_hook_name

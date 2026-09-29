@@ -8,6 +8,7 @@ import pytest
 
 from mechbench_compute import dialects as dl
 from mechbench_compute import tools as T
+from mechbench_compute.architectures import gemma4, llama, qwen2
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "chat_templates.json"
 CAPTURED = json.loads(FIXTURES.read_text())
@@ -55,7 +56,7 @@ class TestParsingWhatTheTemplatesRender:
 
     def test_gemma_4_reads_its_own_quoting(self):
         text = '<|tool_call>call:calc{expression:<|"|>37 + 18<|"|>}<tool_call|>'
-        _, calls = dl._gemma4(text, CALC)
+        _, calls = gemma4.parse_calls(text, CALC)
         assert [(c.name, c.arguments) for c in calls] == [
             ("calc", {"expression": "37 + 18"})]
 
@@ -64,25 +65,25 @@ class TestParsingWhatTheTemplatesRender:
                           schema={"type": "object",
                                   "properties": {"depth": {"type": "integer"}}})]
         text = '<|tool_call>call:seek{depth:3}<tool_call|>'
-        assert dl._gemma4(text, seek)[1][0].arguments == {"depth": 3}
+        assert gemma4.parse_calls(text, seek)[1][0].arguments == {"depth": 3}
 
     def test_a_call_to_an_unoffered_tool_stays_in_the_text(self):
         text = '<|tool_call>call:wget{url:<|"|>x<|"|>}<tool_call|>'
-        rest, calls = dl._gemma4(text, CALC)
+        rest, calls = gemma4.parse_calls(text, CALC)
         assert calls == []
         assert "wget" in rest
 
     def test_qwen_reads_its_envelope(self):
         text = '<tool_call>\n{"name": "calc", "arguments": {"expression": "2+2"}}\n</tool_call>'
-        assert dl._qwen(text, CALC)[1][0].arguments == {"expression": "2+2"}
+        assert qwen2.parse_calls(text, CALC)[1][0].arguments == {"expression": "2+2"}
 
     def test_llama_uses_parameters_not_arguments(self):
         text = '{"name": "calc", "parameters": {"expression": "2+2"}}'
-        _, calls = dl._llama(text, CALC)
+        _, calls = llama.parse_calls(text, CALC)
         assert calls[0].arguments == {"expression": "2+2"}
 
     def test_prose_is_never_a_call(self):
-        for parse in (dl._gemma4, dl._qwen, dl._llama):
+        for parse in (gemma4.parse_calls, qwen2.parse_calls, llama.parse_calls):
             assert parse("The stall has 55 apples.", CALC)[1] == []
 
 
@@ -169,22 +170,22 @@ class TestFabricatedResponses:
     )
 
     def test_the_invented_response_does_not_reach_the_transcript(self):
-        rest, calls = dl._gemma4(self.OBSERVED, CALC)
+        rest, calls = gemma4.parse_calls(self.OBSERVED, CALC)
         assert [c.arguments for c in calls] == [{"expression": "37 + 18"}]
         assert rest == "", f"fabricated output survived: {rest!r}"
 
     def test_reasoning_before_the_call_is_kept(self):
         text = "Let me work it out.\n" + self.OBSERVED
-        rest, calls = dl._gemma4(text, CALC)
+        rest, calls = gemma4.parse_calls(text, CALC)
         assert rest == "Let me work it out."
         assert len(calls) == 1
 
     def test_a_response_with_no_call_is_untouched(self):
-        rest, calls = dl._gemma4("The stall has 55 apples.", CALC)
+        rest, calls = gemma4.parse_calls("The stall has 55 apples.", CALC)
         assert rest == "The stall has 55 apples." and calls == []
 
     def test_qwen_truncates_the_same_way(self):
         text = ('Sure.\n<tool_call>\n{"name": "calc", "arguments": '
                 '{"expression": "2+2"}}\n</tool_call><tool_response>4</tool_response>')
-        rest, calls = dl._qwen(text, CALC)
+        rest, calls = qwen2.parse_calls(text, CALC)
         assert rest == "Sure." and len(calls) == 1

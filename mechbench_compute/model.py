@@ -5,22 +5,13 @@ from typing import Callable, Iterable
 
 import mlx.core as mx
 import numpy as np
-from mlx_vlm import load
-from mlx_vlm.models.gemma4.language import logit_softcap
-from mlx_vlm.prompt_utils import apply_chat_template
-from mlx_vlm.utils import get_model_path, load_config, prepare_inputs
+from mlx_vlm.utils import get_model_path, load_config
 
-from . import _arch, support
-from ._forward import run_forward
-from ._forward_gemma3 import run_forward_gemma3
-from ._forward_llama import run_forward_llama
-from ._forward_qwen import run_forward_qwen
+from . import _arch, architectures, support
 from .cache import ActivationCache
 from .errors import InvalidHookName
 from .hooks import HookFn, parse_hook_name
 from .interventions import Intervention, compose
-
-_MLX_LM_FAMILIES: frozenset[str] = support.MLX_LM_MODEL_TYPES
 
 
 def _peek_config(model_id: str) -> dict:
@@ -62,10 +53,13 @@ class RunResult:
 
 
 class Model:
-    def __init__(self, model, processor, arch: _arch.Arch | None = None):
+    def __init__(self, model, processor, arch: _arch.Arch | None = None,
+                 architecture: support.Architecture | None = None):
         self._model = model
         self._processor = processor
-        self.arch = arch if arch is not None else _arch.Arch.from_mlx_model(model)
+        self.architecture = (architecture if architecture is not None
+                             else architectures.for_model(model))
+        self.arch = arch if arch is not None else self.architecture.arch_of(model)
         self.repo_id: str | None = None
         self.revision: str | None = None
         self.requested_ref: str | None = None
@@ -91,34 +85,18 @@ class Model:
         model_id = str(snapshot)
 
         config = _peek_config(model_id)
-        refused = support.refusal(config) if config.get("model_type") else None
+        refused = support.refusal(config)
         if refused is not None:
             raise NotImplementedError(
                 f"mechbench-compute cannot load {requested!r}: {refused}.")
-        # external: mlx-vlm — its text_only wrapper also loads these families, in a shape the mlx-lm forwards do not mirror
-        if str(config.get("model_type") or "").lower() in _MLX_LM_FAMILIES:
-            from mlx_lm import load as mlx_lm_load
-
-            m, p = mlx_lm_load(model_id)
-        else:
-            try:
-                m, p = load(model_id)
-            except ValueError as exc:
-                if "not supported" in str(exc):
-                    from mlx_lm import load as mlx_lm_load
-
-                    m, p = mlx_lm_load(model_id)
-                else:
-                    raise
-
-        arch = _arch.Arch.from_mlx_model(m, model_id=model_id)
-        if support.architecture(arch.model_type) is None:
+        architecture = architectures.for_type(config.get("model_type"))
+        m, p = architecture.load(model_id)
+        loaded = architectures.read_model_type(m)
+        if loaded != architecture.model_type:
             raise NotImplementedError(
-                f"mechbench-compute's hook-aware forward path supports "
-                f"{', '.join(a.name for a in support.ARCHITECTURES)}; loaded model "
-                f"{model_id!r} reports model_type={arch.model_type!r}."
-            )
-        model = cls(m, p, arch=arch)
+                f"mechbench-compute loaded {requested!r} as {architecture.model_type!r} "
+                f"from its config.json, but the loaded model reports {loaded!r}.")
+        model = cls(m, p, arch=architecture.arch_of(m, model_id), architecture=architecture)
         model.repo_id = repo_id
         model.revision = revision_sha
         model.requested_ref = requested
@@ -130,66 +108,21 @@ class Model:
 
     @property
     def lm(self):
-        if self.arch.model_type in ("qwen2", "llama"):
-            return self._model
-        return self._model.language_model
+        return self.architecture.lm(self._model)
 
     def prompt_cache(self):
-        if self.arch.model_type in ("qwen2", "llama"):
-            from mlx_lm.models.cache import make_prompt_cache
-            return make_prompt_cache(self._model)
-        return self.lm.make_cache()
+        return self.architecture.prompt_cache(self._model)
 
     def trunk_hidden(self, input_ids: mx.array) -> mx.array:
         h = self.lm.model(input_ids)
         return h[0] if isinstance(h, tuple) else h
 
     def head_logits(self, hidden: mx.array) -> mx.array:
-        if self.arch.model_type in ("qwen2", "llama"):
-            if self.lm.args.tie_word_embeddings:
-                return self.lm.model.embed_tokens.as_linear(hidden)
-            return self.lm.lm_head(hidden)
-        lm = self.lm
-        if self.arch.model_type == "gemma3":
-            return lm.lm_head(hidden)
-        logits = lm.model.embed_tokens.as_linear(hidden)
-        if lm.final_logit_softcapping is not None:
-            logits = logit_softcap(lm.final_logit_softcapping, logits)
-        return logits
+        return self.architecture.head_logits(self._model, hidden)
 
     def tokenize(self, prompt: str, *, chat_template: bool = True) -> mx.array:
-        if self.arch.model_type in ("qwen2", "llama"):
-            if chat_template:
-                rendered = self._processor.apply_chat_template(
-                    [{"role": "user", "content": prompt}],
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
-            else:
-                rendered = prompt
-            ids = self._processor.encode(rendered)
-            return mx.array([ids], dtype=mx.int32)
-
-        if not chat_template:
-            tok = getattr(self._processor, "tokenizer", self._processor)
-            ids = tok.encode(prompt)
-            return mx.array([ids], dtype=mx.int32)
-
-        add_special_tokens = getattr(self._processor, "chat_template", None) is None
-        formatted = apply_chat_template(
-            self._processor, self._model.config, prompt, num_images=0,
-        )
-        image_token_index = getattr(self._model.config, "image_token_index", None)
-        inputs = prepare_inputs(
-            self._processor,
-            images=None,
-            audio=None,
-            prompts=formatted,
-            image_token_index=image_token_index,
-            resize_shape=None,
-            add_special_tokens=add_special_tokens,
-        )
-        return inputs["input_ids"]
+        return self.architecture.tokenize(self._model, self._processor, prompt,
+                                          chat_template=chat_template)
 
     def run(
         self,
@@ -204,12 +137,7 @@ class Model:
             interventions, hooks=hooks, capture=capture,
         )
         self._validate_hook_names(set(final_hooks.keys()) | set(final_capture))
-        forward = {
-            "gemma3": run_forward_gemma3,
-            "qwen2": run_forward_qwen,
-            "llama": run_forward_llama,
-        }.get(self.arch.model_type, run_forward)
-        logits, cache = forward(
+        logits, cache = self.architecture.forward(
             self._model, input_ids, hooks=final_hooks, capture=final_capture,
             arch=self.arch, kv_cache=kv_cache,
         )
@@ -243,22 +171,7 @@ class Model:
                 )
 
     def project_to_logits(self, residual: mx.array) -> mx.array:
-        if self.arch.model_type in ("qwen2", "llama"):
-            tm = self.lm.model
-            h = tm.norm(residual)
-            if self.lm.args.tie_word_embeddings:
-                return tm.embed_tokens.as_linear(h)
-            return self.lm.lm_head(h)
-
-        lm = self.lm
-        tm = lm.model
-        h = tm.norm(residual)
-        if self.arch.model_type == "gemma3":
-            return lm.lm_head(h)
-        logits = tm.embed_tokens.as_linear(h)
-        if lm.final_logit_softcapping is not None:
-            logits = logit_softcap(lm.final_logit_softcapping, logits)
-        return logits
+        return self.architecture.project_to_logits(self._model, residual)
 
     def decoded_distribution(self, vector) -> np.ndarray:
         if isinstance(vector, np.ndarray):

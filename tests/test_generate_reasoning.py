@@ -6,10 +6,11 @@ import os
 import pytest
 
 from mechbench_compute import distill, generate
-from mechbench_compute.chat.split_reasoning import DELIMITERS, split_reasoning
+from mechbench_compute.architectures import BY_MODEL_TYPE
+from mechbench_compute.chat.split_reasoning import split_reasoning
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 
-GEMMA4 = DELIMITERS[0]
+GEMMA4 = BY_MODEL_TYPE["gemma4"].reasoning[0]
 MODEL = "mlx-community/gemma-4-e2b-it-bf16"
 
 PLAN = ("Thinking Process:\n\n1.  **Analyze the Request:** The user wants a "

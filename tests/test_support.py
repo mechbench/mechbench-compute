@@ -6,19 +6,19 @@ import types
 import mlx.core as mx
 import pytest
 
-from mechbench_compute import _arch, support
-from mechbench_compute import model as model_mod
+from mechbench_compute import _arch, architectures, support
+from mechbench_compute.architectures import ARCHITECTURES, BY_MODEL_TYPE
 from mechbench_compute.model import Model
 from mechbench_compute.providers import pricing
 from mechbench_compute.providers.registry import registry
-from tests.test_tiny_family_models import FAMILIES
+from tests.tiny_models import MODEL_TYPES
 
 
 def test_the_declared_architectures_are_the_ones_the_tiny_models_cover() -> None:
-    assert set(support.MODEL_TYPES) == set(FAMILIES)
+    assert set(BY_MODEL_TYPE) == set(MODEL_TYPES)
 
 
-@pytest.mark.parametrize("arch", support.ARCHITECTURES, ids=lambda a: a.model_type)
+@pytest.mark.parametrize("arch", ARCHITECTURES, ids=lambda a: a.model_type)
 def test_the_hook_gate_reads_the_declaration(arch: support.Architecture) -> None:
     for point in _arch.LAYER_HOOK_POINTS:
         assert _arch.family_supports(arch.model_type, point, layer_scoped=True) == (
@@ -29,23 +29,34 @@ def test_the_hook_gate_reads_the_declaration(arch: support.Architecture) -> None
 
 
 def test_levels_follow_the_points() -> None:
-    assert support.BY_MODEL_TYPE["gemma4"].level == "full"
+    assert BY_MODEL_TYPE["gemma4"].level == "full"
     for mt in ("gemma3", "qwen2", "llama"):
-        assert support.BY_MODEL_TYPE[mt].level == "core"
-    assert {a.level for a in support.ARCHITECTURES} <= set(support.LEVELS)
-    assert {a.loader for a in support.ARCHITECTURES} <= set(support.LOADERS)
+        assert BY_MODEL_TYPE[mt].level == "core"
+    assert {a.level for a in ARCHITECTURES} <= set(support.LEVELS)
+    assert {a.loader for a in ARCHITECTURES} <= set(support.LOADERS)
 
 
-def test_the_loader_split_is_the_declaration() -> None:
-    assert model_mod._MLX_LM_FAMILIES == support.MLX_LM_MODEL_TYPES
-    for mt in support.MLX_LM_MODEL_TYPES:
-        arch = _arch.Arch._from_mlx_lm_args(types.SimpleNamespace(
-            model_type=mt, num_hidden_layers=2, hidden_size=8, num_attention_heads=2,
-            num_key_value_heads=1, vocab_size=16), None)
-        assert arch.model_type == mt
+def test_an_architecture_is_found_from_a_loaded_model_or_refused_by_name() -> None:
+    for a in ARCHITECTURES:
+        if a.loader != "mlx-lm":
+            continue
+        args = types.SimpleNamespace(
+            model_type=a.model_type, num_hidden_layers=2, hidden_size=8,
+            num_attention_heads=2, num_key_value_heads=1, vocab_size=16)
+        loaded = types.SimpleNamespace(args=args)
+        assert architectures.for_model(loaded) is a
+        assert _arch.Arch.from_mlx_model(loaded).model_type == a.model_type
     with pytest.raises(NotImplementedError, match="qwen3"):
-        _arch.Arch._from_mlx_lm_args(types.SimpleNamespace(
-            model_type="qwen3", num_hidden_layers=1), None)
+        architectures.for_model(types.SimpleNamespace(
+            args=types.SimpleNamespace(model_type="qwen3", num_hidden_layers=1)))
+    assert architectures.for_type("mamba") is None
+
+
+def test_an_architecture_lives_at_its_model_type() -> None:
+    for a in ARCHITECTURES:
+        module = __import__(f"mechbench_compute.architectures.{a.model_type}",
+                            fromlist=["ARCH"])
+        assert module.ARCH is a
 
 
 def test_refusal_names_an_unknown_model_type_and_a_refusing_key() -> None:

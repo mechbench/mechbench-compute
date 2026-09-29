@@ -8,16 +8,9 @@ import numpy as np
 import pytest
 from mlx import nn
 
-from mechbench_compute import (
-    _forward,
-    _forward_gemma3,
-    _forward_llama,
-    _forward_qwen,
-    attribution,
-    head_weights,
-    peft,
-)
+from mechbench_compute import attribution, peft
 from mechbench_compute._arch import Arch
+from mechbench_compute.architectures import _mlx_lm, for_type, gemma3, gemma4
 from mechbench_compute.cache import ActivationCache
 
 
@@ -32,7 +25,7 @@ def _identity_linear(d):
     return lin
 
 
-@pytest.mark.parametrize("forward", [_forward, _forward_gemma3, _forward_llama, _forward_qwen])
+@pytest.mark.parametrize("forward", [gemma4, gemma3, _mlx_lm], ids=lambda m: m.__name__)
 def test_the_manual_attention_path_makes_a_causal_string_mask_causal(forward):
     d, n = 4, 5
     attn = SimpleNamespace(
@@ -44,7 +37,7 @@ def test_the_manual_attention_path_makes_a_causal_string_mask_causal(forward):
     )
     cache = ActivationCache()
     x = mx.random.normal((1, n, d), key=mx.random.key(0))
-    extra = {"shared_kv": None, "offset": 0} if forward is _forward else {}
+    extra = {"shared_kv": None, "offset": 0} if forward is gemma4 else {}
     forward._attention_with_internals(
         SimpleNamespace(self_attn=attn), x, "causal", None, hooks={},
         capture_set={"blocks.0.attn.weights"}, cache=cache, layer_idx=0, **extra)
@@ -68,9 +61,9 @@ def test_a_quantized_k_eq_v_layer_reads_dense_weights_and_values_from_k_proj():
         head_dim=head_dim, n_heads=2, n_kv_heads=1, use_k_eq_v=True,
         q_proj=q, k_proj=k, o_proj=o, layer_type="full_attention",
         is_kv_shared_layer=False)
-    model = SimpleNamespace(_model=SimpleNamespace(language_model=SimpleNamespace(
-        model=SimpleNamespace(layers=[SimpleNamespace(self_attn=attn)]))))
-    spec = head_weights.get_head_spec(model, 0, 1)
+    language_model = SimpleNamespace(
+        model=SimpleNamespace(layers=[SimpleNamespace(self_attn=attn)]))
+    spec = gemma4.read_head_spec(SimpleNamespace(language_model=language_model), 0, 1)
     assert spec.W_Q.shape == (head_dim, d) and spec.W_O.shape == (d, head_dim)
     assert np.allclose(spec.W_Q, q_ref[head_dim:], atol=0.01)
     assert np.allclose(spec.W_K, k_ref, atol=0.01)
@@ -79,18 +72,20 @@ def test_a_quantized_k_eq_v_layer_reads_dense_weights_and_values_from_k_proj():
 
     per_head = mx.random.normal((1, 2, 3, head_dim), key=mx.random.key(4))
     cache = ActivationCache({"blocks.0.attn.per_head_out": per_head})
-    out = attribution.head_results(model, cache, 0)
+    out = attribution.head_results(SimpleNamespace(lm=language_model), cache, 0)
     want = np.array(per_head)[0, 1] @ o_ref[:, head_dim:].T
     assert out.shape == (2, 3, d) and np.allclose(out[1], want, atol=0.05)
 
 
 def _norm_gain_model(model_type, norm):
-    inner = SimpleNamespace(norm=norm)
-    if model_type in ("qwen2", "llama"):
-        wrapped = SimpleNamespace(model=inner)
+    inner = SimpleNamespace(norm=norm, embed_tokens=SimpleNamespace(as_linear=None))
+    architecture = for_type(model_type)
+    if architecture.loader == "mlx-lm":
+        wrapped = SimpleNamespace(model=inner, args=SimpleNamespace(tie_word_embeddings=True))
     else:
-        wrapped = SimpleNamespace(language_model=SimpleNamespace(model=inner))
-    return SimpleNamespace(arch=SimpleNamespace(model_type=model_type), _model=wrapped)
+        wrapped = SimpleNamespace(language_model=SimpleNamespace(
+            model=inner, lm_head=None, final_logit_softcapping=None))
+    return SimpleNamespace(architecture=architecture, _model=wrapped)
 
 
 @pytest.mark.parametrize("model_type", ["gemma3", "gemma4", "llama", "qwen2"])

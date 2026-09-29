@@ -1,33 +1,73 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import mlx.core as mx
-from mlx_lm.models.base import create_attention_mask
-from mlx_lm.models.cache import make_prompt_cache
 
-from . import _arch
-from ._attention_mask import apply_mask
-from .cache import ActivationCache, kv_offset
-from .hooks import HookFn, HookInfo, attn_internal_layers
+from mechbench_compute._arch import Arch
+from mechbench_compute._attention_mask import apply_mask
+from mechbench_compute.architectures._dispatch import dispatch, run_head
+from mechbench_compute.cache import ActivationCache, kv_offset
+from mechbench_compute.hooks import HookFn, attn_internal_layers
+from mechbench_compute.support import Unembed
 
 
-def _dispatch(
-    name: str,
-    layer: int | None,
-    point: str,
-    activation: mx.array,
-    hooks: dict[str, HookFn],
-    capture_set: set[str],
-    cache: ActivationCache,
-) -> mx.array:
-    fn = hooks.get(name)
-    if fn is not None:
-        info = HookInfo(name=name, layer=layer, point=point, offset=cache.offset)
-        new = fn(activation, info)
-        if new is not None:
-            activation = new
-    if name in capture_set:
-        cache[name] = activation
-    return activation
+def load_lm(model_id: str, **config: Any) -> tuple[Any, Any]:
+    from mlx_lm import load
+
+    return load(model_id, **config)
+
+
+def read_lm(model):
+    return model
+
+
+def make_lm_cache(model):
+    from mlx_lm.models.cache import make_prompt_cache
+
+    return make_prompt_cache(model)
+
+
+def tokenize_lm(model, processor, prompt: str, *, chat_template: bool = True) -> mx.array:
+    if chat_template:
+        rendered = processor.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    else:
+        rendered = prompt
+    ids = processor.encode(rendered)
+    return mx.array([ids], dtype=mx.int32)
+
+
+def read_unembed(model) -> Unembed:
+    tm = model.model
+    project = tm.embed_tokens.as_linear if model.args.tie_word_embeddings else model.lm_head
+    return Unembed(norm=tm.norm, project=project)
+
+
+def read_lm_arch(model_type: str, model, model_id: str | None = None) -> Arch:
+    args = model.args
+    n_layers = int(args.num_hidden_layers)
+    layer_types = getattr(args, "layer_types", None)
+    if layer_types:
+        global_layers = tuple(i for i, t in enumerate(layer_types) if t == "full_attention")
+    else:
+        global_layers = tuple(range(n_layers))
+    return Arch(
+        model_id=model_id or "",
+        n_layers=n_layers,
+        d_model=int(args.hidden_size),
+        n_heads=int(args.num_attention_heads),
+        n_kv_heads=int(args.num_key_value_heads),
+        vocab_size=int(args.vocab_size),
+        hidden_size_per_layer_input=0,
+        global_layers=global_layers,
+        first_kv_shared_layer=n_layers,
+        model_type=model_type,
+    )
 
 
 def _attention_with_internals(
@@ -54,15 +94,15 @@ def _attention_with_internals(
     if c is not None:
         k, v = c.update_and_fetch(k, v)
 
-    q = _dispatch(
+    q = dispatch(
         f"blocks.{layer_idx}.attn.q", layer_idx, "attn.q", q,
         hooks, capture_set, cache,
     )
-    k = _dispatch(
+    k = dispatch(
         f"blocks.{layer_idx}.attn.k", layer_idx, "attn.k", k,
         hooks, capture_set, cache,
     )
-    v = _dispatch(
+    v = dispatch(
         f"blocks.{layer_idx}.attn.v", layer_idx, "attn.v", v,
         hooks, capture_set, cache,
     )
@@ -77,13 +117,13 @@ def _attention_with_internals(
     scores = apply_mask(scores, mask)
 
     weights = mx.softmax(scores, axis=-1)
-    weights = _dispatch(
+    weights = dispatch(
         f"blocks.{layer_idx}.attn.weights", layer_idx, "attn.weights", weights,
         hooks, capture_set, cache,
     )
 
     per_head_out = weights @ v
-    per_head_out = _dispatch(
+    per_head_out = dispatch(
         f"blocks.{layer_idx}.attn.per_head_out", layer_idx, "attn.per_head_out",
         per_head_out, hooks, capture_set, cache,
     )
@@ -92,14 +132,15 @@ def _attention_with_internals(
     return attn.o_proj(output)
 
 
-# external: mlx-lm — this mirrors models/qwen2.py (Qwen2Model, TransformerBlock, Attention __call__)
-def run_forward_qwen(
+# external: mlx-lm — this mirrors models/llama.py and models/qwen2.py (Model, TransformerBlock, Attention __call__)
+def run_lm_forward(
     model,
     input_ids: mx.array,
     *,
+    make_masks: Callable[[Any, mx.array, list], list],
     hooks: dict[str, HookFn] | None = None,
     capture: list[str] | None = None,
-    arch: _arch.Arch | None = None,
+    arch: Arch | None = None,
     kv_cache=None,
 ) -> tuple[mx.array, ActivationCache]:
     hooks = dict(hooks or {})
@@ -112,14 +153,16 @@ def run_forward_qwen(
     tm = model.model
 
     h = tm.embed_tokens(input_ids)
+    h = dispatch("embed", None, "embed", h, hooks, capture_set, cache)
     if kv_cache is None:
-        kv_cache = make_prompt_cache(model)
-    mask = create_attention_mask(h, kv_cache[0])
+        kv_cache = make_lm_cache(model)
+    masks = make_masks(tm, h, kv_cache)
 
     for i, layer in enumerate(tm.layers):
         c = kv_cache[i]
+        local_mask = masks[i]
 
-        h = _dispatch(
+        h = dispatch(
             f"blocks.{i}.resid_pre", i, "resid_pre", h, hooks, capture_set, cache,
         )
         resid_pre = h
@@ -127,12 +170,12 @@ def run_forward_qwen(
         x_normed = layer.input_layernorm(h)
         if i in manual_attn_layer_set:
             a = _attention_with_internals(
-                layer, x_normed, mask, c,
+                layer, x_normed, local_mask, c,
                 hooks=hooks, capture_set=capture_set, cache=cache, layer_idx=i,
             )
         else:
-            a = layer.self_attn(x_normed, mask, c)
-        a = _dispatch(
+            a = layer.self_attn(x_normed, local_mask, c)
+        a = dispatch(
             f"blocks.{i}.attn_out", i, "attn_out", a, hooks, capture_set, cache,
         )
         h = resid_pre + a
@@ -140,27 +183,15 @@ def run_forward_qwen(
         mid = h
         m_in = layer.post_attention_layernorm(mid)
         m_out = layer.mlp(m_in)
-        m_out = _dispatch(
+        m_out = dispatch(
             f"blocks.{i}.mlp_out", i, "mlp_out", m_out, hooks, capture_set, cache,
         )
         h = mid + m_out
 
-        h = _dispatch(
+        h = dispatch(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
-    if "final_norm.scale" in capture_set or "final_norm.scale" in hooks:
-        f32 = h.astype(mx.float32)
-        eps = float(getattr(tm.norm, "eps", 1e-6))
-        rms = mx.sqrt(mx.mean(f32 * f32, axis=-1) + eps)
-        _dispatch("final_norm.scale", None, "final_norm.scale", rms,
-                  hooks, capture_set, cache)
-
-    h_final = tm.norm(h)
-    if model.args.tie_word_embeddings:
-        logits = tm.embed_tokens.as_linear(h_final)
-    else:
-        logits = model.lm_head(h_final)
-
-    mx.eval([logits] + list(cache.values()))
+    logits = run_head(h, norm=tm.norm, unembed=read_unembed(model).project,
+                      hooks=hooks, capture_set=capture_set, cache=cache)
     return logits, cache

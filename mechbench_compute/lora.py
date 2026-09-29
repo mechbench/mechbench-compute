@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 import mlx.core as mx
 from mlx import nn
@@ -16,14 +18,24 @@ __all__ = [
     "save_adapter",
 ]
 
-KEY_RE = re.compile(
-    r"^model\.layers\.(\d+)\.(self_attn|mlp)\.(\w+)\.lora_([ab])$")
 
-PROJ_CONTAINERS = {
-    "q_proj": "self_attn", "k_proj": "self_attn",
-    "v_proj": "self_attn", "o_proj": "self_attn",
-    "gate_proj": "mlp", "up_proj": "mlp", "down_proj": "mlp",
-}
+
+@dataclass(frozen=True)
+class AdapterKeys:
+    key_re: re.Pattern
+    containers: Mapping[str, str]
+    peft_re: re.Pattern
+
+
+ADAPTER_KEYS = AdapterKeys(
+    key_re=re.compile(r"^model\.layers\.(\d+)\.(self_attn|mlp)\.(\w+)\.lora_([ab])$"),
+    containers={
+        "q_proj": "self_attn", "k_proj": "self_attn",
+        "v_proj": "self_attn", "o_proj": "self_attn",
+        "gate_proj": "mlp", "up_proj": "mlp", "down_proj": "mlp",
+    },
+    peft_re=re.compile(r"model\.layers\.(\d+)\.(self_attn|mlp)\.(\w+)\.lora_([AB])\.weight$"),
+)
 
 
 class LoRALinear(nn.Module):
@@ -47,17 +59,17 @@ class LoRALinear(nn.Module):
 # external: mlx-vlm — freezing a whole VLM walks non-module attributes of some audio/vision towers and crashes; pass Model.lm
 def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
                targets: tuple[str, ...] = ("q_proj", "v_proj"),
-               *, seed: int | None = None) -> int:
+               *, seed: int | None = None, keys: AdapterKeys = ADAPTER_KEYS) -> int:
     lm.freeze()
     n = 0
     key = mx.random.key(seed) if seed is not None else None
     wrapped_per_target = dict.fromkeys(targets, 0)
     for layer in lm.model.layers:
         for name in targets:
-            container = PROJ_CONTAINERS.get(name)
+            container = keys.containers.get(name)
             if container is None:
                 raise ValueError(f"unknown target module {name!r}; "
-                                 f"known: {sorted(PROJ_CONTAINERS)}")
+                                 f"known: {sorted(keys.containers)}")
             holder = getattr(layer, container)
             base = getattr(holder, name, None)
             if base is None:
@@ -88,10 +100,11 @@ def load_adapter(path: str) -> dict[str, mx.array]:
 
 def fuse(lm, weights: dict[str, mx.array],
          scale: float, *, skip_missing: bool = False,
-         skipped: list[str] | None = None) -> dict[tuple[int, str], mx.array]:
+         skipped: list[str] | None = None,
+         keys: AdapterKeys = ADAPTER_KEYS) -> dict[tuple[int, str], mx.array]:
     pairs: dict[tuple[int, str, str], dict[str, mx.array]] = {}
     for key, w in weights.items():
-        m = KEY_RE.match(key)
+        m = keys.key_re.match(key)
         if m is None:
             raise ValueError(f"unrecognized adapter key {key!r}")
         i, container, proj, ab = (int(m.group(1)), m.group(2),
@@ -138,7 +151,8 @@ def restore(lm, handle: dict[tuple[int, str, str], mx.array]) -> None:
 
 def fuse_adapter_stack(lm, payloads, override_scale=None, *,
                        skip_missing: bool = False,
-                       skipped: list[str] | None = None):
+                       skipped: list[str] | None = None,
+                       keys: AdapterKeys = ADAPTER_KEYS):
     import os
     import tempfile
 
@@ -157,7 +171,7 @@ def fuse_adapter_stack(lm, payloads, override_scale=None, *,
             with open(path, "wb") as f:
                 f.write(payload["data"])
             handles.append(fuse(lm, load_adapter(path), scale=scale,
-                                skip_missing=skip_missing, skipped=skipped))
+                                skip_missing=skip_missing, skipped=skipped, keys=keys))
         finally:
             os.unlink(path)
     return handles

@@ -52,9 +52,9 @@ SHARED_LAYER_ABSENT_POINTS: frozenset[str] = frozenset({
 })
 
 def family_supports(model_type: str, point: str, *, layer_scoped: bool) -> bool:
-    from .support import architecture
+    from .architectures import for_type
 
-    arch = architecture(model_type)
+    arch = for_type(model_type)
     if arch is None:
         return False
     return arch.supports(point, layer_scoped=layer_scoped)
@@ -97,86 +97,16 @@ class Arch:
 
     @classmethod
     def from_mlx_model(cls, model: Any, model_id: str | None = None) -> "Arch":
-        if hasattr(model, "args") and not hasattr(model, "language_model"):
-            return cls._from_mlx_lm_args(model.args, model_id)
+        from .architectures import for_model
 
-        cfg = model.config.text_config
-        cfg_model_type = (getattr(cfg, "model_type", "") or "").lower()
-        family = "gemma3" if cfg_model_type.startswith("gemma3") else "gemma4"
-
-        if hasattr(cfg, "layer_types") and cfg.layer_types is not None:
-            layer_types = list(cfg.layer_types)
-            n_layers = len(layer_types)
-            global_layers = tuple(
-                i for i, t in enumerate(layer_types) if t == "full_attention"
-            )
-        else:
-            n_layers = int(cfg.num_hidden_layers)
-            pattern = int(
-                getattr(cfg, "sliding_window_pattern", 6)
-            )
-            global_layers = tuple(
-                i for i in range(n_layers)
-                if (i + 1) % pattern == 0
-            )
-
-        num_kv_shared = int(getattr(cfg, "num_kv_shared_layers", 0) or 0)
-        first_kv_shared = n_layers - num_kv_shared
-
-        return cls(
-            model_id=model_id or getattr(cfg, "_name_or_path", "") or "",
-            n_layers=n_layers,
-            d_model=int(cfg.hidden_size),
-            n_heads=int(cfg.num_attention_heads),
-            n_kv_heads=int(cfg.num_key_value_heads),
-            vocab_size=int(cfg.vocab_size),
-            hidden_size_per_layer_input=int(
-                getattr(cfg, "hidden_size_per_layer_input", 0) or 0
-            ),
-            global_layers=global_layers,
-            first_kv_shared_layer=first_kv_shared,
-            model_type=family,
-        )
-
-    @classmethod
-    def _from_mlx_lm_args(cls, args, model_id: str | None) -> "Arch":
-        n_layers = int(args.num_hidden_layers)
-        family_raw = (getattr(args, "model_type", "") or "").lower()
-        from .support import MLX_LM_MODEL_TYPES
-
-        if family_raw not in MLX_LM_MODEL_TYPES:
-            raise NotImplementedError(
-                f"mlx-lm model_type {family_raw!r} is not supported; the "
-                f"hook-aware forwards cover {', '.join(sorted(MLX_LM_MODEL_TYPES))}."
-            )
-
-        layer_types = getattr(args, "layer_types", None)
-        if layer_types:
-            global_layers = tuple(
-                i for i, t in enumerate(layer_types) if t == "full_attention"
-            )
-        else:
-            global_layers = tuple(range(n_layers))
-
-        return cls(
-            model_id=model_id or "",
-            n_layers=n_layers,
-            d_model=int(args.hidden_size),
-            n_heads=int(args.num_attention_heads),
-            n_kv_heads=int(args.num_key_value_heads),
-            vocab_size=int(args.vocab_size),
-            hidden_size_per_layer_input=0,
-            global_layers=global_layers,
-            first_kv_shared_layer=n_layers,
-            model_type=family_raw,
-        )
+        return for_model(model).arch_of(model, model_id)
 
 
 def read_arch_from_config(config: Mapping[str, Any], model_id: str = "") -> Arch:
-    from .support import BY_MODEL_TYPE
+    from .architectures import for_type
 
     top = str(config.get("model_type") or "").lower()
-    declared = BY_MODEL_TYPE.get(top)
+    declared = for_type(top)
     if declared is None:
         raise NotImplementedError(f"model_type {top!r} is not one compute loads")
     text = config.get("text_config")
@@ -192,13 +122,8 @@ def read_arch_from_config(config: Mapping[str, Any], model_id: str = "") -> Arch
     else:
         pattern = int(cfg.get("sliding_window_pattern") or 6)
         global_layers = tuple(i for i in range(n_layers) if (i + 1) % pattern == 0)
-    if declared.loader == "mlx-lm":
-        family, shared, per_layer = top, 0, 0
-    else:
-        inner = str(cfg.get("model_type") or "").lower()
-        family = "gemma3" if inner.startswith("gemma3") else "gemma4"
-        shared = int(cfg.get("num_kv_shared_layers") or 0)
-        per_layer = int(cfg.get("hidden_size_per_layer_input") or 0)
+    shared = int(cfg.get("num_kv_shared_layers") or 0)
+    per_layer = int(cfg.get("hidden_size_per_layer_input") or 0)
     return Arch(
         model_id=model_id,
         n_layers=n_layers,
@@ -209,7 +134,7 @@ def read_arch_from_config(config: Mapping[str, Any], model_id: str = "") -> Arch
         hidden_size_per_layer_input=per_layer,
         global_layers=global_layers,
         first_kv_shared_layer=n_layers - shared,
-        model_type=family,
+        model_type=declared.model_type,
     )
 
 

@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from mlx import nn
 
+from mechbench_compute.architectures import for_type
 from mechbench_compute.attribution import logit_attrs
 
 D, V, S = 8, 10, 5
@@ -21,6 +22,8 @@ class TinyHead:
 class StubModel:
     class arch:
         model_type = "llama"
+
+    architecture = for_type("llama")
 
     def __init__(self, wu, gain):
         class Args:

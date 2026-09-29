@@ -13,6 +13,92 @@ nothing said so.
 
 ---
 
+## 0.168.0 — 2026-09-29
+
+### Changes that raise
+
+- `dialects.DIALECTS` is gone: each architecture declares its
+  `dialect` (`architectures.<model_type>.ARCH.dialect`), and
+  `dialects.list_dialects()` is the walked set `identify` reads. The
+  parsers moved with them (`dialects._gemma4`/`_qwen`/`_llama` are
+  `architectures.gemma4/qwen2/llama.parse_calls`); the per-dialect
+  "attempting" markers are `ToolDialect.attempting`; the shared helpers
+  are public (`strip_calls`, `make_call`, `parse_scalar`, `parse_json`).
+- `thinking.DELIMITERS` and `chat.split_reasoning.DELIMITERS` are gone:
+  each architecture declares its `reasoning` (`thinking.Delimiters(
+  opening, closing, channel)`), and `thinking.list_delimiters()` is the
+  walked set both modules probe. The `<reasoning>`/`</reasoning>` pair
+  no architecture declared is dropped. `thinking.THINK_TAGS` is the
+  `<think>` pair `answer_text`/`split_thought` default to.
+- `lora.KEY_RE`, `lora.PROJ_CONTAINERS` and `peft._PEFT_KEY_RE` are
+  `lora.ADAPTER_KEYS`, an `AdapterKeys(key_re, containers, peft_re)`;
+  each architecture carries its `adapter_keys`. `apply_lora`, `fuse`
+  and `fuse_adapter_stack` take `keys=` (default `ADAPTER_KEYS`); the
+  model paths (`adapter/train`, a model ref's adapters) pass the
+  model's own. `ADAPTER_KEYS` stays module-level because
+  `checkpoint.export_merged`, `adapter/measure` and `peft` read adapter
+  payloads with no model loaded.
+- `support.ARCHITECTURES`, `BY_MODEL_TYPE`, `MODEL_TYPES`,
+  `MLX_LM_MODEL_TYPES` and `support.architecture()` are
+  `mechbench_compute.architectures.ARCHITECTURES`, `BY_MODEL_TYPE` and
+  `for_type()`; `for_model(model)` finds a loaded model's.
+  `ARCHITECTURES` is walked, so it is in `model_type` order.
+- `_forward`, `_forward_gemma3`, `_forward_llama` and `_forward_qwen`
+  are gone: each forward is its architecture's `forward`
+  (`architectures/gemma4.py`, `gemma3.py`, and `_mlx_lm.run_lm_forward`
+  shared by `llama.py` and `qwen2.py`), over one `dispatch` in
+  `architectures/_dispatch.py`. `model._MLX_LM_FAMILIES` and
+  `Arch._from_mlx_lm_args` are gone.
+- `Model.load` refuses a checkpoint whose config.json names no
+  `model_type` instead of trying mlx-vlm and then mlx-lm.
+- `head_weights.get_head_spec` (and the ops over it) on gemma3, qwen2
+  or llama raises `NotImplementedError` naming the architecture, where
+  it raised `AttributeError`; `head_weights._dense_weight_f32` is
+  `read_dense_weight`.
+
+### Changes that alter results without raising
+
+- `thinking.delimiter_ids` now probes gemma4's `<|channel>`/`<channel|>`,
+  so a gemma4 `text/generate` item whose reply opens a thought now
+  carries a `reasoning` segmentation (it carried none; the span includes
+  the `thought` channel name). Nothing else changes: the forwards are
+  bit-identical to 0.167.0 on the real Gemma 4 E2B, Gemma 3 4B, Llama
+  3.2 3B and Qwen 2.5 3B (logits, every core point at three layers,
+  `project_to_logits`, `head_logits`, direct logit attribution).
+
+### Other
+
+- Architectures are one file each (task 000827), `architectures/<model_type>.py`,
+  each exporting `ARCH = Architecture(...)`, discovered by a per-file
+  walk (path = `model_type`). `support.Architecture` grows the callables
+  the hard-wired branches were: `load`, `arch_of`, `forward`, `lm`,
+  `prompt_cache`, `head_logits`, `project_to_logits`, `tokenize`,
+  `attribution_unembed` (→ `support.Unembed(norm, project, softcap)`),
+  `head_weights`, `dialect`, `reasoning`, `adapter_keys`, and a
+  `residual_law`. `Model` is a façade over `model.architecture`;
+  `attribution`, `head_weights` and `logits/attribute` read the
+  architecture instead of branching on `model_type`.
+- gemma3, qwen2 and llama now emit `embed`, `final_norm` and `logits`
+  and declare them: every architecture carries every global point, and
+  the `core` level's description says so (`support.generated.ts`
+  regenerated).
+- The residual laws, checked on the tiny models and the four real
+  checkpoints: gemma3, qwen2, llama `resid_post[i] == resid_pre[i] +
+  attn_out[i] + mlp_out[i] == resid_pre[i+1]`; gemma4 `resid_post[i] ==
+  (resid_pre[i] + attn_out[i] + mlp_out[i] + gate_out[i]) *
+  layer_scalar[i] == resid_pre[i+1]` — the per-layer input enters as
+  `gate_out` inside the layer, and the layer scalar multiplies the sum,
+  so the stream between layers is continuous.
+- `tests/test_architecture_kit.py`: the invariants every architecture
+  passes (docs/OPS_LAYOUT.md, "Where an architecture lives"), over the
+  tiny random models now in `tests/tiny_models.py`. A fixture llama
+  with a wrong residual fails the residual law by name. Kit findings:
+  `head_weights` is written for gemma4 only (three expected failures).
+- `walk_modules` lives in `mechbench_compute/walk_modules.py`, so the
+  architecture walk does not import the lexicon.
+
+---
+
 ## 0.167.0 — 2026-09-29
 
 ### Changes that raise

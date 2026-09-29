@@ -167,9 +167,7 @@ def attribute_logits(
         last = result.logits[0, -1, :].astype(mx.float32)
         mx.eval(last)
         last_np = np.array(last, dtype=np.float64)
-        cap = getattr(
-            getattr(getattr(model, "_model", None), "language_model", None),
-            "final_logit_softcapping", None)
+        cap = model.architecture.attribution_unembed(model._model).softcap
         if cap:
             c = float(cap)
             last_np = c * np.arctanh(np.clip(last_np / c, -0.999999, 0.999999))

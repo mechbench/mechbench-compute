@@ -94,7 +94,7 @@ def head_results(model, cache: ActivationCache, layer: int) -> np.ndarray:
     if per_head_np.ndim == 4 and per_head_np.shape[0] == 1:
         per_head_np = per_head_np[0]
 
-    block = model._model.language_model.model.layers[layer]
+    block = model.lm.model.layers[layer]
     head_dim = int(block.self_attn.head_dim)
     o_proj = block.self_attn.o_proj
     o_weight = o_proj.weight
@@ -129,10 +129,7 @@ def _read_gain_offset(norm) -> float:
 
 
 def _final_norm_gain(model) -> np.ndarray:
-    if model.arch.model_type in ("qwen2", "llama"):
-        norm = model._model.model.norm
-    else:
-        norm = model._model.language_model.model.norm
+    norm = model.architecture.attribution_unembed(model._model).norm
     arr = np.array(mx.array(norm.weight).astype(mx.float32))
     return arr + _read_gain_offset(norm)
 
@@ -161,18 +158,7 @@ def logit_attrs(
         flat = (flat / scale) * _final_norm_gain(model)
     v = mx.array(flat, dtype=mx.float32)
 
-    if model.arch.model_type in ("qwen2", "llama"):
-        if model._model.args.tie_word_embeddings:
-            logits = model._model.model.embed_tokens.as_linear(v)
-        else:
-            logits = model._model.lm_head(v)
-    else:
-        lm = model._model.language_model
-        tm = lm.model
-        if model.arch.model_type == "gemma3":
-            logits = lm.lm_head(v)
-        else:
-            logits = tm.embed_tokens.as_linear(v)
+    logits = model.architecture.attribution_unembed(model._model).project(v)
 
     logits = logits.astype(mx.float32)
     mx.eval(logits)

@@ -9,7 +9,7 @@ from typing import Any
 
 import mlx.core as mx
 
-from mechbench_compute.lora import PROJ_CONTAINERS
+from mechbench_compute.lora import ADAPTER_KEYS
 
 MANIFEST_NAME = "manifest"
 _COMPLETE_MARK = ".complete"
@@ -19,7 +19,7 @@ def _adapter_deltas(payload: Mapping[str, Any]) -> dict[str, mx.array]:
     import os
     import tempfile
 
-    from mechbench_compute.lora import KEY_RE, load_adapter
+    from mechbench_compute.lora import load_adapter
 
     cfg = payload.get("lora") or {}
     scale = float(cfg.get("alpha", 16)) / float(cfg.get("rank", 8))
@@ -35,11 +35,11 @@ def _adapter_deltas(payload: Mapping[str, Any]) -> dict[str, mx.array]:
 
     pairs: dict[tuple[int, str, str], dict[str, mx.array]] = {}
     for key, w in weights.items():
-        m = KEY_RE.match(key)
+        m = ADAPTER_KEYS.key_re.match(key)
         if m is None:
             raise ValueError(f"unrecognized adapter key {key!r}")
         i, container, proj, ab = (int(m.group(1)), m.group(2), m.group(3), m.group(4))
-        if PROJ_CONTAINERS.get(proj) is None:
+        if ADAPTER_KEYS.containers.get(proj) is None:
             raise ValueError(f"unknown projection {proj!r} in adapter")
         pairs.setdefault((i, container, proj), {})[ab] = w
 

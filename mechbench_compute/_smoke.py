@@ -46,7 +46,7 @@ def main() -> int:
     print()
     if not all_pass:
         print("FORWARD SMOKE TEST FAILED: Model.run produced the wrong token on some prompt.")
-        print("Investigate _forward.py — the canonical forward path is broken.")
+        print("Investigate the architecture's forward in mechbench_compute/architectures/ — the canonical forward path is broken.")
         return 1
 
     print("Forward smoke test passed.")

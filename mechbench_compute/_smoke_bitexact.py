@@ -8,16 +8,9 @@ import numpy as np
 from mlx_vlm.models import cache as cache_mod
 
 from . import Model
+from .architectures import BY_MODEL_TYPE
 
 PROMPT = "Complete this sentence with one word: The capital of France is"
-
-_SUPPORTED = ("gemma4", "gemma3", "qwen2", "llama")
-
-
-def _text_model(mlxm, arch):
-    if arch.model_type in ("qwen2", "llama"):
-        return mlxm.model
-    return mlxm.language_model.model
 
 
 def _stock_logits(mlxm, ids: mx.array, arch) -> mx.array:
@@ -51,12 +44,12 @@ def main(model_id: str) -> int:
     arch = model.arch
     print(f"Loaded in {time.perf_counter() - t0:.1f}s.")
 
-    if arch.model_type not in _SUPPORTED:
+    if arch.model_type not in BY_MODEL_TYPE:
         print(f"SKIP: no canonical forward for model_type={arch.model_type!r}.")
         return 0
 
     mlxm = model._model
-    tm = _text_model(mlxm, arch)
+    tm = model.lm.model
     ids = model.tokenize(PROMPT)
 
     stock = np.array(_stock_logits(mlxm, ids, arch).astype(mx.float32))

@@ -2,25 +2,23 @@ from __future__ import annotations
 
 from typing import Any
 
-DELIMITERS: tuple[tuple[str, str, str], ...] = (
-    ("<|channel>", "<channel|>", "thought\n"),
-    ("<think>", "</think>", ""),
-)
+from mechbench_compute.thinking import Delimiters, list_delimiters
 
 
-def find_delimiters(tokenizer: Any) -> tuple[str, str, str] | None:
+def find_delimiters(tokenizer: Any) -> Delimiters | None:
     convert = getattr(tokenizer, "convert_tokens_to_ids", None)
     if convert is None:
         return None
     unk = getattr(tokenizer, "unk_token_id", None)
-    for opening, closing, channel in DELIMITERS:
+    for found in list_delimiters():
+        opening, closing, _ = found
         try:
             a, b = convert(opening), convert(closing)
         except Exception:  # noqa: BLE001
             continue
         if (isinstance(a, int) and isinstance(b, int) and a != b
                 and a != unk and b != unk):
-            return opening, closing, channel
+            return found
     return None
 
 

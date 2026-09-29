@@ -91,7 +91,7 @@ def _measure_adapter(adapter: Any, params: Mapping[str, Any]) -> dict[str, Any]:
 def read_adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str], dict[str, np.ndarray]]:
     import mlx.core as mx
 
-    from mechbench_compute.lora import KEY_RE, load_adapter
+    from mechbench_compute.lora import ADAPTER_KEYS, load_adapter
 
     data = payload.get("data")
     if data is None:
@@ -109,7 +109,7 @@ def read_adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str],
         with open(path, "wb") as f:
             f.write(data)
         for key, w in load_adapter(path).items():
-            m = KEY_RE.match(key)
+            m = ADAPTER_KEYS.key_re.match(key)
             if m is None:
                 raise ValueError(f"unrecognized adapter key {key!r}")
             i, container, proj, ab = (int(m.group(1)), m.group(2),

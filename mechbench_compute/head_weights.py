@@ -47,7 +47,7 @@ def _as_np_f32(mx_tensor: mx.array) -> np.ndarray:
     return np.array(mx_tensor.astype(mx.float32))
 
 
-def _dense_weight_f32(module) -> np.ndarray:
+def read_dense_weight(module) -> np.ndarray:
     w = module.weight
     if hasattr(module, "scales"):
         w = mx.dequantize(
@@ -58,7 +58,7 @@ def _dense_weight_f32(module) -> np.ndarray:
 
 
 def _embed_matrix_f32(model) -> np.ndarray:
-    return _dense_weight_f32(model._model.language_model.model.embed_tokens)
+    return read_dense_weight(model.lm.model.embed_tokens)
 
 
 def _unit_normalized_embed(model) -> np.ndarray:
@@ -68,32 +68,7 @@ def _unit_normalized_embed(model) -> np.ndarray:
 
 
 def get_head_spec(model, layer: int, head: int) -> HeadSpec:
-    block = model._model.language_model.model.layers[layer]
-    attn = block.self_attn
-    head_dim = int(attn.head_dim)
-    n_heads = int(attn.n_heads)
-    n_kv_heads = int(attn.n_kv_heads)
-    kv_group = head * n_kv_heads // n_heads
-
-    use_k_eq_v = bool(getattr(attn, "use_k_eq_v", False))
-    W_Q_full = _dense_weight_f32(attn.q_proj)
-    W_K_full = _dense_weight_f32(attn.k_proj)
-    W_V_full = W_K_full if use_k_eq_v else _dense_weight_f32(attn.v_proj)
-    W_O_full = _dense_weight_f32(attn.o_proj)
-
-    W_Q = W_Q_full[head * head_dim:(head + 1) * head_dim, :]
-    W_K = W_K_full[kv_group * head_dim:(kv_group + 1) * head_dim, :]
-    W_V = W_V_full[kv_group * head_dim:(kv_group + 1) * head_dim, :]
-    W_O = W_O_full[:, head * head_dim:(head + 1) * head_dim]
-
-    return HeadSpec(
-        layer=layer, head=head, kv_group=kv_group,
-        head_dim=head_dim, n_heads=n_heads, n_kv_heads=n_kv_heads,
-        W_Q=W_Q, W_K=W_K, W_V=W_V, W_O=W_O,
-        is_global=(attn.layer_type == "full_attention"),
-        is_kv_shared=bool(attn.is_kv_shared_layer),
-        use_k_eq_v=use_k_eq_v,
-    )
+    return model.architecture.head_weights(model._model, layer, head)
 
 
 def _top_tokens_for_direction(

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import mlx.core as mx
 
-_PEFT_KEY_RE = re.compile(
-    r"model\.layers\.(\d+)\.(self_attn|mlp)\.(\w+)\.lora_([AB])\.weight$")
+from mechbench_compute.lora import ADAPTER_KEYS
 
 CONFIG_NAME = "adapter_config.json"
 WEIGHTS_NAME = "adapter_model.safetensors"
@@ -25,9 +23,7 @@ def peft_export(adapter: dict, out_dir: str) -> str:
     peft_weights = {}
     targets = set()
     for key, w in ours.items():
-        m = re.match(
-            r"^model\.layers\.(\d+)\.(self_attn|mlp)\.(\w+)\.lora_([ab])$",
-            key)
+        m = ADAPTER_KEYS.key_re.match(key)
         if m is None:
             raise ValueError(f"unrecognized adapter key {key!r}")
         i, container, proj, ab = m.groups()
@@ -62,7 +58,7 @@ def peft_import(repo_dir: str) -> dict:
     ours = {}
     extra = []
     for key, w in peft_weights.items():
-        m = _PEFT_KEY_RE.search(key)
+        m = ADAPTER_KEYS.peft_re.search(key)
         if m is None:
             extra.append(key)
             continue

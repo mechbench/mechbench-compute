@@ -1,12 +1,27 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
-DELIMITERS: tuple[tuple[str, str], ...] = (
-    ("<think>", "</think>"),
-    ("<reasoning>", "</reasoning>"),
-)
+
+class Delimiters(NamedTuple):
+    opening: str
+    closing: str
+    channel: str = ""
+
+
+THINK_TAGS = Delimiters("<think>", "</think>")
+
+
+def list_delimiters() -> tuple[Delimiters, ...]:
+    from mechbench_compute.architectures import ARCHITECTURES
+
+    found: list[Delimiters] = []
+    for a in ARCHITECTURES:
+        for d in a.reasoning:
+            if d not in found:
+                found.append(d)
+    return tuple(found)
 
 THINKING = "thinking"
 ANSWER = "answer"
@@ -18,7 +33,7 @@ def delimiter_ids(tokenizer: Any) -> tuple[int, int] | None:
     if convert is None:
         return None
     unk = getattr(tokenizer, "unk_token_id", None)
-    for open_s, close_s in DELIMITERS:
+    for open_s, close_s, _ in list_delimiters():
         try:
             a, b = convert(open_s), convert(close_s)
         except Exception:  # noqa: BLE001
@@ -59,8 +74,8 @@ def segmentation(ids: Sequence[int], *, start: int,
     return {"schema_name": SCHEMA, "segments": segs} if segs else None
 
 
-def answer_text(text: str, pair_text: tuple[str, str] = DELIMITERS[0]) -> str:
-    open_s, close_s = pair_text
+def answer_text(text: str, pair_text: tuple[str, ...] = THINK_TAGS) -> str:
+    open_s, close_s = pair_text[:2]
     a = text.find(open_s)
     if a == -1:
         return text
@@ -68,8 +83,8 @@ def answer_text(text: str, pair_text: tuple[str, str] = DELIMITERS[0]) -> str:
     return text if b == -1 else (text[:a] + text[b + len(close_s):]).lstrip()
 
 
-def split_thought(text: str, pair_text: tuple[str, str] = DELIMITERS[0]) -> tuple[str | None, str]:
-    open_s, close_s = pair_text
+def split_thought(text: str, pair_text: tuple[str, ...] = THINK_TAGS) -> tuple[str | None, str]:
+    open_s, close_s = pair_text[:2]
     a = text.find(open_s)
     if a == -1:
         return None, text

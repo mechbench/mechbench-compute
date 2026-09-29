@@ -10,6 +10,7 @@ from mechbench_compute.ops.activations import capture as capture_op
 from mechbench_compute.ops.activations import capture_attention as capture_attention_op
 from mechbench_compute.ops.activations import capture_tokens as capture_tokens_op
 from mechbench_compute import interp
+from mechbench_compute.support import Unembed
 from mechbench_compute.ops.intervene.patch import patch_trace
 from mechbench_compute.ops.activations.capture import capture_residual_vectors
 from mechbench_compute.ops.activations.capture_attention import capture_attention_patterns
@@ -46,9 +47,17 @@ class StubTokenizer:
         return " ".join(f"t{int(i)}" for i in ids)
 
 
+class StubArchitecture:
+    @staticmethod
+    def attribution_unembed(model):
+        return Unembed(norm=None, project=None)
+
+
 class StubModel:
     arch = StubArch()
+    architecture = StubArchitecture()
     tokenizer = StubTokenizer()
+    _model = None
 
     def __init__(self):
         self.runs = 0

@@ -70,84 +70,24 @@ def probe_template(tokenizer) -> TemplateProbe:
     return TemplateProbe(True, rendered)
 
 
-_GEMMA4_CALL = re.compile(
-    r"<\|tool_call\|?>\s*call:\s*([A-Za-z_][\w.]*)\s*\{(.*?)\}\s*<\/?tool_call\|?>",
-    re.DOTALL)
-_GEMMA4_ARG = re.compile(r'([A-Za-z_][\w.]*)\s*:\s*<\|"\|>(.*?)<\|"\|>', re.DOTALL)
-_GEMMA4_BARE_ARG = re.compile(r'([A-Za-z_][\w.]*)\s*:\s*([^,{}]+)')
-
-_QWEN_CALL = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
-_LLAMA_CALL = re.compile(
-    r'\{[^{}]*"name"\s*:\s*"[^"]+"[^{}]*"parameters"\s*:\s*\{.*?\}\s*\}', re.DOTALL)
-
-
-def _gemma4(text: str, tools: Sequence[ToolDef]) -> ParseResult:
-    known = {t.name for t in tools}
-    out: list[pm.ToolCallPart] = []
-    spans: list[tuple[int, int]] = []
-    for m in _GEMMA4_CALL.finditer(text):
-        if known and m.group(1) not in known:
-            continue
-        body = m.group(2) or ""
-        args: dict[str, Any] = {k: v for k, v in _GEMMA4_ARG.findall(body)}
-        for k, v in _GEMMA4_BARE_ARG.findall(body):
-            if k not in args and '<|"|>' not in v:
-                args[k] = _scalar(v.strip())
-        out.append(_call(m.group(1), args, len(out)))
-        spans.append(m.span())
-    return _without(text, spans), out
-
-
-def _qwen(text: str, tools: Sequence[ToolDef]) -> ParseResult:
-    known = {t.name for t in tools}
-    out: list[pm.ToolCallPart] = []
-    spans: list[tuple[int, int]] = []
-    for m in _QWEN_CALL.finditer(text):
-        parsed = _json(m.group(1))
-        if (isinstance(parsed, Mapping) and parsed.get("name")
-                and not (known and parsed["name"] not in known)):
-            args = parsed.get("arguments")
-            out.append(_call(str(parsed["name"]),
-                             dict(args) if isinstance(args, Mapping) else {},
-                             len(out)))
-            spans.append(m.span())
-    return _without(text, spans), out
-
-
-def _llama(text: str, tools: Sequence[ToolDef]) -> ParseResult:
-    known = {t.name for t in tools}
-    out: list[pm.ToolCallPart] = []
-    spans: list[tuple[int, int]] = []
-    for m in _LLAMA_CALL.finditer(text):
-        parsed = _json(m.group(0))
-        if (isinstance(parsed, Mapping) and parsed.get("name")
-                and not (known and parsed["name"] not in known)):
-            params = parsed.get("parameters")
-            out.append(_call(str(parsed["name"]),
-                             dict(params) if isinstance(params, Mapping) else {},
-                             len(out)))
-            spans.append(m.span())
-    return _without(text, spans), out
-
-
-def _without(text: str, spans: Sequence[tuple[int, int]]) -> str:
+def strip_calls(text: str, spans: Sequence[tuple[int, int]]) -> str:
     if not spans:
         return text.strip()
     return text[:min(start for start, _ in spans)].strip()
 
 
-def _call(name: str, args: Mapping[str, Any], i: int) -> pm.ToolCallPart:
+def make_call(name: str, args: Mapping[str, Any], i: int) -> pm.ToolCallPart:
     return pm.ToolCallPart(id=f"local_{i}", name=name, arguments=dict(args))
 
 
-def _scalar(raw: str) -> Any:
+def parse_scalar(raw: str) -> Any:
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         return raw.strip("\"'")
 
 
-def _json(raw: str) -> Any:
+def parse_json(raw: str) -> Any:
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -160,19 +100,23 @@ class ToolDialect:
     signature: str
     parse: Callable[[str, Sequence[ToolDef]], ParseResult]
     result_role: str = "tool"
+    attempting: tuple[str, ...] = ()
 
 
-DIALECTS: tuple[ToolDialect, ...] = (
-    ToolDialect("gemma-4", "<|tool_call>", _gemma4),
-    ToolDialect("qwen-2.5", "<tool_call>", _qwen),
-    ToolDialect("llama-3", "<|start_header_id|>ipython", _llama, "ipython"),
-)
+def list_dialects() -> tuple[ToolDialect, ...]:
+    from mechbench_compute.architectures import ARCHITECTURES
+
+    found: list[ToolDialect] = []
+    for a in ARCHITECTURES:
+        if a.dialect is not None and a.dialect not in found:
+            found.append(a.dialect)
+    return tuple(found)
 
 
 def identify(probe: TemplateProbe) -> ToolDialect | None:
     if not probe.supports_tools or not probe.rendered:
         return None
-    for d in DIALECTS:
+    for d in list_dialects():
         if d.signature in probe.rendered:
             return d
     return None
@@ -197,7 +141,7 @@ def dialect_for(tokenizer, *, model: str = "") -> ToolDialect:
     raise NoToolDialect(
         f"this model{who} declares tools in its chat template, but its "
         f"rendering matches no known dialect. Add one to "
-        f"`dialects.DIALECTS` with a round-trip test. Rendered:\n"
+        f"its architecture's `dialect` with a round-trip test. Rendered:\n"
         f"{(probe.rendered or '')[:400]}")
 
 
@@ -225,11 +169,6 @@ def result_message(dialect: ToolDialect | None, name: str,
             "name": name, "content": content}
 
 
-_ATTEMPTING: dict[str, tuple[str, ...]] = {
-    "gemma-4": ("<|tool_call", "call:"),
-    "qwen-2.5": ("<tool_call>", '"name"'),
-    "llama-3": ('"name"', '"parameters"'),
-}
 _ANY_NAME = re.compile(r'(?:call:|"name"\s*:\s*")\s*([A-Za-z_][\w.]*)')
 
 CAUSES = (
@@ -265,7 +204,7 @@ def call_error(text: str, tools: Sequence[ToolDef],
                              "the model attempted a call but has no known "
                              "tool protocol", named.group(1), text[:200])
         return None
-    if not any(m in text for m in _ATTEMPTING.get(dialect.name, ())):
+    if not any(m in text for m in dialect.attempting):
         return None
     known = {t.name for t in tools}
     if named and named.group(1) not in known:
@@ -301,5 +240,5 @@ def describe(tokenizer, model: str = "") -> DialectReport:
                              probe.reason or "no tool protocol")
     return DialectReport(
         model, None, True,
-        "declares tools but matches no known dialect — add one to "
-        "DIALECTS with a round-trip test")
+        "declares tools but matches no known dialect — add one to its "
+        "architecture's `dialect` with a round-trip test")

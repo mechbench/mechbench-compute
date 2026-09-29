@@ -262,7 +262,8 @@ def run(ctx, inputs, params):
 
     mref = params.get("model")
     if hasattr(mref, "adapter_payloads") and mref.adapter_payloads:
-        fuse_adapter_stack(model.lm, list(mref.adapter_payloads))
+        fuse_adapter_stack(model.lm, list(mref.adapter_payloads),
+                           keys=model.architecture.adapter_keys)
 
     records = lexicon.items_of(inputs.get("records") or [])
     def rendered_of(rec):
@@ -346,7 +347,7 @@ def run(ctx, inputs, params):
     seed = int(params.get("seed", 7))
 
     n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules,
-                        seed=seed)
+                        seed=seed, keys=model.architecture.adapter_keys)
     if ctx.on_start:
         ctx.on_start(steps)
     checkpoint_every = int(params.get("checkpoint_every", 50))
