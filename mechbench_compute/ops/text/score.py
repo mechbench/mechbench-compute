@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from mechbench_compute import lexicon
 from mechbench_compute._mlx import mx
-from mechbench_compute.lexicon._base import In, Op, Output
+from mechbench_compute.lexicon._base import In, Op, Output, Resume
 
 OP = Op(
     name="text/score",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Annotate every token of a trace-fidelity collection with its "
         "surprisal in bits under the model — how unexpected each token was."

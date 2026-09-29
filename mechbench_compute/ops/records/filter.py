@@ -7,10 +7,11 @@ from mechbench_compute.blocks.raise_expr_error import raise_expr_error
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.blocks.read_order_by import read_order_by
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="records/filter",
+    resume=Resume("restart"),
     summary="Keep the records a condition holds for.",
     description="""\
 `where` is an expression that is `True`, `False` or `None` for each record

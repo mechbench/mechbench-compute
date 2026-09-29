@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
 from mechbench_compute.weights.compute_effective_rank import compute_effective_rank
 from mechbench_compute.weights.read_parameters import read_parameters
@@ -13,7 +13,8 @@ from mechbench_compute.weights.select_points import select_points
 
 OP = Op(
     name="weights/capture",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Read the model's own learned tensors — their shape, norm, "
         "sparsity and, on request, their spectrum and their values — with "

@@ -7,10 +7,11 @@ from mechbench_compute.blocks.raise_expr_error import raise_expr_error
 from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.blocks.set_field import set_field
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="records/sort",
+    resume=Resume("restart"),
     summary="Order the records by expressions, and keep the first few.",
     description="""\
 `by` is a list of expressions, compared in turn: `["coords.prompt", "-p"]`

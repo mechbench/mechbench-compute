@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.transcript.constants import MAIN
 from mechbench_compute.transcript.read_transcripts import read_transcripts
 
@@ -36,6 +36,7 @@ _SEES = P("sees", "object",
 
 OP = Op(
     name="text/render",
+    resume=Resume("restart"),
     summary=(
         "A transcript as one participant sees it: its own turns as "
         "assistant, the others' as user, under a perspective and a `sees` "

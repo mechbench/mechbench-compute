@@ -12,11 +12,12 @@ from mechbench_compute._mlx import mx
 from mechbench_compute.distill import render
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interventions import Capture
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="activations/examples",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "The corpus windows whose token most excites a direction or a "
         "neuron — what turns it on, in context — with the corpus never "

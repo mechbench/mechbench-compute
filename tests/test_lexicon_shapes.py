@@ -291,3 +291,60 @@ def test_what_an_op_emits_instead_is_declared_against_the_node(op: Op) -> None:
             assert op.port(o.port or "") is not None and o.port in op.port_names, (
                 f"{op.name}: no port {o.port!r}")
         assert f"`{o.kind}`" in op.output.doc, f"{op.name}: the output prose does not name `{o.kind}`"
+
+
+@pytest.mark.parametrize("op", OPS, ids=[op.name for op in OPS])
+def test_every_need_is_in_the_vocabulary(op: Op) -> None:
+    from mechbench_compute.lexicon._base import is_need
+
+    assert all(is_need(n) for n in op.needs), sorted(op.needs)
+
+
+def test_a_need_outside_the_vocabulary_is_refused() -> None:
+    from mechbench_compute.lexicon._base import Output, Resume
+
+    with pytest.raises(ValueError, match="not needs"):
+        Op("x/y", "s", "d", (), needs=frozenset({"gpu"}))
+    with pytest.raises(ValueError, match="not needs"):
+        Op("x/y", "s", "d", (), needs=frozenset({"network:"}))
+    with pytest.raises(ValueError, match="not both"):
+        Op("x/y", "s", "d", (), output=Output("records/record"),
+           outputs={"a": Output("records/record")})
+    with pytest.raises(TypeError, match="not an Output"):
+        Op("x/y", "s", "d", (), outputs={"a": "records/record"})
+    with pytest.raises(ValueError, match="resume level"):
+        Op("x/y", "s", "d", (), resume=Resume("sometimes"))
+    with pytest.raises(TypeError):
+        Op("x/y", "s", "d", (), requires="pure")
+
+
+@pytest.mark.parametrize(("needs", "requires"), [
+    (set(), "pure"),
+    ({"secrets", "executor.sub"}, "pure"),
+    ({"model.forward"}, "mlx-local"),
+    ({"model.backward"}, "mlx-local"),
+    ({"provider.embed"}, "remote"),
+    ({"network:huggingface.co"}, "remote"),
+    ({"model.sample", "provider.chat"}, "by-model"),
+    ({"model.forward", "network:example.com"}, "by-model"),
+])
+def test_requires_is_derived_from_needs(needs: set[str], requires: str) -> None:
+    assert Op("x/y", "s", "d", (), needs=frozenset(needs)).requires == requires
+
+
+def test_the_manifest_fields_reach_the_published_dict() -> None:
+    from mechbench_compute.lexicon._base import Output, Resume
+
+    op = Op("x/y", "s", "d", (), outputs={"a": Output("records/record")},
+            needs=frozenset({"model.forward", "secrets"}), resume=Resume("restart", items=True),
+            deterministic=False, min_compute="0.170.0")
+    d = op.to_dict()
+    assert d["needs"] == ["model.forward", "secrets"]
+    assert d["requires"] == "mlx-local"
+    assert d["resume"] == {"level": "restart", "items": True}
+    assert d["deterministic"] is False
+    assert d["min_compute"] == "0.170.0"
+    assert d["outputs"]["a"]["kind"] == "records/record"
+    bare = Op("x/y", "s", "d", ()).to_dict()
+    assert "outputs" not in bare and "min_compute" not in bare
+    assert bare["resume"] == {"level": "reproducible", "items": False}

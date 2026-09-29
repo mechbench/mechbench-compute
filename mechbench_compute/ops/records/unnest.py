@@ -7,10 +7,11 @@ from mechbench_compute.blocks.build_collection import build_collection
 from mechbench_compute.blocks.expand_grid import expand_grid
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="records/unnest",
+    resume=Resume("restart"),
     summary=(
         "One record per element of a list field — a verdict's votes, a "
         "transcript's messages — each keeping its parent's coordinates."

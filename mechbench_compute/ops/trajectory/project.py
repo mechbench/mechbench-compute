@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.trajectory.project import project
 
 _TRAJECTORY = In("trajectory", "trajectory/point",
@@ -9,6 +9,7 @@ _TRAJECTORY = In("trajectory", "trajectory/point",
 
 OP = Op(
     name="trajectory/project",
+    resume=Resume("restart"),
     summary=(
         "Project every step of a trajectory onto a direction — the trace of "
         "a text, or the funnel of a prompt, as one number per step."

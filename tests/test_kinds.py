@@ -214,3 +214,54 @@ class TestRetiredSpellingsWarn:
             warnings.simplefilter("error")
             assert K.resolve_kind("metric_table") == ("records/table", False)
             assert K.resolve_kind("records/table", warn=True) == ("records/table", False)
+
+
+SILENT_KINDS = frozenset({
+    "activations/attention", "activations/coordinate", "activations/divergence", "activations/grid",
+    "activations/vector", "adapter/checkpoint", "adapter/delta", "adapter/lora", "adapter/push",
+    "collection", "direction/vector", "direction/vocab", "eval/verdict", "geometry/mst",
+    "geometry/similarity", "intervene/ablation", "intervene/heads", "intervene/readout",
+    "intervene/spec", "intervene/trace", "logits/attribution", "logits/decision",
+    "logits/distribution", "logits/funnel", "logits/lens", "model/pointer", "model/ref",
+    "provider/call", "provider/cassette", "provider/completion", "records/chart",
+    "records/condition", "records/pair", "records/record", "records/table", "run/ladder",
+    "run/replay", "run/result", "sandbox/call", "sandbox/image", "sandbox/snapshot",
+    "text/annotation", "text/document", "text/tokenization", "text/transcript", "text/word-list",
+    "trajectory/comparison", "trajectory/point", "trajectory/summary", "weights/parameter",
+})
+
+
+class TestEveryKindSpeaks:
+    def test_every_kind_speaks(self):
+        silent = {k.name for k in K.KINDS if not k.speak}
+        assert silent <= SILENT_KINDS, (
+            f"{sorted(silent - SILENT_KINDS)} say nothing: give each a `speak` template")
+
+    def test_the_silent_set_only_shrinks(self):
+        speaking = {k.name for k in K.KINDS if k.speak} & SILENT_KINDS
+        assert not speaking, f"{sorted(speaking)} speak now: take them off SILENT_KINDS"
+        assert SILENT_KINDS <= set(K.BY_KIND), sorted(SILENT_KINDS - set(K.BY_KIND))
+
+    def test_speak_draw_and_version_reach_the_published_dict(self):
+        from mechbench_compute.lexicon._base import Draw
+
+        k = Kind("x/y", "s", speak="{a} at layer {layer}", version=2,
+                 draw=Draw("heat", {"x": "layer", "value": "a"}))
+        d = k.to_dict()
+        assert d["speak"] == "{a} at layer {layer}" and d["version"] == 2
+        assert d["draw"] == {"mark": "heat", "encoding": {"x": "layer", "value": "a"}}
+        assert Kind("x/y", "s").to_dict()["draw"] is None
+
+
+class TestOneKindPerFile:
+    def test_a_kinds_path_is_a_function_of_its_name(self):
+        import importlib
+
+        for k in K.KINDS:
+            mod = importlib.import_module(K.resolve_kind_module(k.name))
+            assert mod.KIND is k, k.name
+
+    def test_a_platform_kind_says_so(self):
+        platform_families = {"sandbox", "provider", "model", "run"}
+        for k in K.KINDS:
+            assert k.platform == (k.family in platform_families), k.name

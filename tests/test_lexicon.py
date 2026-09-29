@@ -234,7 +234,7 @@ class TestTheNameAndItsRendering:
 
 
 class TestWhatAnOperationNeeds:
-    PURE_BUT_REACHING = frozenset({"records/map", "records/fold", "adapter/merge"})
+    NOT_READ_THROUGH_CTX = ("model.sample", "model.backward", "provider.", "network:")
 
     @staticmethod
     def _uses() -> dict[str, frozenset[str]]:
@@ -242,23 +242,80 @@ class TestWhatAnOperationNeeds:
 
         return {name: ops.read_context_uses(mod) for name, mod in ops.load_modules().items()}
 
-    def test_a_pure_operation_never_touches_the_model(self) -> None:
-        reaching = {name for name, uses in self._uses().items()
-                    if lexicon.BY_NAME[name].requires == "pure" and uses & {"model", "executor"}}
-        assert reaching == self.PURE_BUT_REACHING, (
-            f"pure operations reaching for the model or executor: {sorted(reaching)}; "
-            f"this set may only shrink")
+    def test_needs_are_declared(self) -> None:
+        from mechbench_compute import ops
 
-    def test_an_operation_that_uses_the_model_says_so(self) -> None:
         for name, uses in self._uses().items():
-            if "model" in uses:
-                assert lexicon.BY_NAME[name].requires in ("mlx-local", "by-model"), (
-                    f"{name} uses ctx.model; declared {lexicon.BY_NAME[name].requires!r}")
+            op = lexicon.BY_NAME[name]
+            for member in uses:
+                assert ops.check_member(op, member) is None, ops.check_member(op, member)
 
-    def test_an_operation_declared_local_uses_the_model(self) -> None:
+    def test_no_declared_need_goes_unused(self) -> None:
+        from mechbench_compute import ops
+
         for name, uses in self._uses().items():
-            if lexicon.BY_NAME[name].requires == "mlx-local":
-                assert "model" in uses, f"{name} is declared mlx-local and never uses ctx.model"
+            op = lexicon.BY_NAME[name]
+            for need in op.needs:
+                if need.startswith(self.NOT_READ_THROUGH_CTX):
+                    continue
+                assert any(need in ops.MEMBER_NEEDS[m] for m in uses if m in ops.MEMBER_NEEDS), (
+                    f"{name} declares {need!r} and its run never reaches for it")
+
+    def test_the_reach_past_the_needs_only_shrinks(self) -> None:
+        from mechbench_compute import ops
+
+        assert ops.REACHING_PAST_NEEDS == {"adapter/train": frozenset({"executor"})}, (
+            "an operation reaching a ctx member no need names; this set may only shrink")
+        for name, members in ops.REACHING_PAST_NEEDS.items():
+            assert members <= self._uses()[name], f"{name} no longer reaches {sorted(members)}"
+
+    def test_derived_requires_match_the_wire_form(self) -> None:
+        import json
+        import pathlib
+
+        fixture = pathlib.Path(__file__).parent / "fixtures" / "declarations_before_needs.json"
+        before = json.loads(fixture.read_text())
+        assert {op.name: op.requires for op in lexicon.OPS} == before["requires"]
+
+    def test_resume_is_declared_as_it_was_tabled(self) -> None:
+        import json
+        import pathlib
+
+        from mechbench_compute import resume
+
+        fixture = pathlib.Path(__file__).parent / "fixtures" / "declarations_before_needs.json"
+        before = json.loads(fixture.read_text())
+        assert {op.name: {"level": resume.resume_level(op.name), "items": resume.item_resumable(op.name)}
+                for op in lexicon.OPS} == before["resume"]
+
+    def test_the_standalone_set_is_the_one_before_needs(self) -> None:
+        import json
+        import pathlib
+
+        from mechbench_compute import ops
+
+        fixture = pathlib.Path(__file__).parent / "fixtures" / "declarations_before_needs.json"
+        assert sorted(ops.find_standalone()) == json.loads(fixture.read_text())["standalone"]
+
+    def test_an_undeclared_member_raises_at_run_time(self) -> None:
+        from mechbench_compute import ops
+
+        op = lexicon.Op("x/y", "s", "d", ())
+        ctx = ops.Context.for_op(op, executor=object(), secrets={"hf": {}})
+        with pytest.raises(ops.NeedNotDeclared, match="x/y did not declare"):
+            ctx.model("m")
+        with pytest.raises(ops.NeedNotDeclared):
+            ctx.executor._limiter
+        with pytest.raises(ops.NeedNotDeclared):
+            (ctx.secrets or {}).get("hf")
+
+    def test_a_declared_member_is_lent(self) -> None:
+        from mechbench_compute import ops
+
+        op = lexicon.Op("x/y", "s", "d", (), needs=frozenset({"executor.sub", "secrets", "model.forward"}))
+        executor = object()
+        ctx = ops.Context.for_op(op, executor=executor, secrets={"hf": {}}, loaded="m")
+        assert ctx.executor is executor and ctx.secrets == {"hf": {}} and ctx.model("r") == "m"
 
     def test_the_walk_sees_through_a_helper(self, tmp_path, monkeypatch) -> None:
         import importlib
@@ -293,7 +350,7 @@ class TestWhatAnOperationNeeds:
 
         for name in ops.find_standalone():
             if name in lexicon.BY_NAME:
-                assert lexicon.BY_NAME[name].requires == "pure", name
+                assert not lexicon.BY_NAME[name].needs, name
 
     def test_only_publishing_needs_the_network_without_a_model(self) -> None:
         assert {op.name for op in lexicon.OPS if op.requires == "remote"} == {"adapter/publish"}

@@ -76,6 +76,17 @@ export interface LexiconOp {
   params: LexiconParam[];
   example: Record<string, unknown> | null;
   example_inputs: Record<string, unknown> | null;
+  /** What it asks of the host: `model.forward`, `provider.chat`, `secrets`,
+   * `network:<host>`, …; empty for a pure function. `requires` is derived
+   * from these. */
+  needs: string[];
+  /** What a re-run may reuse of an interrupted run of it. */
+  resume: { level: "reproducible" | "exchangeable" | "state-restorable" | "restart"; items: boolean };
+  deterministic: boolean;
+  /** More than one output, by port name; `output` is the one-port form. */
+  outputs?: Record<string, LexiconOutput>;
+  /** An extension's: the compute release its plugin API was taken from. */
+  min_compute?: string;
 }
 
 /** A shared value: a structure or vocabulary many params take. */
@@ -108,6 +119,9 @@ def _op(op: Any) -> dict[str, Any]:
         d.pop(gone)
     if d["output"]:
         d["output"] = {k: v for k, v in d["output"].items() if k != "doc"}
+    if d.get("outputs"):
+        d["outputs"] = {port: {k: v for k, v in o.items() if k != "doc"}
+                        for port, o in d["outputs"].items()}
     return d
 
 

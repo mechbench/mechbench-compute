@@ -1,0 +1,373 @@
+{
+ "requires": {
+  "activations/capture": "mlx-local",
+  "activations/capture-attention": "mlx-local",
+  "activations/capture-tokens": "mlx-local",
+  "activations/contrast": "mlx-local",
+  "activations/examples": "mlx-local",
+  "adapter/measure": "pure",
+  "adapter/merge": "pure",
+  "adapter/publish": "remote",
+  "adapter/train": "mlx-local",
+  "direction/add": "pure",
+  "direction/average": "pure",
+  "direction/classify": "pure",
+  "direction/decompose": "pure",
+  "direction/fit": "pure",
+  "direction/normalize": "pure",
+  "direction/orthogonalize": "pure",
+  "direction/project": "pure",
+  "direction/regress": "pure",
+  "direction/unembed": "mlx-local",
+  "eval/benchmark": "mlx-local",
+  "eval/expect": "pure",
+  "eval/judge": "by-model",
+  "eval/score": "pure",
+  "geometry/compare": "pure",
+  "geometry/span": "pure",
+  "intervene/ablate-heads": "mlx-local",
+  "intervene/ablate-layers": "mlx-local",
+  "intervene/apply": "mlx-local",
+  "intervene/patch": "mlx-local",
+  "intervene/path": "mlx-local",
+  "intervene/steer": "mlx-local",
+  "logits/attribute": "mlx-local",
+  "logits/read": "mlx-local",
+  "logits/read-layers": "mlx-local",
+  "logits/scan": "mlx-local",
+  "records/cross": "pure",
+  "records/derive": "pure",
+  "records/diff": "pure",
+  "records/filter": "pure",
+  "records/fold": "pure",
+  "records/group": "pure",
+  "records/join": "pure",
+  "records/jq": "pure",
+  "records/map": "pure",
+  "records/plot": "pure",
+  "records/python": "pure",
+  "records/sort": "pure",
+  "records/tabulate": "pure",
+  "records/union": "pure",
+  "records/unnest": "pure",
+  "records/zip": "pure",
+  "text/chat": "by-model",
+  "text/extend": "pure",
+  "text/generate": "mlx-local",
+  "text/measure": "pure",
+  "text/render": "pure",
+  "text/score": "mlx-local",
+  "text/tokenize": "mlx-local",
+  "tools/calc": "pure",
+  "tools/lookup": "pure",
+  "trajectory/aggregate": "pure",
+  "trajectory/capture": "mlx-local",
+  "trajectory/compare": "pure",
+  "trajectory/project": "pure",
+  "weights/capture": "mlx-local",
+  "weights/circuit": "mlx-local",
+  "weights/decompose": "mlx-local"
+ },
+ "resume": {
+  "activations/capture": {
+   "items": false,
+   "level": "restart"
+  },
+  "activations/capture-attention": {
+   "items": false,
+   "level": "restart"
+  },
+  "activations/capture-tokens": {
+   "items": false,
+   "level": "restart"
+  },
+  "activations/contrast": {
+   "items": false,
+   "level": "restart"
+  },
+  "activations/examples": {
+   "items": false,
+   "level": "restart"
+  },
+  "adapter/measure": {
+   "items": false,
+   "level": "restart"
+  },
+  "adapter/merge": {
+   "items": false,
+   "level": "restart"
+  },
+  "adapter/publish": {
+   "items": false,
+   "level": "restart"
+  },
+  "adapter/train": {
+   "items": false,
+   "level": "state-restorable"
+  },
+  "direction/add": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "direction/average": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "direction/classify": {
+   "items": false,
+   "level": "restart"
+  },
+  "direction/decompose": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "direction/fit": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "direction/normalize": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "direction/orthogonalize": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "direction/project": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "direction/regress": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "direction/unembed": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "eval/benchmark": {
+   "items": false,
+   "level": "restart"
+  },
+  "eval/expect": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "eval/judge": {
+   "items": true,
+   "level": "exchangeable"
+  },
+  "eval/score": {
+   "items": false,
+   "level": "restart"
+  },
+  "geometry/compare": {
+   "items": false,
+   "level": "restart"
+  },
+  "geometry/span": {
+   "items": false,
+   "level": "restart"
+  },
+  "intervene/ablate-heads": {
+   "items": false,
+   "level": "restart"
+  },
+  "intervene/ablate-layers": {
+   "items": false,
+   "level": "restart"
+  },
+  "intervene/apply": {
+   "items": true,
+   "level": "reproducible"
+  },
+  "intervene/patch": {
+   "items": false,
+   "level": "restart"
+  },
+  "intervene/path": {
+   "items": false,
+   "level": "restart"
+  },
+  "intervene/steer": {
+   "items": false,
+   "level": "restart"
+  },
+  "logits/attribute": {
+   "items": false,
+   "level": "restart"
+  },
+  "logits/read": {
+   "items": true,
+   "level": "reproducible"
+  },
+  "logits/read-layers": {
+   "items": false,
+   "level": "restart"
+  },
+  "logits/scan": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/cross": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/derive": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/diff": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/filter": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/fold": {
+   "items": true,
+   "level": "restart"
+  },
+  "records/group": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/join": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/jq": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/map": {
+   "items": true,
+   "level": "restart"
+  },
+  "records/plot": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/python": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/sort": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/tabulate": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/union": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/unnest": {
+   "items": false,
+   "level": "restart"
+  },
+  "records/zip": {
+   "items": false,
+   "level": "restart"
+  },
+  "text/chat": {
+   "items": true,
+   "level": "exchangeable"
+  },
+  "text/extend": {
+   "items": false,
+   "level": "restart"
+  },
+  "text/generate": {
+   "items": true,
+   "level": "reproducible"
+  },
+  "text/measure": {
+   "items": false,
+   "level": "reproducible"
+  },
+  "text/render": {
+   "items": false,
+   "level": "restart"
+  },
+  "text/score": {
+   "items": false,
+   "level": "restart"
+  },
+  "text/tokenize": {
+   "items": false,
+   "level": "restart"
+  },
+  "tools/calc": {
+   "items": false,
+   "level": "restart"
+  },
+  "tools/lookup": {
+   "items": false,
+   "level": "restart"
+  },
+  "trajectory/aggregate": {
+   "items": false,
+   "level": "restart"
+  },
+  "trajectory/capture": {
+   "items": false,
+   "level": "restart"
+  },
+  "trajectory/compare": {
+   "items": false,
+   "level": "restart"
+  },
+  "trajectory/project": {
+   "items": false,
+   "level": "restart"
+  },
+  "weights/capture": {
+   "items": false,
+   "level": "restart"
+  },
+  "weights/circuit": {
+   "items": false,
+   "level": "restart"
+  },
+  "weights/decompose": {
+   "items": false,
+   "level": "restart"
+  }
+ },
+ "standalone": [
+  "adapter/measure",
+  "direction/add",
+  "direction/average",
+  "direction/classify",
+  "direction/decompose",
+  "direction/fit",
+  "direction/normalize",
+  "direction/orthogonalize",
+  "direction/project",
+  "direction/regress",
+  "eval/expect",
+  "eval/score",
+  "geometry/compare",
+  "geometry/span",
+  "records/cross",
+  "records/diff",
+  "records/jq",
+  "records/python",
+  "records/tabulate",
+  "records/union",
+  "records/unnest",
+  "records/zip",
+  "text/extend",
+  "text/measure",
+  "text/render",
+  "tools/calc",
+  "tools/lookup",
+  "trajectory/aggregate",
+  "trajectory/compare",
+  "trajectory/project"
+ ]
+}

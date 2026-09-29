@@ -15,11 +15,12 @@ from mechbench_compute.interp.report_own_top1 import report_own_top1
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Ablate
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="intervene/ablate-layers",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Remove one layer's contribution at a time and measure how much the "
         "target token's log-probability drops — which layers the answer "

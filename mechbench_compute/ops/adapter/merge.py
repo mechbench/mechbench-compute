@@ -3,11 +3,13 @@ from __future__ import annotations
 import re
 
 from mechbench_compute import lexicon
-from mechbench_compute.lexicon._base import Op, Output, P
+from mechbench_compute.lexicon._base import Op, Output, P, Resume
 from mechbench_compute.protocol.serialize_params import serialize_params
 
 OP = Op(
     name="adapter/merge",
+    needs=frozenset({"objects.read", "secrets"}),
+    resume=Resume("restart"),
     summary=(
         "Collapse a model's adapter stack into one standalone checkpoint and "
         "publish it — to the bench or to the Hugging Face hub — so \"base "

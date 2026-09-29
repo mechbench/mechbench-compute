@@ -10,7 +10,8 @@ from mechbench_compute.chat.read_empty import read_empty
 from mechbench_compute.judge.constants import FIRST_NUMBER, SCALES
 from mechbench_compute.judge.parse_json_object import parse_json_object
 from mechbench_compute.judge.read_rationale import read_rationale
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.resume import read_model_level
 
 _PROVIDER_OPTIONS_DOC = (
     "Provider-native request fields this block does not model, **keyed by "
@@ -20,7 +21,8 @@ _PROVIDER_OPTIONS_DOC = (
 
 OP = Op(
     name="eval/judge",
-    requires="by-model",
+    needs=frozenset({"model.sample", "provider.chat", "secrets"}),
+    resume=Resume("exchangeable", items=True),
     summary=(
         "Have a model grade each record against a rubric — a score, a label "
         "or an A/B preference — with repeated votes, the spread between "
@@ -135,6 +137,10 @@ resumability and per-call provenance; a local model is the cheap first test.
     },
     example_inputs={"records": {"$ref": {"bench": "you/lab/stories"}}},
 )
+
+
+def read_resume_level(params, inputs=None):
+    return read_model_level(((params or {}).get("judge") or {}).get("model"))
 
 
 def run(ctx, inputs, params):

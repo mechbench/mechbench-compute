@@ -31,6 +31,9 @@ TRACKED = F("object", "Name → `{token, p, logp, rank, variants}` for the answe
 VARIANTS = F("array", "Each spelling of a tracked answer, with and without a leading space, as `{token, p, logp}`; one entry when both are the same token.",
              items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}}})
 
+DIST = F("object", "A `logits/distribution`: `{entropy_bits, top, tracked?}`.",
+         properties={"entropy_bits": {"type": "number"}, "top": TOP, "tracked": TRACKED})
+
 
 SPACE_VALUE = Value(
     "space",

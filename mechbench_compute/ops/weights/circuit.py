@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="weights/circuit",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "What a head does, read from its own weights and the vocabulary: "
         "the OV circuit it writes through, the QK circuit it looks with, "

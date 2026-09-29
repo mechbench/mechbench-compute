@@ -5,11 +5,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.distill import encode, suffix_tokens
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="text/tokenize",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Measure how a tokenizer splits a set of items — as continuations of "
         "a prefix — with a depth histogram, fragmentation, script "

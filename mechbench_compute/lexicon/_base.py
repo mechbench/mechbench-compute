@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from mechbench_compute.resume import LEVELS
+
 ROOT = "~canonical/ops/"
 
 KIND_ROOT = "~canonical/kinds/"
@@ -76,6 +78,15 @@ class Value:
 
 
 @dataclass(frozen=True)
+class Draw:
+    mark: str
+    encoding: dict[str, str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"mark": self.mark, "encoding": dict(self.encoding)}
+
+
+@dataclass(frozen=True)
 class Kind:
     name: str
     summary: str
@@ -89,6 +100,9 @@ class Kind:
     collection_renderer: dict[str, Any] | None = None
     metrics: tuple[Metric, ...] = ()
     platform: bool = False
+    speak: str | None = None
+    draw: Draw | None = None
+    version: int = 1
 
     @property
     def path(self) -> str:
@@ -116,6 +130,9 @@ class Kind:
             "renderer": self.renderer, "collection_renderer": self.collection_renderer,
             "metrics": [m.to_dict() for m in self.metrics],
             "platform": self.platform,
+            "speak": self.speak,
+            "draw": self.draw.to_dict() if self.draw else None,
+            "version": self.version,
         }
 
 
@@ -259,6 +276,27 @@ class Param:
 
 WILDCARD = "*"
 
+NETWORK = "network:"
+
+NEEDS = frozenset({"model.forward", "model.backward", "model.sample",
+                   "provider.chat", "provider.embed",
+                   "executor.sub", "memo", "objects.read", "secrets"})
+
+RESUME_LEVELS = LEVELS
+
+
+def is_need(need: str) -> bool:
+    return need in NEEDS or (need.startswith(NETWORK) and len(need) > len(NETWORK))
+
+
+@dataclass(frozen=True)
+class Resume:
+    level: str = "reproducible"
+    items: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"level": self.level, "items": self.items}
+
 
 @dataclass(frozen=True)
 class Port:
@@ -313,9 +351,37 @@ class Op:
     params: tuple[Param, ...]
     inputs: tuple[Port, ...] = ()
     output: Output | None = None
-    requires: str = "pure"
     example: dict[str, Any] | None = None
     example_inputs: dict[str, Any] | None = None
+    outputs: dict[str, Output] | None = None
+    needs: frozenset[str] = frozenset()
+    resume: Resume = Resume()
+    deterministic: bool = True
+    min_compute: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.output is not None and self.outputs is not None:
+            raise ValueError(f"{self.name}: declare `output` or `outputs`, not both")
+        for port, out in (self.outputs or {}).items():
+            if not isinstance(out, Output):
+                raise TypeError(f"{self.name}: outputs[{port!r}] is not an Output")
+        if not isinstance(self.needs, frozenset):
+            object.__setattr__(self, "needs", frozenset(self.needs))
+        unknown = sorted(n for n in self.needs if not is_need(n))
+        if unknown:
+            raise ValueError(f"{self.name}: {unknown} are not needs; the vocabulary is "
+                             f"{sorted(NEEDS)} and `{NETWORK}<host>`")
+        if self.resume.level not in RESUME_LEVELS:
+            raise ValueError(f"{self.name}: resume level {self.resume.level!r} is not one of "
+                             f"{list(RESUME_LEVELS)}")
+
+    @property
+    def requires(self) -> str:
+        local = any(n.startswith("model.") for n in self.needs)
+        remote = any(n.startswith(("provider.", NETWORK)) for n in self.needs)
+        if local and remote:
+            return "by-model"
+        return "mlx-local" if local else "remote" if remote else "pure"
 
     @property
     def path(self) -> str:
@@ -348,7 +414,7 @@ class Op:
         return self.wildcard
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "name": self.name,
             "path": self.path,
             "title": self.title,
@@ -361,7 +427,15 @@ class Op:
             "params": [p.to_dict() for p in self.params],
             "example": self.example,
             "example_inputs": self.example_inputs,
+            "needs": sorted(self.needs),
+            "resume": self.resume.to_dict(),
+            "deterministic": self.deterministic,
         }
+        if self.outputs is not None:
+            d["outputs"] = {port: out.to_dict() for port, out in self.outputs.items()}
+        if self.min_compute is not None:
+            d["min_compute"] = self.min_compute
+        return d
 
 
 def P(name: str, type: str, doc: str, default: Any = REQUIRED, *,

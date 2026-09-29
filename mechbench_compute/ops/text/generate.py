@@ -7,14 +7,15 @@ from mechbench_compute.chat.count_endings import count_endings
 from mechbench_compute.chat.describe_reasoning_only import describe_reasoning_only
 from mechbench_compute.chat.read_local_ending import read_local_ending
 from mechbench_compute.chat.split_reasoning import find_delimiters, split_reasoning
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.protocol.read_tokenizer_id import read_tokenizer_id
 from mechbench_compute.protocol.serialize_model import serialize_model
 from mechbench_compute.providers import messages as pm
 
 OP = Op(
     name="text/generate",
-    requires="mlx-local",
+    needs=frozenset({"model.forward", "model.sample"}),
+    resume=Resume(items=True),
     summary=(
         "Sample completions from the model for each chat-shaped record — n "
         "per record, reproducibly seeded — into a document collection."

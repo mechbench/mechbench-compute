@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="eval/benchmark",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Run standard benchmark tasks from the lm-evaluation-harness against "
         "the model — through mechbench's own model, so pinned revisions and "

@@ -9,10 +9,11 @@ from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.blocks.read_order_by import read_order_by
 from mechbench_compute.blocks.run_guest_json import run_guest_json
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="records/python",
+    resume=Resume("restart"),
     summary="Transform records with a Python function, run in the sandbox: the escape hatch for what "
             "the expression algebra does not say.",
     description="""\

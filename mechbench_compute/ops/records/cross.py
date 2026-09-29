@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.blocks.build_collection import build_collection
-from mechbench_compute.lexicon._base import Op, Output, P
+from mechbench_compute.lexicon._base import Op, Output, P, Resume
 
 _COORDS_TYPE = "map[string, string | float]"
 
@@ -65,6 +65,7 @@ ready for a `records/derive` whose templates read `values`.
 
 OP = Op(
     name="records/cross",
+    resume=Resume("restart"),
     summary=(
         "Make one record per combination of experimental factors — the "
         "fully-crossed design, with each record carrying its coordinates."

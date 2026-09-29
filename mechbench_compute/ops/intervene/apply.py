@@ -17,11 +17,12 @@ from mechbench_compute.intervene.read_spec_items import read_spec_items
 from mechbench_compute.intervene.sweep_as_run import sweep_as_run
 from mechbench_compute.intervene.sweep_cells import sweep_cells
 from mechbench_compute.intervene.serialize_spec import serialize_spec
-from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P
+from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P, Resume
 
 OP = Op(
     name="intervene/apply",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume(items=True),
     summary=(
         "Edit a model's activations at chosen points during the forward "
         "pass — zero them, patch them from another run, add or remove a "

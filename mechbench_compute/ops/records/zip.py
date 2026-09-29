@@ -4,10 +4,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="records/zip",
+    resume=Resume("restart"),
     summary=(
         "Align several branches' records into one record per key — record "
         "7 of each branch together — keeping which branch each came from."

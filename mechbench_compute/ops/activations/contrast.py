@@ -14,7 +14,7 @@ from mechbench_compute.interp.read_pair import read_pair
 from mechbench_compute.interp.render_text import render_text
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 _PAIRS = In("records", "records/pair",
             "Pairs, each with prompt strings `a` and `b`.", many=True)
@@ -22,7 +22,8 @@ _PAIRS = In("records", "records/pair",
 
 OP = Op(
     name="activations/contrast",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Run two prompts that differ in one place and measure, at every "
         "(layer, position), how far their residual streams have drifted "

@@ -10,11 +10,12 @@ from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
 from mechbench_compute.interp import read_last_logp, read_pair, render_text, resolve_target
 from mechbench_compute.interventions import Capture
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="intervene/path",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "A sender's effect through ONE receiver — its output corrupted, "
         "everything between the two held clean — which is how a circuit's "

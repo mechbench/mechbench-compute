@@ -3,11 +3,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.resume import read_body_level
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 
 OP = Op(
     name="records/fold",
+    needs=frozenset({"executor.sub", "secrets"}),
+    resume=Resume("restart", items=True),
     summary=(
         "Run a body graph step after step, each step reading the state the "
         "last one wrote — the loop a conversation, a refinement or an "
@@ -88,6 +91,10 @@ conversation is three ops and a loop, not an operation of its own.
                  {"from": {"node": "say"}, "to": {"node": "next", "port": "replies"}}]}},
     example_inputs={"state": {"$ref": {"bench": "you/lab/openings"}}},
 )
+
+
+def read_resume_level(params, inputs=None):
+    return read_body_level(params)
 
 
 def run(ctx, inputs, params):

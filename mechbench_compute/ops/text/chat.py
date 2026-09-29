@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.resume import read_model_level
 
 _TOOL_FIELDS = (
     P("name", "string", "The tool's name, unique among the tools offered."),
@@ -79,7 +80,8 @@ _SANDBOX_FIELDS = (
 
 OP = Op(
     name="text/chat",
-    requires="by-model",
+    needs=frozenset({"executor.sub", "memo", "model.sample", "provider.chat", "secrets"}),
+    resume=Resume("exchangeable", items=True),
     summary=(
         "Send each record's prompt to a model as a chat — local weights or a "
         "hosted endpoint, the same node either way — and collect the "
@@ -425,6 +427,10 @@ name.
     },
     example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
 )
+
+
+def read_resume_level(params, inputs=None):
+    return read_model_level((params or {}).get("model"))
 
 
 def run(ctx, inputs, params):

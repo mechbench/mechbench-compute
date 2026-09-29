@@ -91,9 +91,12 @@ is a **demand**, not a guarantee:
 Both of those are deliberate. Tests in `tests/test_fingerprints.py`
 pin them so the next reader does not have to re-derive the polarity.
 
-A block absent from `BLOCK_RESUME` is `restart` — safe by omission.
-`residuals/vectors` and `vectors/mst` are both absent, so no partial of
-theirs is ever reused.
+An operation declares its level in its `OP` (`resume=Resume(level,
+items=)`; one that writes none is `reproducible`, items off), and one whose level depends on its params also defines
+`read_resume_level(params, inputs)` in its file, which `resume_level`
+asks first. A block that is not an operation is `restart` — safe by
+omission — and so is every operation that declares it: `activations/capture`
+and `geometry/span` among them, so no partial of theirs is ever reused.
 
 ## The rule this leaves
 

@@ -12,7 +12,7 @@ from mechbench_compute.lexicon._base import In, Op, Output, P
 
 OP = Op(
     name="direction/unembed",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
     summary=(
         "Read a direction through the model's unembedding: the tokens it "
         "promotes and the tokens its negative promotes — what the axis "

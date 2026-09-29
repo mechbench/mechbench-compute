@@ -5,10 +5,11 @@ from typing import Any
 
 from mechbench_compute.blocks.expand_cells import expand_cells
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="records/plot",
+    resume=Resume("restart"),
     summary=(
         "Describe a chart of an upstream table as a stored object — what to "
         "plot on which axes — so it renders beside the data and re-renders "

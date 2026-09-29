@@ -28,7 +28,10 @@ def patch_trace(model, records, params):  # the mechanism, callable on its own
 ```
 
 - **`OP`** is the declaration the documentation site renders and
-  `check_params` enforces. It is the only place the operation's
+  `check_params` enforces. Besides the ports, params and prose it says
+  what the operation asks of the host (`needs`), what a re-run may reuse
+  of it (`resume`), and whether a double run is identical
+  (`deterministic`). It is the only place the operation's
   parameters are written down, and it is complete here: a param several
   operations declare the same way, a port they share, a paragraph of
   prose — each is written out in the file rather than imported, so the
@@ -46,6 +49,10 @@ def patch_trace(model, records, params):  # the mechanism, callable on its own
   call these directly.
 - **`MONOID`**, when the operation can be computed in chunks: the class
   that reduces them. Its presence is the declaration.
+- **`read_resume_level(params, inputs=None)`**, when what a re-run may
+  reuse depends on the params (`text/chat` answered by a provider is
+  `exchangeable`, by local weights `reproducible`). `resume.resume_level`
+  asks it before falling back to `OP.resume`.
 
 An operation's file holds what only that operation uses.
 
@@ -100,7 +107,18 @@ package. An operation's file is a leaf: nothing imports back from it.
 `ctx` is `mechbench_compute.ops.Context`: what the executor lends an
 operation for the duration of one node. `ops.read_context_uses(mod)`
 reads, from the code, which of these an operation's `run` touches; the
-lexicon tests hold every operation's `requires` to it.
+lexicon tests hold every operation's `needs` to it, and at run time the
+executor builds the context with `Context.for_op`, which lends a member
+only to an operation that declared a need for it:
+
+| member | lent to an operation that needs |
+|---|---|
+| `ctx.model`, `ctx.loaded` | `model.forward`, `model.sample` or `model.backward` |
+| `ctx.executor` | `executor.sub`, `memo`, `objects.read` or `provider.chat` |
+| `ctx.secrets` | `secrets` |
+
+Any other use raises `NeedNotDeclared`. The rest of `ctx` — progress,
+resume state, paths, run params — is lent to every operation.
 
 | | |
 |---|---|
@@ -123,24 +141,26 @@ Every field has a default, so a test builds one in a line:
 
 Some operations still reach past `Context` into the executor's private
 state (`ctx.executor._*`): `records/map` and `records/fold` build a
-child executor for their body and hand it the loaded model;
-`text/chat` borrows its tool runner, memo, rate limiter, budget and
-local chat path, and `eval/judge` its rate limiter and budget;
-`adapter/merge` materializes a bench checkpoint through it;
-`adapter/train` clears its loaded model; and `live/run_step` builds a
-child executor the way map and fold do. This is a known boundary, to be
-closed next: each of those needs becomes a named field of `Context`.
-Until then `records/map`, `records/fold` and `adapter/merge` stay
-declared `pure` although they touch the executor, and the lexicon test
-pins that set so it can only shrink.
+child executor for their body and hand it the loaded model
+(`executor.sub`); `text/chat` borrows its tool runner (`executor.sub`),
+memo (`memo`), rate limiter, budget and local chat path, and
+`eval/judge` its rate limiter and budget (`provider.chat`);
+`adapter/merge` materializes a bench checkpoint through it
+(`objects.read`); and `live/run_step` builds a child executor the way
+map and fold do. `adapter/train` clears the executor's loaded model, and
+no need names that: it is the one entry in `ops.REACHING_PAST_NEEDS`,
+which the lexicon test pins so it can only shrink.
 
 ## What is derived, and so is not written down
 
 - **The registry.** `mechbench_compute.ops` imports every module under
   it. There is no table of operations to keep in step with the files.
-- **Whether an operation is pure** — `OP.requires == "pure"`.
-- **Whether it can run with no executor at all** — it is pure and its
-  `run` never reads `ctx`. That is the set a tool handler or a chunked
+- **Where it runs** — `OP.requires`, derived from `OP.needs`: a
+  `model.*` need is `mlx-local`, a `provider.*` or `network:*` need is
+  `remote`, both are `by-model`, neither is `pure`. It is still in the
+  wire form, for placement; it is no longer written.
+- **Whether it can run with no executor at all** — it needs nothing and
+  its `run` never reads `ctx`. That is the set a tool handler or a chunked
   reduce may call.
 - **Whether the executor fuses an adapter around it** — it requires
   local weights (`mlx-local`) *and* declares an `adapter` input port:
@@ -155,6 +175,26 @@ A test that wants to stand in for an operation patches the operation's
 own file — `monkeypatch.setattr(fill, "run", flaky)`,
 `monkeypatch.setattr(total, "MONOID", Bad)` — because that is where it
 runs from.
+
+## Where a kind lives
+
+The same rule as an operation's: one file per kind, its path a function
+of its name.
+
+```
+logits/distribution   mechbench_compute/lexicon/kinds/logits/distribution.py   KIND = Kind(...)
+text/word-list        mechbench_compute/lexicon/kinds/text/word_list.py
+collection            mechbench_compute/lexicon/kinds/collection.py
+```
+
+`lexicon/kinds/__init__.py` walks the tree and assembles `KINDS` and
+`BY_KIND`, and holds the helpers every reader of a kind uses
+(`ancestry`, `satisfies`, `all_fields`, `resolve_kind`, `item_kind_of`,
+`items_of`, `collection`, the retired spellings). The platform's own
+kinds — the `run`, `sandbox`, `provider` and `model` families — live in
+the same tree and say `platform=True`; there is no second tree for them.
+A field fragment several kinds share (`TOP`, `TOKEN`, `DIST`) is a value
+in `lexicon/values.py`.
 
 ## Two rules the layout depends on
 

@@ -92,11 +92,6 @@ class TestEveryTableIsKeyedByBareNames:
         from mechbench_compute import ops
         assert self._bad(ops.find_standalone()) == []
 
-    def test_resume_table(self):
-        from mechbench_compute.resume import BLOCK_RESUME, DYNAMIC_LEVEL
-        assert self._bad(BLOCK_RESUME) == []
-        assert self._bad(DYNAMIC_LEVEL) == []
-
     def test_reduce_algebra(self):
         from mechbench_compute.reduce import MONOIDS, REDUCE_ALGEBRA
         assert self._bad(REDUCE_ALGEBRA) == []

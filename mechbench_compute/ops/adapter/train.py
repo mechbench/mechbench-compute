@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from mechbench_compute import lexicon
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="adapter/train",
-    requires="mlx-local",
+    needs=frozenset({"model.backward", "model.forward"}),
+    resume=Resume("state-restorable"),
     summary=(
         "Train a LoRA adapter that shapes what the model says at a decision "
         "point toward a target distribution over outcomes — and emit the "

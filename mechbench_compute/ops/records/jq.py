@@ -10,10 +10,11 @@ from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.blocks.read_order_by import read_order_by
 from mechbench_compute.blocks.run_guest_json import run_guest_json
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="records/jq",
+    resume=Resume("restart"),
     summary="Reshape records with a jq program, run in the sandbox: the escape hatch for nesting, "
             "unnesting and building new objects.",
     description="""\

@@ -9,10 +9,11 @@ from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
 from mechbench_compute.directions.constants import DEFAULT_AXIS
 from mechbench_compute.directions.make import make
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="direction/classify",
+    resume=Resume("restart"),
     summary=(
         "Fit a linear probe at every layer — the direction that separates "
         "one label from the rest — and report how much of it a held-out "

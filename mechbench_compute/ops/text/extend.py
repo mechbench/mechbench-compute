@@ -4,12 +4,13 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute import thinking as THINK
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.transcript.constants import MAIN
 from mechbench_compute.transcript.read_transcripts import read_transcripts
 
 OP = Op(
     name="text/extend",
+    resume=Resume("restart"),
     summary=(
         "Each transcript with one more turn: the reply that names it, "
         "spoken by the participant — the last step of a conversation's "

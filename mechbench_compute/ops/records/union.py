@@ -4,10 +4,11 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import WILDCARD, In, Op, Output, P
+from mechbench_compute.lexicon._base import WILDCARD, In, Op, Output, P, Resume
 
 OP = Op(
     name="records/union",
+    resume=Resume("restart"),
     summary=(
         "Concatenate several record streams into one, stamping each record "
         "with the port it came from — collections grow by union, never by "

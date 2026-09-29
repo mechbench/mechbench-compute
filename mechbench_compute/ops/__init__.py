@@ -10,6 +10,42 @@ from types import ModuleType
 from typing import Any, Callable, Mapping
 
 
+MEMBER_NEEDS: dict[str, frozenset[str]] = {
+    "model": frozenset({"model.forward", "model.sample", "model.backward"}),
+    "loaded": frozenset({"model.forward", "model.sample", "model.backward"}),
+    "executor": frozenset({"executor.sub", "memo", "objects.read", "provider.chat"}),
+    "secrets": frozenset({"secrets"}),
+}
+
+REACHING_PAST_NEEDS: dict[str, frozenset[str]] = {
+    "adapter/train": frozenset({"executor"}),
+}
+
+
+class NeedNotDeclared(RuntimeError):
+    pass
+
+
+class Refused:
+    def __init__(self, message: str) -> None:
+        object.__setattr__(self, "_message", message)
+
+    def refuse(self, *_: Any, **__: Any) -> Any:
+        raise NeedNotDeclared(object.__getattribute__(self, "_message"))
+
+    def __getattr__(self, _name: str) -> Any:
+        self.refuse()
+
+    __setattr__ = __getitem__ = __call__ = __iter__ = __bool__ = __len__ = __contains__ = refuse
+
+
+def check_member(op: Any, member: str) -> str | None:
+    wanted = MEMBER_NEEDS.get(member)
+    if wanted is None or wanted & op.needs or member in REACHING_PAST_NEEDS.get(op.name, ()):
+        return None
+    return f"{op.name} did not declare {' or '.join(sorted(wanted))}"
+
+
 @dataclass
 class Context:
     loaded: Any = None
@@ -25,14 +61,30 @@ class Context:
     result_base: str | None = None
     on_token: Callable[..., None] | None = None
 
+    refused: Mapping[str, str] = field(default_factory=dict)
+    model_host: Any = None
+
+    @classmethod
+    def for_op(cls, op: Any, executor: Any = None, **lent: Any) -> Context:
+        refused = {m: msg for m in MEMBER_NEEDS if (msg := check_member(op, m)) is not None}
+        for member in ("executor", "secrets"):
+            if member in refused:
+                lent[member] = Refused(refused[member])
+        if "executor" not in refused:
+            lent["executor"] = executor
+        return cls(refused=refused, model_host=executor, **lent)
+
     def model(self, ref: Any) -> Any:
+        if "model" in self.refused:
+            raise NeedNotDeclared(self.refused["model"])
         if self.loaded is not None:
             return self.loaded
-        if self.executor is None:
+        host = self.executor if self.model_host is None else self.model_host
+        if host is None:
             raise RuntimeError(
                 "this operation needs a model and the context has neither "
                 "one loaded nor an executor to load it")
-        return self.executor._model_loaded(ref)
+        return host._model_loaded(ref)
 
 
 def resolve_module_name(op: str) -> str:
@@ -109,7 +161,7 @@ def read_context_uses(mod: ModuleType) -> frozenset[str]:
 @cache
 def find_standalone() -> frozenset[str]:
     return frozenset(name for name, mod in load_modules().items()
-                     if mod.OP.requires == "pure" and not read_context_uses(mod))
+                     if not mod.OP.needs and not read_context_uses(mod))
 
 
 def run_standalone(op: str, inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:

@@ -6,10 +6,11 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="geometry/span",
+    resume=Resume("restart"),
     summary=(
         "Measure how varied a set of items is with a minimum spanning tree "
         "over their pairwise distances — the spread, its clumpiness, and how "

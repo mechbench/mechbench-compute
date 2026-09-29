@@ -15,6 +15,16 @@ from mechbench_compute.lora import apply_lora
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 
 
+
+def _declare_resume(monkeypatch, name, level, *, items):
+    import dataclasses
+
+    from mechbench_compute import ops
+    from mechbench_compute.lexicon._base import Resume
+
+    mod = ops.find(name)
+    monkeypatch.setattr(mod, "OP", dataclasses.replace(mod.OP, resume=Resume(level, items=items)))
+
 class _FakeTok:
     def decode(self, ids):
         return "".join(chr(97 + (i % 26)) for i in ids)
@@ -163,8 +173,7 @@ class TestGenerateItemResume:
     def test_a_consumer_requirement_above_the_offer_forces_restart(self, monkeypatch):
         calls = _Calls()
         _fake_generate_substrate(monkeypatch, calls)
-        monkeypatch.setitem(rm.BLOCK_RESUME, "text/generate",
-                            {"level": "exchangeable", "items": True})
+        _declare_resume(monkeypatch, "text/generate", "exchangeable", items=True)
         spec = _gen_spec()
         spec.extra["graph"]["nodes"][1]["params"]["require_resume"] = {
             "documents": "reproducible"}
@@ -245,8 +254,7 @@ class TestNonResumableBlocksIgnoreTheMap:
     def test_a_restart_level_block_recomputes(self, monkeypatch):
         calls = _Calls()
         _fake_generate_substrate(monkeypatch, calls)
-        monkeypatch.setitem(rm.BLOCK_RESUME, "text/generate",
-                            {"level": "restart", "items": False})
+        _declare_resume(monkeypatch, "text/generate", "restart", items=False)
         full = _Spool()
         reference = full.executor().run(_gen_spec())
         calls.n = 0

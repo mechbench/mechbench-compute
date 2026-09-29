@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.protocol.read_tokenizer_id import read_tokenizer_id
 
 OP = Op(
     name="adapter/publish",
-    requires="remote",
+    needs=frozenset({"network:huggingface.co", "secrets"}),
+    resume=Resume("restart"),
     summary=(
         "Publish an adapter object to the Hugging Face hub as a PEFT LoRA "
         "repository, with a model card carrying its bench provenance."

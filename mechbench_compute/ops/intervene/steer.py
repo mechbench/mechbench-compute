@@ -14,11 +14,12 @@ from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.collect_tracked_answers import collect_tracked_answers
 from mechbench_compute.interp.read_distribution import read_distribution
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="intervene/steer",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Build a steering direction from labelled residual vectors (one "
         "label's centroid minus another's), add it to the residual stream "

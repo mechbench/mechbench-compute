@@ -4,10 +4,11 @@ import ast
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import Op, P
+from mechbench_compute.lexicon._base import Op, P, Resume
 
 OP = Op(
     name="tools/calc",
+    resume=Resume("restart"),
     summary=(
         "Evaluate an arithmetic expression — numbers and operators only — as "
         "a tool a model may call."

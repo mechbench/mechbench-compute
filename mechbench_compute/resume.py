@@ -8,39 +8,16 @@ LEVELS: tuple[str, ...] = (
     "reproducible", "exchangeable", "state-restorable", "restart",
 )
 
-BLOCK_RESUME: dict[str, dict[str, Any]] = {
-    "text/generate": {"level": "reproducible", "items": True},
-    "logits/read": {"level": "reproducible", "items": True},
-    "text/measure": {"level": "reproducible", "items": False},
-    "eval/expect": {"level": "reproducible", "items": False},
-    "adapter/train": {"level": "state-restorable", "items": False},
-    "intervene/apply": {"level": "reproducible", "items": True},
-    "direction/unembed": {"level": "reproducible", "items": False},
-    "direction/fit": {"level": "reproducible", "items": False},
-    "direction/regress": {"level": "reproducible", "items": False},
-    "direction/decompose": {"level": "reproducible", "items": False},
-    "direction/add": {"level": "reproducible", "items": False},
-    "direction/average": {"level": "reproducible", "items": False},
-    "direction/orthogonalize": {"level": "reproducible", "items": False},
-    "direction/normalize": {"level": "reproducible", "items": False},
-    "direction/project": {"level": "reproducible", "items": False},
-}
-
 _RANK = {"restart": 0, "exchangeable": 1, "state-restorable": 2, "reproducible": 2}
 
 
-def _chat_level(params: Mapping[str, Any]) -> str:
-    model = (params or {}).get("model")
+def read_model_level(model: Any) -> str:
     provider = (model.get("provider") if isinstance(model, Mapping)
                 else getattr(model, "provider", ""))
     return "exchangeable" if provider else "reproducible"
 
 
-def _judge_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = None) -> str:
-    return _chat_level({"model": (params or {}).get("judge", {}).get("model")})
-
-
-def _body_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = None) -> str:
+def read_body_level(params: Mapping[str, Any]) -> str:
     body = (params or {}).get("body") or {}
     nodes = body.get("nodes") if isinstance(body, Mapping) else None
     if not nodes:
@@ -57,17 +34,6 @@ def _body_level(params: Mapping[str, Any], inputs: Mapping[str, Any] | None = No
     return min(levels, key=lambda lv: _RANK.get(lv, 0)) if levels else "restart"
 
 
-DYNAMIC_LEVEL = {"text/chat": _chat_level,
-                 "eval/judge": _judge_level,
-                 "records/map": _body_level,
-                 "records/fold": _body_level}
-
-BLOCK_RESUME["text/chat"] = {"level": "exchangeable", "items": True}
-BLOCK_RESUME["eval/judge"] = {"level": "exchangeable", "items": True}
-BLOCK_RESUME["records/map"] = {"level": "restart", "items": True}
-BLOCK_RESUME["records/fold"] = {"level": "restart", "items": True}
-
-
 def _name(block: str) -> str:
     from mechbench_compute import lexicon
 
@@ -77,17 +43,26 @@ def _name(block: str) -> str:
         return block
 
 
+def _declared(block: str) -> Any:
+    from mechbench_compute import ops
+
+    return ops.find(_name(block))
+
+
 def resume_level(block: str, params: Mapping[str, Any] | None = None,
                  inputs: Mapping[str, Any] | None = None) -> str:
-    block = _name(block)
-    fn = DYNAMIC_LEVEL.get(block)
-    if fn is not None and params is not None:
-        return fn(params, inputs) if fn is not _chat_level else fn(params)
-    return BLOCK_RESUME.get(block, {}).get("level", "restart")
+    mod = _declared(block)
+    if mod is None:
+        return "restart"
+    read = getattr(mod, "read_resume_level", None)
+    if read is not None and params is not None:
+        return read(params, inputs)
+    return mod.OP.resume.level
 
 
 def item_resumable(block: str) -> bool:
-    return bool(BLOCK_RESUME.get(_name(block), {}).get("items", False))
+    mod = _declared(block)
+    return bool(mod is not None and mod.OP.resume.items)
 
 
 def satisfies(offered: str, required: str) -> bool:

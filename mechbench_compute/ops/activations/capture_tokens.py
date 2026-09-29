@@ -14,11 +14,12 @@ from mechbench_compute.interp.read_record_coords import read_record_coords
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="activations/capture-tokens",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Capture the residual-stream vector at EVERY position of each "
         "prompt — one vector per token, each carrying that token's own "

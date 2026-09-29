@@ -3,11 +3,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.resume import read_body_level
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 
 OP = Op(
     name="records/map",
+    needs=frozenset({"executor.sub", "secrets"}),
+    resume=Resume("restart", items=True),
     summary=(
         "Run a whole sub-protocol once per record — the fan-out between a "
         "node that loops over its own items and a run set that loops over "
@@ -90,6 +93,10 @@ collect.
                       "edges": []}},
     example_inputs={"records": {"$ref": {"bench": "you/lab/topics"}}},
 )
+
+
+def read_resume_level(params, inputs=None):
+    return read_body_level(params)
 
 
 def run(ctx, inputs, params):

@@ -13,6 +13,59 @@ nothing said so.
 
 ---
 
+## 0.163.0 — 2026-09-29
+
+### Changes that raise
+
+- An operation is declared with `needs`, not `requires`. `Op(requires=…)`
+  raises `TypeError`; `Op.requires` is now a property derived from
+  `needs` (a `model.*` need is `mlx-local`, a `provider.*` or `network:*`
+  need is `remote`, both are `by-model`, none is `pure`) and is still in
+  `to_dict()` for placement. The vocabulary is closed: `model.forward`,
+  `model.backward`, `model.sample`, `provider.chat`, `provider.embed`,
+  `executor.sub`, `memo`, `objects.read`, `secrets`, and `network:<host>`;
+  anything else raises `ValueError` at declaration. Every core operation
+  was re-declared so its derived `requires` is what it was; a fixture
+  holds the old values and a test holds them equal.
+- The executor lends `ctx.model`, `ctx.executor` and `ctx.secrets` only
+  to an operation that declares a need for them (`Context.for_op`); any
+  other use raises `ops.NeedNotDeclared`. No core operation reaches one
+  it did not declare.
+- `Op` also takes `outputs` (more than one output, by port; declared
+  only, nothing executes it yet; giving both `output` and `outputs`
+  raises), `resume`, `deterministic` and `min_compute`, and `to_dict()`
+  emits `needs`, `resume`, `deterministic`, and `outputs` and
+  `min_compute` when set.
+- `resume.BLOCK_RESUME` and `resume.DYNAMIC_LEVEL` are gone. An
+  operation's resume level is its `OP.resume` (`Resume(level, items)`,
+  default `reproducible`, items off); every core operation that the
+  table did not list declares `restart`, as before. An operation whose
+  level depends on its params defines `read_resume_level(params, inputs)`
+  in its file (`text/chat`, `eval/judge`, `records/map`, `records/fold`).
+  `resume.resume_level` and `resume.item_resumable` answer as before.
+- Kinds are one file each, `lexicon/kinds/<family>/<leaf>.py` with a
+  module-level `KIND`, and the platform kinds moved there from
+  `lexicon/platform/` (still `platform=True`). `lexicon/kinds.py` is the
+  package `lexicon/kinds/`, which keeps the helpers and assembles
+  `KINDS`, `BY_KIND`, `COLLECTION_KIND` and `PLATFORM`; the module-level
+  constants (`kinds.RECORD`, `kinds.VECTOR`, …) are gone, and
+  `lexicon.platform` with them. `KINDS` is ordered by name, the
+  collection last.
+- `Kind` takes `speak` (a template over an item's fields and `header.*`),
+  `draw` (`Draw(mark, encoding)`) and `version` (default 1), and
+  `to_dict()` emits them. No core kind speaks yet; `SILENT_KINDS` in the
+  suite lists them and may only shrink.
+
+### Changes that alter results without raising
+
+_None._ Derived `requires`, resume levels, item resumability and the
+standalone set are each checked equal to what they were. The generated
+TypeScript (`lexicon.generated.ts`, `kinds.generated.ts`) gains the new
+fields and lists kinds by name. The provider table calls
+`claude-sonnet-4-5` legacy with no retirement date (the deprecations page
+has it active, retiring not sooner than 2026-09-29) and
+`claude-sonnet-5` legacy; no price moved.
+
 ## 0.162.2 — 2026-09-29
 
 ### Changes that raise

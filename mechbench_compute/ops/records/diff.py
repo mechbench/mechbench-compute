@@ -9,7 +9,7 @@ from typing import Any
 
 from mechbench_compute.blocks.build_collection import build_collection
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 MOVING = (
     "created_at", "updated_at", "started_at", "finished_at", "timestamp",
@@ -23,6 +23,7 @@ RELATIONS = ("added", "removed", "extends", "truncates", "changed", "any")
 
 OP = Op(
     name="records/diff",
+    resume=Resume("restart"),
     summary=(
         "Compare two collections record by record, matched by key: whether "
         "they are identical, the records only one side has, and for every "

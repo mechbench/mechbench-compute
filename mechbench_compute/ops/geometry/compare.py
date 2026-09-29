@@ -9,10 +9,11 @@ import numpy as np
 from mechbench_compute import metrics as M
 from mechbench_compute import shapes as S
 from mechbench_compute.lexicon import kinds as K
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="geometry/compare",
+    resume=Resume("restart"),
     summary=(
         "The pairwise matrix of a collection's items under a metric their "
         "kind declares — cosine over vectors, Jensen–Shannon over decision "

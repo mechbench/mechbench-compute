@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from mechbench_compute import lexicon
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="eval/score",
+    resume=Resume("restart"),
     summary=(
         "Score prediction and reference fields on a record stream with any "
         "metric from the Hugging Face `evaluate` hub — accuracy, exact "

@@ -6,13 +6,14 @@ from typing import Any
 import numpy as np
 
 from mechbench_compute import shapes as S
-from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P
+from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P, Resume
 from mechbench_compute.trajectory.read_header import read_header
 from mechbench_compute.trajectory.read_points import read_points
 from mechbench_compute.trajectory.read_trajectory import read_trajectory
 
 OP = Op(
     name="trajectory/aggregate",
+    resume=Resume("restart"),
     summary=(
         "Group a trajectory's rows and reduce them — a mean trajectory with "
         "spread per step, one value per group over a window, or per-group "

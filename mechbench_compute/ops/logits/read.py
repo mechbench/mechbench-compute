@@ -4,11 +4,12 @@ from typing import Any
 
 from mechbench_compute import lexicon
 from mechbench_compute._mlx import mx
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="logits/read",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume(items=True),
     summary=(
         "Read the model's exact next-token distribution at a decision point "
         "— entropy, the top tokens, and the probability mass on each named "

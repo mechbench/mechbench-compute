@@ -13,11 +13,12 @@ from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Capture
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="logits/scan",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Logit lens over the whole prompt: at every (layer, position), how "
         "probable and how highly ranked the target token is when that "

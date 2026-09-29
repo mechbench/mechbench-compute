@@ -8,11 +8,12 @@ import numpy as np
 from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
-from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P
+from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P, Resume
 
 OP = Op(
     name="trajectory/capture",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Follow the residual stream along an axis — one position through "
         "every layer, or one layer along every position of a text — and "

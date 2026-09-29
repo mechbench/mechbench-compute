@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.weights.constants import RESIDUAL_SIDE
 from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
 from mechbench_compute.weights.read_parameters import read_parameters
@@ -13,7 +13,8 @@ from mechbench_compute.weights.select_points import select_points
 
 OP = Op(
     name="weights/decompose",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "A parameter's principal directions in the residual stream — what "
         "a projection reads, or what it writes — as directions the rest of "

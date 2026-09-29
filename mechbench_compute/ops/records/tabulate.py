@@ -6,10 +6,11 @@ from typing import Any
 
 from mechbench_compute.blocks.read_field import read_field
 from mechbench_compute.blocks.read_items import read_items
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="records/tabulate",
+    resume=Resume("restart"),
     summary=(
         "Present a record list as a table — coordinates become the leading "
         "columns, scalar fields follow."

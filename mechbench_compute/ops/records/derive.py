@@ -10,10 +10,11 @@ from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.blocks.read_order_by import read_order_by
 from mechbench_compute.blocks.set_field import set_field
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
     name="records/derive",
+    resume=Resume("restart"),
     summary=(
         "Compute fields on every record from expressions: new fields, changed "
         "ones, text from templates, and fields dropped."

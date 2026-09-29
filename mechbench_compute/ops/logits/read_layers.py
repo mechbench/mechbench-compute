@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from mechbench_compute import lexicon
 from mechbench_compute._mlx import mx
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 _CHAT_RECORDS = In("records", "records/record",
                    "Chat-shaped records: `user` (required), `system` and "
@@ -13,7 +13,8 @@ _CHAT_RECORDS = In("records", "records/record",
 
 OP = Op(
     name="logits/read-layers",
-    requires="mlx-local",
+    needs=frozenset({"model.forward"}),
+    resume=Resume("restart"),
     summary=(
         "Logit lens at the decision point: for each chat-shaped record, the "
         "top-1 token, its probability and the entropy at every layer — the "

@@ -3,10 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import Op, P
+from mechbench_compute.lexicon._base import Op, P, Resume
 
 OP = Op(
     name="tools/lookup",
+    resume=Resume("restart"),
     summary=(
         "Fetch a stored bench object by path — a tool that lets a model "
         "consult what the platform already knows."

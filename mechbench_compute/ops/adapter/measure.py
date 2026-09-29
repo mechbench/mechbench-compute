@@ -7,11 +7,12 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.weights.compute_effective_rank import compute_effective_rank
 
 OP = Op(
     name="adapter/measure",
+    resume=Resume("restart"),
     summary=(
         "Measure what training wrote, from the adapter itself: per layer and "
         "module, the norm, spectrum and effective rank of the delta, and its "

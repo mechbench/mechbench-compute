@@ -6,12 +6,13 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute.lexicon._base import In, Op, Output, P
+from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.trajectory.read_points import read_points
 from mechbench_compute.trajectory.read_trajectory import read_trajectory
 
 OP = Op(
     name="trajectory/compare",
+    resume=Resume("restart"),
     summary=(
         "Compare two trajectories step by step — cosine, angle and norm "
         "ratio at each step, and the step at which they diverge."
