@@ -234,7 +234,9 @@ class TestTheNameAndItsRendering:
 
 
 class TestWhatAnOperationNeeds:
-    NOT_READ_THROUGH_CTX = ("model.sample", "model.backward", "provider.", "network:")
+    NOT_READ_THROUGH_CTX = ("model.sample", "model.backward", "provider.", "network:",
+                            "runtime.mlx", "objects.write")
+    CARRIED_BY_A_MEMBER = {"provider": frozenset({"secrets"})}
 
     @staticmethod
     def _uses() -> dict[str, frozenset[str]]:
@@ -258,16 +260,36 @@ class TestWhatAnOperationNeeds:
             for need in op.needs:
                 if need.startswith(self.NOT_READ_THROUGH_CTX):
                     continue
-                assert any(need in ops.MEMBER_NEEDS[m] for m in uses if m in ops.MEMBER_NEEDS), (
+                assert any(need in ops.MEMBER_NEEDS[m] | self.CARRIED_BY_A_MEMBER.get(m, frozenset())
+                           for m in uses if m in ops.MEMBER_NEEDS), (
                     f"{name} declares {need!r} and its run never reaches for it")
 
-    def test_the_reach_past_the_needs_only_shrinks(self) -> None:
+    def test_nothing_reaches_past_the_needs(self) -> None:
         from mechbench_compute import ops
 
-        assert ops.REACHING_PAST_NEEDS == {"adapter/train": frozenset({"executor"})}, (
-            "an operation reaching a ctx member no need names; this set may only shrink")
-        for name, members in ops.REACHING_PAST_NEEDS.items():
-            assert members <= self._uses()[name], f"{name} no longer reaches {sorted(members)}"
+        assert ops.REACHING_PAST_NEEDS == {}, (
+            "every ctx member an operation touches is named by a need it declares")
+
+    def test_no_op_reaches_into_the_executor(self) -> None:
+        import pathlib
+
+        import mechbench_compute
+
+        root = pathlib.Path(mechbench_compute.__file__).parent
+        reaching = [str(f.relative_to(root)) for d in ("ops", "live")
+                    for f in sorted((root / d).rglob("*.py"))
+                    if "ctx.executor." in f.read_text() or "type(ctx.executor)" in f.read_text()]
+        assert not reaching, (
+            f"{reaching} reach into the executor; ask ctx for it: sub, provider, "
+            "memo, materialize, evict_model")
+
+    def test_the_fused_set_is_the_one_before_the_boundary(self) -> None:
+        from mechbench_compute import ops
+
+        before = {name for name, mod in ops.load_modules().items()
+                  if mod.OP.requires == "mlx-local" and mod.OP.port("adapter") is not None}
+        assert {name for name in ops.load_modules() if ops.fuses_adapter(name)} == before
+        assert {name for name in ops.load_modules() if ops.fuses_adapter_locally(name)} == {"text/chat"}
 
     def test_derived_requires_match_the_wire_form(self) -> None:
         import json

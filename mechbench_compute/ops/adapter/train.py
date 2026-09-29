@@ -374,8 +374,7 @@ def run(ctx, inputs, params):
     finally:
         os.unlink(path)
 
-    ctx.executor._model = None
-    ctx.executor._model_id = None
+    ctx.evict_model()
 
     base_ref = params.get("model")
     trained_on = (

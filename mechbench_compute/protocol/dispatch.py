@@ -50,7 +50,8 @@ class Dispatch:
     def _run_op(self, block, inputs, params, **lent):
         mod = ops.find(block)
         ctx = ops.Context.for_op(mod.OP, self, **lent)
-        if ops.fuses_adapter(block):
+        if ops.fuses_adapter(block) or (ops.fuses_adapter_locally(block)
+                                        and not is_remote(block, params)):
             return self._run_model_block(
                 lambda i, p, on_item=None, on_start=None: mod.run(ctx, i, p),
                 inputs, params, on_item=lent.get("on_item"), on_start=lent.get("on_start"))

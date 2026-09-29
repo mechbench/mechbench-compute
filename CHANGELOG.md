@@ -13,6 +13,68 @@ nothing said so.
 
 ---
 
+## 0.164.0 — 2026-09-29
+
+### Changes that raise
+
+- `Context` gains five members, and an operation reaches the executor
+  only through them (task 000824): `sub(target, inputs, params, *,
+  budget=None, on_item=None, on_start=None)` runs one operation or a
+  graph as a child sharing the resident model and the rate limiter
+  (`budget` is a cap in USD under the run's budget; a graph answers
+  with its outputs); `provider(model_ref)` returns a `ProviderClient`
+  (`chat`, `embed`) that carries the limiter, the run's budget and the
+  operation's `ctx.secrets`; `memo(key)` returns the node's memo
+  (`tape`, `close(out)`) or `None`; `materialize(label)` returns a
+  stored checkpoint's directory; `evict_model()` drops the resident
+  model. Each is lent only for its need (`executor.sub`, `provider.*`,
+  `memo`, `objects.read`, a `model.*` need), and `ctx.executor` now
+  only for `executor.sub`. `Context.model_host` is `Context.host`, and
+  `Context.run_secrets` carries the run's secrets to a child run.
+  `ops.REACHING_PAST_NEEDS` is empty and pinned so.
+- The needs vocabulary gains `runtime.mlx` and `objects.write`. A
+  `model.*` or `runtime.mlx` need derives `mlx-local`; otherwise a
+  `provider.*` or `network:*` need derives `remote`; a `model.*` need
+  with a `provider.*` or `network:*` one derives `by-model`.
+- Re-declared needs: `records/map` and `records/fold` are
+  `executor.sub` (no longer `secrets`: the body's nodes declare their
+  own); `adapter/merge` is `runtime.mlx`, `objects.read`,
+  `objects.write`, `secrets`, `network:huggingface.co`, so its derived
+  `requires` is `mlx-local`, not `pure` — it is placed on a runner with
+  MLX, which it always needed. The others keep their needs.
+- The executor loses `_tool_block_runner`, `_block_chat_local`,
+  `_close_memo` and the `Chat` and `Tools` mixins; it gains `run_sub`
+  (in `protocol/sub.py`), `open_provider` and `evict_model`.
+  `_open_memo` returns an `OpenMemo` that closes itself.
+  `live.run_step` runs through `run_sub`.
+- `eval/judge`'s `run_judge` takes `provider=` (a `ProviderClient`) in
+  place of `secrets`, `limiter` and `job_budget`.
+- A `text/chat` tool handler is any operation whose needs are within
+  `model.forward` and `model.sample` (it was `logits/read`,
+  `text/generate` and `tools/lookup` by name), run through `ctx.sub`.
+- `mechbench_compute.api` is new: the names an operation is written
+  against, with a stability promise (docs/PLUGIN_API.md): versioned with
+  compute's minor, a break is a minor bump and a line here. Six
+  operations import only through it; `tests/test_ops_use_the_api.py`
+  lists the other 61 in `IMPORTS_INTERNALS`, which only shrinks.
+- `ops.fuses_adapter` is keyed on `model.forward` and an `adapter`
+  port (the same set, held by a test); `ops.fuses_adapter_locally`
+  names `text/chat`, whose local path the executor now fuses rather
+  than the operation.
+- Two gates: `test_no_op_reaches_into_the_executor` (no file under
+  `ops/` or `live/` names `ctx.executor.`) and
+  `test_ops_use_the_api`.
+
+### Changes that alter results without raising
+
+_None._ A child run of `records/map`, `records/fold` or a live step is
+now a fresh child executor per body run (it was one per node), sharing
+the resident model and the checkpoint cache; the model a body loads is
+handed back after each run. The generated `lexicon.generated.ts` changes
+for the re-declared needs and `adapter/merge`'s `requires`.
+
+---
+
 ## 0.163.0 — 2026-09-29
 
 ### Changes that raise

@@ -171,18 +171,24 @@ class TestToolsInAConversation:
 
 
 class TestThroughTheExecutor:
+    @staticmethod
+    def _runner(ex):
+        from mechbench_compute import lexicon, ops
+        from mechbench_compute.ops.text import chat
+
+        return chat.build_tool_runner(ops.Context.for_op(lexicon.BY_NAME["text/chat"], ex))
+
     def test_decision_read_is_available_as_a_tool(self, monkeypatch):
         from mechbench_compute.protocol import ProtocolExecutor
 
-        ex = ProtocolExecutor()
         seen = {}
 
-        def fake_model_block(fn, inputs, params, *a, **kw):
+        def fake_model_block(self, fn, inputs, params, *a, **kw):
             seen.update(inputs=inputs, params=params)
             return {"conditions": [{"id": "q", "entropy_bits": 0.9}]}
 
-        monkeypatch.setattr(ex, "_run_model_block", fake_model_block)
-        runner = ex._tool_block_runner()
+        monkeypatch.setattr(ProtocolExecutor, "_run_model_block", fake_model_block)
+        runner = self._runner(ProtocolExecutor())
         out = runner("logits/read",
                      {"arguments": {"prompt": "left or right?"},
                       "records": [{"prompt": "left or right?"}]},
@@ -193,9 +199,11 @@ class TestThroughTheExecutor:
     def test_a_block_that_is_not_a_tool_handler_says_so(self):
         from mechbench_compute.protocol import ProtocolExecutor
 
-        runner = ProtocolExecutor()._tool_block_runner()
+        runner = self._runner(ProtocolExecutor())
         with pytest.raises(ValueError, match="not available as a tool handler"):
             runner("adapter/train", {}, {})
+        with pytest.raises(ValueError, match="not available as a tool handler"):
+            runner("text/chat", {}, {})
 
     def test_a_chat_node_with_tools_runs_end_to_end(self):
         from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec

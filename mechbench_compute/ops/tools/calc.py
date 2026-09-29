@@ -4,7 +4,7 @@ import ast
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import Op, P, Resume
+from mechbench_compute.api import Op, P, Resume
 
 OP = Op(
     name="tools/calc",

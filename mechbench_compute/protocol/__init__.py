@@ -4,7 +4,6 @@ import json
 from typing import Any
 
 from mechbench_compute import Model
-from mechbench_compute.protocol.chat import Chat
 from mechbench_compute.protocol.dispatch import Dispatch
 from mechbench_compute.protocol.is_remote import (  # noqa: F401
     REMOTE_BLOCKS,
@@ -16,14 +15,14 @@ from mechbench_compute.protocol.model import ModelLoading
 from mechbench_compute.protocol.pipeline import Pipeline
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 from mechbench_compute.protocol.remote import Remote
+from mechbench_compute.protocol.sub import Sub
 from mechbench_compute.protocol.serialize_params import serialize_params  # noqa: F401
 from mechbench_compute.protocol.sort_edges import sort_edges  # noqa: F401
 from mechbench_compute.protocol.summarize_node import summarize_node  # noqa: F401
-from mechbench_compute.protocol.tools import Tools
 
 
-class ProtocolExecutor(Chat, Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
-                       Remote, Tools):
+class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
+                       Remote, Sub):
     def __init__(self, on_download=None, on_download_bytes=None, *,
                  on_node_start=None, on_spool_item=None,
                  on_checkpoint=None, on_node_done=None, on_node_kept=None,

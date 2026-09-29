@@ -278,9 +278,9 @@ WILDCARD = "*"
 
 NETWORK = "network:"
 
-NEEDS = frozenset({"model.forward", "model.backward", "model.sample",
+NEEDS = frozenset({"model.forward", "model.backward", "model.sample", "runtime.mlx",
                    "provider.chat", "provider.embed",
-                   "executor.sub", "memo", "objects.read", "secrets"})
+                   "executor.sub", "memo", "objects.read", "objects.write", "secrets"})
 
 RESUME_LEVELS = LEVELS
 
@@ -377,9 +377,10 @@ class Op:
 
     @property
     def requires(self) -> str:
-        local = any(n.startswith("model.") for n in self.needs)
+        model = any(n.startswith("model.") for n in self.needs)
+        local = model or "runtime.mlx" in self.needs
         remote = any(n.startswith(("provider.", NETWORK)) for n in self.needs)
-        if local and remote:
+        if model and remote:
             return "by-model"
         return "mlx-local" if local else "remote" if remote else "pure"
 

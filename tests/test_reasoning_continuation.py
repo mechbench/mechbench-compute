@@ -5,6 +5,7 @@ import json
 import pytest
 
 from mechbench_compute.ops.eval.judge import run_judge
+from mechbench_compute.providers.provider_client import ProviderClient
 from mechbench_compute.ops.text.extend import extend
 from mechbench_compute.ops.text.render import render_records
 from test_reasoning_providers import (
@@ -133,7 +134,8 @@ class TestTheJudge:
                          "scale": {"kind": "numeric", "min": 1, "max": 5},
                          "budget_usd": 1.0, "n_votes": 1},
                         inputs={"records": [{"id": "s1", "text": "A kettle sang."}]},
-                        secrets={"anthropic": {"token": "k"}})
+                        provider=ProviderClient({"provider": "anthropic", "model": "claude-opus-5"},
+                                                secrets={"anthropic": {"token": "k"}}))
         vote = out["items"][0]["votes"][0]
         assert vote["parsed"] and vote["score"] == 4
 
@@ -152,6 +154,7 @@ class TestTheJudge:
                          "scale": {"kind": "numeric", "min": 1, "max": 5},
                          "budget_usd": 1.0, "n_votes": 1},
                         inputs={"records": [{"id": "s1", "text": "A kettle sang."}]},
-                        secrets={"anthropic": {"token": "k"}})
+                        provider=ProviderClient({"provider": "anthropic", "model": "claude-opus-5"},
+                                                secrets={"anthropic": {"token": "k"}}))
         vote = out["items"][0]["votes"][0]
         assert not vote["parsed"] and vote["empty"] == "reasoning"

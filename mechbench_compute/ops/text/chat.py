@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from mechbench_compute import lexicon
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.resume import read_model_level
+
+TOOL_NEEDS = frozenset({"model.forward", "model.sample"})
 
 _TOOL_FIELDS = (
     P("name", "string", "The tool's name, unique among the tools offered."),
@@ -442,27 +445,37 @@ def run(ctx, inputs, params):
         ref = model_ref_mod.parse(ref)
     records = inputs.get("records") or []
     if params.get("tools"):
-        params = {**params, "_block_runner": ctx.executor._tool_block_runner(ctx.secrets)}
+        params = {**params, "_block_runner": build_tool_runner(ctx)}
     if ref.is_endpoint:
         if params.get("spec") or inputs.get("intervention") is not None:
             raise ValueError(
                 "text/chat: an intervention needs local weights — a remote "
                 "model has no forward pass to act on. Drop the intervention, "
                 "or give the node a local model reference.")
-        memo = ctx.executor._open_memo(params)
-        out = chat_mod.run_remote(
-            ref, records, params, secrets=ctx.secrets,
+        memo = ctx.memo(params.get("cache"))
+        out = ctx.provider(ref).chat(
+            records, params,
             cassette=(memo.tape if memo else
                       inputs.get("cassette")),
             cassette_mode="auto" if memo else None,
-            limiter=ctx.executor._limiter, job_budget=ctx.executor._budget,
             on_item=ctx.on_item, on_start=ctx.on_start,
             resume_items=ctx.resume_items)
         if memo:
-            out = ctx.executor._close_memo(memo, out)
+            out = memo.close(out)
         return out
-    if inputs.get("project") is not None and ref.is_endpoint:
-        raise ValueError("text/chat: `project` reads the forward pass, which a remote model does not share")
-    return ctx.executor._run_model_block(
-        ctx.executor._block_chat_local, inputs, {**params, "model": ref, "_on_token": ctx.on_token},
-        on_item=ctx.on_item, on_start=ctx.on_start, resume_items=ctx.resume_items)
+    return chat_mod.run_local(
+        ctx.model(ref), ref, records, {**params, "model": ref, "_on_token": ctx.on_token},
+        inputs=inputs, on_item=ctx.on_item, on_start=ctx.on_start,
+        resume_items=ctx.resume_items)
+
+
+def build_tool_runner(ctx):
+    def run_tool(ref, inputs, params):
+        declared = lexicon.BY_NAME.get(ref) if isinstance(ref, str) else None
+        if declared is None or not declared.needs <= TOOL_NEEDS:
+            raise ValueError(
+                f"{ref!r} is not available as a tool handler here — pure "
+                "blocks and operations that only read the loaded model are")
+        return ctx.sub(ref, inputs, params)
+
+    return run_tool

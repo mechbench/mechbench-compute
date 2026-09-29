@@ -3,13 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
-from mechbench_compute.resume import read_body_level
-from mechbench_compute.protocol.protocol_spec import ProtocolSpec
+from mechbench_compute.api import In, Op, Output, P, Resume, collection, item_kind_of, items_of, read_body_level
 
 OP = Op(
     name="records/map",
-    needs=frozenset({"executor.sub", "secrets"}),
+    needs=frozenset({"executor.sub"}),
     resume=Resume("restart", items=True),
     summary=(
         "Run a whole sub-protocol once per record — the fan-out between a "
@@ -100,16 +98,12 @@ def read_resume_level(params, inputs=None):
 
 
 def run(ctx, inputs, params):
-    from mechbench_compute import dataflow as dataflow_mod
-    from mechbench_compute.lexicon import kinds as K
-
-    records = K.items_of(inputs.get("records") or [])
+    records = items_of(inputs.get("records") or [])
     body = params.get("body")
     if not isinstance(body, Mapping) or not body.get("nodes"):
         raise ValueError(
             "records/map needs a `body`: a graph, with `nodes` and "
             "`edges`, written inline and run once per record.")
-    body = {**body, "dataflow": dataflow_mod.DATAFLOW}
     bind = dict(params.get("bind") or {})
     over = params.get("over")
     if over is not None:
@@ -139,17 +133,11 @@ def run(ctx, inputs, params):
     if ctx.on_start:
         ctx.on_start(len(records))
 
-    child = type(ctx.executor)(
-        on_download=ctx.executor._on_download,
-        on_download_bytes=ctx.executor._on_download_bytes,
-        limiter=ctx.executor._limiter, budget=ctx.executor._budget)
-    child._model, child._model_id = ctx.executor._model, ctx.executor._model_id
-
     items: list[dict[str, Any]] = []
     out_arch: dict[str, Any] | None = None
     out_kind: str | None = None
     wired = inputs.get("records")
-    record_kind = (K.item_kind_of(wired) if isinstance(wired, Mapping) else None) or "records/record"
+    record_kind = (item_kind_of(wired) if isinstance(wired, Mapping) else None) or "records/record"
     for rec in records:
         key = str(rec.get("id"))
         if ctx.resume_items and key in ctx.resume_items:
@@ -164,12 +152,7 @@ def run(ctx, inputs, params):
                 f"record {key!r} has no {', '.join(missing_fields)} to "
                 f"bind into the body's params")
         child_bound = {**(ctx.run_params or {}), **bound}
-        out = child.run(ProtocolSpec(
-            kind="pipeline", prompt="", model_id=None,
-            extra={"graph": body, "params": child_bound,
-                   "inputs": {"record": K.collection(record_kind, [rec])}}),
-            secrets=ctx.secrets)
-        outputs = out.payload.get("outputs") or {}
+        outputs = ctx.sub(body, {"record": collection(record_kind, [rec])}, child_bound)
         if want:
             chosen = outputs.get(str(want))
             if chosen is None:
@@ -183,18 +166,18 @@ def run(ctx, inputs, params):
                 f"the body ends at {len(outputs)} nodes "
                 f"({', '.join(sorted(outputs))}); name one with `output`")
         if collect != "all":
-            out_kind = out_kind or K.item_kind_of(chosen)
+            out_kind = out_kind or item_kind_of(chosen)
         if out_arch is None and isinstance(chosen, Mapping) and isinstance(chosen.get("arch"), Mapping):
             out_arch = dict(chosen["arch"])
         if collect == "stream":
-            for sub in K.items_of(chosen):
+            for sub in items_of(chosen):
                 item = dict(sub)
                 item["id"] = f"{key}:{sub.get('id')}"
                 item["coords"] = {**(rec.get("coords") or {}),
                                   **(sub.get("coords") or {}), "mapped": key}
                 items.append(item)
         else:
-            rows = K.items_of(chosen)
+            rows = items_of(chosen)
             item = {"id": key, "coords": dict(rec.get("coords") or {}),
                     **(dict(rows[0]) if (collect == "first" and rows)
                        else {"items": [dict(r) for r in rows]})}
@@ -202,8 +185,7 @@ def run(ctx, inputs, params):
             items.append(item)
         if ctx.on_item:
             ctx.on_item(key, items[-1], False)
-    ctx.executor._model, ctx.executor._model_id = child._model, child._model_id
-    return K.collection(
+    return collection(
         out_kind or "records/record", items,
         mapped={"records": len(records), "collect": collect,
                 "body_nodes": [n.get("id") for n in body.get("nodes", [])]},

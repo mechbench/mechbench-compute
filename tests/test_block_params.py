@@ -42,8 +42,8 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/records/plot.py", "build_chart")],
     "text/chat": [
         ("ops/text/chat.py", "run"),
-        ("protocol/memo.py", "_open_memo"),
-        ("protocol/chat.py", "_block_chat_local")],
+        ("providers/provider_client.py", "chat"),
+        ("chat/run_local.py", "run_local")],
     "eval/judge": [
         ("ops/eval/judge.py", "run"),
         ("ops/eval/judge.py", "Scale"),
@@ -402,7 +402,7 @@ def ports_read(ref: str) -> set[str]:
     read |= set(READS_INPUTS.findall(_registry_entry(ref)))
     if "_run_model_block" in branch or any("_run_model_block" in b for b in bodies):
         read.add("adapter")
-    if ops.find(ref) is not None and ops.fuses_adapter(ref):
+    if ops.find(ref) is not None and (ops.fuses_adapter(ref) or ops.fuses_adapter_locally(ref)):
         read.add("adapter")
     return read
 

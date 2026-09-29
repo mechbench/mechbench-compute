@@ -67,6 +67,12 @@ class Remote:
         node_view.pop("parallel", None)
         return out
 
+    def open_provider(self, ref, secrets=None):
+        from mechbench_compute.providers.provider_client import ProviderClient
+
+        return ProviderClient(ref, secrets=secrets, limiter=self._limiter,
+                              job_budget=self._budget)
+
     def _dispatch_remote(self, block, inputs, params, secrets, *,
                          on_item=None, on_start=None, **resume_kwargs):
         return self._run_op(block, inputs, params, secrets=secrets,

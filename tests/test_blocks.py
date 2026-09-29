@@ -307,29 +307,20 @@ class TestAFigureCarriesItsVocabulary:
         assert ex._run_model_block(lambda i, p: {}, {}, {"model": "fake/m"})["arch"] == {"n_layers": 12}
 
     def test_a_map_keeps_the_landmarks_its_body_found(self, monkeypatch):
-        from types import SimpleNamespace
-
         from mechbench_compute.lexicon import kinds as K
 
         body_out = K.collection("records/record", [{"id": "r", "silhouette": 0.3}],
                                 arch=dict(self.ARCH))
 
-        class Child:
-            _model = None
-            _model_id = None
-            _on_download = _on_download_bytes = _limiter = _budget = None
-
-            def __init__(self, *a, **k):
-                pass
-
-            def run(self, spec, **kw):
-                return SimpleNamespace(payload={"outputs": {"separation": body_out}})
+        class Host:
+            def run_sub(self, target, inputs, params, **kw):
+                return {"separation": body_out}
 
         from mechbench_compute import ops
         from mechbench_compute.ops.records import map as map_op
 
         out = map_op.run(
-            ops.Context(executor=Child()),
+            ops.Context(executor=Host()),
             {"records": K.collection("records/record", [{"id": "l0", "layer": 0}])},
             {"body": {"nodes": [{"id": "separation", "block": "records/filter"}], "edges": []},
              "bind": {"layer": "layer"}},

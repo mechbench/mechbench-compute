@@ -3,13 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
-from mechbench_compute.resume import read_body_level
-from mechbench_compute.protocol.protocol_spec import ProtocolSpec
+from mechbench_compute.api import In, Op, Output, P, Resume, item_kind_of, items_of, read_body_level
 
 OP = Op(
     name="records/fold",
-    needs=frozenset({"executor.sub", "secrets"}),
+    needs=frozenset({"executor.sub"}),
     resume=Resume("restart", items=True),
     summary=(
         "Run a body graph step after step, each step reading the state the "
@@ -98,9 +96,6 @@ def read_resume_level(params, inputs=None):
 
 
 def run(ctx, inputs, params):
-    from mechbench_compute import dataflow as dataflow_mod
-    from mechbench_compute.lexicon import kinds as K
-
     state = inputs.get("state")
     if state is None:
         raise ValueError("records/fold needs a starting `state` on its port")
@@ -109,7 +104,6 @@ def run(ctx, inputs, params):
         raise ValueError(
             "records/fold needs a `body`: a graph, with `nodes` and "
             "`edges`, run once per step")
-    body = {**body, "dataflow": dataflow_mod.DATAFLOW}
     over = params.get("over")
     if over is not None and not (isinstance(over, list)
                                  and all(isinstance(o, Mapping) for o in over)):
@@ -127,14 +121,8 @@ def run(ctx, inputs, params):
     if ctx.on_start:
         ctx.on_start(steps)
 
-    child = type(ctx.executor)(
-        on_download=ctx.executor._on_download,
-        on_download_bytes=ctx.executor._on_download_bytes,
-        limiter=ctx.executor._limiter, budget=ctx.executor._budget)
-    child._model, child._model_id = ctx.executor._model, ctx.executor._model_id
-
     def says_stop(value: Any) -> bool:
-        items = K.items_of(value) if K.item_kind_of(value) else []
+        items = items_of(value) if item_kind_of(value) else []
         return bool(items) and all(bool(it.get(stop_field)) for it in items)
 
     ran, stopped = 0, "steps"
@@ -150,12 +138,7 @@ def run(ctx, inputs, params):
                 break
             continue
         step_params = {**(ctx.run_params or {}), **over[t % len(over)], "step": t}
-        out = child.run(ProtocolSpec(
-            kind="pipeline", prompt="", model_id=None,
-            extra={"graph": body, "params": step_params,
-                   "inputs": {"state": state}}),
-            secrets=ctx.secrets)
-        outputs = out.payload.get("outputs") or {}
+        outputs = ctx.sub(body, {"state": state}, step_params)
         if want:
             chosen = outputs.get(str(want))
             if chosen is None:
@@ -175,7 +158,6 @@ def run(ctx, inputs, params):
         if stop_field and says_stop(state):
             stopped = "until"
             break
-    ctx.executor._model, ctx.executor._model_id = child._model, child._model_id
     if not isinstance(state, Mapping):
         raise ValueError("the body's output is not a collection; a fold's state is one")
     return {**dict(state),

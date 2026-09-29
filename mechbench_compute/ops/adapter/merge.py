@@ -8,7 +8,8 @@ from mechbench_compute.protocol.serialize_params import serialize_params
 
 OP = Op(
     name="adapter/merge",
-    needs=frozenset({"objects.read", "secrets"}),
+    needs=frozenset({"runtime.mlx", "objects.read", "objects.write", "secrets",
+                    "network:huggingface.co"}),
     resume=Resume("restart"),
     summary=(
         "Collapse a model's adapter stack into one standalone checkpoint and "
@@ -76,7 +77,7 @@ def run(ctx, inputs, params):
         repo_id, sha, snapshot = ensure_model(mref.base)
         base_snapshot = f"{repo_id}@{sha}"
     else:
-        snapshot = ctx.executor._materialize_checkpoint(mref.base)
+        snapshot = ctx.materialize(mref.base)
         base_snapshot = f"bench:{mref.base}"
 
     workdir = tempfile.mkdtemp(prefix="mechbench-merge-")

@@ -27,6 +27,10 @@ class ModelLoading:
             self._model_id = model_id
         return self._model
 
+    def evict_model(self) -> None:
+        self._model = None
+        self._model_id = None
+
     @staticmethod
     def model_ref(model: Model) -> str | None:
         if getattr(model, "repo_id", None) and getattr(model, "revision", None):

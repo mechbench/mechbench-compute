@@ -36,8 +36,9 @@ def patch_trace(model, records, params):  # the mechanism, callable on its own
   operations declare the same way, a port they share, a paragraph of
   prose — each is written out in the file rather than imported, so the
   contract reads whole without opening anything else. The only thing
-  the file takes from `mechbench_compute.lexicon` is the vocabulary a
-  declaration is written in — `Op`, `P`, `In`, `Output`, the kinds.
+  the file takes for it is the vocabulary a declaration is written in —
+  `Op`, `P`, `In`, `Output`, the kinds — from `mechbench_compute.api`
+  (docs/PLUGIN_API.md).
   Two operations that say the same thing say it twice, on purpose:
   a declaration is prose for a reader, and the reader has one file
   open.
@@ -113,8 +114,11 @@ only to an operation that declared a need for it:
 
 | member | lent to an operation that needs |
 |---|---|
-| `ctx.model`, `ctx.loaded` | `model.forward`, `model.sample` or `model.backward` |
-| `ctx.executor` | `executor.sub`, `memo`, `objects.read` or `provider.chat` |
+| `ctx.model`, `ctx.loaded`, `ctx.evict_model` | `model.forward`, `model.sample` or `model.backward` |
+| `ctx.sub`, `ctx.executor` | `executor.sub` |
+| `ctx.provider` | `provider.chat` or `provider.embed` |
+| `ctx.memo` | `memo` |
+| `ctx.materialize` | `objects.read` |
 | `ctx.secrets` | `secrets` |
 
 Any other use raises `NeedNotDeclared`. The rest of `ctx` — progress,
@@ -124,7 +128,11 @@ resume state, paths, run params — is lent to every operation.
 |---|---|
 | `ctx.model(ref)` | the model for a `model` param: `ctx.loaded` when one is lent, otherwise the executor loads it |
 | `ctx.loaded` | a model already in hand, which `ctx.model` returns whatever the ref |
-| `ctx.executor` | the executor itself (see below) |
+| `ctx.sub(target, inputs, params, *, budget, on_item, on_start)` | run one operation (`target` is its name) or a graph (`target` is a mapping in the protocol form) as a child run that shares the resident model and the rate limiter; `budget` is a cap in USD under the run's own budget. A graph answers with its outputs by node |
+| `ctx.provider(model_ref)` | a `ProviderClient` for a provider's endpoint, carrying the rate limiter, the run's budget and `ctx.secrets`: `chat(records, params, …)`, `embed(…)` |
+| `ctx.memo(key)` | the memo of remote calls a `cache` param names (`None` for none): its `tape`, and `close(out)` to store it and note the hits on `out` |
+| `ctx.materialize(label)` | a stored checkpoint, as a local directory |
+| `ctx.evict_model()` | drop the resident model, for an operation that changed its weights in place |
 | `ctx.on_start`, `ctx.on_item` | progress: one call when the count is known, one per item |
 | `ctx.on_token` | streaming: one call per generated token (`text/generate`, `text/chat`) |
 | `ctx.on_checkpoint` | for an operation that checkpoints (`adapter/train`) |
@@ -139,34 +147,30 @@ Every field has a default, so a test builds one in a line:
 
 ### The executor boundary
 
-Some operations still reach past `Context` into the executor's private
-state (`ctx.executor._*`): `records/map` and `records/fold` build a
-child executor for their body and hand it the loaded model
-(`executor.sub`); `text/chat` borrows its tool runner (`executor.sub`),
-memo (`memo`), rate limiter, budget and local chat path, and
-`eval/judge` its rate limiter and budget (`provider.chat`);
-`adapter/merge` materializes a bench checkpoint through it
-(`objects.read`); and `live/run_step` builds a child executor the way
-map and fold do. `adapter/train` clears the executor's loaded model, and
-no need names that: it is the one entry in `ops.REACHING_PAST_NEEDS`,
-which the lexicon test pins so it can only shrink.
+An operation reaches the executor only through these members. No file
+under `ops/` or `live/` names `ctx.executor.` or `type(ctx.executor)`
+(`test_no_op_reaches_into_the_executor`), and every member an
+operation's `run` touches is named by a need it declares.
 
 ## What is derived, and so is not written down
 
 - **The registry.** `mechbench_compute.ops` imports every module under
   it. There is no table of operations to keep in step with the files.
 - **Where it runs** — `OP.requires`, derived from `OP.needs`: a
-  `model.*` need is `mlx-local`, a `provider.*` or `network:*` need is
-  `remote`, both are `by-model`, neither is `pure`. It is still in the
-  wire form, for placement; it is no longer written.
+  `model.*` or `runtime.mlx` need is `mlx-local`; otherwise a
+  `provider.*` or `network:*` need is `remote`; a `model.*` need with a
+  `provider.*` or `network:*` one is `by-model`; none is `pure`. It is
+  still in the wire form, for placement; it is no longer written.
 - **Whether it can run with no executor at all** — it needs nothing and
   its `run` never reads `ctx`. That is the set a tool handler or a chunked
   reduce may call.
-- **Whether the executor fuses an adapter around it** — it requires
-  local weights (`mlx-local`) *and* declares an `adapter` input port:
-  there are weights to fuse onto, and an adapter may arrive. The port
-  alone does not say so — `adapter/measure` and `adapter/publish` take
-  an adapter as the thing they operate on.
+- **Whether the executor fuses an adapter around it** — it needs
+  `model.forward` *and* declares an `adapter` input port: there are
+  weights to fuse onto, and an adapter may arrive. The port alone does
+  not say so — `adapter/measure` and `adapter/publish` take an adapter
+  as the thing they operate on. An operation that runs either side
+  (`by-model`) with an `adapter` port is fused when its node runs local
+  weights rather than a provider's endpoint.
 - **Whether it can be computed in chunks, and how** — its file defines
   `MONOID`. That one line is what the reduce machinery, the chunk
   harness and the resume levels all read.
@@ -223,9 +227,8 @@ pipeline.py       walking the graph, and nothing else
 dispatch.py       what answers for a node, and the one hop to it
 model.py          loading weights, fusing adapters
 remote.py         the nodes a provider answers, run in a wave
-tools.py          what a model may call mid-turn
-chat.py           the local half of text/chat
 memo.py           a node's memo of the remote calls it made
+sub.py            a child run that shares the resident model
 legacy_kinds.py   the two spec kinds that came before the graph
 ```
 

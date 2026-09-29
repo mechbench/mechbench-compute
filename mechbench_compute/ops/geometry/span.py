@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.api import In, Op, Output, P, Resume, collection, item_kind_of, items_of
 
 OP = Op(
     name="geometry/span",
@@ -127,10 +127,9 @@ def _read_distance_matrix(entry: Mapping[str, Any], header: Mapping[str, Any]) -
 def build_span_trees(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
     bridge_sigma = float(params.get("bridge_sigma", DEFAULT_BRIDGE_SIGMA))
     keep_edges = bool(params.get("keep_edges", True))
-    from mechbench_compute.lexicon import kinds as K
 
     src = inputs.get("similarity")
-    if not (isinstance(src, Mapping) and K.item_kind_of(src) == "geometry/similarity"):
+    if not (isinstance(src, Mapping) and item_kind_of(src) == "geometry/similarity"):
         raise ValueError(
             "geometry/span needs a collection of geometry/similarity on its "
             f"`similarity` port — got {type(src).__name__}")
@@ -141,7 +140,7 @@ def build_span_trees(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> di
             "jensen-shannon")
 
     out_groups = []
-    for entry in K.items_of(src):
+    for entry in items_of(src):
         distance = _read_distance_matrix(entry, src)
         edges = grow_minimum_spanning_tree(distance)
         stats = measure_tree(edges, bridge_sigma=bridge_sigma)
@@ -157,7 +156,7 @@ def build_span_trees(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> di
 
     metric = src.get("metric", "cosine")
     options = dict(src.get("options") or {})
-    return K.collection(
+    return collection(
         "geometry/mst", out_groups,
         name=params.get("name", "mst"),
         metric=metric,

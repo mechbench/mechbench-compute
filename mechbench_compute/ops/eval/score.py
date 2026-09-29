@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute import lexicon
-from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.api import In, Op, Output, P, Resume, items_of
 
 OP = Op(
     name="eval/score",
@@ -51,7 +50,7 @@ def run(ctx, inputs, params):
     pf = "prediction"
     rf = "reference"
     variant = str(params.get("variant", "base"))
-    recs = lexicon.items_of(inputs["records"])
+    recs = items_of(inputs["records"])
     preds = [r.get(pf) for r in recs]
     refs = [r.get(rf) for r in recs]
     metric = evaluate.load(metric_name)

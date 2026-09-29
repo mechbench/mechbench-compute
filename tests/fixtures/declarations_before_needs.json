@@ -6,7 +6,7 @@
   "activations/contrast": "mlx-local",
   "activations/examples": "mlx-local",
   "adapter/measure": "pure",
-  "adapter/merge": "pure",
+  "adapter/merge": "mlx-local",
   "adapter/publish": "remote",
   "adapter/train": "mlx-local",
   "direction/add": "pure",

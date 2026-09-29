@@ -148,13 +148,14 @@ def run(ctx, inputs, params):
 
     spec = dict(params.get("judge") or {})
     ref = model_ref_mod.parse(spec.get("model")) if spec.get("model") else None
-    model = None
+    model = provider = None
     if ref is not None and not ref.is_endpoint:
         model = ctx.model(ref)
-    return run_judge(params, inputs=inputs, secrets=ctx.secrets,
-                         limiter=ctx.executor._limiter, job_budget=ctx.executor._budget,
-                         model=model, on_item=ctx.on_item, on_start=ctx.on_start,
-                         resume_items=ctx.resume_items)
+    elif ref is not None:
+        provider = ctx.provider(ref)
+    return run_judge(params, inputs=inputs, provider=provider,
+                     model=model, on_item=ctx.on_item, on_start=ctx.on_start,
+                     resume_items=ctx.resume_items)
 
 
 
@@ -345,7 +346,7 @@ def summarize(rows: Sequence[Mapping[str, Any]], *, scale: Scale,
 
 
 def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = None,
-        secrets=None, limiter=None, job_budget=None, model=None,
+        provider=None, model=None,
         on_item=None, on_start=None, resume_items=None) -> dict[str, Any]:
     from mechbench_compute import model_ref as mr
 
@@ -406,10 +407,13 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
         "on_empty": "keep",
     }
     if ref.is_endpoint:
-        graded = chat_mod.run_remote(ref, prompts, chat_params, secrets=secrets,
-                                     limiter=limiter, job_budget=job_budget,
-                                     on_item=on_item, on_start=on_start,
-                                     resume_items=resume_items)
+        if provider is None:
+            from mechbench_compute.providers.provider_client import ProviderClient
+
+            provider = ProviderClient(ref)
+        graded = provider.chat(prompts, chat_params,
+                               on_item=on_item, on_start=on_start,
+                               resume_items=resume_items)
     else:
         if model is None:
             raise ValueError(

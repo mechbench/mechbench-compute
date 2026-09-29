@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from mechbench_compute import lexicon
 from mechbench_compute._mlx import mx
-from mechbench_compute.lexicon._base import In, Op, Output, Resume
+from mechbench_compute.api import In, Op, Output, Resume, collection, items_of
 
 OP = Op(
     name="text/score",
@@ -50,7 +49,7 @@ def run(ctx, inputs, params):
         raise ValueError(
             "text/score needs a document collection on its `collection` "
             "port — by edge, or `{\"$ref\": …}` under the node's inputs")
-    items = lexicon.items_of(coll)
+    items = items_of(coll)
     if ctx.on_start:
         ctx.on_start(len(items))
     values = []
@@ -77,7 +76,7 @@ def run(ctx, inputs, params):
             })
         if ctx.on_item:
             ctx.on_item()
-    return lexicon.collection(
+    return collection(
         "text/annotation", values,
         name=params.get("name", "surprisal"),
         description=params.get(

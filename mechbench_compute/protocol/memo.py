@@ -1,11 +1,38 @@
 from __future__ import annotations
 
-from collections import namedtuple
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass
+class OpenMemo:
+    label: str
+    tape: Any
+    existing: int
+
+    def close(self, out):
+        from mechbench_compute import bench
+
+        added = self.tape.n_responses - self.existing
+        summary = out.get("summary")
+        if isinstance(summary, dict):
+            calls = summary.get("calls") or 0
+            summary["cache"] = {
+                "label": self.label,
+                "hits": max(0, calls - added),
+                "recorded": added,
+                "entries": self.tape.n_responses,
+            }
+        try:
+            bench.emit(self.label, self.tape.to_wire(),
+                       operation="chat/memo")
+        except Exception as e:  # noqa: BLE001
+            if isinstance(summary, dict):
+                summary.setdefault("cache", {})["store_error"] = str(e)[:200]
+        return out
 
 
 class Memo:
-    _Memo = namedtuple("_Memo", "label tape existing")
-
     def _open_memo(self, params):
         label = params.get("cache")
         if not label:
@@ -34,25 +61,4 @@ class Memo:
             existing = tape.n_responses
         except Exception:  # noqa: BLE001
             tape, existing = Cassette(provider="", label=label), 0
-        return self._Memo(label, tape, existing)
-
-    def _close_memo(self, memo, out):
-        from mechbench_compute import bench
-
-        added = memo.tape.n_responses - memo.existing
-        summary = out.get("summary")
-        if isinstance(summary, dict):
-            calls = summary.get("calls") or 0
-            summary["cache"] = {
-                "label": memo.label,
-                "hits": max(0, calls - added),
-                "recorded": added,
-                "entries": memo.tape.n_responses,
-            }
-        try:
-            bench.emit(memo.label, memo.tape.to_wire(),
-                       operation="chat/memo")
-        except Exception as e:  # noqa: BLE001
-            if isinstance(summary, dict):
-                summary.setdefault("cache", {})["store_error"] = str(e)[:200]
-        return out
+        return OpenMemo(label, tape, existing)

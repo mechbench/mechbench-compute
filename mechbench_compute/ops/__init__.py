@@ -6,20 +6,26 @@ import inspect
 import pkgutil
 from dataclasses import dataclass, field
 from functools import cache
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Mapping
 
 
+MODEL_NEEDS = frozenset({"model.forward", "model.sample", "model.backward"})
+
 MEMBER_NEEDS: dict[str, frozenset[str]] = {
-    "model": frozenset({"model.forward", "model.sample", "model.backward"}),
-    "loaded": frozenset({"model.forward", "model.sample", "model.backward"}),
-    "executor": frozenset({"executor.sub", "memo", "objects.read", "provider.chat"}),
+    "model": MODEL_NEEDS,
+    "loaded": MODEL_NEEDS,
+    "evict_model": MODEL_NEEDS,
+    "executor": frozenset({"executor.sub"}),
+    "sub": frozenset({"executor.sub"}),
+    "provider": frozenset({"provider.chat", "provider.embed"}),
+    "memo": frozenset({"memo"}),
+    "materialize": frozenset({"objects.read"}),
     "secrets": frozenset({"secrets"}),
 }
 
-REACHING_PAST_NEEDS: dict[str, frozenset[str]] = {
-    "adapter/train": frozenset({"executor"}),
-}
+REACHING_PAST_NEEDS: dict[str, frozenset[str]] = {}
 
 
 class NeedNotDeclared(RuntimeError):
@@ -62,29 +68,72 @@ class Context:
     on_token: Callable[..., None] | None = None
 
     refused: Mapping[str, str] = field(default_factory=dict)
-    model_host: Any = None
+    host: Any = None
+    run_secrets: Mapping[str, Any] | None = None
 
     @classmethod
     def for_op(cls, op: Any, executor: Any = None, **lent: Any) -> Context:
         refused = {m: msg for m in MEMBER_NEEDS if (msg := check_member(op, m)) is not None}
+        run_secrets = lent.get("secrets")
         for member in ("executor", "secrets"):
             if member in refused:
                 lent[member] = Refused(refused[member])
         if "executor" not in refused:
             lent["executor"] = executor
-        return cls(refused=refused, model_host=executor, **lent)
+        return cls(refused=refused, host=executor, run_secrets=run_secrets, **lent)
 
-    def model(self, ref: Any) -> Any:
-        if "model" in self.refused:
-            raise NeedNotDeclared(self.refused["model"])
-        if self.loaded is not None:
-            return self.loaded
-        host = self.executor if self.model_host is None else self.model_host
+    def check(self, member: str) -> None:
+        if member in self.refused:
+            raise NeedNotDeclared(self.refused[member])
+
+    def find_host(self, member: str, doing: str) -> Any:
+        self.check(member)
+        host = self.executor if self.host is None else self.host
         if host is None:
             raise RuntimeError(
-                "this operation needs a model and the context has neither "
-                "one loaded nor an executor to load it")
-        return host._model_loaded(ref)
+                f"this operation {doing}, and the context has no executor to do it")
+        return host
+
+    def model(self, ref: Any) -> Any:
+        self.check("model")
+        if self.loaded is not None:
+            return self.loaded
+        return self.find_host("model", "needs a model and none is loaded")._model_loaded(ref)
+
+    def sub(self, target: str | Mapping[str, Any], inputs: Mapping[str, Any],
+            params: Mapping[str, Any], *, budget: float | None = None,
+            on_item: Callable[..., None] | None = None,
+            on_start: Callable[..., None] | None = None) -> Any:
+        host = self.find_host("sub", "runs a sub-run")
+        secrets = self.run_secrets
+        if secrets is None and not isinstance(self.secrets, Refused):
+            secrets = self.secrets
+        return host.run_sub(target, inputs, params, secrets=secrets, budget=budget,
+                            on_item=on_item, on_start=on_start)
+
+    def provider(self, model_ref: Any) -> Any:
+        self.check("provider")
+        host = self.executor if self.host is None else self.host
+        if host is None:
+            from mechbench_compute.providers.provider_client import ProviderClient
+
+            return ProviderClient(model_ref, secrets=self.secrets)
+        return host.open_provider(model_ref, self.secrets)
+
+    def memo(self, key: Any) -> Any:
+        if not key:
+            return None
+        return self.find_host("memo", "keeps a memo")._open_memo({"cache": key})
+
+    def materialize(self, ref: str) -> Path:
+        return self.find_host("materialize", "reads a stored checkpoint")._materialize_checkpoint(ref)
+
+    def evict_model(self) -> None:
+        self.check("evict_model")
+        self.loaded = None
+        host = self.executor if self.host is None else self.host
+        if host is not None:
+            host.evict_model()
 
 
 def resolve_module_name(op: str) -> str:
@@ -116,7 +165,12 @@ def find(op: str) -> ModuleType | None:
 
 def fuses_adapter(op: str) -> bool:
     declared = load_modules()[op].OP
-    return declared.requires == "mlx-local" and declared.port("adapter") is not None
+    return "model.forward" in declared.needs and declared.port("adapter") is not None
+
+
+def fuses_adapter_locally(op: str) -> bool:
+    declared = load_modules()[op].OP
+    return declared.requires == "by-model" and declared.port("adapter") is not None
 
 
 def read_context_uses(mod: ModuleType) -> frozenset[str]:
