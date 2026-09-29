@@ -164,6 +164,34 @@ class TestThroughTheTransport:
         assert all(not th.is_alive() for th in threads)
 
 
+class TestWhatAWaitCounts:
+    def test_time_in_the_queue_behind_a_sleeping_caller_is_counted(self):
+        lim = reg.TokenBucketLimiter(limits=lambda _p, _m="": reg.Limits(requests=600))
+        lim.penalize("xai", "grok-4", "k", 1.0)
+        got: dict[str, float] = {}
+        first = threading.Thread(target=lambda: got.update(a=lim.acquire("xai", "grok-4", "k", "requests", 1)))
+        first.start()
+        while not lim._buckets:
+            threading.Event().wait(0.001)
+        threading.Event().wait(0.05)
+        got["b"] = lim.acquire("xai", "grok-4", "k", "requests", 1)
+        first.join(timeout=5)
+        assert got["a"] == pytest.approx(1.0, abs=0.05)
+        assert 0.8 < got["b"] < 1.1
+        assert lim.waited_seconds == pytest.approx(got["a"] + got["b"], abs=1e-5)
+
+    def test_a_wait_for_a_concurrency_slot_is_counted_once(self):
+        lim = reg.TokenBucketLimiter(limits=lambda _p, _m="": reg.Limits(concurrency=1),
+                                     slot_timeout=0.02)
+        lim.acquire("openai", "gpt-5", "k", "concurrency", 1)
+        timer = threading.Timer(0.2, lambda: lim.release("openai", "gpt-5", "k", "concurrency", 1))
+        timer.start()
+        waited = lim.acquire("openai", "gpt-5", "k", "concurrency", 1)
+        timer.join()
+        assert 0.15 < waited < 0.4
+        assert lim.waited_seconds == pytest.approx(waited, abs=1e-5)
+
+
 class TestFairnessAndSelfCorrection:
     def test_no_thread_is_overtaken_forever(self):
         lim = reg.TokenBucketLimiter(

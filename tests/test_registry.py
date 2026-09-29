@@ -14,7 +14,7 @@ import pytest
 
 from mechbench_compute import bench, lexicon, ops
 from mechbench_compute.lexicon import kinds as K
-from mechbench_compute.lexicon.extension import Extension, Package, encode_canonical, hash_extension
+from mechbench_compute.lexicon.extension import Extension, Package, declare, encode_canonical, hash_extension
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 from mechbench_compute.protocol.check_graph import check_graph
 from mechbench_compute.registry import CORE, GROUP, REGISTRY, InstalledSource, RestartRequired
@@ -261,6 +261,9 @@ class TestRefusals:
         swap_sources(point("mb_refused_ext:MANIFEST", "refused"))
         with pytest.raises(KeyError, match=message):
             REGISTRY.resolve(f"{name}/ops/geometry/align")
+        refused = REGISTRY.table().refused
+        assert list(refused) == [f"{name}/extensions/interp-extras"]
+        assert REGISTRY.refresh()["refused"] == refused
 
     def test_an_owner_that_is_a_core_family_is_refused(self, swap_sources, monkeypatch):
         self.refuse(swap_sources, monkeypatch, "records/x", "reserved")
@@ -280,6 +283,54 @@ class TestRefusals:
         assert REGISTRY.resolve(f"{ADDRESS}@2").version == 2
 
 
+class TestRefresh:
+    def test_a_first_load_reports_the_extension_added(self, swap_sources):
+        found = [point()]
+        source = swap_sources(*found)
+        assert source.added == [EXTENSION]
+        assert REGISTRY.refresh() == {"added": [], "dropped": {}, "refused": {}}
+
+    def test_an_entry_point_that_is_gone_is_forgotten(self, swap_sources):
+        found = [point()]
+        swap_sources(*found)
+        source = REGISTRY.sources[1]
+        source.find = lambda: []
+        report = REGISTRY.refresh()
+        assert list(report["dropped"]) == [EXTENSION] and "entry point" in report["dropped"][EXTENSION]
+        assert "no installed extension provides" in lexicon.explain_unknown(ADDRESS)
+        source.find = lambda: [point()]
+        assert REGISTRY.refresh()["added"] == [EXTENSION]
+        assert REGISTRY.resolve(ADDRESS).version == 2
+
+    def test_a_pin_that_left_installed_json_is_forgotten(self, swap_sources):
+        pinned = "sha256:" + "c" * 64
+        records = [{"address": EXTENSION, "version": 2, "hash": pinned}]
+        swap_sources(point(), installed=lambda: list(records))
+        assert REGISTRY.resolve(ADDRESS).digest == pinned
+        records.clear()
+        report = REGISTRY.refresh()
+        assert "no longer in installed.json" in report["dropped"][EXTENSION]
+        with pytest.raises(KeyError):
+            REGISTRY.resolve(ADDRESS)
+        assert REGISTRY.refresh() == {"added": [], "dropped": {}, "refused": {}}
+        records.append({"address": EXTENSION, "version": 2, "hash": pinned})
+        assert REGISTRY.refresh()["added"] == [EXTENSION]
+
+    def test_an_extension_loaded_without_a_record_stays_loaded(self, installed):
+        assert REGISTRY.refresh()["dropped"] == {}
+        assert REGISTRY.resolve(ADDRESS).version == 2
+
+    def test_a_forgotten_extension_back_at_another_version_asks_for_a_restart(self, swap_sources, monkeypatch):
+        swap_sources(point())
+        source = REGISTRY.sources[1]
+        source.find = lambda: []
+        REGISTRY.refresh()
+        monkeypatch.setattr(sys.modules["mb_fixture_ext"], "MANIFEST", dataclasses.replace(manifest(), version=3))
+        source.find = lambda: [point()]
+        with pytest.raises(RestartRequired, match="must restart"):
+            REGISTRY.refresh()
+
+
 class TestDigest:
     def test_the_digest_is_stable_and_ignores_what_the_platform_writes(self, installed):
         d = manifest().to_dict()
@@ -293,14 +344,30 @@ class TestDigest:
         assert encode_canonical(value) == '{"B":null,"a":[1e-7,0.05,1e+21,123.456,0,"é\\n"],"b":1,"é":true}'
 
 
-@pytest.mark.skipif(not (MODELS / "src" / "extension.ts").exists()
-                    or not (MODELS / "node_modules" / ".bin" / "vite-node").exists(),
-                    reason="mechbench-models with src/extension.ts and its node_modules is not checked out beside compute")
-def test_the_manifest_validates_against_models_and_hashes_as_the_api_does(installed, tmp_path):
-    d = manifest().to_dict()
-    d["package"]["sdist"] = "~hash/sha256:" + "d" * 64
-    d["provenance"]["published_by"] = "usr_fixture"
-    (tmp_path / "m.json").write_text(json.dumps(d))
+NEEDS_MODELS = pytest.mark.skipif(
+    not (MODELS / "src" / "extension.ts").exists() or not (MODELS / "node_modules" / ".bin" / "vite-node").exists(),
+    reason="mechbench-models with src/extension.ts and its node_modules is not checked out beside compute")
+
+HAND_BUILT = {
+    "kind": "extension", "owner": "alice", "project": "interp-extras", "name": "interp-extras", "version": 1,
+    "tier": "installed", "min_compute": "0.169.0",
+    "package": {"name": "mechbench-ext-x", "python": ">=3.12", "sdist": "~hash/sha256:" + "e" * 64},
+    "provenance": {"published_by": "usr_fixture", "source": "élan"},
+    "provides": {
+        "ops": [{"name": "geometry/align", "summary": "Aligns two sets, café.",
+                 "params": [{"name": "scale", "type": "float", "default": 1.0},
+                            {"name": "spec", "type": "object", "fields": [{"name": "k", "type": "int"}]}],
+                 "inputs": [{"name": "a", "kind": "records/record"}],
+                 "output": {"kind": "geometry/alignment",
+                            "otherwise": [{"kind": "records/record", "when": {"port": "a"}}]},
+                 "resume": {"level": "exchangeable"}}],
+        "kinds": [{"name": "geometry/alignment", "summary": "One score.", "metrics": [{"name": "score"}]}],
+    },
+}
+
+
+def models_pin(tmp_path, manifest):
+    (tmp_path / "m.json").write_text(json.dumps(manifest))
     script = tmp_path / "check.ts"
     script.write_text(textwrap.dedent(f"""
         import {{ createHash }} from "node:crypto";
@@ -314,5 +381,40 @@ def test_the_manifest_validates_against_models_and_hashes_as_the_api_does(instal
     run = subprocess.run([str(MODELS / "node_modules" / ".bin" / "vite-node"), str(script)],
                          capture_output=True, text=True, cwd=MODELS, timeout=120)
     assert run.returncode == 0, run.stderr[-3000:]
-    got = json.loads(run.stdout.strip().splitlines()[-1])
-    assert hash_extension(got["parsed"]) == got["hash"]
+    return json.loads(run.stdout.strip().splitlines()[-1])
+
+
+@NEEDS_MODELS
+def test_the_manifest_validates_against_models_and_hashes_as_the_api_does(installed, tmp_path):
+    d = manifest().to_dict()
+    d["package"]["sdist"] = "~hash/sha256:" + "d" * 64
+    d["provenance"]["published_by"] = "usr_fixture"
+    got = models_pin(tmp_path, d)
+    assert hash_extension(got["parsed"]) == hash_extension(d) == got["hash"]
+
+
+@NEEDS_MODELS
+def test_a_manifest_written_short_hashes_as_models_fills_it(tmp_path):
+    got = models_pin(tmp_path, HAND_BUILT)
+    assert hash_extension(HAND_BUILT) == got["hash"]
+    assert declare(HAND_BUILT) == {k: got["parsed"][k] for k in declare(HAND_BUILT)}
+
+
+class TestDeclaration:
+    def test_defaults_are_filled_and_optional_keys_stay_absent(self):
+        d = declare(HAND_BUILT)
+        assert set(d) == {"owner", "project", "name", "version", "tier", "provides", "needs",
+                          "min_compute", "package", "links"}
+        op, kind = d["provides"]["ops"][0], d["provides"]["kinds"][0]
+        assert op["inputs"][0] == {"name": "a", "kind": "records/record", "doc": "", "required": True,
+                                   "many": False, "variadic": False, "on_missing": "fail"}
+        assert op["params"][1]["fields"][0] == {"name": "k", "type": "int", "doc": ""}
+        assert "required" not in op["params"][0] and "example" not in op
+        assert op["resume"] == {"level": "exchangeable", "items": False}
+        assert op["output"]["collection"] is False and op["output"]["otherwise"][0]["collection"] is False
+        assert kind["extends"] is None and kind["version"] == 1 and kind["metrics"] == [{"name": "score", "doc": ""}]
+        assert d["provides"]["marks"] == [] and d["needs"] == [] and d["links"] == {}
+        assert "kind" not in d and "provenance" not in d
+
+    def test_owner_and_project_hash_lowercased(self):
+        assert hash_extension({**HAND_BUILT, "owner": "Alice", "project": "Interp-Extras"}) == hash_extension(HAND_BUILT)

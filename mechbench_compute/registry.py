@@ -135,6 +135,7 @@ class Loaded:
     dist_version: str | None
     ops: dict[str, Resolved]
     kinds: dict[str, Kind]
+    recorded: bool = False
 
 
 def read_installed() -> list[dict[str, Any]]:
@@ -154,12 +155,19 @@ class InstalledSource:
         self.installed = installed
         self.loaded: dict[str, Loaded] = {}
         self.dists: dict[str, str | None] = {}
+        self.unloaded: dict[str, Loaded] = {}
         self.refused: dict[str, str] = {}
         self.restart: list[str] = []
+        self.added: list[str] = []
+        self.dropped: dict[str, str] = {}
 
     def discover(self, reserved: frozenset[str], core_kinds: Mapping[str, Kind]) -> None:
         self.refused = {}
         self.restart = []
+        self.added = []
+        self.dropped = {}
+        records = self.installed()
+        seen: set[str] = set()
         for ep in self.find():
             dist = getattr(getattr(ep, "dist", None), "version", None)
             if ep.name in self.dists and dist is not None and self.dists[ep.name] != dist:
@@ -167,14 +175,17 @@ class InstalledSource:
                     f"extension {ep.name!r} changed from {self.dists[ep.name]} to {dist} "
                     "after it was loaded; Python cannot unload it, so the runner must restart")
                 continue
-            scope = ep.name
+            key = ep.name
             try:
                 manifest = ep.load()
                 if not isinstance(manifest, Extension):
                     raise ValueError(f"{ep.value} is not an Extension")
-                scope = manifest.name
-                held = self.loaded.get(manifest.address)
-                loaded = self.load_one(manifest, dist, reserved, core_kinds)
+                key = manifest.address
+                seen.add(key)
+                held = self.loaded.get(key) or self.unloaded.get(key)
+                if held is not None and not self.still_pinned(held, records):
+                    continue
+                loaded = self.load_one(manifest, dist, reserved, core_kinds, records)
                 if held is not None and held.digest != loaded.digest:
                     self.restart.append(
                         f"{manifest.address} changed from @{held.extension.version} ({held.digest}) to "
@@ -186,13 +197,34 @@ class InstalledSource:
                 if clash is not None:
                     raise ValueError(f"{clash} is already provided by another extension of {manifest.name}")
             except Exception as e:  # noqa: BLE001
-                self.refused[scope] = f"extension {ep.name!r} ({ep.value}) was refused at load: {e}"
+                self.refused[key] = f"extension {ep.name!r} ({ep.value}) was refused at load: {e}"
                 continue
-            self.loaded[manifest.address] = loaded
+            if key not in self.loaded:
+                self.added.append(key)
+            self.unloaded.pop(key, None)
+            self.loaded[key] = loaded
             self.dists[ep.name] = dist
+        for address, loaded in list(self.loaded.items()):
+            why = self.forget(address, loaded, seen, records)
+            if why is not None:
+                self.dropped[address] = why
+                self.unloaded[address] = self.loaded.pop(address)
+
+    def forget(self, address: str, loaded: Loaded, seen: set[str],
+               records: list[dict[str, Any]]) -> str | None:
+        if address in self.refused:
+            return self.refused[address]
+        if address not in seen:
+            return f"{address}@{loaded.extension.version}: no mechbench.extensions entry point provides it any more"
+        if not self.still_pinned(loaded, records):
+            return f"{address}@{loaded.extension.version} ({loaded.digest}) is no longer in installed.json"
+        return None
+
+    def still_pinned(self, loaded: Loaded, records: list[dict[str, Any]]) -> bool:
+        return not loaded.recorded or any(r.get("hash") == loaded.digest for r in records)
 
     def load_one(self, ext: Extension, dist: str | None, reserved: frozenset[str],
-                 core_kinds: Mapping[str, Kind]) -> Loaded:
+                 core_kinds: Mapping[str, Kind], records: list[dict[str, Any]] | None = None) -> Loaded:
         if ext.owner in reserved:
             raise ValueError(f"owner {ext.owner!r} is a core family name, which is reserved")
         scope = ext.name
@@ -212,9 +244,10 @@ class InstalledSource:
                                  "kind nor one this extension declares")
             q = qualify_kind(k, scope, own)
             kinds[q.name] = q
-        recorded = [r.get("hash") for r in self.installed()
-                    if r.get("address") == ext.address and r.get("version") == ext.version]
-        digest = recorded[0] if recorded and recorded[0] else hash_extension(ext.to_dict())
+        records = self.installed() if records is None else records
+        recorded = [r.get("hash") for r in records
+                    if r.get("address") == ext.address and r.get("version") == ext.version and r.get("hash")]
+        digest = recorded[0] if recorded else hash_extension(ext.to_dict())
         source = f"{ext.address}@{digest}"
         known = set(core_kinds) | set(kinds)
         ops: dict[str, Resolved] = {}
@@ -227,7 +260,7 @@ class InstalledSource:
             if unknown:
                 raise ValueError(f"{op.name} names kinds nobody declares: {unknown}")
             ops[op.name] = Resolved(op, self.tier, mod, source, op.name, ext.version)
-        return Loaded(ext, digest, dist, ops, kinds)
+        return Loaded(ext, digest, dist, ops, kinds, bool(recorded))
 
     def load(self, table: Table, reserved: frozenset[str]) -> None:
         self.discover(reserved, table.kinds)
@@ -274,13 +307,16 @@ class Registry:
                                           key=lambda k: (k.name == COLLECTION, k.name)))
         return table
 
-    def refresh(self) -> None:
+    def refresh(self) -> dict[str, Any]:
         self._table = None
         self.generation += 1
         self.table()
         restart = [m for s in self.sources for m in getattr(s, "restart", ())]
         if restart:
             raise RestartRequired("; ".join(restart))
+        return {"added": [a for s in self.sources for a in getattr(s, "added", ())],
+                "dropped": {a: m for s in self.sources for a, m in getattr(s, "dropped", {}).items()},
+                "refused": dict(self.table().refused)}
 
     def find(self, spelling: str) -> Resolved | None:
         try:
@@ -328,9 +364,10 @@ class Registry:
                 self.resolve(spelling)
             except KeyError as e:
                 return str(e.args[0])
-        refused = self.table().refused.get(str(address.scope))
-        if refused is not None:
-            return f"unknown block {spelling!r}: {refused}"
+        refused = [m for k, m in sorted(self.table().refused.items())
+                   if k == str(address.scope) or k.startswith(f"{address.scope}/extensions/")]
+        if refused:
+            return f"unknown block {spelling!r}: {'; '.join(refused)}"
         return (f"unknown block {spelling!r}: no installed extension provides {address.bare}; "
                 "a runner installs an extension when a claimed job needs it")
 

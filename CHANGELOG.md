@@ -13,6 +13,71 @@ nothing said so.
 
 ---
 
+## 0.169.0 — 2026-09-29
+
+### Changes that raise
+
+- `records/plot` refuses what its mark does not declare
+  (`ops/records/marks.generated.json`, vendored from mechbench-viz): a
+  required channel left out ("a heat mark needs encoding.y and
+  encoding.value."), a channel the mark does not draw ("a heat mark does
+  not draw encoding.series; it reads encoding.x, encoding.y and
+  encoding.value."), a setting it does not draw ("a heat mark does not
+  draw annotate and reference.", "a bar mark does not draw scale."), and
+  an encoded `y` beside `bin`. A stored protocol whose `records/plot`
+  names such a channel or setting (the renderer ignored it) now raises
+  where it ran. An unknown mark's message lists the marks as `name@1`.
+- `lexicon.extension.PLATFORM_FIELDS` is gone: `declare(manifest)` is
+  `PIN_FIELDS` of the manifest as models' schema fills it.
+- `InstalledSource.refused` and `Table.refused` are keyed by the
+  extension's address (`<owner>/<project>/extensions/<name>`), not by
+  `<owner>/<project>`; the entry point's name when the manifest could
+  not be read.
+
+### Changes that alter results without raising
+
+- `records/plot` writes `mark` as `<name>@<version>` (`bar@1`, `heat@1`),
+  so every chart it writes differs from 0.168.0's in that field. The
+  legacy spellings are read: `scatter` is `point@1`, `histogram` is
+  `bar@1` with `bin: 20`.
+- `records/plot` stamps `axes.layer` from the input's `arch` only when
+  `layer` is on a channel the mark draws as depth (`x`; none for
+  `tokens`). A chart with `layer` on `y` no longer carries landmarks
+  the renderer could not draw.
+- `records/plot` carries `level` from the input's `interval` header when
+  the chart encodes `lo` and `hi` on a mark that draws a level.
+- `hash_extension` hashes models' declaration: `PIN_FIELDS` only (no
+  `kind`, no `provenance`), every zod default filled, `owner`/`project`
+  lowercased. It now equals the platform's pin for the same manifest;
+  the digest of an extension installed by hand (no `installed.json`
+  record) changes, and with it the pin its results record.
+- `TokenBucketLimiter.acquire` counts the time a call waits in the FIFO
+  queue behind earlier callers, so `throttled_seconds` is the whole
+  wait (it was only the caller's own sleep); `waited_seconds` adds each
+  concurrency wait once (it re-added the running total on every loop).
+
+### Other
+
+- `records/plot` takes `bin` (a bar mark: the renderer counts the rows
+  into that many bins of `x` and draws the counts; compute carries the
+  number and does not bin) and `level` (the interval's level, 0 to 1).
+  `MARKS`, the `mark` and `scale` choices and the encoding channels are
+  held to the vendored file by `tests/test_marks_current.py`, which also
+  diffs the file against `../mechbench-viz/marks.generated.json` when
+  it is checked out. The `records/chart` kind documents `mark` as
+  `<name>@<version>` and declares `bin` and `level`.
+- `Registry.refresh()` answers `{added, dropped, refused}`. An extension
+  whose entry point is gone, or whose recorded pin left
+  `installed.json`, is forgotten on refresh (its ops and kinds leave
+  the registry); one that comes back at another version asks for a
+  restart.
+- Tests: the fixture manifest and a hand-built one (a param default, a
+  port with its defaults left out, a kind with no `extends`, a float
+  `1.0`, non-ASCII text) hash as models' `canonicalJson(declarationOf(m))`
+  does.
+
+---
+
 ## 0.168.0 — 2026-09-29
 
 ### Changes that raise

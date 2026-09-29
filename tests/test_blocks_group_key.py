@@ -15,7 +15,7 @@ class TestChartMarks:
     def test_a_heat_mark_takes_three_fields(self):
         spec = build_chart(self.ROWS, {"mark": "heat", "x": "position", "y": "layer",
                                            "value": "recovery", "scale": "diverging"})
-        assert spec["mark"] == "heat" and spec["scale"] == "diverging"
+        assert spec["mark"] == "heat@1" and spec["scale"] == "diverging"
         assert spec["encoding"] == {"x": "position", "y": "layer", "value": "recovery"}
         assert spec["data"]["rows"][0]["layer"] == 0
         with pytest.raises(ValueError, match="heat mark needs"):
@@ -24,7 +24,7 @@ class TestChartMarks:
     def test_a_token_strip_takes_the_tokens_and_the_number(self):
         spec = build_chart(self.ROWS, {"mark": "tokens", "text": "tokens",
                                            "value": "surprisal"})
-        assert spec["mark"] == "tokens"
+        assert spec["mark"] == "tokens@1"
         assert spec["encoding"] == {"value": "surprisal", "text": "tokens"}
         with pytest.raises(ValueError, match="tokens mark needs"):
             build_chart(self.ROWS, {"mark": "tokens", "text": "tokens"})
@@ -37,9 +37,9 @@ class TestChartMarks:
 
     def test_the_older_marks_are_unchanged(self):
         spec = build_chart(self.ROWS, {"mark": "bar", "x": "layer", "y": "mean"})
-        assert spec["mark"] == "bar" and spec["encoding"] == {"x": "layer", "y": "mean"}
+        assert spec["mark"] == "bar@1" and spec["encoding"] == {"x": "layer", "y": "mean"}
         assert "scale" not in spec
-        with pytest.raises(ValueError, match="one of bar, line, point, heat, tokens"):
+        with pytest.raises(ValueError, match="bar@1, line@1, point@1, heat@1 and tokens@1"):
             build_chart(self.ROWS, {"mark": "sparkline", "x": "layer", "y": "mean"})
 
     GRID = {"kind": "collection", "item_kind": "intervene/trace", "items": [

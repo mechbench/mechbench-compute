@@ -293,23 +293,40 @@ the same grammar as `readAddress` in mechbench-models.
 
 `refresh()` walks the entry points again after an install and bumps
 `generation`; anything memoized by name (`find_standalone`) keys its
-cache on it. Python cannot unload a module, so an extension whose
-version changed after it was loaded is kept at the loaded version and
-`refresh()` raises `RestartRequired`: the runner restarts its `run`
-child.
+cache on it. It answers `{added, dropped, refused}`: the extension
+addresses loaded for the first time, those forgotten with the reason
+(no entry point provides it any more, or the pin its install recorded
+left `installed.json`), and those refused at load with the reason.
+`refused` is keyed by the extension's address
+(`<owner>/<project>/extensions/<name>`), or by the entry point's name
+when the manifest itself could not be read. A forgotten extension's
+ops and kinds leave the registry at once; its modules stay imported.
+Python cannot unload a module, so an extension whose version changed
+after it was loaded (or after it was forgotten) is kept at the loaded
+version and `refresh()` raises `RestartRequired`: the runner restarts
+its `run` child.
 
 **The digest.** `hash_extension(manifest)` is `sha256:` over the
-canonical JSON of the manifest without the fields the platform writes
-(`state`, `visibility`, `party`, `flags`, `approved`, `promoted`,
-`conformance`): keys sorted by UTF-16 code unit, no whitespace, strings
-as `JSON.stringify` writes them, numbers in JavaScript's shortest form
-(`1` for `1.0`, `1e-7`, `1e+21`). That is `canonicalJson(declarationOf(m))`
-in mechbench-models, byte for byte, so the API's pin and compute's agree
-on the same declaration. The declaration the API hashes carries what
-only the push knows (`package.sdist`, `provenance.published_by`), so an
-installed extension's digest is the hash its install recorded in
-`~/.mechbench/extensions/installed.json`; `hash_extension` over the
-package's own `to_dict()` is the fallback for one installed by hand.
+canonical JSON of the manifest's declaration, `canonicalJson(declarationOf(m))`
+in mechbench-models byte for byte, so the API's pin and compute's agree
+on the same declaration. The declaration is `PIN_FIELDS` (`owner`,
+`project`, `name`, `version`, `tier`, `provides`, `needs`,
+`min_compute`, `package`, `links`) of the manifest as models' zod
+schema parses it: every default filled (`provides.{ops, kinds, marks,
+architectures}`, `needs`, `links`; each op's `inputs`, `params`,
+`output`, `resume`, `deterministic`; each param's `doc`; each port's
+`doc`, `required`, `many`, `variadic`, `on_missing`; each output's and
+`otherwise`'s `collection`; each kind's `doc`, `fields`, `required`,
+`extends`, `key`, `header`, `metrics`, `platform`, `version`; each
+metric's `doc`), optional keys never written left absent, `owner` and
+`project` lowercased. The JSON has keys sorted by UTF-16 code unit, no
+whitespace, strings as `JSON.stringify` writes them, numbers in
+JavaScript's shortest form (`1` for `1.0`, `1e-7`, `1e+21`). The
+declaration the API hashes carries what only the push knows
+(`package.sdist`), so an installed extension's digest is the hash its
+install recorded in `~/.mechbench/extensions/installed.json`;
+`hash_extension` over the package's own `to_dict()` is the fallback for
+one installed by hand.
 
 **The view rule.** Everything that read a table now reads the registry,
 and the old names are views over it so that their import sites keep

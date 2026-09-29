@@ -178,8 +178,11 @@ class TokenBucketLimiter:
             bucket.next_ticket += 1
             try:
                 for _ in range(self._max_waits):
-                    while bucket.serving != ticket:
-                        self._slots.wait(timeout=self._slot_timeout)
+                    if bucket.serving != ticket:
+                        start = self._clock()
+                        while bucket.serving != ticket:
+                            self._slots.wait(timeout=self._slot_timeout)
+                        waited += self.count_wait(self._clock() - start)
                     now = self._clock()
                     hold = self._holds.get((provider, scope), 0.0)
                     if now < hold:
@@ -193,9 +196,7 @@ class TokenBucketLimiter:
                         if bucket.per_second <= 0:
                             start = self._clock()
                             self._slots.wait(timeout=self._slot_timeout)
-                            waited += max(0.0, self._clock() - start)
-                            self.waited_seconds = round(
-                                self.waited_seconds + waited, 6)
+                            waited += self.count_wait(self._clock() - start)
                             continue
                         delay = bucket.wait_for(want)
                     self._lock.release()
@@ -203,8 +204,7 @@ class TokenBucketLimiter:
                         self._sleep(delay)
                     finally:
                         self._lock.acquire()
-                    waited += delay
-                    self.waited_seconds = round(self.waited_seconds + delay, 6)
+                    waited += self.count_wait(delay)
             finally:
                 bucket.serving = ticket + 1
                 self._slots.notify_all()
@@ -215,6 +215,11 @@ class TokenBucketLimiter:
             f"{self._max_waits} waits — the account's limit may be lower "
             f"than the registry's seed, or another process is draining it",
             provider=provider)
+
+    def count_wait(self, seconds: float) -> float:
+        seconds = max(0.0, seconds)
+        self.waited_seconds = round(self.waited_seconds + seconds, 6)
+        return seconds
 
     def observe(self, provider: str, model: str, scope: str,
                 limits: RateLimits) -> None:

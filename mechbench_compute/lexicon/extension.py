@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib
 import json
@@ -23,7 +24,14 @@ from mechbench_compute.lexicon.walk import walk_kinds, walk_ops
 
 TIERS = ("installed",)
 
-PLATFORM_FIELDS = ("state", "visibility", "party", "flags", "approved", "promoted", "conformance")
+PIN_FIELDS = ("owner", "project", "name", "version", "tier", "provides", "needs", "min_compute", "package", "links")
+
+PROVIDES_DEFAULTS = {"ops": [], "kinds": [], "marks": [], "architectures": []}
+OP_DEFAULTS = {"inputs": [], "output": None, "params": [], "needs": [],
+               "resume": {"level": "reproducible", "items": False}, "deterministic": True}
+PORT_DEFAULTS = {"doc": "", "required": True, "many": False, "variadic": False, "on_missing": "fail"}
+KIND_DEFAULTS = {"doc": "", "fields": {}, "required": [], "extends": None, "key": [], "header": {},
+                 "metrics": [], "platform": False, "version": 1}
 
 
 @dataclass(frozen=True)
@@ -197,8 +205,54 @@ def encode_canonical(value: Any) -> str:
     raise TypeError(f"{type(value).__name__} has no JSON form")
 
 
+def fill(value: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
+    return {**copy.deepcopy(defaults), **value}
+
+
+def fill_param(param: dict[str, Any]) -> dict[str, Any]:
+    out = fill(param, {"doc": ""})
+    if "fields" in out:
+        out["fields"] = [fill_param(f) for f in out["fields"]]
+    return out
+
+
+def fill_output(output: dict[str, Any]) -> dict[str, Any]:
+    out = fill(output, {"collection": False})
+    if "otherwise" in out:
+        out["otherwise"] = [fill(o, {"collection": False}) for o in out["otherwise"]]
+    return out
+
+
+def fill_op(op: dict[str, Any]) -> dict[str, Any]:
+    out = fill(op, OP_DEFAULTS)
+    out["inputs"] = [fill(p, PORT_DEFAULTS) for p in out["inputs"]]
+    out["params"] = [fill_param(p) for p in out["params"]]
+    out["resume"] = fill(out["resume"], {"items": False})
+    if out["output"] is not None:
+        out["output"] = fill_output(out["output"])
+    if out.get("outputs") is not None:
+        out["outputs"] = {k: fill_output(v) for k, v in out["outputs"].items()}
+    return out
+
+
+def fill_kind(kind: dict[str, Any]) -> dict[str, Any]:
+    out = fill(kind, KIND_DEFAULTS)
+    out["metrics"] = [fill(m, {"doc": ""}) for m in out["metrics"]]
+    return out
+
+
 def declare(manifest: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in manifest.items() if k not in PLATFORM_FIELDS}
+    out = {k: copy.deepcopy(manifest[k]) for k in PIN_FIELDS if k in manifest}
+    out.setdefault("needs", [])
+    out.setdefault("links", {})
+    provides = fill(out.get("provides") or {}, PROVIDES_DEFAULTS)
+    provides["ops"] = [fill_op(o) for o in provides["ops"]]
+    provides["kinds"] = [fill_kind(k) for k in provides["kinds"]]
+    out["provides"] = provides
+    for k in ("owner", "project"):
+        if isinstance(out.get(k), str):
+            out[k] = out[k].lower()
+    return out
 
 
 def hash_extension(manifest: dict[str, Any]) -> str:

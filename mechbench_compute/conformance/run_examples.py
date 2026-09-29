@@ -81,7 +81,7 @@ def install_extension(extension: Extension) -> Iterator[str | None]:
     REGISTRY.sources = (CORE, InstalledSource(find=lambda: [point], installed=lambda: []))
     try:
         REGISTRY.refresh()
-        yield REGISTRY.table().refused.get(extension.name)
+        yield REGISTRY.table().refused.get(extension.address)
     finally:
         REGISTRY.sources = held
         REGISTRY.refresh()

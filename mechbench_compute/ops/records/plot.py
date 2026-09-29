@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from mechbench_compute.blocks.expand_cells import expand_cells
@@ -43,7 +45,22 @@ names the token field, `x` the position (default `position`), and
 value on one colour scale.
 
 An `lo`/`hi` encoding draws the interval a `records/group` aggregate reports
-beside the point it belongs to.
+beside the point it belongs to; `level` says which (0.9 for 90%), and is
+read from the input's `interval` header when the input carries one.
+`bin` makes a bar chart a histogram: the renderer counts the rows into
+that many bins of `x` and draws the counts, so `y` is not encoded.
+
+### What each mark reads
+
+The marks, their channels and the settings each draws are declared once,
+in `marks.generated.json` beside this file (a copy of mechbench-viz's).
+A channel a mark requires and is not given, a channel it does not draw,
+and a setting it does not draw are refused, naming the mark: "a heat
+mark needs encoding.y and encoding.value.", "a heat mark does not draw
+encoding.series; it reads encoding.x, encoding.y and encoding.value.",
+"a tokens mark does not draw annotate.". The chart's `mark` is written
+as `<name>@<version>` (`heat@1`); `scatter` is read as `point@1` and
+`histogram` as `bar@1` with 20 bins.
 
 ### What makes it a visualization
 
@@ -60,8 +77,8 @@ mark to do it (the vocabulary is `mechbench/docs/VISUALIZATION.md`):
   key/value boundary, so a layer is the same place in every figure. A
   sweep's result carries them under `arch`, and a summary or contrast
   of it carries them forward; this op reads them from its input when
-  `axes` is not given and the x or y field is `layer`, the field the
-  renderer draws as depth.
+  `axes` is not given and `layer` is on a channel the mark draws as
+  depth (`x` for bar, line, point and heat; none for tokens).
 * **`annotate`** — callouts drawn on the figure at named rows. The
   extremes are labelled by default; this names what else to say.
 * **`focus`** — the field this figure shares with the others on a page:
@@ -80,7 +97,7 @@ The two are different and may be combined.
         In("records", "collection | records/table",
            "The table, or any collection of items, to chart.", many=True),
     ),
-    output=Output('records/chart', collection=False, doc='`title`, `mark`, `encoding` (`x`, `y`, `series`, `color`, `value`, `text`, `lo`, `hi` as the mark uses them), `scale` when given, `labels`, `axes`, `annotate`, `focus` and `facet` when given, and `source` or `data`.'),
+    output=Output('records/chart', collection=False, doc='`title`, `mark` as `<name>@<version>` (`bar@1`), `encoding` (`x`, `y`, `series`, `color`, `value`, `text`, `lo`, `hi` as the mark declares them), `scale`, `labels`, `axes`, `annotate`, `reference`, `focus`, `facet`, `bin` and `level` when given (`level` also when the input carries an `interval`), and `source` or `data`. `data.rows` are the input\'s items with their coordinates flattened in; the row fields the renderer reads beside the encoded ones are `id`, `note`, `<x>_token`, and on a heat mark `<y>_token` and `token`.'),
     params=(
         P("encoding", "object",
           "Which field goes where. `x`/`y` for the point-shaped marks, "
@@ -106,8 +123,17 @@ The two are different and may be combined.
         P("hi", "string", "The upper end; the same as `encoding.hi`.", None),
         P("mark", "string",
           "`\"bar\"`, `\"line\"`, `\"point\"`, `\"heat\"` (a grid of cells) "
-          "or `\"tokens\"` (a prompt's tokens, coloured).",
+          "or `\"tokens\"` (a prompt's tokens, coloured); `name@1` is the same.",
           "bar", choices=("bar", "line", "point", "heat", "tokens")),
+        P("bin", "int",
+          "A bar mark only: count the rows into this many bins of `x` and "
+          "draw the counts, a histogram. `y` is then the count and is not "
+          "encoded; the renderer does the counting.",
+          None),
+        P("level", "float",
+          "The level of the `lo`/`hi` interval (0.95 for 95%), said in the "
+          "readout. Read from the input's `interval` header when not given.",
+          None),
         P("scale", "string",
           "How `value` becomes colour: `\"diverging\"` centres on zero (a "
           "recovery, a Δ log p), `\"sequential\"` runs from the lowest "
@@ -185,6 +211,16 @@ MARKS = ("bar", "line", "point", "heat", "tokens")
 
 SCALES = ("diverging", "sequential")
 
+
+DECLARED = json.loads((Path(__file__).parent / "marks.generated.json").read_text())
+
+BY_NAME = {m["name"]: m for m in DECLARED["marks"]}
+
+LEGACY = DECLARED["legacy"]
+
+CHANNELS = tuple(dict.fromkeys(c for m in DECLARED["marks"] for c in m["channels"]))
+
+SETTINGS = tuple(dict.fromkeys(o for m in DECLARED["marks"] for o in m["options"]))
 
 LABEL_FIELDS = ("x", "y", "value", "series", "color")
 DEPTH_FIELD = "layer"
@@ -265,36 +301,98 @@ def _check_references(reference: Any) -> list[dict[str, Any]]:
     return out
 
 
+def list_words(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def read_mark(spelled: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    name = str(spelled)
+    legacy = LEGACY.get(name)
+    if legacy is not None:
+        name = legacy["mark"]
+    bare, _, version = name.partition("@")
+    decl = BY_NAME.get(bare)
+    if decl is None or (version and version != str(decl["version"])):
+        core = list_words([BY_NAME[m]["address"] for m in MARKS])
+        raise ValueError(f"records/plot mark {spelled!r} is not a mark: the core marks are {core} "
+                         "(name or name@version)")
+    return decl, {k: v for k, v in (legacy or {}).items() if k != "mark"}
+
+
+def is_set(value: Any) -> bool:
+    return value is not None and value != "" and not (isinstance(value, (list, tuple, dict)) and not value)
+
+
+def refuse_undeclared(decl: dict[str, Any], encoding: Mapping[str, str], settings: list[str]) -> None:
+    a = f"a {decl['name']} mark"
+    declared = decl["options"]
+    supplied = {c for o in settings if o in declared for c in declared[o].get("supplies", ())}
+    problems = []
+    missing = [f"encoding.{c}" for c, need in decl["channels"].items()
+               if need == "required" and c not in supplied and c not in encoding]
+    if missing:
+        problems.append(f"{a} needs {list_words(missing)}.")
+    undeclared = [c for c in encoding if c not in decl["channels"]]
+    if undeclared:
+        problems.append(f"{a} does not draw {list_words([f'encoding.{c}' for c in undeclared])}; "
+                        f"it reads {list_words([f'encoding.{c}' for c in decl['channels']])}.")
+    for c in encoding:
+        if c in supplied:
+            by = next(o for o in settings if c in declared.get(o, {}).get("supplies", ()))
+            problems.append(f"{a} with {by} draws encoding.{c} itself; the field given for it is not read.")
+    unread = [o for o in settings if o != "title" and o not in declared]
+    if unread:
+        problems.append(f"{a} does not draw {list_words(unread)}.")
+    if problems:
+        raise ValueError(" ".join(problems))
+
+
+def read_level(params: Mapping[str, Any], header: Mapping[str, Any] | None) -> float | None:
+    level = params.get("level")
+    if level is None:
+        interval = (header or {}).get("interval")
+        level = interval.get("level") if isinstance(interval, Mapping) else interval
+    if level is None:
+        return None
+    level = float(level)
+    if not 0 < level < 1:
+        raise ValueError(f"records/plot level is the interval's level, between 0 and 1 (0.95), not {level!r}")
+    return level
+
+
+def read_bin(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != int(value) or value < 1:
+        raise ValueError(f"records/plot bin is how many bins to count x into, a whole number from 1, not {value!r}")
+    return int(value)
+
+
 def build_chart(records: Any, params: Mapping[str, Any],
                source_label: str | None = None) -> dict[str, Any]:
+    decl, legacy = read_mark(params.get("mark", "bar"))
     enc = params.get("encoding") or {}
-    x = enc.get("x") or params.get("x")
-    y = enc.get("y") or params.get("y")
-    mark = params.get("mark", "bar")
-    if mark not in MARKS:
+    if not isinstance(enc, Mapping):
+        raise ValueError("records/plot encoding is an object: channel → field")
+    encoding: dict[str, str] = {c: str(f) for c, f in enc.items() if f}
+    shortcuts = {"x": params.get("x"), "y": params.get("y"), "value": params.get("value"),
+                 "text": params.get("text"), "lo": params.get("lo"), "hi": params.get("hi")}
+    for c, f in shortcuts.items():
+        if c not in encoding and f:
+            encoding[c] = str(f)
+    encoding = {c: encoding[c] for c in (*CHANNELS, *encoding) if c in encoding}
+    header = records if isinstance(records, Mapping) else None
+    given = {"title": params.get("title"), "labels": params.get("labels"), "axes": params.get("axes"),
+             "annotate": params.get("annotate"), "reference": params.get("reference"),
+             "focus": params.get("focus"), "facet": params.get("facet"), "bin": params.get("bin"),
+             "level": params.get("level"), "scale": params.get("scale")}
+    if given["bin"] is None and "bin" in legacy:
+        given["bin"] = legacy["bin"]
+    settings = [o for o in SETTINGS if is_set(given.get(o))]
+    refuse_undeclared(decl, encoding, settings)
+    scale = given["scale"]
+    choices = decl["options"].get("scale", {}).get("choices", SCALES)
+    if scale is not None and str(scale) not in choices:
         raise ValueError(
-            f"records/plot mark must be one of {', '.join(MARKS)}, not {mark!r}")
-    value = enc.get("value") or params.get("value")
-    text = enc.get("text") or params.get("text")
-    if mark == "heat" and not (x and y and value):
-        raise ValueError("a heat mark needs encoding.x, encoding.y and encoding.value")
-    if mark == "tokens":
-        if not (text and value):
-            raise ValueError("a tokens mark needs encoding.text and encoding.value")
-    elif not (x and y):
-        raise ValueError("viz/spec needs encoding.x and encoding.y")
-    encoding: dict[str, Any] = {}
-    for name, field in (("x", x), ("y", y), ("series", enc.get("series")),
-                        ("color", enc.get("color")),
-                        ("value", value), ("text", text),
-                        ("lo", enc.get("lo") or params.get("lo")),
-                        ("hi", enc.get("hi") or params.get("hi"))):
-        if field:
-            encoding[name] = field
-    scale = params.get("scale")
-    if scale is not None and str(scale) not in SCALES:
-        raise ValueError(
-            f"records/plot scale must be one of {', '.join(SCALES)}, not {scale!r}")
+            f"records/plot scale must be one of {', '.join(choices)}, not {scale!r}")
     labels_in = params.get("labels") or {}
     if not isinstance(labels_in, Mapping):
         raise ValueError("records/plot labels is an object: {x, y, value, series, color}")
@@ -303,20 +401,22 @@ def build_chart(records: Any, params: Mapping[str, Any],
         raise ValueError(
             f"records/plot labels names {unknown}; it labels {', '.join(LABEL_FIELDS)}")
     labels = {k: str(v) for k, v in labels_in.items() if v}
-    header = records if isinstance(records, Mapping) else None
+    on_depth = any(encoding.get(c) == DEPTH_FIELD for c in decl["depth"])
     axes = (_check_layer_axis(params["axes"]) if params.get("axes") is not None
-            else ({"layer": la} if DEPTH_FIELD in (x, y) and (la := _read_layer_axis(header))
-                  else None))
+            else ({"layer": la} if on_depth and (la := _read_layer_axis(header)) else None))
     annotate = (_check_annotations(params["annotate"])
                 if params.get("annotate") is not None else None)
     reference = (_check_references(params["reference"])
                  if params.get("reference") is not None else None)
+    bins = read_bin(given["bin"]) if given["bin"] is not None else None
+    interval = header if "lo" in encoding and "hi" in encoding else None
+    level = read_level(params, interval) if "level" in decl["options"] else None
     focus = params.get("focus")
     facet = params.get("facet")
     spec: dict[str, Any] = {
         "kind": "records/chart",
         "title": params.get("title", ""),
-        "mark": mark,
+        "mark": decl["address"],
         "encoding": encoding,
         **({"scale": str(scale)} if scale else {}),
         **({"labels": labels} if labels else {}),
@@ -325,6 +425,8 @@ def build_chart(records: Any, params: Mapping[str, Any],
         **({"reference": reference} if reference else {}),
         **({"focus": str(focus)} if focus else {}),
         **({"facet": str(facet)} if facet else {}),
+        **({"bin": bins} if bins is not None else {}),
+        **({"level": level} if level is not None else {}),
     }
     if source_label:
         spec["source"] = source_label

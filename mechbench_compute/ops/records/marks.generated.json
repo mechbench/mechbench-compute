@@ -1,0 +1,277 @@
+{
+  "generated_by": "mechbench-viz scripts/dump-marks.ts; the source is src/marks/<name>.ts. Do not edit by hand.",
+  "marks": [
+    {
+      "name": "bar",
+      "version": 1,
+      "address": "bar@1",
+      "channels": {
+        "x": "required",
+        "y": "required",
+        "series": "optional",
+        "color": "optional",
+        "lo": "optional",
+        "hi": "optional"
+      },
+      "options": {
+        "title": {
+          "type": "string",
+          "doc": "The figure's claim, as a sentence."
+        },
+        "labels": {
+          "type": "object",
+          "doc": "What each encoded field is called in prose: the axis titles and the words the readout uses."
+        },
+        "axes": {
+          "type": "object",
+          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`."
+        },
+        "annotate": {
+          "type": "list",
+          "doc": "Callouts at named rows: `{at, text}`."
+        },
+        "reference": {
+          "type": "list",
+          "doc": "Lines the marks are read against: `{y, text}` across the plot or `{x, text}` down it."
+        },
+        "focus": {
+          "type": "string",
+          "doc": "The field shared with the other figures on a page."
+        },
+        "facet": {
+          "type": "string",
+          "doc": "Small multiples: one panel per value of this field."
+        },
+        "bin": {
+          "type": "integer",
+          "doc": "Count the rows into this many bins of x and draw the counts: a histogram. `y` is then the count and is not encoded.",
+          "supplies": [
+            "y"
+          ]
+        },
+        "level": {
+          "type": "number",
+          "doc": "The level of the `lo`/`hi` interval (0.95 for 95%), said in the readout."
+        }
+      },
+      "depth": [
+        "x"
+      ],
+      "row_fields": {
+        "id": "The row's identity, listed beside its mark in the reading.",
+        "note": "A third line on the row's readout.",
+        "<x>_token": "The token at that x value, printed as its tick label."
+      }
+    },
+    {
+      "name": "line",
+      "version": 1,
+      "address": "line@1",
+      "channels": {
+        "x": "required",
+        "y": "required",
+        "series": "optional",
+        "color": "optional",
+        "lo": "optional",
+        "hi": "optional"
+      },
+      "options": {
+        "title": {
+          "type": "string",
+          "doc": "The figure's claim, as a sentence."
+        },
+        "labels": {
+          "type": "object",
+          "doc": "What each encoded field is called in prose: the axis titles and the words the readout uses."
+        },
+        "axes": {
+          "type": "object",
+          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`."
+        },
+        "annotate": {
+          "type": "list",
+          "doc": "Callouts at named rows: `{at, text}`."
+        },
+        "reference": {
+          "type": "list",
+          "doc": "Lines the marks are read against: `{y, text}` across the plot or `{x, text}` down it."
+        },
+        "focus": {
+          "type": "string",
+          "doc": "The field shared with the other figures on a page."
+        },
+        "facet": {
+          "type": "string",
+          "doc": "Small multiples: one panel per value of this field."
+        },
+        "level": {
+          "type": "number",
+          "doc": "The level of the `lo`/`hi` interval (0.95 for 95%), said in the readout."
+        }
+      },
+      "depth": [
+        "x"
+      ],
+      "row_fields": {
+        "id": "The row's identity, listed beside its mark in the reading.",
+        "note": "A third line on the row's readout.",
+        "<x>_token": "The token at that x value, printed as its tick label."
+      }
+    },
+    {
+      "name": "point",
+      "version": 1,
+      "address": "point@1",
+      "channels": {
+        "x": "required",
+        "y": "required",
+        "series": "optional",
+        "color": "optional",
+        "lo": "optional",
+        "hi": "optional"
+      },
+      "options": {
+        "title": {
+          "type": "string",
+          "doc": "The figure's claim, as a sentence."
+        },
+        "labels": {
+          "type": "object",
+          "doc": "What each encoded field is called in prose: the axis titles and the words the readout uses."
+        },
+        "axes": {
+          "type": "object",
+          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`."
+        },
+        "annotate": {
+          "type": "list",
+          "doc": "Callouts at named rows: `{at, text}`."
+        },
+        "reference": {
+          "type": "list",
+          "doc": "Lines the marks are read against: `{y, text}` across the plot or `{x, text}` down it."
+        },
+        "focus": {
+          "type": "string",
+          "doc": "The field shared with the other figures on a page."
+        },
+        "facet": {
+          "type": "string",
+          "doc": "Small multiples: one panel per value of this field."
+        },
+        "level": {
+          "type": "number",
+          "doc": "The level of the `lo`/`hi` interval (0.95 for 95%), said in the readout."
+        }
+      },
+      "depth": [
+        "x"
+      ],
+      "row_fields": {
+        "id": "The row's identity, listed beside its mark in the reading.",
+        "note": "A third line on the row's readout.",
+        "<x>_token": "The token at that x value, printed as its tick label."
+      }
+    },
+    {
+      "name": "heat",
+      "version": 1,
+      "address": "heat@1",
+      "channels": {
+        "x": "required",
+        "y": "required",
+        "value": "required"
+      },
+      "options": {
+        "title": {
+          "type": "string",
+          "doc": "The figure's claim, as a sentence."
+        },
+        "labels": {
+          "type": "object",
+          "doc": "What each encoded field is called in prose: the axis titles and the words the readout uses."
+        },
+        "axes": {
+          "type": "object",
+          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`."
+        },
+        "focus": {
+          "type": "string",
+          "doc": "The field shared with the other figures on a page."
+        },
+        "facet": {
+          "type": "string",
+          "doc": "Small multiples: one panel per value of this field."
+        },
+        "scale": {
+          "type": "string",
+          "doc": "How a value becomes colour.",
+          "choices": [
+            "diverging",
+            "sequential"
+          ]
+        }
+      },
+      "depth": [
+        "x"
+      ],
+      "row_fields": {
+        "id": "The row's identity, listed beside its mark in the reading.",
+        "note": "A third line on the row's readout.",
+        "<x>_token": "The token at that x value, printed as its tick label.",
+        "<y>_token": "The token at that y value, naming its row.",
+        "token": "The token at a `position`, naming that row or column."
+      }
+    },
+    {
+      "name": "tokens",
+      "version": 1,
+      "address": "tokens@1",
+      "channels": {
+        "text": "required",
+        "value": "required",
+        "x": "optional",
+        "series": "optional"
+      },
+      "options": {
+        "title": {
+          "type": "string",
+          "doc": "The figure's claim, as a sentence."
+        },
+        "labels": {
+          "type": "object",
+          "doc": "What each encoded field is called in prose: the axis titles and the words the readout uses."
+        },
+        "focus": {
+          "type": "string",
+          "doc": "The field shared with the other figures on a page."
+        },
+        "facet": {
+          "type": "string",
+          "doc": "Small multiples: one panel per value of this field."
+        },
+        "scale": {
+          "type": "string",
+          "doc": "How a value becomes colour.",
+          "choices": [
+            "diverging",
+            "sequential"
+          ]
+        }
+      },
+      "depth": [],
+      "row_fields": {
+        "id": "The strip's name, printed beside it when there are several."
+      }
+    }
+  ],
+  "legacy": {
+    "scatter": {
+      "mark": "point@1"
+    },
+    "histogram": {
+      "mark": "bar@1",
+      "bin": 20
+    }
+  }
+}
