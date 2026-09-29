@@ -121,6 +121,15 @@ def test_the_check_says_nothing_of_a_model_left_out_on_purpose():
             assert pricing.price_for(provider, model) is None, f"{provider}/{model} is priced and left out"
 
 
+def test_a_shut_down_model_is_unpriced_and_borrows_no_neighbour():
+    assert pricing.price_for("openai", "gpt-3.5-turbo-1106") is None
+    assert pricing.price_for("openai", "gpt-3.5-turbo-instruct-0914") is None
+    assert pricing.price_for("openai", "gpt-3.5-turbo") is not None
+    for provider, gone in pricing.SHUT_DOWN.items():
+        for model in gone:
+            assert model not in pricing.PRICES.get(provider, {}), f"{provider}/{model} is shut down and priced"
+
+
 def test_the_check_compares_shutdown_dates():
     from mechbench_compute.providers.table_check import ServedModel, compare
 

@@ -39,6 +39,19 @@ while reaching into the executor; those declarations are unchanged for
 now and pinned by the test so the set can only shrink. `docs/OPS_LAYOUT.md`
 describes today's `Context` and that executor boundary.
 
+Provider table (2026-09-29): `openai/gpt-3.5-turbo-1106` and
+`openai/gpt-3.5-turbo-instruct` shut down 2026-09-28 (OpenAI's
+deprecations page) and are no longer priced, where they were $1.00/$2.00
+and $1.50/$2.00 per million input/output tokens. A shut-down id now
+borrows no neighbour's row (`pricing.SHUT_DOWN`), so `-1106` is not priced
+as a `gpt-3.5-turbo` snapshot either; the models API still lists both, so
+the check excludes them with that reason. New rows:
+`anthropic/claude-sonnet-5-5` ($2.00 in, $10.00 out, $0.20 cache read,
+$2.50/$4.00 cache write; all five effort levels, summarized and updates
+displays, images) and `openai/gpt-6.1-sol` ($2.00 in, $10.00 out, $0.10
+cache read, $2.50 cache write, the 272K long-context tier; effort low to
+max, images). Both were unpriced before, so their recorded costs were 0.
+
 ## 0.162.1 — 2026-09-28
 
 ### Changes that raise

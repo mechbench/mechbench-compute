@@ -29,6 +29,10 @@ EXCLUDED: dict[str, dict[str, str]] = {
         "gpt-5.2-chat-latest": "the pricing page names only a generic chat-latest, not this id",
         "gpt-5.3-chat-latest": "the pricing page names only a generic chat-latest, not this id",
         "gpt-3.5-turbo-16k": "not on the pricing page",
+        "gpt-3.5-turbo-1106": "shut down 2026-09-28 by the deprecations page, "
+                              "though the models API still lists it",
+        "gpt-3.5-turbo-instruct": "shut down 2026-09-28 by the deprecations page, "
+                                  "though the models API still lists it",
     },
     "gemini": {
         "gemini-flash-latest": "an alias Google moves between models; call a model by its own id",

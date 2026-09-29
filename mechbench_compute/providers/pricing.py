@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 
-TABLE_VERSION = "2026-09-26"
+TABLE_VERSION = "2026-09-29"
 
 PROVIDER_PAGES: dict[str, str] = {
     "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing",
@@ -129,6 +129,7 @@ PRICES: dict[str, dict[str, Price]] = {
     "anthropic": {
         "claude-fable-5-1": _anthropic(10.0, 50.0, 0.25, 12.5, 20.0, shutdown="2027-09-01"),
         "claude-opus-5-5": _anthropic(4.0, 20.0, 0.20, 5.0, 8.0, shutdown="2027-09-22"),
+        "claude-sonnet-5-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, shutdown="2027-09-28", checked="2026-09-29"),
         "claude-sonnet-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, shutdown="2027-06-30"),
         "claude-haiku-4-5": _anthropic(1.0, 5.0, 0.10, 1.25, 2.0, shutdown="2026-10-15"),
         "claude-fable-5": _anthropic(10.0, 50.0, 1.0, 12.5, 20.0, status="legacy", shutdown="2027-06-09"),
@@ -142,6 +143,7 @@ PRICES: dict[str, dict[str, Price]] = {
     },
     "openai": {
         "gpt-6-astra": _openai(10.0, 50.0, 1.0, 12.5),
+        "gpt-6.1-sol": _openai(2.0, 10.0, 0.1, 2.5, checked="2026-09-29"),
         "gpt-6-sol": _openai(2.0, 10.0, 0.2, 2.5),
         "gpt-6-luna": _openai(0.10, 0.50, 0.01, 0.125),
         "gpt-5.6": _openai(4.0, 20.0, 0.4, 5.0, status="alias", note="alias of gpt-5.6-sol",
@@ -180,8 +182,6 @@ PRICES: dict[str, dict[str, Price]] = {
                          shutdown="2026-10-23"),
         "gpt-3.5-turbo": _openai(0.50, 1.50, long=False, status="deprecated", shutdown="2026-10-23"),
         "gpt-3.5-turbo-0125": _openai(0.50, 1.50, long=False, status="deprecated", shutdown="2026-10-23"),
-        "gpt-3.5-turbo-1106": _openai(1.0, 2.0, long=False, status="deprecated", shutdown="2026-09-28"),
-        "gpt-3.5-turbo-instruct": _openai(1.50, 2.0, long=False, status="deprecated", shutdown="2026-09-28"),
         "o3": _openai(2.0, 8.0, 0.5, long=False, status="deprecated", shutdown="2026-12-11"),
         "o4-mini": _openai(1.10, 4.40, 0.275, long=False, status="deprecated", shutdown="2026-10-23"),
     },
@@ -247,6 +247,14 @@ PRICES: dict[str, dict[str, Price]] = {
 }
 
 
+SHUT_DOWN: dict[str, dict[str, str]] = {
+    "openai": {
+        "gpt-3.5-turbo-1106": "2026-09-28",
+        "gpt-3.5-turbo-instruct": "2026-09-28",
+    },
+}
+
+
 def matches(key: str, model: str, family: bool) -> bool:
     if family:
         return model.startswith(key)
@@ -256,6 +264,8 @@ def matches(key: str, model: str, family: bool) -> bool:
 def price_for(provider: str, model: str, *, day: date | None = None) -> Price | None:
     table = PRICES.get(provider)
     if not table:
+        return None
+    if any(matches(gone, model, False) for gone in SHUT_DOWN.get(provider, {})):
         return None
     best: tuple[int, Price] | None = None
     for key, price in table.items():
