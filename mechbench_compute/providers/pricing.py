@@ -130,7 +130,8 @@ PRICES: dict[str, dict[str, Price]] = {
         "claude-fable-5-1": _anthropic(10.0, 50.0, 0.25, 12.5, 20.0, shutdown="2027-09-01"),
         "claude-opus-5-5": _anthropic(4.0, 20.0, 0.20, 5.0, 8.0, shutdown="2027-09-22"),
         "claude-sonnet-5-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, shutdown="2027-09-28", checked="2026-09-29"),
-        "claude-sonnet-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, shutdown="2027-06-30"),
+        "claude-sonnet-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, status="legacy", shutdown="2027-06-30",
+                                      checked="2026-09-29"),
         "claude-haiku-4-5": _anthropic(1.0, 5.0, 0.10, 1.25, 2.0, shutdown="2026-10-15"),
         "claude-fable-5": _anthropic(10.0, 50.0, 1.0, 12.5, 20.0, status="legacy", shutdown="2027-06-09"),
         "claude-opus-5": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2027-07-24"),
@@ -139,7 +140,9 @@ PRICES: dict[str, dict[str, Price]] = {
         "claude-opus-4-6": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2027-02-05"),
         "claude-opus-4-5": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2026-11-24"),
         "claude-sonnet-4-6": _anthropic(3.0, 15.0, 0.3, 3.75, 6.0, status="legacy", shutdown="2027-02-17"),
-        "claude-sonnet-4-5": _anthropic(3.0, 15.0, 0.3, 3.75, 6.0, status="deprecated", shutdown="2026-09-29"),
+        "claude-sonnet-4-5": _anthropic(3.0, 15.0, 0.3, 3.75, 6.0, status="legacy", checked="2026-09-29",
+                                        note="active on the deprecations page, retiring not sooner than 2026-09-29; "
+                                             "no retirement date announced"),
     },
     "openai": {
         "gpt-6-astra": _openai(10.0, 50.0, 1.0, 12.5),
