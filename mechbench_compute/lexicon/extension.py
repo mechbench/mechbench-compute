@@ -12,7 +12,13 @@ from types import ModuleType
 from typing import Any
 
 from mechbench_compute.lexicon._base import Kind, Op
-from mechbench_compute.lexicon.address import AddressError, address_extension, parse_extension
+from mechbench_compute.lexicon.address import (
+    AddressError,
+    address_extension,
+    address_kind,
+    address_op,
+    parse_extension,
+)
 from mechbench_compute.lexicon.walk import walk_kinds, walk_ops
 
 TIERS = ("installed",)
@@ -93,8 +99,9 @@ class Extension:
             "version": self.version,
             "tier": self.tier,
             "provides": {
-                "ops": [{**mods[n].OP.to_dict(), "entry": mods[n].__name__} for n in sorted(mods)],
-                "kinds": [k.to_dict() for k in self.kinds],
+                "ops": [{**mods[n].OP.to_dict(), "path": address_op(self.name, n), "entry": mods[n].__name__}
+                        for n in sorted(mods)],
+                "kinds": [{**k.to_dict(), "path": address_kind(self.name, k.name)} for k in self.kinds],
                 "marks": list(self.marks),
                 "architectures": [],
             },

@@ -3,6 +3,7 @@ from __future__ import annotations
 from mechbench_compute import lexicon
 from mechbench_compute.protocol.copy_arch import copy_arch
 from mechbench_compute.protocol.serialize_params import serialize_params
+from mechbench_compute.registry import REGISTRY
 
 
 def store_result(state, nid, node, block, params, in_edges, inputs, resolver,
@@ -19,6 +20,7 @@ def store_result(state, nid, node, block, params, in_edges, inputs, resolver,
         if on_node_kept is not None:
             on_node_kept(nid, fingerprint, state.results[nid])
     elif state.result_base:
+        pin = REGISTRY.resolve(block).pin
         names = state.outputs_of.get(nid, [])
         if state.declared_outputs is None:
             target = f"{state.result_base}/{nid}"
@@ -43,6 +45,7 @@ def store_result(state, nid, node, block, params, in_edges, inputs, resolver,
                     for e in in_edges) if cited is not None),
                 *resolver.read_stored_inputs(node)])),
             operation=lexicon.canonical_path(block),
+            extension=pin,
             params=serialize_params(params),
         )
         state.node_paths[nid] = out["path"]
@@ -50,6 +53,7 @@ def store_result(state, nid, node, block, params, in_edges, inputs, resolver,
             bench.emit(f"{state.result_base}/{also}", to_emit,
                        inputs=[out["path"]],
                        operation=lexicon.canonical_path(block),
+                       extension=pin,
                        params=serialize_params(params))
     if isinstance(state.results[nid], dict) and state.results[nid].get("spend"):
         state.spend_by_node[nid] = state.results[nid]["spend"]

@@ -35,6 +35,33 @@ Importing `mechbench_compute.api` loads nothing; each name loads its
 module the first time it is read, so a declaration imports cleanly on a
 machine without MLX.
 
+## Short names inside an extension
+
+An extension writes its own kinds and core's by short name,
+`family/leaf`, in its declarations and in its code alike.
+
+- **At registration** the registry rewrites every kind an extension's
+  `Op` or `Kind` names short — a port, an output, an `Otherwise`, an
+  `extends` — to a full address: one of the extension's own kinds
+  becomes `<owner>/<project>/kinds/<family>/<leaf>`, a core kind stays
+  its core name. `check_graph` and `check_inputs` only ever see full
+  addresses. The registered op's and kind's `to_dict()["path"]` is its
+  address; the package's own manifest (`Extension.to_dict()`) keeps the
+  author's short `name` and carries the address as `path`.
+- **While an extension's operation runs**, its `Context.scope` is the
+  extension's `<owner>/<project>`, and the registry knows that scope
+  for the duration of `run`. `collection(kind, …)`, `resolve_kind`,
+  `satisfies` and `qualify_kind` read a short kind name in that scope:
+  core first, then the extension's own kinds. Each also takes an
+  explicit `scope=` for code that runs outside `run`. A core
+  operation's scope is `None`, and a sub-run's core nodes run in
+  none. `items_of` reads a collection, not a kind name, so there is
+  nothing for it to resolve.
+- **Core wins, so a collision is refused.** An extension that declares
+  a kind whose short name is a core kind's is refused at load, as an
+  owner that is a core family name is: a short name must mean one
+  thing.
+
 ## The promise
 
 - The api is versioned with compute's minor release.

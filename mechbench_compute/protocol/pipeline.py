@@ -61,8 +61,11 @@ class Pipeline:
             from mechbench_compute.block_params import check_inputs, check_params
             check_params(block, serialize_params(params))
             inputs = check_inputs(block, inputs)
+            resolved = REGISTRY.resolve(block)
+            if resolved.pin is not None:
+                resolver.resolved.setdefault("extensions", {})[resolved.pin["address"]] = resolved.pin
             fingerprint = resume_mod.node_fingerprint(
-                block=REGISTRY.resolve(block).pinned, params=serialize_params(params),
+                block=resolved.pinned, params=serialize_params(params),
                 input_hashes=[state.node_hashes.get(e["from"]["node"], "")
                               for e in in_edges] + inline_hashes,
                 core_version=core_version,

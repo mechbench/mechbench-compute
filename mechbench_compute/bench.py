@@ -177,8 +177,8 @@ def path(owner: str, project: str, *segments: str) -> str:
 
 
 def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
-         params: Any = None, fidelity: str | None = None,
-         operation: str | None = None, params_ref: str | None = None,
+         params: Any = None, fidelity: str | None = None, operation: str | None = None,
+         params_ref: str | None = None, extension: dict[str, Any] | None = None,
          api_url: str | None = None, api_key: str | None = None) -> dict:
     """Emit one object to the bench; returns the server's write receipt
     (path, content hash, size, lineage parent count).
@@ -196,7 +196,7 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
     url, key = _config(api_url, api_key)
 
     if isinstance(payload, dict) and "provenance" in payload:
-        if inputs or params is not None or fidelity is not None or operation:
+        if inputs or params is not None or fidelity is not None or operation or extension:
             raise BenchError(
                 "payload already carries provenance; pass inputs/params/"
                 "fidelity through the typed record, not emit()")
@@ -214,7 +214,7 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
                                    if params is not None else None),
             "schema_version": ms.__version__,
             "fidelity": fidelity,
-            "operation": operation,
+            "operation": operation, "extension": extension,
             "params_ref": params_ref,
         }
         envelope = ms.Emitted(provenance=ms.Provenance(**prov),

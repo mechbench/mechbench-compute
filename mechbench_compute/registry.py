@@ -3,8 +3,10 @@ from __future__ import annotations
 import dataclasses
 import importlib.metadata
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any
@@ -46,6 +48,21 @@ class Resolved:
     @property
     def pinned(self) -> str:
         return f"{OP_ROOT}{self.name}" if self.tier == "core" else f"{self.name}@{self.digest}"
+
+    @property
+    def scope(self) -> str | None:
+        return None if self.tier == "core" else scope_of(self.name)
+
+    @property
+    def pin(self) -> dict[str, Any] | None:
+        if self.tier == "core":
+            return None
+        return {"address": self.source.rsplit("@", 1)[0], "version": self.version, "hash": self.digest}
+
+
+def scope_of(name: str) -> str | None:
+    parts = str(name).split("/")
+    return "/".join(parts[:2]) if len(parts) > 2 and not parts[0].startswith("~") else None
 
 
 @dataclass
@@ -185,6 +202,9 @@ class InstalledSource:
         for k in declared:
             if k.family in SEALED:
                 raise ValueError(f"kind {k.name!r}: the {k.family!r} family is sealed")
+            if k.name in core_kinds:
+                raise ValueError(f"kind {k.name!r} is a core kind's name; a short name inside an "
+                                 "extension reaches core first, so the extension cannot declare it")
             if not k.speak:
                 raise ValueError(f"kind {k.name!r} declares no speak; every extension kind says itself")
             if k.extends is None or not (k.extends in own or k.extends in core_kinds):
@@ -221,6 +241,7 @@ class Registry:
     def __init__(self, sources: Iterable[Any]) -> None:
         self.sources = tuple(sources)
         self.generation = 0
+        self.current: ContextVar[str | None] = ContextVar(f"scope-{id(self)}", default=None)
         self._table: Table | None = None
         self._partial: Table | None = None
 
@@ -312,6 +333,24 @@ class Registry:
             return f"unknown block {spelling!r}: {refused}"
         return (f"unknown block {spelling!r}: no installed extension provides {address.bare}; "
                 "a runner installs an extension when a claimed job needs it")
+
+    @contextmanager
+    def within(self, scope: str | None) -> Iterator[None]:
+        token = self.current.set(scope)
+        try:
+            yield
+        finally:
+            self.current.reset(token)
+
+    def qualify_kind(self, name: str, scope: str | None = None) -> str:
+        scope = self.current.get() if scope is None else scope
+        if scope is None or name == COLLECTION or "/" not in name or is_extension_spelling(name):
+            return name
+        kinds = self.table().kinds
+        if name in kinds:
+            return name
+        own = address_kind(scope, name)
+        return own if own in kinds else name
 
     def kind(self, name: str) -> Kind:
         return self.table().kinds[name]

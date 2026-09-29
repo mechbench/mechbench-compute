@@ -1,7 +1,5 @@
 from mechbench_compute.api import In, Op, Output, P, collection, items_of
 
-ALIGNMENT = "alice/interp-extras/kinds/geometry/alignment"
-
 OP = Op(
     name="geometry/align",
     summary="How far two sets of records share their ids, as one score.",
@@ -20,5 +18,5 @@ def run(ctx, inputs, params):
     b = {r["id"] for r in items_of(inputs["b"])}
     over = len(a | b) if params.get("method") == "jaccard" else min(len(a), len(b))
     score = len(a & b) / over if over else 0.0
-    return collection(ALIGNMENT, [{"id": "a~b", "a": len(a), "b": len(b), "score": score}],
+    return collection("geometry/alignment", [{"id": "a~b", "a": len(a), "b": len(b), "score": score}],
                       method=params.get("method", "overlap"))

@@ -68,9 +68,14 @@ class Context:
     refused: Mapping[str, str] = field(default_factory=dict)
     host: Any = None
     run_secrets: Mapping[str, Any] | None = None
+    scope: str | None = None
 
     @classmethod
     def for_op(cls, op: Any, executor: Any = None, **lent: Any) -> Context:
+        from mechbench_compute.registry import scope_of
+
+        op = getattr(op, "op", op)
+        lent.setdefault("scope", scope_of(op.name))
         refused = {m: msg for m in MEMBER_NEEDS if (msg := check_member(op, m)) is not None}
         run_secrets = lent.get("secrets")
         for member in ("executor", "secrets"):
@@ -223,4 +228,8 @@ def read_standalone(registry: Any, generation: int) -> frozenset[str]:
 
 
 def run_standalone(op: Any, inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
-    return resolve_op(op).module.run(Context(), inputs, params)
+    from mechbench_compute.registry import REGISTRY
+
+    resolved = resolve_op(op)
+    with REGISTRY.within(resolved.scope):
+        return resolved.module.run(Context(scope=resolved.scope), inputs, params)

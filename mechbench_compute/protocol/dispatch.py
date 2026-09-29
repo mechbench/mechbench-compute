@@ -51,11 +51,15 @@ class Dispatch:
 
     def _run_op(self, block, inputs, params, **lent):
         resolved = ops.resolve_op(block)
-        run = resolved.module.run
         ctx = ops.Context.for_op(resolved.op, self, **lent)
+
+        def run(i, p):
+            with REGISTRY.within(ctx.scope):
+                return resolved.module.run(ctx, i, p)
+
         if ops.fuses_adapter(resolved) or (ops.fuses_adapter_locally(resolved)
                                            and not is_remote(resolved, params)):
             return self._run_model_block(
-                lambda i, p, on_item=None, on_start=None: run(ctx, i, p),
+                lambda i, p, on_item=None, on_start=None: run(i, p),
                 inputs, params, on_item=lent.get("on_item"), on_start=lent.get("on_start"))
-        return run(ctx, inputs, params)
+        return run(inputs, params)

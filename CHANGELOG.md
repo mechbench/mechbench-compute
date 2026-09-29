@@ -13,6 +13,56 @@ nothing said so.
 
 ---
 
+## 0.166.0 — 2026-09-29
+
+### Changes that raise
+
+- An extension that declares a kind whose short name is a core kind's
+  is refused at load (task 000846): inside an extension a short name
+  reaches core first, so it cannot mean the extension's kind.
+- `lexicon.kinds.collection(kind, items, *, scope=None, **header)`:
+  `scope` is a keyword now, so a collection can no longer carry a
+  header field named `scope` (none did).
+- mechbench-schema `>=0.18.1` is required (`Provenance.extension`).
+
+### Changes that alter results without raising
+
+- A result an extension's operation stores records the extension's pin
+  (task 000845): its provenance carries `extension: {address, version,
+  hash}` beside `operation` (which keeps the bare op address), and the
+  run's `resolved` map gains `extensions: {<extension address>: {address,
+  version, hash}}` for every extension a node resolved to. A core
+  operation's provenance and the `resolved` map of a run with no
+  extension node are byte-for-byte as before (schema 0.18.1 leaves an
+  absent `extension` out of the dump). `Resolved.pin` is the dict,
+  `None` for core.
+- An extension's manifest (`Extension.to_dict()`) carries each op's and
+  kind's address as `path` (the author's short `name` is kept), where it
+  carried core's derived `~canonical/…` path. The manifest is what the
+  digest hashes, so an extension version's digest — and with it the
+  fingerprint of its nodes — differs from 0.165.0's for the same
+  package, unless the install recorded a hash. No extension had been
+  published.
+
+### Other
+
+- Short names inside an extension (task 000846, docs/PLUGIN_API.md). An
+  extension operation's `Context.scope` is its extension's
+  `<owner>/<project>` (`Context.for_op` sets it from the registered
+  op's address; `Resolved.scope` is the same), and while its `run` runs
+  the registry holds that scope (`REGISTRY.within(scope)`, a context
+  variable). `collection`, `resolve_kind`, `satisfies` and the new
+  `qualify_kind(name, scope=None)` read a short kind name in the scope —
+  core first, then the extension's own kinds — and take `scope=`
+  explicitly. The fixture extension's op now writes
+  `collection("geometry/alignment", …)`. Ports and outputs written
+  short in an extension's declarations were already rewritten to full
+  addresses at registration; the registered op's and kind's `path` is
+  its address. `ops.run_standalone` runs an extension op in its scope
+  too.
+
+---
+
 ## 0.165.0 — 2026-09-29
 
 ### Changes that raise

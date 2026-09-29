@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from mechbench_compute import lexicon, ops
+from mechbench_compute import bench, lexicon, ops
 from mechbench_compute.lexicon import kinds as K
 from mechbench_compute.lexicon.extension import Extension, Package, encode_canonical, hash_extension
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
@@ -114,9 +114,11 @@ class TestKinds:
         assert REGISTRY.kind(ALIGNMENT).family == "geometry"
         assert ALIGNMENT in {k.name for k in K.KINDS}
 
-    def test_the_manifest_keeps_the_authors_spelling(self, installed):
+    def test_the_manifest_keeps_the_authors_spelling_and_carries_its_own_path(self, installed):
         d = manifest().to_dict()
         assert d["provides"]["ops"][0]["name"] == "geometry/align"
+        assert d["provides"]["ops"][0]["path"] == ADDRESS
+        assert d["provides"]["kinds"][0]["path"] == ALIGNMENT
         assert d["provides"]["ops"][0]["output"]["kind"] == "geometry/alignment"
         assert d["provides"]["ops"][0]["entry"] == "mb_fixture_ext.ops.geometry.align"
         assert d["provides"]["kinds"][0]["extends"] == "records/record"
@@ -167,6 +169,87 @@ class TestRunning:
         assert not ops.fuses_adapter(ADDRESS) and not ops.fuses_adapter_locally(ADDRESS)
         assert ops.run_standalone(ADDRESS, {"a": [{"id": "1"}], "b": [{"id": "1"}, {"id": "2"}]},
                                   {"method": "jaccard"})["items"][0]["score"] == 0.5
+
+
+class TestScope:
+    def test_the_registered_entries_carry_their_address_as_path(self, installed):
+        assert REGISTRY.resolve(ADDRESS).op.to_dict()["path"] == ADDRESS
+        assert REGISTRY.kind(ALIGNMENT).to_dict()["path"] == ALIGNMENT
+        assert REGISTRY.resolve("records/filter").op.to_dict()["path"] == "~canonical/ops/records/filter"
+
+    def test_a_short_port_kind_is_rewritten_at_registration(self, installed):
+        op = REGISTRY.resolve(ADDRESS).op
+        assert [p.kind for p in op.inputs] == ["records/record", "records/record"]
+        assert op.output.kind == ALIGNMENT
+
+    def test_an_extension_ops_context_carries_its_scope(self, installed):
+        assert ops.Context.for_op(REGISTRY.resolve(ADDRESS).op).scope == "alice/interp-extras"
+        assert ops.Context.for_op(REGISTRY.resolve("records/filter").op).scope is None
+
+    def test_a_short_kind_resolves_in_the_given_scope_then_core(self, installed):
+        scope = "alice/interp-extras"
+        assert K.qualify_kind("geometry/alignment", scope) == ALIGNMENT
+        assert K.qualify_kind("geometry/alignment") == "geometry/alignment"
+        assert K.qualify_kind("records/record", scope) == "records/record"
+        assert K.resolve_kind("geometry/alignment", scope=scope) == (ALIGNMENT, False)
+        assert K.satisfies("geometry/alignment", "records/record", scope=scope)
+        assert lexicon.kinds.collection("geometry/alignment", [], scope=scope)["item_kind"] == ALIGNMENT
+        with pytest.raises(KeyError):
+            lexicon.kinds.collection("geometry/alignment", [])
+
+    def test_inside_an_extension_op_the_registry_knows_the_scope(self, installed):
+        with REGISTRY.within("alice/interp-extras"):
+            assert K.resolve_kind("geometry/alignment") == (ALIGNMENT, False)
+            with REGISTRY.within(None):
+                assert K.qualify_kind("geometry/alignment") == "geometry/alignment"
+        out = ops.run_standalone(ADDRESS, {"a": [{"id": "1"}], "b": [{"id": "1"}]}, {})
+        assert out["item_kind"] == ALIGNMENT
+
+    def test_a_kind_named_as_a_core_kind_is_refused(self, swap_sources, monkeypatch, tmp_path):
+        root = tmp_path / "mb_clash_ext"
+        shutil.copytree(FIXTURE / "mb_fixture_ext", root)
+        (root / "kinds" / "geometry" / "similarity.py").write_text(
+            (root / "kinds" / "geometry" / "alignment.py").read_text().replace(
+                '"geometry/alignment"', '"geometry/similarity"'))
+        monkeypatch.syspath_prepend(str(tmp_path))
+        TestRefusals().refuse(swap_sources, monkeypatch, "bob/clash", "core kind's name", "mb_clash_ext")
+
+
+class TestProvenance:
+    def run(self, monkeypatch, g):
+        emitted = {}
+
+        def emit(target, payload, *, inputs=(), operation=None, extension=None, **kw):
+            emitted[target] = {"operation": operation, "extension": extension}
+            return {"path": target}
+
+        monkeypatch.setattr(bench, "emit", emit)
+        out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None,
+                                                  extra={"graph": g, "resultPath": "a/b/results/j"}))
+        return emitted, out.payload["resolved"]
+
+    def test_an_extension_ops_result_records_the_pin(self, installed, monkeypatch):
+        r = REGISTRY.resolve(ADDRESS)
+        pin = {"address": EXTENSION, "version": 2, "hash": r.digest}
+        assert r.pin == pin
+        emitted, resolved = self.run(monkeypatch, graph(ADDRESS))
+        assert emitted["a/b/results/j/al"] == {"operation": ADDRESS, "extension": pin}
+        assert resolved["extensions"] == {EXTENSION: pin}
+
+    def test_a_core_ops_result_records_none(self, installed, monkeypatch):
+        emitted, resolved = self.run(monkeypatch, {"dataflow": 2, "edges": [], "nodes": [
+            {"id": "x", "block": "records/cross", "params": CROSS}]})
+        assert emitted == {"a/b/results/j/x": {"operation": "~canonical/ops/records/cross", "extension": None}}
+        assert "extensions" not in resolved
+
+    def test_the_schema_accepts_the_pin_and_leaves_it_out_when_absent(self, installed):
+        import mechbench_schema as ms
+
+        base = {"created_at": "2026-09-29T00:00:00Z", "produced_by": {"tool": "t", "version": "1"},
+                "schema_version": ms.__version__, "operation": ADDRESS}
+        pin = REGISTRY.resolve(ADDRESS).pin
+        assert ms.Provenance(**base, extension=pin).model_dump(mode="json")["extension"] == pin
+        assert "extension" not in ms.Provenance(**base).model_dump(mode="json")
 
 
 class TestRefusals:

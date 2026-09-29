@@ -6,7 +6,7 @@ from typing import Any
 
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind
 from mechbench_compute.lexicon.order import canonical_collection
-from mechbench_compute.lexicon.views import view_by_kind, view_kinds
+from mechbench_compute.lexicon.views import read_registry, view_by_kind, view_kinds
 from mechbench_compute.lexicon.walk import name_module
 
 
@@ -112,10 +112,14 @@ def ancestry(name: str) -> tuple[str, ...]:
     return tuple(out)
 
 
-def satisfies(actual: str, declared: str) -> bool:
+def qualify_kind(name: str, scope: str | None = None) -> str:
+    return read_registry().qualify_kind(name, scope)
+
+
+def satisfies(actual: str, declared: str, *, scope: str | None = None) -> bool:
     if declared == COLLECTION:
         return True
-    return declared in ancestry(actual)
+    return qualify_kind(declared, scope) in ancestry(qualify_kind(actual, scope))
 
 
 def canonical_kind_path(name: str) -> str:
@@ -131,10 +135,11 @@ class RetiredKindName(DeprecationWarning):
 _warned: set[str] = set()
 
 
-def resolve_kind(kind: str, *, warn: bool = True) -> tuple[str, bool]:
+def resolve_kind(kind: str, *, warn: bool = True, scope: str | None = None) -> tuple[str, bool]:
     s = kind.strip()
     if s.startswith(KIND_ROOT):
         s = s[len(KIND_ROOT):]
+    s = qualify_kind(s, scope)
     if s in BY_KIND:
         return s, s == COLLECTION
     hit = KIND_ALIASES.get(kind) or KIND_ALIASES.get(s)
@@ -187,7 +192,9 @@ def items_of(obj: Any) -> list[Any]:
     raise ValueError(f"not a collection: kind {k!r} carries no items")
 
 
-def collection(item_kind: str, items: list[Any], **header: Any) -> dict[str, Any]:
+def collection(item_kind: str, items: list[Any], *, scope: str | None = None,
+               **header: Any) -> dict[str, Any]:
+    item_kind = qualify_kind(item_kind, scope)
     kind = BY_KIND[item_kind]
     out: dict[str, Any] = {"kind": COLLECTION, "item_kind": item_kind, "key": list(kind.key), "items": list(items)}
     out.update({k: v for k, v in header.items() if v is not None})
@@ -197,5 +204,5 @@ def collection(item_kind: str, items: list[Any], **header: Any) -> dict[str, Any
 __all__ = [
     "BY_KIND", "COLLECTION", "KINDS", "KIND_ALIASES",
     "all_fields", "ancestry", "canonical_collection", "canonical_kind_path", "collection",
-    "item_kind_of", "items_of", "resolve_kind", "satisfies",
+    "item_kind_of", "items_of", "qualify_kind", "resolve_kind", "satisfies",
 ]
