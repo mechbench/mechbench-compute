@@ -66,6 +66,12 @@ class TestFamilySupport:
         for p in NEW_GLOBAL:
             assert _arch.family_supports("gemma4", p, layer_scoped=False)
 
+    def test_an_unknown_family_supports_nothing(self):
+        for p in (*_arch.LAYER_HOOK_POINTS, "resid_post"):
+            assert not _arch.family_supports("mamba", p, layer_scoped=True)
+        for p in _arch.GLOBAL_HOOK_POINTS:
+            assert not _arch.family_supports("mamba", p, layer_scoped=False)
+
     def test_legacy_families_refuse_the_new_points(self):
         for fam in ("gemma3", "qwen2", "llama"):
             assert _arch.family_supports(fam, "resid_post", layer_scoped=True)

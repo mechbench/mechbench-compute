@@ -98,23 +98,41 @@ package. An operation's file is a leaf: nothing imports back from it.
 ## What `ctx` offers
 
 `ctx` is `mechbench_compute.ops.Context`: what the executor lends an
-operation for the duration of one node. Twenty-seven of the thirty-three
-operations that need the executor need exactly one thing from it.
+operation for the duration of one node. `ops.read_context_uses(mod)`
+reads, from the code, which of these an operation's `run` touches; the
+lexicon tests hold every operation's `requires` to it.
 
 | | |
 |---|---|
-| `ctx.model(ref)` | the loaded model for a `model` param |
-| `ctx.on_item`, `ctx.on_start` | progress: one call per item, one when the count is known |
-| `ctx.resume_items`, `ctx.resume_state` | what an interrupted run already finished |
+| `ctx.model(ref)` | the model for a `model` param: `ctx.loaded` when one is lent, otherwise the executor loads it |
+| `ctx.loaded` | a model already in hand, which `ctx.model` returns whatever the ref |
+| `ctx.executor` | the executor itself (see below) |
+| `ctx.on_start`, `ctx.on_item` | progress: one call when the count is known, one per item |
+| `ctx.on_token` | streaming: one call per generated token (`text/generate`, `text/chat`) |
 | `ctx.on_checkpoint` | for an operation that checkpoints (`adapter/train`) |
+| `ctx.resume_items`, `ctx.resume_state` | what an interrupted run already finished |
 | `ctx.secrets` | the owner's provider credentials |
 | `ctx.input_paths` | the stored label each input arrived from |
-| `ctx.bindings`, `ctx.result_base` | the run's bound params, and where its results land |
-| `ctx.declared` | which reference vocabulary the run's graph is written in — what an operation stamps a body of its own with |
-| `ctx.executor` | the executor itself — for the few operations that are control flow (`records/map`, `records/fold`) or that serve two tiers (`text/chat`) |
+| `ctx.run_params` | the run's bound params, which a `$param` in an expression reads |
+| `ctx.result_base` | where the run's results land |
 
 Every field has a default, so a test builds one in a line:
-`run(Context(model=fake), inputs, params)`.
+`run(Context(loaded=fake), inputs, params)`.
+
+### The executor boundary
+
+Some operations still reach past `Context` into the executor's private
+state (`ctx.executor._*`): `records/map` and `records/fold` build a
+child executor for their body and hand it the loaded model;
+`text/chat` borrows its tool runner, memo, rate limiter, budget and
+local chat path, and `eval/judge` its rate limiter and budget;
+`adapter/merge` materializes a bench checkpoint through it;
+`adapter/train` clears its loaded model; and `live/run_step` builds a
+child executor the way map and fold do. This is a known boundary, to be
+closed next: each of those needs becomes a named field of `Context`.
+Until then `records/map`, `records/fold` and `adapter/merge` stay
+declared `pure` although they touch the executor, and the lexicon test
+pins that set so it can only shrink.
 
 ## What is derived, and so is not written down
 

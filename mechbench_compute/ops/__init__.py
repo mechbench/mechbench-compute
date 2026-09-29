@@ -67,17 +67,49 @@ def fuses_adapter(op: str) -> bool:
     return declared.requires == "mlx-local" and declared.port("adapter") is not None
 
 
+def read_context_uses(mod: ModuleType) -> frozenset[str]:
+    tree = ast.parse(inspect.getsource(mod))
+    funcs = {n.name: n for n in tree.body
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    uses: set[str] = set()
+    seen: set[str] = set()
+    todo = ["run"]
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in funcs:
+            continue
+        seen.add(name)
+        fn = funcs[name]
+        attributed = {id(n.value) for n in ast.walk(fn)
+                      if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                      and n.value.id == "ctx"}
+        followed: set[int] = set()
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Attribute) and id(n.value) in attributed:
+                uses.add(n.attr)
+            elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                  and n.func.id == "getattr" and len(n.args) >= 2
+                  and isinstance(n.args[0], ast.Name) and n.args[0].id == "ctx"
+                  and isinstance(n.args[1], ast.Constant) and isinstance(n.args[1].value, str)):
+                uses.add(n.args[1].value)
+                followed.add(id(n.args[0]))
+            elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                  and n.func.id in funcs):
+                for a in (*n.args, *(k.value for k in n.keywords)):
+                    if isinstance(a, ast.Name) and a.id == "ctx":
+                        todo.append(n.func.id)
+                        followed.add(id(a))
+        for n in ast.walk(fn):
+            if (isinstance(n, ast.Name) and n.id == "ctx" and isinstance(n.ctx, ast.Load)
+                    and id(n) not in attributed and id(n) not in followed):
+                uses.add("ctx")
+    return frozenset(uses)
+
+
 @cache
 def find_standalone() -> frozenset[str]:
-    names = set()
-    for name, mod in load_modules().items():
-        if mod.OP.requires != "pure":
-            continue
-        tree = ast.parse(inspect.getsource(mod.run))
-        if not any(isinstance(n, ast.Name) and n.id == "ctx" and isinstance(n.ctx, ast.Load)
-                   for n in ast.walk(tree)):
-            names.add(name)
-    return frozenset(names)
+    return frozenset(name for name, mod in load_modules().items()
+                     if mod.OP.requires == "pure" and not read_context_uses(mod))
 
 
 def run_standalone(op: str, inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:

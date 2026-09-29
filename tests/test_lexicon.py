@@ -234,46 +234,54 @@ class TestTheNameAndItsRendering:
 
 
 class TestWhatAnOperationNeeds:
+    PURE_BUT_REACHING = frozenset({"records/map", "records/fold", "adapter/merge"})
+
     @staticmethod
-    def _loads_model(block: str) -> bool:
-        import inspect
-        import pathlib
-        import re
+    def _uses() -> dict[str, frozenset[str]]:
+        from mechbench_compute import ops
 
-        from mechbench_compute import protocol
+        return {name: ops.read_context_uses(mod) for name, mod in ops.load_modules().items()}
 
-        src = pathlib.Path(inspect.getfile(protocol)).read_text()
-        bodies = dict(re.findall(
-            r'\n    def (_block_[a-z_]+)\(.*?\n(.*?)(?=\n    def |\Z)', src, re.DOTALL))
-        arms = dict(re.findall(
-            r'block == "([a-z0-9-]+/[a-z0-9-]+)":\s*\n(.*?)(?=\n\s*elif block ==|\n\s*else:)',
-            src, re.DOTALL))
-        body = arms.get(block, "")
-        if "_run_model_block" in body:
-            return True
-        return any(
-            "_model_loaded" in bodies.get(h, "") or "_run_model_block" in bodies.get(h, "")
-            for h in re.findall(r"self\.(_block_[a-z_]+)", body)
-        )
+    def test_a_pure_operation_never_touches_the_model(self) -> None:
+        reaching = {name for name, uses in self._uses().items()
+                    if lexicon.BY_NAME[name].requires == "pure" and uses & {"model", "executor"}}
+        assert reaching == self.PURE_BUT_REACHING, (
+            f"pure operations reaching for the model or executor: {sorted(reaching)}; "
+            f"this set may only shrink")
+
+    def test_an_operation_that_uses_the_model_says_so(self) -> None:
+        for name, uses in self._uses().items():
+            if "model" in uses:
+                assert lexicon.BY_NAME[name].requires in ("mlx-local", "by-model"), (
+                    f"{name} uses ctx.model; declared {lexicon.BY_NAME[name].requires!r}")
+
+    def test_an_operation_declared_local_uses_the_model(self) -> None:
+        for name, uses in self._uses().items():
+            if lexicon.BY_NAME[name].requires == "mlx-local":
+                assert "model" in uses, f"{name} is declared mlx-local and never uses ctx.model"
+
+    def test_the_walk_sees_through_a_helper(self, tmp_path, monkeypatch) -> None:
+        import importlib
+
+        from mechbench_compute import ops
+
+        (tmp_path / "walked_op.py").write_text(
+            "def _load(ctx, ref):\n"
+            "    return ctx.model(ref)\n"
+            "\n"
+            "def _unused(ctx):\n"
+            "    return ctx.executor\n"
+            "\n"
+            "def run(ctx, inputs, params):\n"
+            "    getattr(ctx, 'run_params', None)\n"
+            "    return _load(ctx, params['model'])\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        mod = importlib.import_module("walked_op")
+        assert ops.read_context_uses(mod) == {"model", "run_params"}
 
     def test_every_operation_declares_one_of_the_four(self) -> None:
         for op in lexicon.OPS:
             assert op.requires in ("pure", "mlx-local", "remote", "by-model"), op.name
-
-    def test_a_pure_operation_never_touches_the_model(self) -> None:
-        for op in lexicon.OPS:
-            if op.requires == "pure":
-                assert not self._loads_model(op.name), (
-                    f"{op.name} is declared pure and loads the model")
-
-    def test_an_operation_that_loads_the_model_says_so(self) -> None:
-        from mechbench_compute.protocol import REMOTE_BLOCKS
-
-        for op in lexicon.OPS:
-            if self._loads_model(op.name):
-                expect = "by-model" if op.name in REMOTE_BLOCKS else "mlx-local"
-                assert op.requires == expect, (
-                    f"{op.name} loads the model; declared {op.requires!r}")
 
     def test_the_operations_that_run_either_side_are_the_remote_blocks(self) -> None:
         from mechbench_compute.protocol import REMOTE_BLOCKS

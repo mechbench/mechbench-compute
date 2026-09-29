@@ -13,6 +13,32 @@ nothing said so.
 
 ---
 
+## 0.162.2 — 2026-09-29
+
+### Changes that raise
+
+- `guests.resolve` raises `KeyError` for a string that names no
+  registered guest (built in or added with `install_local`), naming the
+  known ones; it no longer reads the string as a file path. A
+  `pathlib.Path` is still a path. `sandbox.run` reports the refusal as a
+  `SandboxError`, with the same message as before for a bare name.
+- `_arch.family_supports` is `False` for a `model_type` compute does not
+  declare, so a hook point on an unknown architecture is refused instead
+  of passed through. No loaded model reaches it with one: loading
+  already refuses undeclared architectures.
+
+### Changes that alter results without raising
+
+_None._ `ops.read_context_uses(mod)` reads which `ctx` fields an
+operation's `run` touches (following same-module helpers it passes `ctx`
+to), and `find_standalone` is built on it (same set as before). The
+lexicon tests now check each operation's `requires` against that reading
+instead of a regex over a dispatch table that no longer exists. They
+found `records/map`, `records/fold` and `adapter/merge` declared `pure`
+while reaching into the executor; those declarations are unchanged for
+now and pinned by the test so the set can only shrink. `docs/OPS_LAYOUT.md`
+describes today's `Context` and that executor boundary.
+
 ## 0.162.1 — 2026-09-28
 
 ### Changes that raise

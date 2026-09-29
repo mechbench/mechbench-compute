@@ -174,9 +174,10 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         guest_path, guest_mounts, guest_env = guests.resolve(guest)
     except guests.GuestUnavailable as e:
         raise SandboxError(str(e)) from e
+    except KeyError as e:
+        raise SandboxError(e.args[0]) from e
     if not guest_path.is_file():
-        raise SandboxError(
-            _resolve_hint(guest) or f"guest binary not found: {guest_path}")
+        raise SandboxError(f"guest binary not found: {guest_path}")
 
     with tempfile.TemporaryDirectory(prefix="mechbench-sandbox-") as td:
         root = pathlib.Path(td) / "root"
@@ -339,14 +340,6 @@ def _materialize_mount(tree: fs.Snapshot,
     with _MOUNT_LOCK:
         _MOUNTS_READY.add(digest)
     return dest
-
-
-def _resolve_hint(guest: str | os.PathLike[str]) -> str | None:
-    if (isinstance(guest, str) and not guests.is_registered(guest)
-            and os.sep not in guest and not guest.endswith(".wasm")):
-        return (f"no guest named {guest!r} is registered — known: "
-                f"{', '.join(sorted(guests.REGISTRY)) or '(none)'}")
-    return None
 
 
 def _pages(holder: list, store) -> int:

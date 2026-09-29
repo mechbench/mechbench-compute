@@ -56,7 +56,7 @@ def family_supports(model_type: str, point: str, *, layer_scoped: bool) -> bool:
 
     arch = architecture(model_type)
     if arch is None:
-        return True
+        return False
     return arch.supports(point, layer_scoped=layer_scoped)
 
 

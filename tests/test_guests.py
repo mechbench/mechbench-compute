@@ -130,8 +130,15 @@ class TestRuntimeMounts:
 
     def test_a_bare_path_resolves_to_no_mounts(self, tmp_path):
         p = _artifact(tmp_path)
-        path, mounts, env = guests.resolve(str(p))
+        path, mounts, env = guests.resolve(p)
         assert path == p and mounts == () and env == {}
+
+    def test_an_unregistered_name_is_refused_not_read_as_a_path(self, tmp_path):
+        guests.install_local("cg", _artifact(tmp_path))
+        with pytest.raises(KeyError, match="no guest named .*known: .*cg"):
+            guests.resolve(str(_artifact(tmp_path)))
+        with pytest.raises(KeyError, match="no guest named 'ruby'"):
+            guests.resolve("ruby")
 
     def test_an_empty_pin_accepts_any_build(self, tmp_path):
         guests.register(guests.Guest("cg", "", "", 0, source="unpinned"))

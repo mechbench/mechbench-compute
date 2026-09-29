@@ -224,9 +224,13 @@ def _ensure_mount(name: str, mount: GuestMount, *, fetch: bool) -> GuestMount:
 
 def resolve(guest: str | os.PathLike[str], *, fetch: bool = True
             ) -> tuple[pathlib.Path, tuple[GuestMount, ...], Mapping[str, str]]:
-    if isinstance(guest, str) and is_registered(guest):
-        g = REGISTRY[guest]
-        wasm = ensure(guest, fetch=fetch)
-        mounts = tuple(_ensure_mount(guest, m, fetch=fetch) for m in g.mounts)
-        return wasm, mounts, g.env
-    return pathlib.Path(guest), (), {}
+    if not isinstance(guest, str):
+        return pathlib.Path(guest), (), {}
+    if not is_registered(guest):
+        raise KeyError(
+            f"no guest named {guest!r} is registered — known: "
+            f"{', '.join(sorted(REGISTRY)) or '(none)'}")
+    g = REGISTRY[guest]
+    wasm = ensure(guest, fetch=fetch)
+    mounts = tuple(_ensure_mount(guest, m, fetch=fetch) for m in g.mounts)
+    return wasm, mounts, g.env
