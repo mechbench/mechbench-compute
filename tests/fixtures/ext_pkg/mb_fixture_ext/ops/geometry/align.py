@@ -4,12 +4,13 @@ OP = Op(
     name="geometry/align",
     summary="How far two sets of records share their ids, as one score.",
     description="Reads two record collections and reports the overlap of their ids.",
-    params=(P("method", '"overlap" | "jaccard"', "Shared over the smaller set, or over the union.",
+    params=(P("method", "string", "Shared over the smaller set, or over the union.",
               "overlap", choices=("overlap", "jaccard")),),
     inputs=(In("a", "records/record", "The first set.", many=True),
             In("b", "records/record", "The second set.", many=True)),
-    output=Output("geometry/alignment", collection=True),
+    output=Output("geometry/alignment", collection=True, doc="One alignment: the two sizes and their score."),
     example={"method": "overlap"},
+    example_inputs={"a": {"$ref": {"bench": "alice/lab/a"}}, "b": {"$ref": {"bench": "alice/lab/b"}}},
 )
 
 

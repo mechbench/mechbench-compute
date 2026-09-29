@@ -13,6 +13,44 @@ nothing said so.
 
 ---
 
+## 0.167.0 — 2026-09-29
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- `mechbench_compute.conformance` (task 000833, docs/PLUGIN_API.md
+  "Conformance"): the declaration suite as functions over a manifest.
+  `check_manifest(extension | wire dict)` and `check_package(extension)`
+  return `Finding(code, at, message, severity)`s with stable codes
+  (`NO_SUMMARY`, `PORT_KIND_UNKNOWN`, `NO_SPEAK`, `NAME_NOT_VERB`,
+  `NEED_UNDECLARED`, `EXAMPLE_REFUSED`, …); `run_examples(extension, *,
+  resolve_inputs, model=False)` runs each operation's example twice
+  in-process, checks the output's kind and key fields and compares the
+  canonical bytes; `check_extension` returns a `Conformance` whose
+  `to_dict()` is the extension object's `conformance`
+  (`compute, declarations, double_run, installs_beside`).
+  `python -m mechbench_compute.conformance <package> [--inputs DIR]
+  [--model]` prints the report as JSON and exits 1 on a failed
+  declaration or a refused example.
+- `test_lexicon.py`, `test_lexicon_shapes.py` and `test_kinds.py` now
+  assert that `check_core()` has no findings, so each rule lives once;
+  core's exceptions are allowed codes per operation (the tools emit
+  nothing; seven operation leaves that predate the verb rule). The
+  verb and predicate lists moved from `test_names.py` to
+  `conformance/names.py`; `align` joined the verbs.
+- The fixture extension's op documents its output, types `method` as a
+  `string` with choices, and declares `example_inputs` read from
+  `tests/fixtures/ext_pkg/inputs/`.
+
+---
+
 ## 0.166.0 — 2026-09-29
 
 ### Changes that raise

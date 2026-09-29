@@ -6,61 +6,39 @@ import pytest
 
 from mechbench_compute import lexicon
 from mechbench_compute.block_params import COMMON, accepted, check_inputs, check_params, ports
+from mechbench_compute.conformance import check_core, format_findings, select_findings
+from mechbench_compute.conformance.check_ops import INTERNAL
 from mechbench_compute.lexicon import BY_NAME, OPS, Op
 
-INTERNAL = [
-    re.compile(r"\b0\d{5}\b"),
-    re.compile(r"\b(?:task|tasks|epic|epics)\s+\d", re.IGNORECASE),
-    re.compile(r"\bstep\s+\d{2}\b", re.IGNORECASE),
-    re.compile(r"\bexperiment\s+0\d{2}\b", re.IGNORECASE),
-    re.compile(r"\bmechbench-experiments\b", re.IGNORECASE),
-]
+NOT_VERBS = frozenset({"activations/examples", "eval/benchmark", "intervene/path", "records/jq",
+                       "records/python", "tools/calc", "weights/circuit"})
+
+ALLOWED: dict[str, frozenset[str]] = {
+    op.name: frozenset({"NO_OUTPUT"} if op.family == "tools" else ())
+    | frozenset({"OP_NOT_VERB"} if op.name in NOT_VERBS else ())
+    for op in OPS
+}
 
 
-def _texts(op: Op) -> list[tuple[str, str]]:
-    out = [("summary", op.summary), ("description", op.description),
-           ("output", op.output.doc if op.output else "")]
-    out += [(f"port {p.name}.doc", p.doc) for p in op.inputs]
-    out += [(f"param {p.name}.doc", p.doc) for p in op.params]
-    out += [(f"param {p.name}.type", p.type) for p in op.params]
-    return out
+def assert_clean(codes: tuple[str, ...], subject: str | None = None) -> None:
+    hits = select_findings(check_core(), codes, subject=subject, allowed=ALLOWED)
+    assert not hits, format_findings(hits)
 
 
 @pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
 def test_entry_is_complete(op: Op) -> None:
-    assert op.summary.strip(), f"{op.name}: no summary"
-    assert op.description.strip(), f"{op.name}: no description"
-    if op.output is not None:
-        assert op.output.doc.strip(), f"{op.name}: says nothing about what it produces"
-    else:
-        assert op.family == "tools", f"{op.name}: emits nothing and is not a tool"
-    for p in op.params:
-        assert p.type.strip(), f"{op.name}.{p.name}: no type"
-        assert p.doc.strip(), f"{op.name}.{p.name}: no description"
-    names = [p.name for p in op.params]
-    assert len(names) == len(set(names)), f"{op.name}: duplicate params"
-    ports = [p.name for p in op.inputs]
-    assert len(ports) == len(set(ports)), f"{op.name}: duplicate ports"
-    for p in op.inputs:
-        assert p.doc.strip(), f"{op.name} port {p.name}: no description"
+    assert_clean(("NO_SUMMARY", "NO_DESCRIPTION", "NO_OUTPUT", "NO_OUTPUT_DOC", "PARAM_UNTYPED",
+                  "PARAM_UNDOCUMENTED", "PARAM_DUPLICATE", "PORT_DUPLICATE", "PORT_UNDOCUMENTED"), op.name)
 
 
 @pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
 def test_every_port_names_a_declared_kind(op: Op) -> None:
-    for p in op.inputs:
-        for k in p.kinds:
-            assert k in lexicon.BY_KIND, f"{op.name} port {p.name}: unknown kind {k!r}"
-        assert p.name == lexicon.WILDCARD or re.fullmatch(r"[a-z][a-z0-9_]*", p.name), (
-            f"{op.name}: port name {p.name!r}")
+    assert_clean(("PORT_KIND_UNKNOWN", "PORT_NAME_INVALID"), op.name)
 
 
 @pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
 def test_no_param_names_a_port(op: Op) -> None:
-    assert not (op.param_names & op.port_names), (
-        f"{op.name}: {sorted(op.param_names & op.port_names)} declared as both")
-    for where, text in _texts(op):
-        assert not re.search(r"by edge,? or (the|by) (the )?param", text, re.IGNORECASE), (
-            f"{op.name} {where}: an input is described as a param")
+    assert_clean(("PARAM_NAMES_PORT",), op.name)
     for retired in ("user_field", "system_field", "prefill_field", "answer_field",
                     "prediction_field", "reference_field", "messages_field",
                     "label_field", "label_coord", "pairwise_fields", "collection_path"):
@@ -69,51 +47,30 @@ def test_no_param_names_a_port(op: Op) -> None:
 
 @pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
 def test_an_expression_on_several_ports_says_which_it_reads(op: Op) -> None:
-    exprs = [p for p in op.params if "expression" in p.type]
-    for p in op.params:
-        assert set(p.reads) <= op.port_names, f"{op.name}.{p.name} reads undeclared ports {p.reads}"
-        assert p.replaces is None or p.replaces in op.param_names, f"{op.name}.{p.name} replaces nothing declared"
-        assert not (p.reads or p.replaces) or "expression" in p.type, f"{op.name}.{p.name}: reads is for expressions"
-    if len(op.inputs) > 1:
-        for p in exprs:
-            assert p.reads, f"{op.name}.{p.name}: an expression on an op with several ports declares the ports it reads"
+    assert_clean(("READS_UNKNOWN", "REPLACES_UNKNOWN", "READS_NOT_EXPRESSION", "READS_UNSAID"), op.name)
 
 
 @pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
 def test_summary_is_one_sentence_for_a_stranger(op: Op) -> None:
-    s = op.summary.strip()
-    assert not s.startswith("~canonical/"), f"{op.name}: summary restates the ref"
-    assert s[-1] in ".?!", f"{op.name}: summary should end as a sentence does"
-    assert len(s) < 400, f"{op.name}: summary is a paragraph, not a sentence"
+    assert_clean(("SUMMARY_RESTATES_REF", "SUMMARY_NOT_SENTENCE", "SUMMARY_TOO_LONG"), op.name)
 
 
 @pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
 def test_no_house_idioms_in_published_text(op: Op) -> None:
-    for where, text in _texts(op):
-        for pat in INTERNAL:
-            m = pat.search(text)
-            assert m is None, (
-                f"{op.name} {where}: {m.group(0)!r} is a reference nobody "
-                f"outside this repo can follow — rewrite it as what it means")
+    assert_clean(("HOUSE_IDIOM",), op.name)
 
 
 @pytest.mark.parametrize("op", OPS, ids=lambda op: op.name)
 def test_example_would_be_accepted(op: Op) -> None:
     if op.example is None:
         pytest.skip("no example written")
+    assert_clean(("EXAMPLE_REFUSED",), op.name)
     check_params(op.name, op.example)
-    inputs = dict(op.example_inputs or {})
-    for p in op.inputs:
-        if p.required and not p.wildcard and p.name not in inputs:
-            assert p.name in inputs, f"{op.name}: example wires no {p.name!r}, which is required"
-    check_inputs(op.name, inputs)
+    check_inputs(op.name, dict(op.example_inputs or {}))
 
 
 def test_common_params_are_documented() -> None:
-    for p in lexicon.COMMON:
-        assert p.type.strip() and p.doc.strip(), f"common param {p.name} undocumented"
-        for pat in INTERNAL:
-            assert not pat.search(p.doc), f"common param {p.name}: house idiom in doc"
+    assert_clean(("PARAM_UNDOCUMENTED", "HOUSE_IDIOM"), "common")
     assert COMMON == frozenset(p.name for p in lexicon.COMMON)
 
 
@@ -122,16 +79,11 @@ def test_block_params_is_derived_from_the_lexicon() -> None:
         assert accepted(name) == op.param_names
         assert ports(name) == op.port_names
     assert accepted("no/such-op") is None
-    for op in OPS:
-        assert not (op.param_names & COMMON), f"{op.name} redeclares a common param"
+    assert_clean(("PARAM_REDECLARES_COMMON",))
 
 
 def test_names_are_two_level_bare_and_unique() -> None:
-    names = [op.name for op in OPS]
-    assert len(names) == len(set(names)), "two ops share a name"
-    for name in names:
-        assert re.fullmatch(r"[a-z0-9-]+/[a-z0-9-]+", name), name
-        assert not name.endswith(tuple(f"/{d}" for d in "0123456789")), name
+    assert_clean(("NAME_INVALID", "NAME_DUPLICATE"))
     families: dict[str, int] = {}
     for op in OPS:
         families[op.family] = families.get(op.family, 0) + 1
@@ -146,8 +98,8 @@ def test_names_are_two_level_bare_and_unique() -> None:
 def test_operations_are_verbs_and_never_share_a_kinds_name() -> None:
     from mechbench_compute.lexicon import kinds as K
 
-    shared = sorted(op.name for op in OPS if op.name in K.BY_KIND)
-    assert shared == [], f"an operation shares a kind's name: {shared}"
+    assert_clean(("OP_NAMES_KIND", "OP_NOT_VERB"))
+    assert NOT_VERBS <= set(BY_NAME), sorted(NOT_VERBS - set(BY_NAME))
     assert lexicon.resolve("logits/read", warn=False) == "logits/read"
     assert lexicon.resolve("records/tabulate", warn=False) == "records/tabulate"
     assert lexicon.resolve("geometry/compare", warn=False) == "geometry/compare"
@@ -155,13 +107,7 @@ def test_operations_are_verbs_and_never_share_a_kinds_name() -> None:
 
 
 def test_to_dict_is_json_shaped() -> None:
-    import json
-
-    for op in OPS:
-        json.dumps(op.to_dict())
-        for p in op.params:
-            d = p.to_dict()
-            assert ("default" in d) != d["required"]
+    assert_clean(("NOT_JSON",))
 
 
 def _publishable(where: str, text: str) -> None:
@@ -235,35 +181,11 @@ class TestTheNameAndItsRendering:
 
 
 class TestWhatAnOperationNeeds:
-    NOT_READ_THROUGH_CTX = ("model.sample", "model.backward", "provider.", "network:",
-                            "runtime.mlx", "objects.write")
-    CARRIED_BY_A_MEMBER = {"provider": frozenset({"secrets"})}
-
-    @staticmethod
-    def _uses() -> dict[str, frozenset[str]]:
-        from mechbench_compute import ops
-
-        return {name: ops.read_context_uses(mod) for name, mod in ops.load_modules().items()}
-
     def test_needs_are_declared(self) -> None:
-        from mechbench_compute import ops
-
-        for name, uses in self._uses().items():
-            op = lexicon.BY_NAME[name]
-            for member in uses:
-                assert ops.check_member(op, member) is None, ops.check_member(op, member)
+        assert_clean(("NEED_UNDECLARED",))
 
     def test_no_declared_need_goes_unused(self) -> None:
-        from mechbench_compute import ops
-
-        for name, uses in self._uses().items():
-            op = lexicon.BY_NAME[name]
-            for need in op.needs:
-                if need.startswith(self.NOT_READ_THROUGH_CTX):
-                    continue
-                assert any(need in ops.MEMBER_NEEDS[m] | self.CARRIED_BY_A_MEMBER.get(m, frozenset())
-                           for m in uses if m in ops.MEMBER_NEEDS), (
-                    f"{name} declares {need!r} and its run never reaches for it")
+        assert_clean(("NEED_UNUSED",))
 
     def test_nothing_reaches_past_the_needs(self) -> None:
         from mechbench_compute import ops

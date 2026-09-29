@@ -1,23 +1,18 @@
 from __future__ import annotations
 
-import json
-import re
-from pathlib import Path
-
 import pytest
 
-import mechbench_compute
-
 from mechbench_compute import lexicon as L
+from mechbench_compute.conformance import check_core, format_findings, select_findings
 from mechbench_compute.lexicon import kinds as K
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind
 
-INTERNAL = [
-    re.compile(r"\b0\d{5}\b"),
-    re.compile(r"\b(?:task|tasks|epic|epics)\s+\d", re.I),
-    re.compile(r"\bstep\s+\d{2}\b", re.I),
-    re.compile(r"\bexperiment\s+0\d{2}\b", re.I),
-]
+
+def assert_clean(codes: tuple[str, ...], subject: str | None = None) -> None:
+    allowed = {op.name: frozenset({"NO_OUTPUT"}) for op in L.OPS if op.family == "tools"}
+    hits = select_findings(check_core(), codes, subject=subject, allowed=allowed)
+    assert not hits, format_findings(hits)
+
 
 FAMILIES = {"records", "text", "eval", "logits", "activations", "geometry",
             "intervene", "direction", "trajectory", "adapter", "weights",
@@ -28,40 +23,20 @@ FAMILIES = {"records", "text", "eval", "logits", "activations", "geometry",
 @pytest.mark.parametrize("kind", K.KINDS, ids=lambda k: k.name)
 def test_a_kind_is_named_and_described(kind: Kind) -> None:
     if kind.name != COLLECTION:
-        assert re.fullmatch(r"[a-z0-9-]+/[a-z0-9-]+", kind.name), kind.name
         assert kind.family in FAMILIES, kind.family
         assert kind.path == f"{KIND_ROOT}{kind.name}"
-    assert kind.summary.strip() and kind.summary.strip()[-1] in ".?!"
-    for pat in INTERNAL:
-        for text in (kind.summary, kind.doc, *[f["description"] for f in kind.fields.values()],
-                     *kind.header.values()):
-            assert not pat.search(text), f"{kind.name}: house idiom {pat.pattern!r}"
-    for f, spec in kind.fields.items():
-        assert spec.get("type") and spec.get("description"), f"{kind.name}.{f}: type and description"
-    inherited = K.all_fields(kind)
-    for r in kind.required:
-        assert r in inherited, f"{kind.name}: required {r!r} is not a field of it or an ancestor"
-    if kind.extends:
-        assert kind.extends in K.BY_KIND, f"{kind.name} extends unknown {kind.extends!r}"
-    json.dumps(kind.to_dict())
+    assert_clean(("KIND_NAME_INVALID", "KIND_NOT_DESCRIBED", "HOUSE_IDIOM", "KIND_FIELD_UNDESCRIBED",
+                  "KIND_REQUIRED_UNKNOWN", "KIND_EXTENDS_UNKNOWN", "NOT_JSON"), kind.name)
 
 
 def test_names_are_unique_and_the_container_is_one() -> None:
-    names = [k.name for k in K.KINDS]
-    assert len(names) == len(set(names))
+    assert_clean(("KIND_DUPLICATE",))
     assert COLLECTION in K.BY_KIND
     assert sum(1 for k in K.KINDS if k.name == COLLECTION) == 1
 
 
 def test_every_op_emits_a_declared_kind_or_nothing() -> None:
-    for op in L.OPS:
-        if op.output is None:
-            assert op.family == "tools", f"{op.name} emits nothing and is not a tool"
-            continue
-        assert op.output.kind in K.BY_KIND, f"{op.name} produces undeclared {op.output.kind!r}"
-        kind = K.BY_KIND[op.output.kind]
-        if op.output.collection:
-            assert kind.collectable, f"{op.name} emits a collection of {kind.name}, which declares no key"
+    assert_clean(("NO_OUTPUT", "OUTPUT_KIND_UNKNOWN", "OUTPUT_NOT_COLLECTABLE"))
 
 
 def test_every_op_kind_is_emitted_by_some_op() -> None:
@@ -75,25 +50,11 @@ def test_every_op_kind_is_emitted_by_some_op() -> None:
 
 
 def test_no_source_literal_names_an_undeclared_kind() -> None:
-    root = Path(mechbench_compute.__file__).parent
-    pat = re.compile(r'"kind":\s*"([^"]+)"')
-    bad = []
-    for path in sorted(root.rglob("*.py")):
-        if path.name == "_smoke_bench.py" or "lexicon" in path.parts or "ops" in path.parts:
-            continue
-        for m in pat.finditer(path.read_text()):
-            if m.group(1) not in K.BY_KIND:
-                bad.append(f"{path.relative_to(root)}: {m.group(1)!r}")
-    assert bad == [], bad
+    assert_clean(("KIND_LITERAL_UNKNOWN",))
 
 
 def test_the_lattice_is_acyclic_and_rooted() -> None:
-    for kind in K.KINDS:
-        seen, cur = [], kind
-        while cur.extends:
-            assert cur.extends not in seen, f"cycle at {kind.name}"
-            seen.append(cur.extends)
-            cur = K.BY_KIND[cur.extends]
+    assert_clean(("KIND_CYCLE", "KIND_EXTENDS_UNKNOWN"))
 
 
 class TestAliases:

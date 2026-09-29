@@ -7,43 +7,13 @@ from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 
+from mechbench_compute.conformance.names import KEEP_NAMES, PREDICATES, VERBS, normalize_name
+
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "mechbench_compute"
 
 SOURCES = ("mechbench_compute", "tests", "scripts")
 
-VERBS = {
-    "ablate", "add", "aggregate", "apply", "assert", "attribute", "average",
-    "bin", "bootstrap", "build", "bump", "cache", "calculate", "call", "cap",
-    "capture", "chat", "check", "choose", "classify", "clamp", "clear",
-    "close", "coerce", "collect", "compare", "compile", "compute", "contrast",
-    "convert", "copy", "correlate", "count", "cross", "decode", "decompose", "delete", "derive", "evaluate",
-    "describe", "diff", "digest", "dispatch", "drop", "dump", "edit", "emit",
-    "encode", "ensure", "estimate", "expand", "expect", "extend", "extract",
-    "fetch", "fill", "filter", "find", "finish", "fit", "flatten",
-    "fold", "force", "format", "freeze", "fuse", "gather", "generate", "get",
-    "group", "grow", "guess", "hash", "index", "infer", "iter", "join",
-    "judge", "keep", "label", "list", "load", "log", "lookup", "make", "map",
-    "mark", "match", "materialize", "measure", "merge", "move", "name",
-    "normalize", "note", "open", "orthogonalize", "pack", "parse", "patch",
-    "pick", "place", "plan", "plot", "pop", "prepare", "project", "prune",
-    "publish", "push", "put", "quote", "raise", "rank", "read", "record",
-    "reduce", "refuse", "register", "regress", "reject", "relabel", "release", "remove",
-    "rename", "render", "repair", "replace", "report", "require", "reshape", "resolve",
-    "replay", "restore", "reverse", "rewrite", "round", "run", "sample", "save", "say",
-    "scale", "scan", "score", "seed", "select", "send", "serialize", "set",
-    "shape", "shift", "show", "skip", "slice", "sort", "span", "split",
-    "stack", "start", "steer", "stop", "store", "strip", "subtract", "sum",
-    "summarize", "sweep", "tabulate", "take", "test", "time", "tokenize",
-    "total", "trace", "track", "train", "transform", "trim", "truncate", "try", "unembed",
-    "union", "unnest", "unpack", "update", "use", "validate", "verify", "walk", "wrap",
-    "write", "yield", "zip",
-}
-
-PREDICATES = {"is", "has", "can", "should", "must", "needs", "wants", "are",
-              "fuses", "satisfies", "matches", "holds"}
-
-KEEP_NAMES = {"run", "OP", "MONOID", "main"}
 KEEP_DIRS = ("lexicon/",)
 
 PATCHY = re.compile(r"setattr|getattr|patch|delattr|hasattr")
@@ -54,13 +24,6 @@ def read_tree(path: Path) -> ast.Module:
         warnings.simplefilter("ignore", SyntaxWarning)
         warnings.simplefilter("ignore", DeprecationWarning)
         return ast.parse(path.read_text())
-
-
-def normalize_name(name: str) -> str:
-    bare = name.lstrip("_")
-    if bare.isupper():
-        return bare.lower()
-    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", bare).lower()
 
 
 def find_module(dotted: str) -> str | None:

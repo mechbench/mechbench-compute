@@ -79,3 +79,90 @@ An extension writes its own kinds and core's by short name,
 rule. The operations that still import internals directly are listed
 there in `IMPORTS_INTERNALS`; the list may only shrink, and a file that
 no longer needs to be on it must come off.
+
+## Conformance
+
+`mechbench_compute.conformance` is the declaration suite as functions:
+the same rules that hold core's operations and kinds in the test suite,
+run over an extension's manifest. `extension test` runs it in the
+author's shell; the verification job runs it on a runner, in a scratch
+environment beside a named compute release.
+
+```
+python -m mechbench_compute.conformance <package | module:ATTR | entry point> [--inputs DIR] [--model]
+```
+
+prints the report as JSON and exits 1 when a declaration fails or an
+example is refused. `--inputs DIR` reads each example's `$ref` inputs
+from `DIR/<bench path>.json` (or `DIR/<file>`); `--model` says a model
+is available, so operations that need one run too. The same pieces,
+imported:
+
+- `check_manifest(extension)` takes an `Extension` or its wire form
+  (`Extension.to_dict()`, or the JSON the platform stores) and returns
+  a list of `Finding(code, at, message, severity)`. It never raises.
+- `check_package(extension)` reads the loaded package: each operation
+  module's `run`, its function names, the `ctx` members its `run`
+  reaches for, the kind literals in its source, and whether its closed
+  sets of words are enforced in code.
+- `run_examples(extension, *, resolve_inputs, model=False)` installs
+  the extension into the registry for the duration, resolves each
+  operation's `example_inputs` through `resolve_inputs(op, example_inputs)`
+  (a callback returning collections keyed by port), runs the example
+  twice in-process, checks the output against the declared kind and
+  its key fields, and compares the two results' canonical bytes.
+- `check_extension(...)` does all three and returns a `Conformance`,
+  whose `to_dict()` is the extension object's `conformance`:
+  `{compute, declarations: passed | failed, double_run: identical |
+  differs | skipped, installs_beside}`. `verified_by` and `at` are the
+  platform's to write. `report()` adds the findings and each example's
+  result.
+
+A finding's `at` is the operation or kind it is about, then `.param`,
+`:port` or `#function` where it is narrower. `severity` is `error` or
+`warning`; any error fails the declarations.
+
+| code | what it means |
+|---|---|
+| `NO_SUMMARY`, `NO_DESCRIPTION` | the operation says nothing about itself |
+| `NO_OUTPUT`, `NO_OUTPUT_DOC` | it emits nothing, or does not say what it emits |
+| `PARAM_UNTYPED`, `PARAM_UNDOCUMENTED`, `PARAM_DUPLICATE` | a param lacks a type or a description, or is declared twice |
+| `PORT_UNDOCUMENTED`, `PORT_DUPLICATE`, `PORT_NAME_INVALID` | a port lacks a description, is declared twice, or is not `[a-z][a-z0-9_]*` |
+| `PORT_KIND_UNKNOWN` | a port names a kind neither core nor the extension declares |
+| `PARAM_NAMES_PORT` | a name is both a param and a port, or prose describes an input as a param |
+| `READS_UNKNOWN`, `REPLACES_UNKNOWN`, `READS_NOT_EXPRESSION`, `READS_UNSAID` | an expression's `reads`/`replaces` are wrong, or an expression on several ports does not say which it reads |
+| `SUMMARY_RESTATES_REF`, `SUMMARY_NOT_SENTENCE`, `SUMMARY_TOO_LONG` | the summary is not one sentence for a stranger under 400 characters |
+| `HOUSE_IDIOM` | published text names something only its author can follow (a ticket number, an internal repo) |
+| `EXAMPLE_REFUSED` | the example names a param or port the operation does not have, or leaves a required port unwired |
+| `EXAMPLE_TYPE_MISMATCH` | an example value does not fit its param's declared type |
+| `PARAM_REDECLARES_COMMON` | a param redeclares one every operation takes |
+| `NAME_INVALID`, `NAME_DUPLICATE` | the name is not `family/leaf`, or two operations share it |
+| `OP_NOT_VERB`, `OP_NAMES_KIND` | the leaf does not start with a verb, or the operation shares a kind's name |
+| `NEED_UNKNOWN` | a need outside the vocabulary |
+| `NOT_JSON` | the declaration has no JSON form |
+| `TYPE_INVALID`, `OBJECT_UNDECLARED`, `FIELDS_INVALID` | a type outside the grammar; an `object` with no fields; fields on a type with no `object` |
+| `VALUE_INVALID`, `CHOICES_INVALID` | a `value=` that is not a declared grammar; choices that do not fit the type or the default |
+| `OTHERWISE_INVALID` | an `Otherwise` names an unknown kind, param or port, or the output prose does not name it |
+| `OUTPUT_KIND_UNKNOWN`, `OUTPUT_NOT_COLLECTABLE` | the output kind is undeclared, or a collection of a kind with no key |
+| `KIND_NAME_INVALID`, `KIND_DUPLICATE`, `KIND_NOT_DESCRIBED`, `KIND_FIELD_UNDESCRIBED` | a kind's name, uniqueness, summary or fields |
+| `KIND_REQUIRED_UNKNOWN`, `KIND_EXTENDS_UNKNOWN`, `KIND_CYCLE` | a required field nobody declares; an unknown parent; a cycle |
+| `NO_SPEAK` | an extension kind with no `speak` |
+| `KIND_NO_EXTENDS`, `KIND_SEALED_FAMILY`, `KIND_SHADOWS_CORE`, `KIND_CHANGES_ANCESTOR` | an extension kind extends nothing, sits in a sealed family, takes a core kind's name, or changes a field or header field a core ancestor declares |
+| `NO_RUN` | an operation module defines no `run` |
+| `NAME_NOT_VERB` | a function in an operation module does not start with a verb |
+| `NEED_UNDECLARED` | `run` reaches for a `ctx` member no declared need lends |
+| `NEED_UNUSED` (warning) | a declared need `run` never reaches for |
+| `KIND_LITERAL_UNKNOWN` | source names an undeclared kind in a `"kind": "…"` literal |
+| `CLOSED_SET_UNENFORCED` | declared choices no code enforces as a set |
+| `NO_EXAMPLE`, `EXAMPLE_NEEDS_MODEL` (warnings) | no example to run; an example that needs a model where none is available |
+| `EXAMPLE_INPUTS_UNRESOLVED`, `EXAMPLE_FAILED` | the inputs could not be read; the run raised |
+| `EXAMPLE_WRONG_KIND` | the output does not satisfy the declared kind, or an item lacks the kind's key fields |
+| `EXAMPLE_DIFFERS`, `EXAMPLE_NOT_CANONICAL` | the two runs differ (an error when the operation declares itself deterministic); the output has no canonical bytes |
+| `EXTENSION_REFUSED` | the registry refused the extension at load |
+
+Core's own test files (`test_lexicon.py`, `test_lexicon_shapes.py`,
+`test_kinds.py`) assert that `check_core()` has no findings, so a rule
+lives in one place. The exceptions core keeps are allowed codes per
+operation, in the test files: the tools emit nothing, and a short list
+of operation names that predate the verb rule. The kinds that do not
+speak yet are core's ratchet in `test_kinds.py`, not a finding.
