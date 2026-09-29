@@ -10,13 +10,14 @@ from mechbench_compute.lexicon import kinds as K
 
 COMMON: frozenset[str] = frozenset(p.name for p in _COMMON_PARAMS)
 
-ACCEPTED: dict[str, frozenset[str]] = {
-    name: op.param_names for name, op in BY_NAME.items()
-}
+def accepted(block: str) -> frozenset[str] | None:
+    op = BY_NAME.get(block)
+    return op.param_names if op is not None else None
 
-PORTS: dict[str, frozenset[str]] = {
-    name: op.port_names for name, op in BY_NAME.items()
-}
+
+def ports(block: str) -> frozenset[str] | None:
+    op = BY_NAME.get(block)
+    return op.port_names if op is not None else None
 
 
 def check_params(block: str, params: Mapping[str, object]) -> None:
@@ -24,10 +25,10 @@ def check_params(block: str, params: Mapping[str, object]) -> None:
         block = lexicon.resolve(block, warn=False)
     except KeyError:
         return
-    accepted = ACCEPTED.get(block)
-    if accepted is None:
+    names = accepted(block)
+    if names is None:
         return
-    unknown = sorted(k for k in set(params) - accepted - COMMON
+    unknown = sorted(k for k in set(params) - names - COMMON
                      if not k.startswith("_"))
     if not unknown:
         return
@@ -39,7 +40,7 @@ def check_params(block: str, params: Mapping[str, object]) -> None:
                 f"{'is an input port' if len(ported) == 1 else 'are input ports'}"
                 f" of {block}: wire an edge onto it, or give the value under "
                 f"the node's `inputs`, not its `params`.")
-    known = ", ".join(sorted(accepted | COMMON))
+    known = ", ".join(sorted(names | COMMON))
     raise ValueError(
         f"{block} does not accept {', '.join(repr(u) for u in unknown)}.{hint} "
         f"If the protocol is newer than this runner, the runner's copy of "

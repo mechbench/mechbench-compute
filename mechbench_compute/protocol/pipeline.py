@@ -17,6 +17,7 @@ from mechbench_compute.protocol.run_state import RunState
 from mechbench_compute.protocol.serialize_params import serialize_params
 from mechbench_compute.protocol.sort_edges import sort_edges
 from mechbench_compute.protocol.store_result import store_result
+from mechbench_compute.registry import REGISTRY
 
 
 class Pipeline:
@@ -61,7 +62,7 @@ class Pipeline:
             check_params(block, serialize_params(params))
             inputs = check_inputs(block, inputs)
             fingerprint = resume_mod.node_fingerprint(
-                block=lexicon.canonical_path(block), params=serialize_params(params),
+                block=REGISTRY.resolve(block).pinned, params=serialize_params(params),
                 input_hashes=[state.node_hashes.get(e["from"]["node"], "")
                               for e in in_edges] + inline_hashes,
                 core_version=core_version,

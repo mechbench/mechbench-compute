@@ -27,6 +27,9 @@ its own business.
   `Resume`, `Kind`, `Draw`, `Metric`, `F`, and `read_body_level` /
   `read_model_level` for an operation whose resume level depends on its
   params.
+- **The extension**: `Extension` and `Package`, the `MANIFEST` an
+  extension package's entry point (`mechbench.extensions`) names; its
+  `ops/` and `kinds/` are walked as core's are (docs/OPS_LAYOUT.md).
 
 Importing `mechbench_compute.api` loads nothing; each name loads its
 module the first time it is read, so a declaration imports cleanly on a

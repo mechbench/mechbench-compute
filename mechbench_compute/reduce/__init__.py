@@ -23,17 +23,13 @@ REDUCE_ALGEBRA: dict[str, str] = {
 
 
 def algebra(block: str) -> str:
-    from mechbench_compute import lexicon
+    from mechbench_compute.registry import REGISTRY
 
-    try:
-        block = lexicon.resolve(block, warn=False)
-    except KeyError:
-        pass
-    if block in REDUCE_ALGEBRA:
-        return REDUCE_ALGEBRA[block]
-    from mechbench_compute import ops
-
-    return "monoid" if getattr(ops.find(block), "MONOID", None) is not None else "collect"
+    resolved = REGISTRY.find(block)
+    name = resolved.name if resolved is not None else block
+    if name in REDUCE_ALGEBRA:
+        return REDUCE_ALGEBRA[name]
+    return "monoid" if getattr(getattr(resolved, "module", None), "MONOID", None) is not None else "collect"
 
 
 def merge_tree(monoid: Monoid, partials: Sequence[Any]) -> Any:

@@ -10,9 +10,9 @@ def find_monoid(block: str, params: Mapping[str, Any] | None = None) -> Monoid |
     from mechbench_compute.reduce import MONOIDS
     cls = MONOIDS.get(block)
     if cls is None:
-        from mechbench_compute import ops
+        from mechbench_compute.registry import REGISTRY
 
-        cls = getattr(ops.find(block), "MONOID", None)
+        cls = getattr(getattr(REGISTRY.find(block), "module", None), "MONOID", None)
     if cls is None:
         return None
     m = cls()

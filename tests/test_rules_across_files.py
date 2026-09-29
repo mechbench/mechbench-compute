@@ -26,6 +26,20 @@ def test_an_operation_file_imported_first_still_registers_its_operation():
     assert run.returncode == 0, run.stderr
 
 
+@pytest.mark.parametrize("first, absent", [
+    ("mechbench_compute.lexicon", ("mechbench_compute.registry", "mechbench_compute.ops")),
+    ("mechbench_compute.ops", ("mechbench_compute.lexicon", "mechbench_compute.registry")),
+    ("mechbench_compute.registry", ("mechbench_compute.ops",)),
+])
+def test_the_registry_imports_the_lexicon_and_the_operations_and_neither_imports_the_other(first, absent):
+    code = (f"import sys, {first}\n"
+            f"assert not [m for m in {absent!r} if m in sys.modules], sorted(sys.modules)\n"
+            "from mechbench_compute import lexicon\n"
+            "assert 'records/filter' in lexicon.BY_NAME\n")
+    run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr[-2000:]
+
+
 def _read_canonical_bytes_per_float() -> float:
     rng = random.Random(0)
     values = [rng.uniform(-1.0, 1.0) for _ in range(10_000)]

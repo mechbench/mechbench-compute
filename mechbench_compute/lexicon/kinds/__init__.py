@@ -1,45 +1,22 @@
 from __future__ import annotations
 
-import importlib
-import pkgutil
 import warnings
 from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT, Kind
 from mechbench_compute.lexicon.order import canonical_collection
+from mechbench_compute.lexicon.views import view_by_kind, view_kinds
+from mechbench_compute.lexicon.walk import name_module
 
 
 def resolve_kind_module(kind: str) -> str:
-    if "/" not in kind:
-        return f"{__name__}.{kind}"
-    family, name = kind.split("/", 1)
-    return f"{__name__}.{family}.{name.replace('-', '_')}"
+    return name_module(__name__, kind)
 
 
-def find_kinds() -> tuple[Kind, ...]:
-    found: list[Kind] = []
-    for info in pkgutil.walk_packages(__path__, prefix=f"{__name__}."):
-        if info.ispkg or info.name.rsplit(".", 1)[-1].startswith("_"):
-            continue
-        kind = getattr(importlib.import_module(info.name), "KIND", None)
-        if kind is None:
-            raise ImportError(f"{info.name} is under kinds/ and declares no KIND")
-        if resolve_kind_module(kind.name) != info.name:
-            raise ImportError(
-                f"{info.name} declares {kind.name!r}, which belongs at {resolve_kind_module(kind.name)}: "
-                "a kind's path is a function of its name")
-        found.append(kind)
-    return tuple(sorted(found, key=lambda k: (k.name == COLLECTION, k.name)))
+KINDS = view_kinds()
 
-
-KINDS: tuple[Kind, ...] = find_kinds()
-
-BY_KIND: dict[str, Kind] = {k.name: k for k in KINDS}
-
-COLLECTION_KIND: Kind = BY_KIND[COLLECTION]
-
-PLATFORM: tuple[Kind, ...] = tuple(k for k in KINDS if k.platform)
+BY_KIND = view_by_kind()
 
 KIND_ALIASES: dict[str, tuple[str, bool]] = {
     "document_collection": ("text/document", True),
@@ -218,7 +195,7 @@ def collection(item_kind: str, items: list[Any], **header: Any) -> dict[str, Any
 
 
 __all__ = [
-    "BY_KIND", "COLLECTION", "COLLECTION_KIND", "KINDS", "KIND_ALIASES", "PLATFORM",
+    "BY_KIND", "COLLECTION", "KINDS", "KIND_ALIASES",
     "all_fields", "ancestry", "canonical_collection", "canonical_kind_path", "collection",
     "item_kind_of", "items_of", "resolve_kind", "satisfies",
 ]

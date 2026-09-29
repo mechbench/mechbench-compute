@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import ast
-import importlib
 import inspect
-import pkgutil
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -137,39 +135,39 @@ class Context:
 
 
 def resolve_module_name(op: str) -> str:
-    family, name = op.split("/", 1)
-    return f"{__name__}.{family}.{name.replace('-', '_')}"
+    from mechbench_compute.lexicon.walk import name_module
+
+    return name_module(__name__, op)
 
 
-@cache
 def load_modules() -> dict[str, ModuleType]:
-    found: dict[str, ModuleType] = {}
-    for info in pkgutil.walk_packages(__path__, prefix=f"{__name__}."):
-        if info.ispkg or info.name.rsplit(".", 1)[-1].startswith("_"):
-            continue
-        mod = importlib.import_module(info.name)
-        op = getattr(mod, "OP", None)
-        if op is None:
-            raise ImportError(f"{info.name} is under ops/ and declares no OP")
-        if resolve_module_name(op.name) != info.name:
-            raise ImportError(
-                f"{info.name} declares {op.name!r}, which belongs at "
-                f"{resolve_module_name(op.name)}: an operation's path is a function of its name")
-        found[op.name] = mod
-    return found
+    from mechbench_compute.registry import CORE
+
+    return CORE.modules()
+
+
+def resolve_op(op: Any) -> Any:
+    if hasattr(op, "module"):
+        return op
+    from mechbench_compute.registry import REGISTRY
+
+    return REGISTRY.resolve(op)
 
 
 def find(op: str) -> ModuleType | None:
-    return load_modules().get(op)
+    from mechbench_compute.registry import REGISTRY
+
+    hit = REGISTRY.find(op)
+    return hit.module if hit is not None else None
 
 
-def fuses_adapter(op: str) -> bool:
-    declared = load_modules()[op].OP
+def fuses_adapter(op: Any) -> bool:
+    declared = resolve_op(op).op
     return "model.forward" in declared.needs and declared.port("adapter") is not None
 
 
-def fuses_adapter_locally(op: str) -> bool:
-    declared = load_modules()[op].OP
+def fuses_adapter_locally(op: Any) -> bool:
+    declared = resolve_op(op).op
     return declared.requires == "by-model" and declared.port("adapter") is not None
 
 
@@ -212,14 +210,17 @@ def read_context_uses(mod: ModuleType) -> frozenset[str]:
     return frozenset(uses)
 
 
-@cache
 def find_standalone() -> frozenset[str]:
-    return frozenset(name for name, mod in load_modules().items()
-                     if not mod.OP.needs and not read_context_uses(mod))
+    from mechbench_compute.registry import REGISTRY
+
+    return read_standalone(REGISTRY, REGISTRY.generation)
 
 
-def run_standalone(op: str, inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
-    return load_modules()[op].run(Context(), inputs, params)
+@cache
+def read_standalone(registry: Any, generation: int) -> frozenset[str]:
+    return frozenset(r.name for r in registry.resolved()
+                     if not r.op.needs and not read_context_uses(r.module))
 
 
-import mechbench_compute.lexicon  # noqa: E402,F401
+def run_standalone(op: Any, inputs: Mapping[str, Any], params: Mapping[str, Any]) -> Any:
+    return resolve_op(op).module.run(Context(), inputs, params)

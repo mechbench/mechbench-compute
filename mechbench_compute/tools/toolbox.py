@@ -81,9 +81,11 @@ class Toolbox:
                     "the executor can run")
             return self._runner(handler["protocol"], inputs, params)
         from mechbench_compute import ops
+        from mechbench_compute.registry import REGISTRY
 
-        if ref in ops.find_standalone():
-            return ops.run_standalone(ref, inputs, params)
+        resolved = REGISTRY.find(ref)
+        if resolved is not None and resolved.name in ops.find_standalone():
+            return ops.run_standalone(resolved, inputs, params)
         if self._runner is None:
             raise ValueError(
                 f"tool {tool.name!r}: {ref!r} is not a pure block, so it needs "

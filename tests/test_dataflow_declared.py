@@ -184,7 +184,7 @@ def test_an_op_may_declare_that_it_wants_the_reference_itself(monkeypatch):
         params = (P("target", "ref", "Where to publish.", reference=True),
                   P("label", "string", "A label.", None))
 
-    monkeypatch.setitem(lexicon.BY_NAME, "test/publish", FakeOp())
+    monkeypatch.setattr(lexicon, "BY_NAME", {**lexicon.BY_NAME, "test/publish": FakeOp()})
     assert dataflow.wants_reference("test/publish", "target") is True
     assert dataflow.wants_reference("test/publish", "label") is False
     assert dataflow.wants_reference("test/publish", "absent") is False

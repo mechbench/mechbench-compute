@@ -7,6 +7,7 @@ import json
 from mechbench_compute import __version__
 from mechbench_compute.lexicon import kinds as K
 from mechbench_compute.lexicon._base import COLLECTION, KIND_ROOT
+from mechbench_compute.registry import CORE
 
 
 def main() -> None:
@@ -24,7 +25,7 @@ def main() -> None:
     print("export const KINDS: Record<string, { key: string[]; collectable: boolean; platform: boolean; "
           "extends: string | null; fields: string[]; summary: string; speak?: string; "
           "draw?: { mark: string; encoding: Record<string, string> }; version: number }> = {")
-    for k in K.KINDS:
+    for k in CORE.kinds():
         said = f", speak: {json.dumps(k.speak)}" if k.speak else ""
         drawn = f", draw: {json.dumps(k.draw.to_dict())}" if k.draw else ""
         print(f"  {json.dumps(k.name)}: {{ key: {json.dumps(list(k.key))}, collectable: {json.dumps(k.collectable)}, "

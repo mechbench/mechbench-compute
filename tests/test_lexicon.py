@@ -5,7 +5,7 @@ import re
 import pytest
 
 from mechbench_compute import lexicon
-from mechbench_compute.block_params import ACCEPTED, COMMON, check_inputs, check_params
+from mechbench_compute.block_params import COMMON, accepted, check_inputs, check_params, ports
 from mechbench_compute.lexicon import BY_NAME, OPS, Op
 
 INTERNAL = [
@@ -118,9 +118,10 @@ def test_common_params_are_documented() -> None:
 
 
 def test_block_params_is_derived_from_the_lexicon() -> None:
-    assert set(ACCEPTED) == set(BY_NAME)
     for name, op in BY_NAME.items():
-        assert ACCEPTED[name] == op.param_names
+        assert accepted(name) == op.param_names
+        assert ports(name) == op.port_names
+    assert accepted("no/such-op") is None
     for op in OPS:
         assert not (op.param_names & COMMON), f"{op.name} redeclares a common param"
 
@@ -362,10 +363,10 @@ class TestWhatAnOperationNeeds:
         for op in lexicon.OPS:
             assert op.requires in ("pure", "mlx-local", "remote", "by-model"), op.name
 
-    def test_the_operations_that_run_either_side_are_the_remote_blocks(self) -> None:
-        from mechbench_compute.protocol import REMOTE_BLOCKS
-
-        assert {op.name for op in lexicon.OPS if op.requires == "by-model"} == set(REMOTE_BLOCKS)
+    def test_the_operations_that_run_either_side_are_the_ones_that_chat_with_a_provider(self) -> None:
+        either = {op.name for op in lexicon.OPS if op.requires == "by-model"}
+        assert either == {op.name for op in lexicon.OPS if "provider.chat" in op.needs}
+        assert either == {"text/chat", "eval/judge"}
 
     def test_the_pure_registry_is_pure(self) -> None:
         from mechbench_compute import ops

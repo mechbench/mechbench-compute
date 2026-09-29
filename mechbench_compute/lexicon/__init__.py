@@ -44,13 +44,12 @@ from mechbench_compute.lexicon.kinds import (
     satisfies,
 )
 
-from mechbench_compute import ops as _ops  # noqa: E402
+from mechbench_compute.lexicon.address import is_extension_spelling
+from mechbench_compute.lexicon.views import read_registry, view_by_name, view_ops
 
-OPS: tuple[Op, ...] = tuple(
-    sorted((m.OP for m in _ops.load_modules().values()), key=lambda op: op.name)
-)
+OPS = view_ops()
 
-BY_NAME: dict[str, Op] = {op.name: op for op in OPS}
+BY_NAME = view_by_name()
 
 RETIRED: dict[str, str] = {
     "factor-cross": "records/cross",
@@ -145,7 +144,7 @@ _VERSION_TAIL = re.compile(r"/\d+$")
 
 
 def canonical_path(name: str) -> str:
-    return name if name.startswith("~") else f"{ROOT}{name}"
+    return name if name.startswith("~") or is_extension_spelling(name) else f"{ROOT}{name}"
 
 
 def is_canonical(block: str) -> bool:
@@ -157,15 +156,14 @@ def is_canonical(block: str) -> bool:
 
 
 def resolve(block: str, *, warn: bool = True) -> str:
-    s = block.strip()
-    if s.startswith(ROOT):
-        s = s[len(ROOT):]
-    if s in BY_NAME:
-        return s
-    raise KeyError(block)
+    return read_registry().resolve(block).name
 
 
 def explain_unknown(block: str) -> str:
+    return read_registry().explain(block)
+
+
+def explain_core(block: str) -> str:
     s = block.strip()
     if s.startswith(ROOT):
         s = s[len(ROOT):]
@@ -186,6 +184,6 @@ __all__ = [
     "ALIASES_REMOVED_IN", "BY_FAMILY", "BY_NAME", "BY_VALUE", "COMMON",
     "FAMILIES", "OPS", "REPLACED", "REPLACED_IN", "REQUIRED", "RETIRED", "ROOT", "VALUES", "WILDCARD",
     "Draw", "Family", "In", "NEEDS", "Op", "Otherwise", "P", "Param", "Port", "Resume", "RetiredKindName", "Value",
-    "ancestry", "canonical_path", "explain_unknown", "is_canonical",
+    "ancestry", "canonical_path", "explain_core", "explain_unknown", "is_canonical",
     "display_name", "name_of_title", "resolve", "satisfies", "title",
 ]

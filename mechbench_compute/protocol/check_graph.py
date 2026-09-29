@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from mechbench_compute import dataflow, lexicon
+from mechbench_compute import dataflow
+from mechbench_compute.registry import REGISTRY
 
 MISSING_POLICIES = ("fail", "skip", "placeholder")
 
@@ -30,15 +31,15 @@ def check_graph(nodes, edges, order) -> None:
             problems.append(f"  {nid}: no block")
             continue
         try:
-            name = lexicon.resolve(block)
+            resolved = REGISTRY.resolve(block)
         except KeyError:
-            problems.append(f"  {nid}: {lexicon.explain_unknown(block)}")
+            problems.append(f"  {nid}: {REGISTRY.explain(block)}")
             continue
+        name, op = resolved.name, resolved.op
         try:
             check_params(name, node.get("params") or {})
         except ValueError as e:
             problems.append(f"  {nid} ({name}): {e}")
-        op = lexicon.BY_NAME[name]
         filled = into.get(nid, set()) | {
             k for k, v in (node.get("inputs") or {}).items() if v is not None}
         for port_name in sorted(filled):

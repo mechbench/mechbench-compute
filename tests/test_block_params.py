@@ -7,8 +7,10 @@ import re
 import pytest
 
 from mechbench_compute import ops
-from mechbench_compute.block_params import ACCEPTED, COMMON, check_inputs, check_params
+from mechbench_compute.block_params import COMMON, accepted, check_inputs, check_params
 from mechbench_compute.lexicon import BY_NAME
+
+ACCEPTED = {name: accepted(name) for name in BY_NAME}
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "mechbench_compute"
 P = "protocol/pipeline.py"

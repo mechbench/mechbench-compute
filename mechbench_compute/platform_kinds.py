@@ -23,9 +23,10 @@ def manifests():
     import mechbench_schema as ms
 
     from mechbench_compute import sandbox_kinds as sk
+    from mechbench_compute.registry import CORE
 
     out = []
-    for kind in K.KINDS:
+    for kind in CORE.kinds():
         if kind.renderer is None or kind.name == COLLECTION:
             continue
         schema = (sk.FS_SNAPSHOT_SCHEMA if kind.name == "sandbox/snapshot"

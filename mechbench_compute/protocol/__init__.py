@@ -5,10 +5,7 @@ from typing import Any
 
 from mechbench_compute import Model
 from mechbench_compute.protocol.dispatch import Dispatch
-from mechbench_compute.protocol.is_remote import (  # noqa: F401
-    REMOTE_BLOCKS,
-    is_remote,
-)
+from mechbench_compute.protocol.is_remote import is_remote  # noqa: F401
 from mechbench_compute.protocol.legacy_kinds import LegacyKinds
 from mechbench_compute.protocol.memo import Memo
 from mechbench_compute.protocol.model import ModelLoading

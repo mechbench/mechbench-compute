@@ -33,6 +33,22 @@ different orders are one computation.
 - **The compute version** — see the next two sections, which are the
   whole point of this document.
 
+## An extension's operation: the pin is the block
+
+A core operation's `block` is its stored path, and `compute` is its
+lever. An extension's operation has no such lever — its code ships
+outside compute — so its `block` is hashed in its pinned spelling,
+`<owner>/<project>/ops/<family>/<leaf>@sha256:<digest>`, where the
+digest is that of the extension version that provided it
+(`Resolved.pinned`; the digest rule is in `docs/OPS_LAYOUT.md`). Run
+creation writes that spelling into the flattened graph; a graph that
+still names the bare address, or `@<n>`, is resolved against the
+installed version first and fingerprinted by its pin, so the bare
+spelling and its pin are one computation, and a different version of
+the extension is a different one. A pin that does not match the
+installed version does not run. Core fingerprints are unchanged by
+this: their spelling is still `~canonical/ops/<name>`.
+
 ## NOT covered
 
 - **Unstated defaults.** Params are hashed as declared. Change

@@ -13,6 +13,82 @@ nothing said so.
 
 ---
 
+## 0.165.0 — 2026-09-29
+
+### Changes that raise
+
+- A block is resolved through a registry (`mechbench_compute.registry`,
+  task 000413). `REGISTRY.resolve(spelling)` returns a `Resolved` —
+  `op`, `tier` (`core` | `installed`), `module`, `source` (`core`, or
+  `<owner>/<project>/extensions/<name>@sha256:<digest>`), `name`,
+  `version` — from its sources in order: `CoreSource` (the per-file
+  walk of `ops/` and `lexicon/kinds/`, now `lexicon/walk.py`) and
+  `InstalledSource` (the entry points in the group
+  `mechbench.extensions`, each naming an `Extension`). An unknown
+  spelling raises `KeyError` with `lexicon.explain_unknown`'s message.
+  `refresh()` re-reads the entry points and bumps `generation`; an
+  extension whose version changed after it was loaded raises
+  `RestartRequired`.
+- Addresses (`lexicon/address.py`), the grammar of mechbench-models'
+  `readAddress`: core `family/leaf` (or `~canonical/ops/family/leaf`);
+  `<owner>/<project>/ops/<family>/<leaf>` with `@<n>` or
+  `@sha256:<64 hex>`; `…/kinds/<family>/<leaf>`; `…/marks/<name>@<n>`
+  and core `<name>@<n>`; `…/extensions/<name>[@<n>|@sha256:…]`;
+  `…/architectures/<model_type>`. A version in the path is refused.
+  An extension spelling resolves only when its counter or pin matches
+  the installed version; a wrong pin names both digests.
+- `Extension(name="<owner>/<project>", extension=, version=, module=,
+  package=Package(name, python), min_compute=, links=, provenance=)` is
+  an extension's declaration, exported by `mechbench_compute.api` with
+  `Package`. Its `ops` and `kinds` are walked from `<module>.ops` and
+  `<module>.kinds`, `marks` read from `<module>/marks/*.json`, `needs` is
+  the union of its ops'. `to_dict()` is the manifest mechbench-models'
+  `ExtensionManifestSchema` reads (`kind`, `owner`, `project`, `name`,
+  `version`, `tier`, `provides.{ops,kinds,marks,architectures}` — each
+  op its `Op.to_dict()` plus `entry`, the module — `needs`,
+  `min_compute`, `package`, `links`, `provenance`, and the platform's
+  fields at their defaults). An extension is refused at load when its
+  owner is a core family name, a kind extends anything but a core kind
+  or one of its own, a kind is in a sealed family or has no `speak`, or
+  an op names a kind nobody declares.
+- The digest: `hash_extension(manifest)` is `sha256:` over the
+  canonical JSON of the manifest less `state`, `visibility`, `party`,
+  `flags`, `approved`, `promoted` and `conformance` — keys sorted by
+  UTF-16 code unit, no whitespace, strings as `JSON.stringify` writes
+  them, numbers in JavaScript's shortest form. It is
+  `canonicalJson(declarationOf(m))` in mechbench-models, byte for byte
+  (a test runs both). An installed extension's digest is the hash its
+  install recorded in `~/.mechbench/extensions/installed.json` when
+  there is one.
+- The tables are views over the registry: `lexicon.OPS`, `kinds.KINDS`
+  (sequences) and `lexicon.BY_NAME`, `kinds.BY_KIND` (mappings) are read
+  afresh on every access and hold installed extensions' ops and kinds
+  under their addresses. They cannot be assigned into.
+  `block_params.ACCEPTED` and `PORTS` are gone: `accepted(block)` and
+  `ports(block)`. `kinds.COLLECTION_KIND`, `kinds.PLATFORM` and
+  `kinds.find_kinds` are gone (nothing read them).
+  `protocol.REMOTE_BLOCKS` is gone: a node runs remotely when its op
+  needs `provider.chat` and its model is a provider's endpoint.
+- Dispatch runs every tier in process: `REGISTRY.resolve(block)` and
+  `module.run(ctx, …)` with `Context.for_op(op)`. `_run_op`,
+  `fuses_adapter`, `fuses_adapter_locally`, `is_remote` and
+  `run_standalone` take a `Resolved` or a spelling; `find_standalone`
+  includes an installed extension's pure ops. `ops.find(name)` stays one
+  release, returning the module.
+- The lexicon and the operations no longer import each other: the
+  registry imports both.
+
+### Changes that alter results without raising
+
+_None._ A core node's fingerprint is unchanged
+(`~canonical/ops/<name>`). An extension op's node is fingerprinted by
+its pinned spelling, `<address>@sha256:<digest>`, whether the graph
+names it bare, by `@<n>` or by its pin (docs/FINGERPRINTS.md). The
+generated `lexicon.generated.ts` and `kinds.generated.ts` read the core
+source only and are unchanged.
+
+---
+
 ## 0.164.0 — 2026-09-29
 
 ### Changes that raise

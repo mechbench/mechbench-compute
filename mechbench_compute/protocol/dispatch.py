@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from mechbench_compute import ops
 from mechbench_compute.protocol.is_remote import is_remote
+from mechbench_compute.registry import REGISTRY
 
 
 def read_ahead(state, nid):
@@ -17,7 +18,10 @@ class Dispatch:
                   resume_kwargs):
         if nid in state.ahead:
             return read_ahead(state, nid)
-        if is_remote(block, params):
+        resolved = REGISTRY.find(block)
+        if resolved is None:
+            raise ValueError(f"unknown block: {block!r}")
+        if is_remote(resolved, params):
             state.ahead.update(self._run_remote_wave(
                 nid, block, inputs, params, secrets,
                 nodes=state.nodes, edges=state.edges, order=state.order,
@@ -28,18 +32,16 @@ class Dispatch:
                 node_view=progress.node_view, report=progress.report,
                 resume=state.resume, resume_kwargs=resume_kwargs))
             return read_ahead(state, nid)
-        if ops.find(block) is not None:
-            return self._run_op(
-                block, inputs, params,
-                on_item=on_item, on_start=progress.expand, secrets=secrets,
-                on_checkpoint=on_checkpoint,
-                input_paths=dict(input_paths),
-                run_params=state.bound_params,
-                result_base=state.result_base,
-                resume_items=resume_kwargs.get("resume_items"),
-                resume_state=resume_kwargs.get("resume_state"),
-                on_token=self._node_on_token(nid))
-        raise ValueError(f"unknown block: {block!r}")
+        return self._run_op(
+            resolved, inputs, params,
+            on_item=on_item, on_start=progress.expand, secrets=secrets,
+            on_checkpoint=on_checkpoint,
+            input_paths=dict(input_paths),
+            run_params=state.bound_params,
+            result_base=state.result_base,
+            resume_items=resume_kwargs.get("resume_items"),
+            resume_state=resume_kwargs.get("resume_state"),
+            on_token=self._node_on_token(nid))
 
     def _node_on_token(self, nid):
         sink = getattr(self, "_on_token", None)
@@ -48,11 +50,12 @@ class Dispatch:
         return lambda key, event: sink(nid, key, event)
 
     def _run_op(self, block, inputs, params, **lent):
-        mod = ops.find(block)
-        ctx = ops.Context.for_op(mod.OP, self, **lent)
-        if ops.fuses_adapter(block) or (ops.fuses_adapter_locally(block)
-                                        and not is_remote(block, params)):
+        resolved = ops.resolve_op(block)
+        run = resolved.module.run
+        ctx = ops.Context.for_op(resolved.op, self, **lent)
+        if ops.fuses_adapter(resolved) or (ops.fuses_adapter_locally(resolved)
+                                           and not is_remote(resolved, params)):
             return self._run_model_block(
-                lambda i, p, on_item=None, on_start=None: mod.run(ctx, i, p),
+                lambda i, p, on_item=None, on_start=None: run(ctx, i, p),
                 inputs, params, on_item=lent.get("on_item"), on_start=lent.get("on_start"))
-        return mod.run(ctx, inputs, params)
+        return run(ctx, inputs, params)

@@ -35,6 +35,14 @@ def name_of_title(shown: str) -> str:
     )
 
 
+def is_addressed(name: str) -> bool:
+    return name.count("/") > 1 and not name.startswith("~")
+
+
+def local_name(name: str) -> str:
+    return "/".join(name.split("/")[-2:]) if is_addressed(name) else name
+
+
 @dataclass(frozen=True)
 class Metric:
     name: str
@@ -106,15 +114,15 @@ class Kind:
 
     @property
     def path(self) -> str:
-        return self.name if self.name == COLLECTION else f"{KIND_ROOT}{self.name}"
+        return self.name if self.name == COLLECTION or is_addressed(self.name) else f"{KIND_ROOT}{self.name}"
 
     @property
     def title(self) -> str:
-        return title(self.name)
+        return title(local_name(self.name))
 
     @property
     def family(self) -> str:
-        return self.name.split("/", 1)[0]
+        return local_name(self.name).split("/", 1)[0]
 
     @property
     def collectable(self) -> bool:
@@ -386,15 +394,15 @@ class Op:
 
     @property
     def path(self) -> str:
-        return f"{ROOT}{self.name}"
+        return self.name if is_addressed(self.name) else f"{ROOT}{self.name}"
 
     @property
     def title(self) -> str:
-        return title(self.name)
+        return title(local_name(self.name))
 
     @property
     def family(self) -> str:
-        return self.name.split("/", 1)[0]
+        return local_name(self.name).split("/", 1)[0]
 
     @property
     def param_names(self) -> frozenset[str]:

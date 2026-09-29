@@ -44,9 +44,9 @@ def _name(block: str) -> str:
 
 
 def _declared(block: str) -> Any:
-    from mechbench_compute import ops
+    from mechbench_compute.registry import REGISTRY
 
-    return ops.find(_name(block))
+    return getattr(REGISTRY.find(block), "module", None)
 
 
 def resume_level(block: str, params: Mapping[str, Any] | None = None,

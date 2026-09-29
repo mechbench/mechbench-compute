@@ -154,8 +154,9 @@ operation's `run` touches is named by a need it declares.
 
 ## What is derived, and so is not written down
 
-- **The registry.** `mechbench_compute.ops` imports every module under
-  it. There is no table of operations to keep in step with the files.
+- **The registry.** `mechbench_compute.registry` walks every module
+  under `ops/` and `lexicon/kinds/`. There is no table of operations to
+  keep in step with the files. How it is built is the last section.
 - **Where it runs** — `OP.requires`, derived from `OP.needs`: a
   `model.*` or `runtime.mlx` need is `mlx-local`; otherwise a
   `provider.*` or `network:*` need is `remote`; a `model.*` need with a
@@ -191,8 +192,9 @@ text/word-list        mechbench_compute/lexicon/kinds/text/word_list.py
 collection            mechbench_compute/lexicon/kinds/collection.py
 ```
 
-`lexicon/kinds/__init__.py` walks the tree and assembles `KINDS` and
-`BY_KIND`, and holds the helpers every reader of a kind uses
+The registry walks the tree (last section); `lexicon/kinds/__init__.py`
+holds `KINDS` and `BY_KIND`, views over it, and the helpers every reader
+of a kind uses
 (`ancestry`, `satisfies`, `all_fields`, `resolve_kind`, `item_kind_of`,
 `items_of`, `collection`, the retired spellings). The platform's own
 kinds — the `run`, `sandbox`, `provider` and `model` families — live in
@@ -246,3 +248,84 @@ values), `Progress` (what a watcher is told), and `sort_nodes`,
 `check_failures`, `build_manifest`. The loop passes the state to each,
 so the walk reads as what it is: order the nodes, and for each one
 resolve, dispatch, record.
+
+## The registry, and where an operation comes from
+
+`mechbench_compute/registry.py` answers "what runs this block?" for
+every caller. `REGISTRY` is built from sources, in order:
+
+- **`CoreSource`** walks `ops/` and `lexicon/kinds/` with the per-file
+  walker in `lexicon/walk.py` (`walk_ops`, `walk_kinds`: one file per
+  declaration, its path a function of its name). The walk happens once,
+  on the first read, and is held by the source.
+- **`InstalledSource`** reads the entry points in the group
+  `mechbench.extensions`. Each names an `Extension` (`pkg:MANIFEST`),
+  whose package has the same `ops/` and `kinds/` layout as core's and is
+  walked by the same walker. Its operations register under
+  `<owner>/<project>/ops/<family>/<leaf>`, its kinds under
+  `<owner>/<project>/kinds/<family>/<leaf>`; a port or output that names
+  one of the extension's own kinds by its short name is rewritten to
+  that address, and so is a kind's `extends`. An extension is refused at
+  load, and its operations answer with why, when its owner is a core
+  family name (family names are reserved handles, so a bare name and an
+  extension address never collide), when a kind extends anything but a
+  core kind or one of its own, when a kind is in a sealed family or has
+  no `speak`, or when an operation names a kind nobody declares.
+
+`REGISTRY.resolve(spelling)` returns a `Resolved` — the declaration
+(`op`), its `tier` (`core` or `installed`), the `module` whose `run`
+executes, its `name` (the key everything else uses) and its `source`
+(`core`, or `<owner>/<project>/extensions/<name>@sha256:<digest>`):
+
+| spelling | answers |
+|---|---|
+| `family/leaf`, `~canonical/ops/family/leaf` | the core operation |
+| `<owner>/<project>/ops/<family>/<leaf>` | the installed extension's operation |
+| `…@<n>` | the same, only if the installed version is `n` |
+| `…@sha256:<digest>` | the same, only if the installed version's digest is that one; otherwise a `KeyError` naming both digests |
+| anything else | a `KeyError` whose message is `lexicon.explain_unknown`'s |
+
+A version is never a path segment: `records/filter/2` is refused, and
+so is `…/ops/geometry/align/2`. The grammar is `lexicon/address.py`
+(`parse`, `parse_op`, `parse_kind`, `parse_mark`, `parse_extension`,
+each an `Address` with `.bare`, `.version`, `.pin`, `.is_core`); it is
+the same grammar as `readAddress` in mechbench-models.
+
+`refresh()` walks the entry points again after an install and bumps
+`generation`; anything memoized by name (`find_standalone`) keys its
+cache on it. Python cannot unload a module, so an extension whose
+version changed after it was loaded is kept at the loaded version and
+`refresh()` raises `RestartRequired`: the runner restarts its `run`
+child.
+
+**The digest.** `hash_extension(manifest)` is `sha256:` over the
+canonical JSON of the manifest without the fields the platform writes
+(`state`, `visibility`, `party`, `flags`, `approved`, `promoted`,
+`conformance`): keys sorted by UTF-16 code unit, no whitespace, strings
+as `JSON.stringify` writes them, numbers in JavaScript's shortest form
+(`1` for `1.0`, `1e-7`, `1e+21`). That is `canonicalJson(declarationOf(m))`
+in mechbench-models, byte for byte, so the API's pin and compute's agree
+on the same declaration. The declaration the API hashes carries what
+only the push knows (`package.sdist`, `provenance.published_by`), so an
+installed extension's digest is the hash its install recorded in
+`~/.mechbench/extensions/installed.json`; `hash_extension` over the
+package's own `to_dict()` is the fallback for one installed by hand.
+
+**The view rule.** Everything that read a table now reads the registry,
+and the old names are views over it so that their import sites keep
+working: `lexicon.OPS` and `kinds.KINDS` are sequences, `lexicon.BY_NAME`
+and `kinds.BY_KIND` mappings, each read afresh from `REGISTRY` on every
+access, so an extension installed after import is in them.
+`ancestry`, `satisfies`, `all_fields` and `resolve_kind` read kinds
+through `BY_KIND`; `block_params.accepted(block)` and `ports(block)`
+replace the tables that were built at import; `check_graph`, dispatch,
+`is_remote` (which reads `"provider.chat" in op.needs`), `fuses_adapter`,
+`reduce.algebra` (`MONOID` on `Resolved.module`), `resume.resume_level`
+and `Toolbox` ask the registry. `ops.find(name)` returns the module, for
+one more release. What is generated for the other repositories —
+`lexicon.generated.ts`, `kinds.generated.ts`, the kind manifests — reads
+`CORE` only, so an extension on the machine that generates them never
+leaks into them.
+
+The lexicon and the operations do not import each other: the registry
+imports both, and a view imports the registry only when it is read.

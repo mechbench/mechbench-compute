@@ -98,8 +98,8 @@ class TestEveryTableIsKeyedByBareNames:
         assert self._bad(MONOIDS) == []
 
     def test_param_table(self):
-        from mechbench_compute.block_params import ACCEPTED
-        assert set(ACCEPTED) == set(BY_NAME)
+        from mechbench_compute.block_params import accepted
+        assert all(accepted(name) is not None for name in BY_NAME)
 
     def test_the_dispatch_chain(self):
         from mechbench_compute import protocol
