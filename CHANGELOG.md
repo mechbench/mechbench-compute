@@ -49,7 +49,10 @@ nothing said so.
   component, checked for every entry before the first is written, and
   the resolved path must stay under the root. A protocol's inline
   value or run param can no longer carry `_shard_dir` (the local shard
-  directory of a materialized collection): the resolver strips it.
+  directory of a materialized collection): the resolver strips it. The
+  conformance kit's `read_inputs_from` reads an example's `$ref` `file`
+  or `bench` path under its inputs root the same way: relative, no
+  empty, `.` or `..` component, and resolved under the root.
 
 ### Changes that alter results without raising
 

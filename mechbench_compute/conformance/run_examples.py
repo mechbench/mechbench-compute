@@ -6,11 +6,12 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from typing import Any
 
 from mechbench_compute.conformance.finding import ERROR, WARNING, Finding
+from mechbench_compute.contained import check_relative_path, resolve_inside
 from mechbench_compute.lexicon._base import COLLECTION, Op, Output
 from mechbench_compute.lexicon.address import address_op
 from mechbench_compute.lexicon.extension import Extension
@@ -60,9 +61,11 @@ def read_inputs_from(root: Path | str) -> Resolver:
             where = ref.get("file") or ref.get("bench") if isinstance(ref, Mapping) else None
             if not where:
                 raise ValueError(f"{op} port {port!r}: {ref!r} names no file and no bench path")
-            path = base / str(where)
+            relative = check_relative_path(where, what=f"{op} port {port!r}: input")
+            path = resolve_inside(base, relative, what=f"{op} port {port!r}: input")
             if not path.is_file() and path.with_suffix(".json").is_file():
-                path = path.with_suffix(".json")
+                path = resolve_inside(base, str(PurePosixPath(relative).with_suffix(".json")),
+                                      what=f"{op} port {port!r}: input")
             if not path.is_file():
                 raise FileNotFoundError(f"{op} port {port!r}: {path} does not exist")
             out[port] = json.loads(path.read_text())

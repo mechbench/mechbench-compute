@@ -110,3 +110,36 @@ def test_a_protocol_cannot_supply_a_local_shard_dir():
     inline = {"storage": "tensor", tensors.LOCAL_DIR: "/etc", "shards": []}
     assert tensors.LOCAL_DIR not in r.resolve_value(inline)
     assert tensors.LOCAL_DIR not in r.resolve_value({"$param": "t"})
+
+
+@pytest.mark.parametrize("where", ["../secret", "/etc/passwd", "a/../../secret", "a//b"])
+def test_a_conformance_input_stays_under_its_root(tmp_path, where):
+    from mechbench_compute.conformance import read_inputs_from
+
+    root = tmp_path / "inputs"
+    root.mkdir()
+    (tmp_path / "secret.json").write_text("{}")
+    resolve = read_inputs_from(root)
+    for key in ("file", "bench"):
+        with pytest.raises(ValueError):
+            resolve("x/op", {"records": {"$ref": {key: where}}})
+
+
+def test_a_conformance_input_through_a_symlink_is_refused(tmp_path):
+    from mechbench_compute.conformance import read_inputs_from
+
+    root = tmp_path / "inputs"
+    (root / "you").mkdir(parents=True)
+    (tmp_path / "secret.json").write_text("{}")
+    (root / "you" / "lab.json").symlink_to(tmp_path / "secret.json")
+    with pytest.raises(ValueError, match="resolves outside"):
+        read_inputs_from(root)("x/op", {"records": {"$ref": {"bench": "you/lab"}}})
+
+
+def test_a_conformance_input_under_the_root_is_read(tmp_path):
+    from mechbench_compute.conformance import read_inputs_from
+
+    (tmp_path / "you" / "lab").mkdir(parents=True)
+    (tmp_path / "you" / "lab" / "prompts.json").write_text('{"kind": "x"}')
+    got = read_inputs_from(tmp_path)("x/op", {"records": {"$ref": {"bench": "you/lab/prompts"}}})
+    assert got == {"records": {"kind": "x"}}
