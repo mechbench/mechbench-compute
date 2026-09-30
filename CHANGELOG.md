@@ -13,6 +13,44 @@ nothing said so.
 
 ---
 
+## 0.170.0 — 2026-09-29
+
+### Changes that raise
+
+- An extension kind with a core kind's name now loads, and shadows
+  core inside the extension: within an extension's scope a short kind
+  name resolves to that extension's own declared kind before core's
+  (`Registry.qualify_kind`), and core resolves core everywhere else.
+  The registry no longer refuses such an extension at load, and
+  conformance's `KIND_SHADOWS_CORE` is a warning, not an error. Code
+  that expected the refusal, or a short name inside an extension to
+  reach core's same-named kind, sees the extension's own kind instead.
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- `geometry/align` and `geometry/alignment` promoted from
+  `interp-extras` v1 (the standard-library rule applied for the first
+  time: written as an extension 2026-09-29, verified on prod, used by 1
+  protocol / 2 runs; promoted because it is one op per named question —
+  how aligned are two representations — and its only dependency is
+  numpy). `geometry/align` reads two `geometry/similarity` collections
+  over the same records and scores every pair of layers by linear CKA
+  (`center` double-centres each Gram matrix) or Spearman RSA on the
+  upper triangles; a distance matrix is read as `-D²/2` for CKA and `-D`
+  for RSA; per-head groups and mismatched records are refused. The
+  kind is keyed on `(a_layer, b_layer)`, speaks per pair, and draws as
+  a heat map. A protocol pinned to the extension keeps running the
+  extension's bytes and writing the extension's kind; new protocols name
+  the bare `geometry/align`.
+- Tests: `tests/test_geometry_align.py` (the extension's known-answer
+  tests, the core declarations, and the example run twice identically
+  from `tests/fixtures/geometry_align/`); the fixture extension's kind
+  `geometry/alignment` now shadows core's and reports the warning.
+
 ## 0.169.0 — 2026-09-29
 
 ### Changes that raise

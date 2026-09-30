@@ -142,6 +142,8 @@ NOT_LEAF_STREAM: dict[str, str] = {
         "two collections matched by key and compared; a pair of streams, not one",
     "geometry/span":
         "one similarity collection, not a leaf stream",
+    "geometry/align":
+        "two similarity collections compared layer by layer; a pair of streams, not one",
     "adapter/measure":
         "one adapter object, read module by module; its input is a set of "
         "weights, not a stream of leaves that could be chunked",

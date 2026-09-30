@@ -234,9 +234,6 @@ class InstalledSource:
         for k in declared:
             if k.family in SEALED:
                 raise ValueError(f"kind {k.name!r}: the {k.family!r} family is sealed")
-            if k.name in core_kinds:
-                raise ValueError(f"kind {k.name!r} is a core kind's name; a short name inside an "
-                                 "extension reaches core first, so the extension cannot declare it")
             if not k.speak:
                 raise ValueError(f"kind {k.name!r} declares no speak; every extension kind says itself")
             if k.extends is None or not (k.extends in own or k.extends in core_kinds):
@@ -383,11 +380,8 @@ class Registry:
         scope = self.current.get() if scope is None else scope
         if scope is None or name == COLLECTION or "/" not in name or is_extension_spelling(name):
             return name
-        kinds = self.table().kinds
-        if name in kinds:
-            return name
         own = address_kind(scope, name)
-        return own if own in kinds else name
+        return own if own in self.table().kinds else name
 
     def kind(self, name: str) -> Kind:
         return self.table().kinds[name]

@@ -194,8 +194,7 @@ class TestScope:
         assert K.resolve_kind("geometry/alignment", scope=scope) == (ALIGNMENT, False)
         assert K.satisfies("geometry/alignment", "records/record", scope=scope)
         assert lexicon.kinds.collection("geometry/alignment", [], scope=scope)["item_kind"] == ALIGNMENT
-        with pytest.raises(KeyError):
-            lexicon.kinds.collection("geometry/alignment", [])
+        assert lexicon.kinds.collection("geometry/alignment", [])["item_kind"] == "geometry/alignment"
 
     def test_inside_an_extension_op_the_registry_knows_the_scope(self, installed):
         with REGISTRY.within("alice/interp-extras"):
@@ -205,14 +204,11 @@ class TestScope:
         out = ops.run_standalone(ADDRESS, {"a": [{"id": "1"}], "b": [{"id": "1"}]}, {})
         assert out["item_kind"] == ALIGNMENT
 
-    def test_a_kind_named_as_a_core_kind_is_refused(self, swap_sources, monkeypatch, tmp_path):
-        root = tmp_path / "mb_clash_ext"
-        shutil.copytree(FIXTURE / "mb_fixture_ext", root)
-        (root / "kinds" / "geometry" / "similarity.py").write_text(
-            (root / "kinds" / "geometry" / "alignment.py").read_text().replace(
-                '"geometry/alignment"', '"geometry/similarity"'))
-        monkeypatch.syspath_prepend(str(tmp_path))
-        TestRefusals().refuse(swap_sources, monkeypatch, "bob/clash", "core kind's name", "mb_clash_ext")
+    def test_a_kind_named_as_a_core_kind_loads_and_shadows_core_only_inside_its_extension(self, installed):
+        scope = "alice/interp-extras"
+        assert "geometry/alignment" in K.BY_KIND
+        assert K.qualify_kind("geometry/alignment", scope) == ALIGNMENT != K.qualify_kind("geometry/alignment")
+        assert REGISTRY.kind(ALIGNMENT).fields != REGISTRY.kind("geometry/alignment").fields
 
 
 class TestProvenance:

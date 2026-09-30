@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from mechbench_compute.conformance import (
+    WARNING,
     Conformance,
     check_core,
     check_extension,
@@ -55,12 +56,13 @@ def codes(findings) -> list[str]:
 
 
 class TestTheDeclarations:
-    def test_the_fixture_extension_has_no_findings(self, fixture_ext):
-        assert check_manifest(fixture_ext) == []
+    def test_the_fixture_extensions_one_finding_is_that_its_kind_shadows_cores(self, fixture_ext):
+        assert [(f.code, f.at, f.severity) for f in check_manifest(fixture_ext)] == [
+            ("KIND_SHADOWS_CORE", "geometry/alignment", WARNING)]
         assert check_package(fixture_ext) == []
 
     def test_its_wire_form_reads_the_same(self, fixture_ext):
-        assert check_manifest(json.loads(json.dumps(fixture_ext.to_dict()))) == []
+        assert check_manifest(json.loads(json.dumps(fixture_ext.to_dict()))) == check_manifest(fixture_ext)
 
     def test_a_broken_copy_fails_by_name(self, tmp_path, monkeypatch):
         broken = copy_fixture(tmp_path, monkeypatch, "mb_broken_ext", {
@@ -75,7 +77,7 @@ class TestTheDeclarations:
             "kinds/geometry/alignment.py": [('    speak="{header.method} of {a} and {b} records: {score}",\n', "")],
         })
         found = [*check_manifest(broken), *check_package(broken)]
-        assert codes(found) == ["NAME_NOT_VERB", "NEED_UNDECLARED", "NO_SPEAK", "NO_SUMMARY",
+        assert codes(found) == ["KIND_SHADOWS_CORE", "NAME_NOT_VERB", "NEED_UNDECLARED", "NO_SPEAK", "NO_SUMMARY",
                                 "PORT_KIND_UNKNOWN"], format_findings(found)
         by = {f.code: f.at for f in found}
         assert by["NAME_NOT_VERB"] == "geometry/align#overlap_of"
@@ -85,7 +87,7 @@ class TestTheDeclarations:
     def test_a_need_outside_the_vocabulary_fails_by_name(self, fixture_ext):
         d = json.loads(json.dumps(fixture_ext.to_dict()))
         d["provides"]["ops"][0]["needs"] = ["gpu"]
-        assert codes(check_manifest(d)) == ["NEED_UNKNOWN"]
+        assert codes(check_manifest(d)) == ["KIND_SHADOWS_CORE", "NEED_UNKNOWN"]
 
     def test_an_extension_kind_is_extend_only(self, fixture_ext):
         d = json.loads(json.dumps(fixture_ext.to_dict()))
@@ -93,7 +95,8 @@ class TestTheDeclarations:
         d["provides"]["kinds"].append({**kind, "name": "run/thing", "path": None, "extends": None})
         kind["fields"]["id"] = {"type": "integer", "description": "An id that is a number."}
         found = check_manifest(d)
-        assert codes(found) == ["KIND_CHANGES_ANCESTOR", "KIND_NO_EXTENDS", "KIND_SEALED_FAMILY"], (
+        assert codes(found) == ["KIND_CHANGES_ANCESTOR", "KIND_NO_EXTENDS", "KIND_SEALED_FAMILY",
+                                "KIND_SHADOWS_CORE"], (
             format_findings(found))
 
     def test_core_has_no_findings_but_its_grandfathers(self):
@@ -154,7 +157,8 @@ class TestTheReport:
         assert run.returncode == 0, run.stderr[-2000:]
         report = json.loads(run.stdout)
         assert report["declarations"] == "passed" and report["double_run"] == "identical"
-        assert report["examples"][0]["op"] == ADDRESS and report["findings"] == []
+        assert report["examples"][0]["op"] == ADDRESS
+        assert [(f["code"], f["severity"]) for f in report["findings"]] == [("KIND_SHADOWS_CORE", WARNING)]
 
     def test_the_cli_fails_on_a_refused_example(self):
         run = self.run_cli("mb_fixture_ext:MANIFEST")

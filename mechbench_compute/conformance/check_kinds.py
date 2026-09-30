@@ -6,7 +6,7 @@ from collections.abc import Iterator, Mapping
 from typing import Any
 
 from mechbench_compute.conformance.check_ops import find_idioms
-from mechbench_compute.conformance.finding import Finding
+from mechbench_compute.conformance.finding import WARNING, Finding
 from mechbench_compute.conformance.manifest import Manifest, read_core_kinds
 from mechbench_compute.lexicon._base import COLLECTION
 from mechbench_compute.registry import SEALED
@@ -49,8 +49,8 @@ def check_extension_kind(kind: Mapping[str, Any], name: str, m: Manifest) -> Ite
     if not kind.get("speak"):
         yield Finding("NO_SPEAK", name, "declares no speak; every extension kind says itself")
     if name in core:
-        yield Finding("KIND_SHADOWS_CORE", name, "a core kind's name; a short name inside an extension "
-                      "reaches core first")
+        yield Finding("KIND_SHADOWS_CORE", name, "a core kind's name; inside this extension the short name "
+                      "reaches this kind, and core's is reached only by its full path", WARNING)
     if name.split("/", 1)[0] in SEALED:
         yield Finding("KIND_SEALED_FAMILY", name, f"the {name.split('/', 1)[0]!r} family is sealed")
     extends = kind.get("extends")

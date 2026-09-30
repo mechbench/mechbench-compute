@@ -23,6 +23,7 @@
   "eval/expect": "pure",
   "eval/judge": "by-model",
   "eval/score": "pure",
+  "geometry/align": "pure",
   "geometry/compare": "pure",
   "geometry/span": "pure",
   "intervene/ablate-heads": "mlx-local",
@@ -158,6 +159,10 @@
    "level": "exchangeable"
   },
   "eval/score": {
+   "items": false,
+   "level": "restart"
+  },
+  "geometry/align": {
    "items": false,
    "level": "restart"
   },
@@ -351,6 +356,7 @@
   "direction/regress",
   "eval/expect",
   "eval/score",
+  "geometry/align",
   "geometry/compare",
   "geometry/span",
   "records/cross",
