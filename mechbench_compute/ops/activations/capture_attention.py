@@ -13,6 +13,7 @@ from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.spans import add_to_span
 
 OP = Op(
     name="activations/capture-attention",
@@ -95,6 +96,7 @@ def capture_attention_patterns(
     total_floats = 0
     for record in records:
         ids = render(model, record).array
+        add_to_span(tokens_in=int(ids.size))
         result = model.run(ids, interventions=[cap])
         tokens = [model.tokenizer.decode([int(t)])
                   for t in np.array(ids).reshape(-1)]

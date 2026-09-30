@@ -15,6 +15,7 @@ from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.spans import add_to_span
 
 OP = Op(
     name="activations/capture-tokens",
@@ -156,6 +157,7 @@ def capture_tokens(
         writer = tensors.ShardWriter(tempfile.mkdtemp(prefix="mechbench-tensor-"))
     for record, r, idx in kept_per_record:
         ids = r.array
+        add_to_span(tokens_in=int(ids.size))
         result = model.run(ids, interventions=[cap])
         seq = list(r.ids)
         lg = result.logits[0, :-1, :].astype(mx.float32)

@@ -58,6 +58,22 @@ def test_every_span_carries_every_field_and_the_load_once(tiny_hub):
     assert gen["forwards"] >= len(RECORDS)
 
 
+def test_both_capture_ops_count_the_tokens_they_read_and_the_bytes_they_capture(tiny_hub):
+    spans = run_graph([
+        {"id": "cap", "block": "activations/capture",
+         "params": {"model": MODEL, "layers": [0, 2], "position": "last"},
+         "inputs": {"records": RECORDS}},
+        {"id": "tok", "block": "activations/capture-tokens",
+         "params": {"model": MODEL, "layers": [0, 2], "storage": "tensor"},
+         "inputs": {"records": RECORDS}},
+    ])
+    for span in spans.values():
+        assert span["forwards"] == len(RECORDS)
+        assert span["tokens_in"] >= len(RECORDS) * 3
+        assert span["bytes_captured"] > 0 and span["tokens_out"] == 0
+    assert spans["cap"]["tokens_in"] == spans["tok"]["tokens_in"]
+
+
 def test_a_nested_span_folds_into_its_parent():
     with open_span() as outer:
         add_to_span(forwards=1)

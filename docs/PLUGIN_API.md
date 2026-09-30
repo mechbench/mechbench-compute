@@ -23,6 +23,12 @@ its own business.
   `prefill_decision`, `TokenReadout`, `points`.
 - **The lexicon helpers**: `collection`, `items_of`, `item_kind_of`,
   `read_header`, `arch_header`.
+- **The record helpers**, for comparing records as `records/diff` does:
+  `flatten_record` (a record as dotted paths), `index_by_key` (records
+  by id or named coordinates, a duplicate refused), `is_field_match` (a
+  path against a field pattern), `MOVING_FIELDS` (the fields that move
+  on every run), `read_numbers` (a number or a nested list of numbers as
+  one flat list, None otherwise), and `compute_version`.
 - **The declaration**: `Op`, `P`, `In`, `Output`, `Otherwise`,
   `Resume`, `Kind`, `Draw`, `Metric`, `F`, and `read_body_level` /
   `read_model_level` for an operation whose resume level depends on its

@@ -259,15 +259,21 @@ reference can load it as a base.
     ),
     Family(
         "platform",
-        "What the platform measures about the machines it runs on: how long each primitive takes, and how much memory.",
+        "What the platform measures about the machines it runs on: how long each primitive takes, how much memory, and how far a result moves from machine to machine.",
         """\
-A platform family: its records are written by the runner, not by an
-operation. A calibration is one primitive (a forward, a decode step, a
+A platform family: no extension may declare a kind in it. A calibration
+is written by the runner: one primitive (a forward, a decode step, a
 capture, a training step, a model load, a memory copy) timed on one
 chip under one software stack, at one shape: the median over repeats,
 the spread, the warm-up apart, and the peak memory. The header names the
 machine and every version the timing depends on, so a table taken under
 another stack is never mistaken for this one.
+
+A noise floor is written by `records/measure-noise` from runs of one
+protocol on several seeds and machines: how far each numeric field of an
+operation moves when nothing but the seed or the machine changed. It is
+what `records/diff` reads to tell a replication's bf16 noise from a
+finding.
 """,
     ),
     Family(

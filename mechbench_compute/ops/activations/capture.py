@@ -17,6 +17,7 @@ from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.spans import add_to_span
 
 OP = Op(
     name="activations/capture",
@@ -168,6 +169,7 @@ def capture_residual_vectors(
         r = render(model, record)
         ids = r.array
         toks = r.tokens(model.tokenizer)
+        add_to_span(tokens_in=int(ids.size))
         result = model.run(ids, interventions=[cap])
         sel = dict(tokens=toks, record=record, prompt_len=r.prompt_len)
         pos = None if pool else POS.one(position, len(r.ids), **sel)

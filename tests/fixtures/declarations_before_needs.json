@@ -45,6 +45,7 @@
   "records/join": "pure",
   "records/jq": "pure",
   "records/map": "pure",
+  "records/measure-noise": "pure",
   "records/plot": "pure",
   "records/python": "pure",
   "records/sort": "pure",
@@ -250,6 +251,10 @@
    "items": true,
    "level": "restart"
   },
+  "records/measure-noise": {
+   "items": false,
+   "level": "restart"
+  },
   "records/plot": {
    "items": false,
    "level": "restart"
@@ -362,6 +367,7 @@
   "records/cross",
   "records/diff",
   "records/jq",
+  "records/measure-noise",
   "records/python",
   "records/tabulate",
   "records/union",

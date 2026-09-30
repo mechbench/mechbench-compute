@@ -139,6 +139,10 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "records/diff": [
         ("ops/records/diff.py", "run"),
         ("ops/records/diff.py", "diff_collections")],
+    "records/measure-noise": [
+        ("ops/records/measure_noise.py", "run"),
+        ("ops/records/measure_noise.py", "measure_noise"),
+        ("ops/records/measure_noise.py", "_build_record")],
     "records/unnest": [
         ("ops/records/unnest.py", "run"),
         ("ops/records/unnest.py", "unnest")],

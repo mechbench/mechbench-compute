@@ -13,6 +13,56 @@ nothing said so.
 
 ---
 
+## 0.172.0 — 2026-09-30
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- `records/diff`'s header carries `verdict`, the comparison in words:
+  `identical`, `equivalent`, `N records differ`, and with a floor or a
+  tolerance `within the floor`, `N findings above the floor` (or `the
+  tolerance`). A stored diff re-run under 0.172.0 differs from its
+  earlier self by that one field. Without `noise` or `tolerance` nothing
+  else in the diff changes.
+
+### Other
+
+- The noise floor (task 000799, compute's half). A new sealed platform
+  kind, `platform/noise`: one record per (architecture, operation,
+  field, dtype, machine class), with the field's `spread` across runs
+  (the widest absolute difference at one record key) and
+  `relative_spread`, the `n` values and `records` keys it was measured
+  over, and the `machines` and `seeds`; its header names the compute
+  version, each run's machine, seed and record count, what matched the
+  records, what was excluded, and the fields that differed but are not
+  numbers. `records/measure-noise` writes it from two or more runs of
+  one protocol (a variadic `runs` port, one edge per run; params
+  `architecture`, `operation`, `machines`, `seeds`, `dtype`,
+  `machine_class`, `checkpoint`, `key`, `fields`, `exclude`,
+  `exclude_moving`).
+- `records/diff` takes the floor on a new optional `noise` port and
+  reports each numeric difference, and each element of a list of
+  numbers, in units of it (`floors`); a difference is a `finding` only
+  above `k` floors (default 1), and a record with none is `within`.
+  `tolerance` (a number, `{abs, rel}`, or `{fields: {pattern: …}}`)
+  states the allowance directly and wins over the floor; `tolerance: 0`
+  shows every numeric difference as a finding. `noise_for` picks the
+  floor's records by its key fields. The header adds `findings`,
+  `within`, `k`, `tolerance` and the floor records used.
+- The plugin api offers the record helpers `records/diff` and
+  `records/measure-noise` share: `flatten_record`, `index_by_key`,
+  `is_field_match`, `MOVING_FIELDS`, `read_numbers`, and
+  `compute_version`.
+- Capture spans count what they read (task 000935):
+  `activations/capture`, `activations/capture-tokens` and
+  `activations/capture-attention` add every forward's input tokens to
+  the span's `tokens_in`, which read 0 for them before.
+  `bytes_captured` was already counted at `Model.run` (the captured
+  activations' bytes), and 030's spans show it non-zero.
+
 ## 0.171.1 — 2026-09-29
 
 ### Changes that raise
