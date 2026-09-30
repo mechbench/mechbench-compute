@@ -189,3 +189,67 @@ class TestTheExecutorMovesShards:
         out = ProtocolExecutor().run(ProtocolSpec(kind="pipeline", prompt="", model_id=None, extra={"graph": graph}))
         assert out.payload["outputs"]["sum"]["items"][0]["n"] == 10
         assert (tmp_path / "home" / ".mechbench" / "tensors").exists()
+
+
+def _reordered(item):
+    out = {}
+    for k in reversed(list(item)):
+        v = item[k]
+        out[k] = {ck: v[ck] for ck in reversed(list(v))} if isinstance(v, dict) else v
+    return out
+
+
+def _write_shard(where, items):
+    w = tensors.ShardWriter(where)
+    for it in items:
+        w.add(it)
+    coll = w.close()
+    path = where / coll["shards"][0]["name"]
+    return coll, path.read_bytes()
+
+
+def _header(raw):
+    import json
+    import struct
+    n = struct.unpack("<Q", raw[:8])[0]
+    return raw[8:8 + n].decode(), json.loads(raw[8:8 + n])
+
+
+class TestShardBytesAreAFunctionOfContent:
+    def test_same_content_in_any_key_order_writes_the_same_bytes(self, tmp_path):
+        items = _items(7)
+        a, raw_a = _write_shard(tmp_path / "a", items)
+        b, raw_b = _write_shard(tmp_path / "b", [_reordered(it) for it in items])
+        assert raw_a == raw_b
+        assert a["shards"][0]["sha256"] == b["shards"][0]["sha256"] == hashlib.sha256(raw_a).hexdigest()
+        text, header = _header(raw_a)
+        assert list(header) == sorted(header) and list(header["__metadata__"]) == ["ints", "table"]
+        assert text.index('"ints"') < text.index('"table"')
+        for x, y in zip(tensors.items_of(a), tensors.items_of(b)):
+            assert x == {**y, "vector": x["vector"]} and np.array_equal(x["vector"], y["vector"])
+        for x, it in zip(tensors.items_of(a), items):
+            assert {k: v for k, v in x.items() if k != "vector"} == {
+                k: v for k, v in it.items() if k != "vector"}
+
+    def test_separate_processes_write_the_same_bytes(self, tmp_path):
+        import subprocess
+        import sys
+        script = (
+            "import sys, pathlib, numpy as np\n"
+            "from mechbench_compute import tensors\n"
+            "w = tensors.ShardWriter(pathlib.Path(sys.argv[1]))\n"
+            "for i in range(5):\n"
+            "    w.add({'vector': np.arange(4, dtype=np.float32) + i, 'n': i, 'x': 0.5, 'id': str(i)})\n"
+            "print(w.close()['shards'][0]['sha256'])\n")
+        hashes = {subprocess.run([sys.executable, "-c", script, str(tmp_path / f"p{k}")],
+                                 check=True, capture_output=True, text=True).stdout.strip()
+                  for k in range(4)}
+        assert len(hashes) == 1
+
+    def test_the_library_reads_what_we_write(self, tmp_path):
+        from safetensors.numpy import load_file
+        path = tmp_path / "t.safetensors"
+        t = {"vector": np.arange(6, dtype=np.float32).reshape(2, 3), "b": np.ones(2), "a": np.zeros(2)}
+        tensors.write_safetensors(path, t, {"z": "1", "a": "2"})
+        back = load_file(str(path))
+        assert set(back) == set(t) and all(np.array_equal(back[k], t[k]) for k in t)

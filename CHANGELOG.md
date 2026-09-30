@@ -13,6 +13,31 @@ nothing said so.
 
 ---
 
+## 0.171.1 — 2026-09-29
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+- Tensor shards are bytes of their content. The same rows now write the
+  same shard file and the same `sha256`, run after run: the shard
+  header is written by compute (`tensors.write_safetensors`) with its
+  keys sorted, where `safetensors.numpy.save_file` wrote
+  `__metadata__` in a per-process hash order, so two runs of one
+  protocol stored equal tensors under different hashes and the
+  materialisation cache and the upload's skip-if-same-hash missed (task
+  000932). The shard's `table` metadata is JSON with sorted keys too, so
+  an item read back from a shard has its keys in sorted order. A shard
+  written by 0.171.0 or earlier hashes differently from the same rows
+  written now; the tensors, the table and every value read back are
+  unchanged, and old shards still read.
+
+### Other
+
+_None._
+
 ## 0.171.0 — 2026-09-29
 
 ### Changes that raise

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import struct
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ MAX_SHARD_BYTES = 48 << 20
 _COMPLETE_MARK = ".complete"
 
 _VECTOR_KEY = "vector"
+_DTYPES = {"float64": "F64", "float32": "F32", "float16": "F16", "int64": "I64", "int32": "I32",
+           "int16": "I16", "int8": "I8", "uint8": "U8", "bool": "BOOL"}
 
 
 def is_tensor(collection: Any) -> bool:
@@ -47,6 +50,27 @@ def _raw_numeric(item: Mapping[str, Any], key: str) -> Any:
     if key.startswith("coords."):
         return (item.get("coords") or {}).get(key[len("coords."):])
     return item.get(key)
+
+
+def write_safetensors(path: str | Path, tensors: Mapping[str, np.ndarray],
+                      metadata: Mapping[str, str]) -> None:
+    arrays = {k: np.ascontiguousarray(v) for k, v in tensors.items()}
+    header: dict[str, Any] = {"__metadata__": {k: str(v) for k, v in metadata.items()}}
+    blobs, offset = [], 0
+    for name in sorted(arrays, key=lambda k: (-arrays[k].dtype.itemsize, k)):
+        a = arrays[name]
+        blob = a.tobytes()
+        header[name] = {"dtype": _DTYPES[a.dtype.name], "shape": list(a.shape),
+                        "data_offsets": [offset, offset + len(blob)]}
+        blobs.append(blob)
+        offset += len(blob)
+    raw = json.dumps(header, sort_keys=True, separators=(",", ":")).encode()
+    raw += b" " * (-len(raw) % 8)
+    with open(path, "wb") as f:
+        f.write(struct.pack("<Q", len(raw)))
+        f.write(raw)
+        for blob in blobs:
+            f.write(blob)
 
 
 class ShardWriter:
@@ -89,8 +113,6 @@ class ShardWriter:
     def _flush(self) -> None:
         if not self._vectors:
             return
-        from safetensors.numpy import save_file
-
         k = len(self.shards)
         name = f"shard-{k:04d}.safetensors"
         tensors = {_VECTOR_KEY: np.stack(self._vectors).astype(np.float32)}
@@ -98,8 +120,8 @@ class ShardWriter:
             tensors[col] = np.asarray(vals, dtype=np.float64)
         path = self.out / name
         ints = sorted(k for k, is_int in self._ints.items() if is_int and k in tensors)
-        save_file(tensors, str(path), metadata={
-            "table": json.dumps(self._table, separators=(",", ":")),
+        write_safetensors(path, tensors, {
+            "table": json.dumps(self._table, sort_keys=True, separators=(",", ":")),
             "ints": json.dumps(ints)})
         h = hashlib.sha256()
         with open(path, "rb") as f:
