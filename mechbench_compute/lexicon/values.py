@@ -18,18 +18,21 @@ COORDS = F("object", "The experimental coordinates the record belongs to: axis n
 SPACE_DOC = ("The activation space the vector lives in: `{model, layer | null, point, head | null, d}`; "
              "`point` is one of the forward pass's point names (`resid_post`, `attn_out`, `attn.q`, …). "
              "Two vectors are comparable only when their spaces agree.")
-TOKEN = F("object", "A token as `{id, text}`.", properties={"id": {"type": "integer"}, "text": {"type": "string"}})
+TOKEN = F("object", "A token as `{id, text}`.", properties={"id": {"type": "integer"}, "text": {"type": "string"}},
+          additionalProperties=False)
 VEC = F("array", "A dense float vector; position is the only key.", items={"type": "number"})
 SPACE = F("object", SPACE_DOC,
           properties={"model": {"type": ["string", "null"]}, "layer": {"type": ["integer", "null"]},
                       "point": {"type": "string"}, "head": {"type": ["integer", "null"]}, "d": {"type": "integer"}},
-          required=["model", "layer", "point", "head", "d"])
+          required=["model", "layer", "point", "head", "d"], additionalProperties=False)
 TOP = F("array", "The most likely tokens, ranked by probability, each `{token, p, logp}`.",
-        items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}}})
+        items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}},
+               "additionalProperties": False})
 TRACKED = F("object", "Name → `{token, p, logp, rank, variants}` for the answers the caller asked about, by the names it gave.",
             additionalProperties={"type": "object"})
 VARIANTS = F("array", "Each spelling of a tracked answer, with and without a leading space, as `{token, p, logp}`; one entry when both are the same token.",
-             items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}}})
+             items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}},
+                    "additionalProperties": False})
 
 DIST = F("object", "A `logits/distribution`: `{entropy_bits, top, tracked?}`.",
          properties={"entropy_bits": {"type": "number"}, "top": TOP, "tracked": TRACKED})

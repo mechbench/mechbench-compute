@@ -128,6 +128,16 @@ class Kind:
     def collectable(self) -> bool:
         return bool(self.key)
 
+    @property
+    def subfields(self) -> dict[str, tuple[str, ...]]:
+        out: dict[str, tuple[str, ...]] = {}
+        for name, schema in self.fields.items():
+            for prefix, shape in ((name, schema), (f"{name}[]", schema.get("items"))):
+                if (isinstance(shape, dict) and isinstance(shape.get("properties"), dict)
+                        and shape.get("additionalProperties") is False):
+                    out[prefix] = tuple(shape["properties"])
+        return out
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name, "path": self.path, "title": self.title,

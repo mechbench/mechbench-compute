@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 
-TABLE_VERSION = "2026-09-29"
+TABLE_VERSION = "2026-09-30"
 
 PROVIDER_PAGES: dict[str, str] = {
     "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing",
@@ -73,7 +73,7 @@ class Price:
 
 
 def _p(input: float, output: float, read: float | None = None, write: float | None = None,
-       write_1h: float | None = None, *, provider: str, checked: str = "2026-09-26",
+       write_1h: float | None = None, *, provider: str, checked: str = "2026-09-30",
        source: str | None = None, **kw) -> Price:
     return Price(input, output, read, write, write_1h, checked=checked,
                  source=source or PROVIDER_PAGES[provider], **kw)
@@ -129,9 +129,8 @@ PRICES: dict[str, dict[str, Price]] = {
     "anthropic": {
         "claude-fable-5-1": _anthropic(10.0, 50.0, 0.25, 12.5, 20.0, shutdown="2027-09-01"),
         "claude-opus-5-5": _anthropic(4.0, 20.0, 0.20, 5.0, 8.0, shutdown="2027-09-22"),
-        "claude-sonnet-5-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, shutdown="2027-09-28", checked="2026-09-29"),
-        "claude-sonnet-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, status="legacy", shutdown="2027-06-30",
-                                      checked="2026-09-29"),
+        "claude-sonnet-5-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, shutdown="2027-09-28"),
+        "claude-sonnet-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, status="legacy", shutdown="2027-06-30"),
         "claude-haiku-4-5": _anthropic(1.0, 5.0, 0.10, 1.25, 2.0, shutdown="2026-10-15"),
         "claude-fable-5": _anthropic(10.0, 50.0, 1.0, 12.5, 20.0, status="legacy", shutdown="2027-06-09"),
         "claude-opus-5": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2027-07-24"),
@@ -140,13 +139,13 @@ PRICES: dict[str, dict[str, Price]] = {
         "claude-opus-4-6": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2027-02-05"),
         "claude-opus-4-5": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2026-11-24"),
         "claude-sonnet-4-6": _anthropic(3.0, 15.0, 0.3, 3.75, 6.0, status="legacy", shutdown="2027-02-17"),
-        "claude-sonnet-4-5": _anthropic(3.0, 15.0, 0.3, 3.75, 6.0, status="legacy", checked="2026-09-29",
+        "claude-sonnet-4-5": _anthropic(3.0, 15.0, 0.3, 3.75, 6.0, status="legacy",
                                         note="active on the deprecations page, retiring not sooner than 2026-09-29; "
                                              "no retirement date announced"),
     },
     "openai": {
         "gpt-6-astra": _openai(10.0, 50.0, 1.0, 12.5),
-        "gpt-6.1-sol": _openai(2.0, 10.0, 0.1, 2.5, checked="2026-09-29"),
+        "gpt-6.1-sol": _openai(2.0, 10.0, 0.1, 2.5),
         "gpt-6-sol": _openai(2.0, 10.0, 0.2, 2.5),
         "gpt-6-luna": _openai(0.10, 0.50, 0.01, 0.125),
         "gpt-5.6": _openai(4.0, 20.0, 0.4, 5.0, status="alias", note="alias of gpt-5.6-sol",
@@ -209,9 +208,12 @@ PRICES: dict[str, dict[str, Price]] = {
     "xai": {
         "grok-4.7": _xai(2.0, 6.0, 0.5),
         "grok-4.6": _xai(2.0, 6.0, 0.5),
-        "grok-4.5": _xai(2.0, 6.0, 0.3),
+        "grok-4.5": _xai(2.0, 6.0, 0.3, note="effort low, medium, high by the reasoning page and the release "
+                                             "notes; its model page also lists xhigh, which the reasoning "
+                                             "page says is served as high"),
         "grok-build-latest": _xai(2.0, 6.0, 0.3, status="alias", note="alias of grok-4.5"),
-        "grok-4.3": _xai(*_GROK_43),
+        "grok-4.3": _xai(*_GROK_43, note="effort none, low, medium, high by the retirement guide; its model "
+                                         "page also lists xhigh"),
         "grok-4.20": _xai(*_GROK_420, status="alias", note="alias of grok-4.20-0309-reasoning"),
         "grok-4.20-reasoning": _xai(*_GROK_420, status="alias", note="alias of grok-4.20-0309-reasoning"),
         "grok-4.20-0309-reasoning": _xai(*_GROK_420),
@@ -240,9 +242,16 @@ PRICES: dict[str, dict[str, Price]] = {
     "fireworks": {
         "accounts/fireworks/models/qwen3p8-max": _fireworks(2.00, 6.00, 0.25),
         "accounts/fireworks/models/kimi-k3": _fireworks(3.00, 15.00, 0.30),
-        "accounts/fireworks/models/deepseek-v4p1-flash": _fireworks(0.30, 1.20, 0.006),
+        "accounts/fireworks/models/deepseek-v4p1-flash": _fireworks(
+            0.30, 1.20, 0.006, note="the pricing page's rates; the model page says $0.22 / $0.66, "
+                                    "cache reads $0.007"),
         "accounts/fireworks/models/gpt-oss-120b": _fireworks(0.15, 0.60, 0.015),
         "accounts/fireworks/models/glm-5p3-flash": _fireworks(0.15, 0.50, 0.03),
+        "accounts/fireworks/models/glm-5p3": _fireworks(1.40, 4.40, 0.26),
+        "accounts/fireworks/models/ember-1": _fireworks(3.00, 15.00, 0.30),
+        "accounts/fireworks/models/minimax-m3": _fireworks(0.30, 1.20, 0.06),
+        "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": _fireworks(0.05, 0.20, 0.01),
+        "accounts/fireworks/models/nemotron-3-ultra-nvfp4": _fireworks(0.60, 2.40, 0.12, status="preview"),
     },
     "mock": {
         "": Price(1.0, 3.0, 0.1, 1.25, family=True, checked="n/a", source="n/a"),

@@ -34,7 +34,7 @@ FEATURES: dict[str, dict[str, Features]] = {
         "claude-opus-4-7": Features(_CLAUDE_EFFORT, _SUMMARIZED, True, images=True),
         "claude-opus-4-6": Features(_CLAUDE_4_6_EFFORT, _SUMMARIZED, True, images=True),
         "claude-sonnet-4-6": Features(_CLAUDE_4_6_EFFORT, _SUMMARIZED, True, images=True),
-        "claude-opus-4-5": Features((), (), True, images=True),
+        "claude-opus-4-5": Features(("low", "medium", "high"), (), True, images=True),
         "claude-haiku-4-5": Features((), (), True, images=True),
         "claude-sonnet-4-5": Features(images=True),
     },
@@ -96,7 +96,7 @@ FEATURES: dict[str, dict[str, Features]] = {
     "xai": {
         "grok-4.7": Features(_GROK_47, images=True),
         "grok-4.6": Features(_GROK_47, images=True),
-        "grok-4.5": Features(_GROK_47, images=True),
+        "grok-4.5": Features(("low", "medium", "high"), images=True),
         "grok-build-latest": Features(images=True),
         "grok-4.3": Features(("none", "low", "medium", "high"), images=True),
         "grok-4.20": Features(images=True),
@@ -107,8 +107,8 @@ FEATURES: dict[str, dict[str, Features]] = {
         "grok-build-0.1": Features(images=True),
         "grok-code-fast-1": Features(images=True),
         "grok-code-fast": Features(images=True),
-        "grok-4-0709": Features(),
-        "grok-3": Features(),
+        "grok-4-0709": Features(images=True),
+        "grok-3": Features(images=True),
     },
     "deepseek": {
         "deepseek-flash": Features(_DEEPSEEK, images=True),
@@ -122,6 +122,11 @@ FEATURES: dict[str, dict[str, Features]] = {
         "accounts/fireworks/models/deepseek-v4p1-flash": Features(images=True),
         "accounts/fireworks/models/gpt-oss-120b": Features(),
         "accounts/fireworks/models/glm-5p3-flash": Features(images=True),
+        "accounts/fireworks/models/glm-5p3": Features(),
+        "accounts/fireworks/models/ember-1": Features(images=True),
+        "accounts/fireworks/models/minimax-m3": Features(),
+        "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": Features(),
+        "accounts/fireworks/models/nemotron-3-ultra-nvfp4": Features(),
     },
 }
 

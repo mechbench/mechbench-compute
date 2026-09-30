@@ -57,9 +57,9 @@ def test_a_promotion_gives_way_to_the_price_after_it():
 
 
 def test_the_release_gate_names_stale_rows_ended_prices_and_shutdowns():
-    assert pricing.find_table_problems(date(2026, 9, 26)) == []
+    assert pricing.find_table_problems(date(2026, 9, 30)) == []
     later = pricing.find_table_problems(date(2027, 1, 1))
-    assert any("anthropic/claude-opus-5-5 was last checked 2026-09-26" in p for p in later)
+    assert any("anthropic/claude-opus-5-5 was last checked 2026-09-30" in p for p in later)
     assert any("openai/gpt-5.6-sol: its price held until 2026-11-21" in p for p in later)
     assert any("openai/gpt-5 was to shut down 2026-12-11" in p for p in later)
     assert not any("gemini/gemini-3.8-flash: its price held" in p for p in later)

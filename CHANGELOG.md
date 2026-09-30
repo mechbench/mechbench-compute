@@ -13,6 +13,81 @@ nothing said so.
 
 ---
 
+## 0.173.0 — 2026-09-30
+
+### Changes that raise
+
+- **A declared expression is checked before a run, inside a map's body
+  too.** A param an op declares as an expression or a template
+  (`records/filter`'s `where`, `records/derive`'s `fields` and
+  `templates`, `records/group`'s `by` and `aggregates`, `records/sort`'s
+  `by`, `records/join`'s `on` and `on_right`) is parsed before anything
+  runs, wherever its node sits: at the top of the graph, or in a
+  `records/map` body at any depth, or reached through a `{"$param"}`.
+  A syntax error, or a `params.x` that names neither a param of the run
+  nor a name the enclosing map binds, refuses the run with the other
+  unresolved references (`<node>.body.nodes.0.params.where: …`), the
+  same as a `{"$expr"}` already was. Such a protocol used to start and
+  fail at that node, or read the missing param as null.
+- **`grok-4.5` takes effort `low`, `medium` and `high`**, no longer
+  `xhigh`: xAI's reasoning page and release notes give those three, and
+  say an `xhigh` request to it is served as `high` (its model page still
+  lists `xhigh`; the row's note says so). A `text/chat` or thread call
+  asking it for `xhigh` is refused by name.
+
+### Changes that alter results without raising
+
+The provider table was checked against every provider's own pages on
+2026-09-30 (task 000763; `docs/PROVIDER_TABLE.md`), and
+`scripts/check_provider_models.py` agreed with every provider's models
+API. Every row's `checked` is 2026-09-30 and `TABLE_VERSION` the same.
+No existing price changed. What a call costs or sends changes here:
+
+- **Fireworks: five models priced** (US$ per million tokens, input /
+  output / cache read), where a call was recorded as unpriced and no
+  budget held it back: `ember-1` $3.00 / $15.00 / $0.30 (takes images),
+  `glm-5p3` $1.40 / $4.40 / $0.26, `minimax-m3` $0.30 / $1.20 / $0.06,
+  `nemotron-lightning-3p5-30b-a3b` $0.05 / $0.20 / $0.01, and
+  `nemotron-3-ultra-nvfp4` $0.60 / $2.40 / $0.12 (preview). Their Fast
+  and US variants are not recorded.
+- **xAI: `grok-4-0709` and `grok-3` take images.** Both are served as
+  `grok-4.3`, whose model page lists image input, so a request's
+  pictures are now sent to them.
+
+### Other
+
+- **Provider table notes and exclusions.** Claude Opus 4.5 takes effort
+  `low`, `medium` and `high` (the effort page names it; a call asking
+  for one was refused). `grok-4.3`'s note records that its model page
+  lists `xhigh` beside the retirement guide's four levels (the table
+  keeps the four). Fireworks' `deepseek-v4p1-flash` notes that its model
+  page gives $0.22 / $0.66 / $0.007 against the pricing page's rates,
+  which the row keeps. `EXCLUDED` adds Anthropic's invite-only
+  `claude-mythos-5-1` and `claude-mythos-5` and OpenAI's
+  trusted-access `gpt-rosalind-research`; `gemini-pro-latest`'s reason
+  names what the changelog last pointed it at. Still open: DeepSeek's
+  news post of 2026-09-10 says `deepseek-v4-pro` is served as Flash
+  since 2026-09-14, while its changelog and pricing page say it stays
+  (the row keeps the pricing page); GPT-5.6 Sol's promotional price
+  holds at least through 2026-11-21 and no page says what follows.
+- **Kinds close their sub-fields where they are fixed** (task 000772).
+  A kind field's JSON Schema that lists `properties` with
+  `additionalProperties: False` (or does so on its `items`, for a list
+  of objects) declares the names a read may take one level down, and
+  `Kind.subfields` gives them by the prefix the expression engine spells
+  a read with: `space` for `space.layer`, `top[]` for `top[0].token` or
+  `sum(t.p for t in top)`. The shared values now close `token`
+  (`id`, `text`), `space` (`model`, `layer`, `point`, `head`, `d`), and
+  the entries of `top` and `variants` (`token`, `p`, `logp`), so
+  `logits/*`, `intervene/trace`, `activations/vector`,
+  `activations/coordinate`, `direction/vocab` and `geometry/similarity`
+  declare them; `platform/calibration`'s `shape` was already closed.
+  `coords` and `tracked` stay open maps. `scripts/dump_kinds_ts.py`
+  writes them into models' `kinds.generated.ts` as `subfields`, for the
+  platform's check at push.
+
+---
+
 ## 0.172.0 — 2026-09-30
 
 ### Changes that raise

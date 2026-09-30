@@ -18,7 +18,13 @@ NOT_TEXT_MARKERS = ("audio", "realtime", "image", "tts", "transcribe", "embeddin
                     "omni")
 
 EXCLUDED: dict[str, dict[str, str]] = {
+    "anthropic": {
+        "claude-mythos-5-1": "invite only (Project Glasswing), by its model page",
+        "claude-mythos-5": "invite only (Project Glasswing), by its model page",
+    },
     "openai": {
+        "gpt-rosalind-research": "limited to approved research through the trusted-access program, "
+                                 "by the pricing page",
         "gpt-5-codex": "not on the pricing page",
         "gpt-5.1-codex": "not on the pricing page",
         "gpt-5.1-codex-mini": "not on the pricing page",
@@ -37,7 +43,9 @@ EXCLUDED: dict[str, dict[str, str]] = {
     "gemini": {
         "gemini-flash-latest": "an alias Google moves between models; call a model by its own id",
         "gemini-flash-lite-latest": "an alias Google moves between models; call a model by its own id",
-        "gemini-pro-latest": "an alias whose target no page states; call a model by its own id",
+        "gemini-pro-latest": "an alias Google moves between models (the changelog last pointed it at "
+                             "gemini-3-pro-preview, since served as gemini-3.1-pro-preview); "
+                             "call a model by its own id",
         "gemini-3.1-flash-lite-preview": "shut down 2026-05-25 by the deprecations page, "
                                          "though the models API still lists it",
     },

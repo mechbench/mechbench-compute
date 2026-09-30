@@ -21,16 +21,21 @@ def main() -> None:
     print("/** Every declared kind, by bare name: its key, whether a collection of it exists, and the kind it")
     print(" * extends — which is what lets an object fill a port declared as its ancestor — and the fields it")
     print(" * declares itself (an ancestor's are its ancestor's); its sentence (`speak`, a template over an")
-    print(" * item's fields and `header.*`) and its chart (`draw`) when it has them. */")
+    print(" * item's fields and `header.*`) and its chart (`draw`) when it has them. `subfields` holds the")
+    print(" * fields a read may name one level down, by the prefix the expression engine spells (`space` for")
+    print(" * `space.layer`, `top[]` for `top[0].token`), where the kind closes them; a prefix it does not")
+    print(" * list is open. */")
     print("export const KINDS: Record<string, { key: string[]; collectable: boolean; platform: boolean; "
-          "extends: string | null; fields: string[]; summary: string; speak?: string; "
+          "extends: string | null; fields: string[]; subfields?: Record<string, string[]>; summary: string; speak?: string; "
           "draw?: { mark: string; encoding: Record<string, string> }; version: number }> = {")
     for k in CORE.kinds():
         said = f", speak: {json.dumps(k.speak)}" if k.speak else ""
         drawn = f", draw: {json.dumps(k.draw.to_dict())}" if k.draw else ""
+        subs = {p: list(names) for p, names in k.subfields.items()}
+        closed = f", subfields: {json.dumps(subs)}" if subs else ""
         print(f"  {json.dumps(k.name)}: {{ key: {json.dumps(list(k.key))}, collectable: {json.dumps(k.collectable)}, "
               f"platform: {json.dumps(k.platform)}, extends: {json.dumps(k.extends)}, "
-              f"fields: {json.dumps(list(k.fields))}, summary: {json.dumps(k.summary)}{said}{drawn}, "
+              f"fields: {json.dumps(list(k.fields))}{closed}, summary: {json.dumps(k.summary)}{said}{drawn}, "
               f"version: {k.version} }},")
     print("};")
     print()

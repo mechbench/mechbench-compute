@@ -5,6 +5,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from mechbench_compute import lexicon
+from mechbench_compute.lexicon._base import type_words
 
 DATAFLOW = 2
 INTERMEDIATES = "nodes"
@@ -238,6 +239,44 @@ def bound_along(block: str, params: Mapping[str, Any], path: Sequence[str]) -> f
     return frozenset(names)
 
 
+def _expression_declared_at(op: Any, params: Mapping[str, Any], path: Sequence[str]) -> Any:
+    site_op, site_path, cursor = op, list(path), params
+    while site_path[:2] == ["body", "nodes"] and len(site_path) >= 4 and site_path[3] == "params":
+        body = cursor.get("body")
+        try:
+            inner = body["nodes"][int(site_path[2])]  # type: ignore[index]
+            site_op = lexicon.BY_NAME.get(lexicon.resolve(inner["block"]))
+        except (IndexError, KeyError, TypeError, ValueError):
+            return None
+        cursor = inner.get("params") or {}
+        site_path = site_path[4:]
+    if site_op is None or not site_path:
+        return None
+    decl = _declared_at(site_op, site_path)
+    if decl is None and len(site_path) > 1:
+        parent = _declared_at(site_op, site_path[:-1])
+        decl = parent if parent is not None and parent.type.startswith("map[") else None
+    if decl is None or not {"expression", "template"} & type_words(decl.type):
+        return None
+    return decl
+
+
+def _declared_expression_problems(decl: Any, src: str, allowed: frozenset[str]) -> list[str]:
+    from mechbench_compute.expr.engine import ExprError, load_engine
+
+    engine = load_engine()
+    try:
+        if "template" in type_words(decl.type):
+            engine.render(src, [{}])
+            return []
+        reads = engine.check(src.removeprefix("-") if decl.type.startswith("list") else src)["reads"]
+    except ExprError as e:
+        return [f"{e.detail}: `{src}`"]
+    names = sorted({re.split(r"[.\[]", path, 2)[1] for path in reads
+                    if path.startswith(("params.", "params["))})
+    return [f"`{src}` reads params.{name}, which is not a param" for name in names if name not in allowed]
+
+
 def check_refs(nodes: Mapping[str, Mapping[str, Any]],
                bound_params: Mapping[str, Any]) -> None:
     problems: list[str] = []
@@ -264,6 +303,13 @@ def check_refs(nodes: Mapping[str, Mapping[str, Any]],
             bound_here = local(path) if path[:1] == ["body"] else frozenset()
             for name in sorted(names - set(bound_params) - bound_here):
                 problems.append(f"{nid}.{'.'.join(path)}: `{v['$expr']}` reads {name!r}, which is not a param")
+            return
+        if isinstance(v, str):
+            decl = _expression_declared_at(op, params, path)
+            if decl is not None:
+                allowed = frozenset(bound_params) | (local(path) if path[:1] == ["body"] else frozenset())
+                for problem in _declared_expression_problems(decl, v, allowed):
+                    problems.append(f"{nid}.{'.'.join(path)}: {problem}")
             return
         if is_object_ref(v):
             source_of(v)
