@@ -17,6 +17,7 @@ OUT = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "configs"
 REPOS = (
     "mlx-community/gemma-4-e2b-it-bf16",
     "mlx-community/gemma-4-E4B-it-bf16",
+    "mlx-community/gemma-4-31b-it-bf16",
     "mlx-community/gemma-3-4b-it-bf16",
     "mlx-community/gemma-3-12b-it-bf16",
     "mlx-community/Qwen2.5-3B-Instruct-bf16",

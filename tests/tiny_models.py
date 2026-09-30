@@ -61,13 +61,34 @@ def build_gemma3():
 
 
 def build_gemma4():
+    from mlx_vlm.models.gemma4 import config
+
+    return wrap_gemma4(config.TextConfig(
+        hidden_size=32, num_hidden_layers=4, intermediate_size=64,
+        num_attention_heads=4, num_key_value_heads=2, head_dim=8,
+        global_head_dim=8, vocab_size=64, vocab_size_per_layer_input=64,
+        hidden_size_per_layer_input=8, num_kv_shared_layers=0,
+        sliding_window=WINDOW, sliding_window_pattern=2))
+
+
+def build_gemma4_31b():
+    from mlx_vlm.models.gemma4 import config
+
+    return wrap_gemma4(config.TextConfig(
+        hidden_size=32, num_hidden_layers=6, intermediate_size=64,
+        num_attention_heads=4, num_key_value_heads=2, num_global_key_value_heads=1,
+        head_dim=8, global_head_dim=16, vocab_size=64, vocab_size_per_layer_input=64,
+        hidden_size_per_layer_input=0, num_kv_shared_layers=0, attention_k_eq_v=True,
+        layer_types=["sliding_attention"] * 5 + ["full_attention"], sliding_window=WINDOW,
+        rope_parameters={
+            "full_attention": {"partial_rotary_factor": 0.25, "rope_theta": 1000000.0,
+                               "rope_type": "proportional"},
+            "sliding_attention": {"rope_theta": 10000.0, "rope_type": "default"}}))
+
+
+def wrap_gemma4(text):
     from mlx_vlm.models.gemma4 import config, gemma4
 
-    text = config.TextConfig(hidden_size=32, num_hidden_layers=4, intermediate_size=64,
-                             num_attention_heads=4, num_key_value_heads=2, head_dim=8,
-                             global_head_dim=8, vocab_size=64, vocab_size_per_layer_input=64,
-                             hidden_size_per_layer_input=8, num_kv_shared_layers=0,
-                             sliding_window=WINDOW, sliding_window_pattern=2)
     vision = config.VisionConfig(hidden_size=16, intermediate_size=32, num_hidden_layers=1,
                                  num_attention_heads=2, num_key_value_heads=2, head_dim=8,
                                  global_head_dim=8, position_embedding_size=16)
@@ -86,9 +107,14 @@ BUILDERS = {
 
 MODEL_TYPES = tuple(sorted(BUILDERS))
 
+VARIANTS = {"gemma4-31b": ("gemma4", build_gemma4_31b)}
 
-def build_tiny_model(model_type, architecture=None) -> Model:
-    wrapped, lm = BUILDERS[model_type]()
+KIT_MODELS = (*((t, t) for t in MODEL_TYPES), *((v, t) for v, (t, _) in VARIANTS.items()))
+
+
+def build_tiny_model(name, architecture=None) -> Model:
+    build = VARIANTS[name][1] if name in VARIANTS else BUILDERS[name]
+    wrapped, lm = build()
     keys = iter(mx.random.split(mx.random.key(11), 1000))
     lm.update(tree_map(lambda p: mx.random.normal(p.shape, key=next(keys)) * 0.5,
                        lm.parameters()))

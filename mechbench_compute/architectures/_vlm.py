@@ -55,6 +55,8 @@ def read_vlm_arch(model_type: str, cfg: Any, model_id: str | None = None) -> Arc
         pattern = int(getattr(cfg, "sliding_window_pattern", 6))
         global_layers = tuple(i for i in range(n_layers) if (i + 1) % pattern == 0)
     num_kv_shared = int(getattr(cfg, "num_kv_shared_layers", 0) or 0)
+    global_kv = (getattr(cfg, "num_global_key_value_heads", None)
+                 if getattr(cfg, "attention_k_eq_v", False) else None)
     return Arch(
         model_id=model_id or getattr(cfg, "_name_or_path", "") or "",
         n_layers=n_layers,
@@ -66,5 +68,6 @@ def read_vlm_arch(model_type: str, cfg: Any, model_id: str | None = None) -> Arc
         global_layers=global_layers,
         first_kv_shared_layer=n_layers - num_kv_shared,
         model_type=model_type,
+        n_global_kv_heads=None if global_kv is None else int(global_kv),
     )
 

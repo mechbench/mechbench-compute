@@ -369,10 +369,14 @@ walked set; nothing else lists architectures.
 
 `support.Architecture` is the interface. Its declarative fields:
 `model_type`, `name`, `loader`, `generate`/`score`/`train`,
-`layer_points`, `global_points`, `refused_when`, `config_defaults`, and
+`layer_points`, `global_points`, `refused_when` (config keys that refuse
+the checkpoint), `absent_when` (points a checkpoint lacks when a config
+key is 0 or unset: it loads, and a hook there is refused by name),
+`config_defaults`, and
 `residual_law`, a string the kit evaluates
 (`"resid_post[i] == resid_pre[i] + attn_out[i] + mlp_out[i] == resid_pre[i+1]"`,
-or the architecture's own). Its callables, which `Model` delegates to
+or the architecture's own; `residual_law_of(arch)` drops an absent
+point's term). Its callables, which `Model` delegates to
 without asking which architecture it holds:
 
 | field | signature |
@@ -397,7 +401,8 @@ the two loaders' plumbing is `_vlm.py` and `_mlx_lm.py`.
 
 `tests/test_architecture_kit.py` runs over every walked architecture
 with a tiny random model of it (`tests/tiny_models.py`; an
-architecture without one fails the kit):
+architecture without one fails the kit), and over each variant there
+whose config changes which points exist (`VARIANTS`: `gemma4-31b`):
 
 - every declared point is captured, in the shape `points.LAYOUT` gives;
 - the global points agree with the stream (`embed` is `resid_pre` of
@@ -414,7 +419,8 @@ architecture without one fails the kit):
 - `tokenize` round-trips through the tokenizer;
 - the dialect parses the tool call its own template rendered
   (`tests/fixtures/chat_templates.json`);
-- the adapter keys reach every q/k/v/o/gate/up/down projection;
+- the adapter keys reach every q/k/v/o/gate/up/down projection, except a
+  `v_proj` on a layer whose values are its keys (`use_k_eq_v`);
 - `head_weights` reads a head, or refuses naming the architecture
   (an expected failure, reported as such).
 

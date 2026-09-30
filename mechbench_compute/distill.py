@@ -8,6 +8,8 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple
 import mlx.core as mx
 import numpy as np
 
+from mechbench_compute.spans import add_to_span
+
 __all__ = [
     "Example",
     "TargetMap",
@@ -204,6 +206,7 @@ class TargetTrie:
 
 def _forward_logits(lm, ids: list[int]) -> mx.array:
     out = lm(mx.array([ids]))
+    add_to_span(forwards=1)
     return (out.logits if hasattr(out, "logits") else out)[0]
 
 
@@ -336,6 +339,7 @@ def score_items_batched(lm, prompt_ids: list[int],
             fed = mx.array([prompt_ids + sequences[it][:-1] for it in part]
                            if n > 1 else [prompt_ids for _ in part])
             o = lm(fed)
+            add_to_span(forwards=1)
             logits = o.logits if hasattr(o, "logits") else o
             rows = logits[:, L - 1: L - 1 + n, :].astype(mx.float32)
             tgt = mx.array([sequences[it] for it in part])
@@ -388,6 +392,7 @@ def score_items_cached(model, prompt_ids: list[int],
     cache = model.prompt_cache()
     lm = model.lm
     o = lm(mx.array([prompt_ids]), cache=cache)
+    add_to_span(forwards=1)
     prompt_row = (o.logits if hasattr(o, "logits")
                   else o)[0, -1, :].astype(mx.float32)
     lse0 = mx.logsumexp(prompt_row)
@@ -400,6 +405,7 @@ def score_items_cached(model, prompt_ids: list[int],
         if len(seq) > 1:
             cc = _copy_prefix_cache(cache)
             o = lm(mx.array([seq[:-1]]), cache=cc)
+            add_to_span(forwards=1)
             rows = (o.logits if hasattr(o, "logits")
                     else o)[0].astype(mx.float32)
             tgt = mx.array(seq[1:])
@@ -486,6 +492,7 @@ def first_token_metrics(lm, prompt_ids: list[int], tokenizer=None) -> dict:
 
 
 def prefill_decision(model, prompt_ids: list[int], *, interventions=None):
+    add_to_span(tokens_in=len(prompt_ids))
     cache = model.prompt_cache()
     if interventions:
         res = model.run(mx.array([prompt_ids]), interventions=list(interventions),
@@ -494,6 +501,7 @@ def prefill_decision(model, prompt_ids: list[int], *, interventions=None):
     else:
         lm = model.lm
         o = lm(mx.array([prompt_ids]), cache=cache)
+        add_to_span(forwards=1)
         row = (o.logits if hasattr(o, "logits") else o)[0, -1, :].astype(mx.float32)
     mx.eval(row)
     for c in cache:
@@ -531,6 +539,7 @@ def expand_top_outcomes_cached(model, tokenizer, prompt_ids: list[int],
         if partial:
             cc = _copy_prefix_cache(cache)
             o = model.lm(mx.array([partial]), cache=cc)
+            add_to_span(forwards=1)
             row = (o.logits if hasattr(o, "logits")
                    else o)[0, -1, :].astype(mx.float32)
             forwards += 1

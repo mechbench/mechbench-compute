@@ -18,6 +18,7 @@ from mechbench_compute.protocol.serialize_params import serialize_params
 from mechbench_compute.protocol.sort_edges import sort_edges
 from mechbench_compute.protocol.store_result import store_result
 from mechbench_compute.registry import REGISTRY
+from mechbench_compute.spans import open_span
 
 
 class Pipeline:
@@ -88,14 +89,16 @@ class Pipeline:
                 if self._on_checkpoint is not None else None
             )
             try:
-                state.results[nid] = self._run_node(
-                    state, nid, block, inputs, params, secrets=secrets,
-                    resolver=resolver, progress=progress, on_item=on_item,
-                    on_checkpoint=on_checkpoint, input_paths=input_paths,
-                    resume_kwargs=resume_kwargs)
+                with open_span() as span:
+                    state.results[nid] = self._run_node(
+                        state, nid, block, inputs, params, secrets=secrets,
+                        resolver=resolver, progress=progress, on_item=on_item,
+                        on_checkpoint=on_checkpoint, input_paths=input_paths,
+                        resume_kwargs=resume_kwargs)
             except MissingUpstream:
                 raise
             except Exception as exc:  # noqa: BLE001
+                self._report_span(nid, span)
                 state.failures[nid] = exc
                 state.missing[nid] = {"reason": f"{type(exc).__name__}: {exc}",
                                       "source": [nid]}
@@ -104,6 +107,7 @@ class Pipeline:
                     self._on_node_done(nid, None, fingerprint)
                 progress.bump()
                 continue
+            self._report_span(nid, span)
             store_result(state, nid, node, block, params, in_edges,
                          inputs, resolver, fingerprint, self._on_node_kept)
             if self._on_node_done is not None and nid not in state.held:
@@ -124,3 +128,7 @@ class Pipeline:
             schema_version=ms.__version__,
         )
         return ms.Emitted(payload=payload, provenance=prov)
+
+    def _report_span(self, nid: str, span) -> None:
+        if getattr(self, "_on_node_span", None) is not None:
+            self._on_node_span(nid, span.to_dict())

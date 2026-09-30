@@ -18,6 +18,7 @@ from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.spans import add_to_span
 
 OP = Op(
     name="intervene/patch",
@@ -260,6 +261,7 @@ def _compute_attribution_grid(model, ids_corrupt, layers: Sequence[int], point: 
         return answer.read_differentiable(metric, res.logits[0, -1, :].astype(mx.float32))
 
     grads = mx.grad(objective)(deltas)
+    add_to_span(backwards=1)
     mx.eval(*grads.values())
     corrupt_cache = model.run(ids_corrupt, capture=names).cache
     grid: list[list[float]] = []

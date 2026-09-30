@@ -10,6 +10,7 @@ import numpy as np
 from mlx import nn
 
 from .distill import Example, TargetMap, TargetTrie, encode, soft_ce, suffix_tokens
+from .spans import add_to_span
 
 
 def entropy_bits(target: TargetMap) -> float:
@@ -487,6 +488,7 @@ def train_soft_ce(
             for _ in range(k):
                 batch.extend(factory(rng))
         loss, grads = loss_and_grad(lm, batch)
+        add_to_span(backwards=1)
         opt.update(lm, grads)
         mx.eval(lm.trainable_parameters(), opt.state, loss)
         loss_val = float(loss)

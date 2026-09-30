@@ -7,6 +7,7 @@ import numpy as np
 
 from .model import Model
 from .prompts import Prompt, PromptSet
+from .spans import add_to_span
 
 _GEMMA4_END_OF_TURN_ID = 106
 
@@ -54,6 +55,7 @@ def generate_text(
         stop.add(int(eos))
 
     ids = model.tokenize(prompt)
+    add_to_span(tokens_in=int(ids.shape[1]))
     generated: list[int] = []
     for _ in range(max_tokens):
         result = model.run(ids)
@@ -71,6 +73,7 @@ def generate_text(
             print(tok, end="", flush=True)
     if verbose:
         print()
+    add_to_span(tokens_out=len(generated))
     return model.tokenizer.decode(generated)
 
 
@@ -222,11 +225,13 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
                 coord = readout.read(res.cache)
         else:
             o = lm(mx.array([[int(next_id)]]), cache=cache)
+            add_to_span(forwards=1)
             row = (o.logits if hasattr(o, "logits")
                    else o)[0, -1, :].astype(mx.float32)
         if on_token is not None:
             on_token({"index": index, "id": int(next_id), "text": piece,
                       **({"coord": coord} if coord is not None else {})})
+    add_to_span(tokens_out=len(out_ids))
     text = model.tokenizer.decode(out_ids)
     if hit_stop:
         text = cut_at_stop(text, stops)

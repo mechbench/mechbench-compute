@@ -44,3 +44,16 @@ def test_the_stated_defaults_are_the_loader_s(arch):
     unstated = {k for k in shape_keys & set(fields)
                 if fields[k] is not dataclasses.MISSING and k not in arch.config_defaults}
     assert not unstated, f"{arch.model_type} defaults not stated: {sorted(unstated)}"
+
+
+@pytest.mark.parametrize("stem,absent", [("gemma-4-31b-it-bf16", {"gate_out"}),
+                                         ("gemma-4-e2b-it-bf16", set()),
+                                         ("gemma-4-e4b-it-bf16", set())])
+def test_a_gemma4_config_names_the_points_its_checkpoint_lacks(stem, absent):
+    from mechbench_compute.architectures import BY_MODEL_TYPE
+    from mechbench_compute.support import refusal
+
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "configs" / f"{stem}.json").read_text())
+    arch = read_arch_from_config(fixture["config"], fixture["repo"])
+    assert refusal(fixture["config"]) is None
+    assert set(BY_MODEL_TYPE["gemma4"].absent_points(arch)) == absent

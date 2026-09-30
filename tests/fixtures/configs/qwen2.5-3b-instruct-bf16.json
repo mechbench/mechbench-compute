@@ -43,6 +43,7 @@
     "hidden_size_per_layer_input": 0,
     "model_id": "mlx-community/Qwen2.5-3B-Instruct-bf16",
     "model_type": "qwen2",
+    "n_global_kv_heads": null,
     "n_heads": 16,
     "n_kv_heads": 2,
     "n_layers": 36,

@@ -25,7 +25,7 @@ from mechbench_compute.lexicon.walk import walk_kinds, walk_ops
 
 GROUP = "mechbench.extensions"
 
-SEALED = frozenset({"run", "sandbox", "provider", "model", "policy", "extension"})
+SEALED = frozenset({"run", "sandbox", "provider", "model", "platform", "policy", "extension"})
 
 
 class RestartRequired(RuntimeError):

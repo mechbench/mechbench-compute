@@ -34,7 +34,7 @@ from mechbench_compute.dialects import (
 from mechbench_compute.head_weights import HeadSpec, read_dense_weight
 from mechbench_compute.hooks import HookFn, attn_internal_layers, mlp_internal_layers
 from mechbench_compute.lora import ADAPTER_KEYS
-from mechbench_compute.support import Architecture, Refusal, Unembed
+from mechbench_compute.support import Absence, Architecture, Refusal, Unembed
 from mechbench_compute.thinking import Delimiters
 from mechbench_compute.tools import ToolDef
 
@@ -254,7 +254,7 @@ def run_forward(
         if getattr(layer, "enable_moe", False):
             raise NotImplementedError(
                 "MoE decoder layers (Gemma 4 26B) are not supported by the "
-                "canonical forward. Only dense variants (E2B/E4B/12B) are wired."
+                "canonical forward. Only the dense checkpoints are wired."
             )
         c = kv_cache[i]
         local_mask = masks[i]
@@ -380,6 +380,10 @@ ARCH = Architecture(
         "enable_moe_block",
         "mixture-of-experts layers (Gemma 4 26B A4B) are not wired into the "
         "gemma4 forward; only the dense checkpoints load"),),
+    absent_when=(Absence(
+        "gate_out", "hidden_size_per_layer_input",
+        "this checkpoint has no per-layer input embeddings (hidden_size_per_layer_input "
+        "is 0, as in Gemma 4 31B), so no layer adds a per-layer gate"),),
     config_defaults={
         "hidden_size": 1536, "num_hidden_layers": 35, "num_attention_heads": 8,
         "num_key_value_heads": 1, "head_dim": 256, "vocab_size": 262144,

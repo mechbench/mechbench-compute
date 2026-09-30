@@ -17,7 +17,7 @@ def assert_clean(codes: tuple[str, ...], subject: str | None = None) -> None:
 FAMILIES = {"records", "text", "eval", "logits", "activations", "geometry",
             "intervene", "direction", "trajectory", "adapter", "weights",
             "tools",
-            "sandbox", "provider", "model", "run"}
+            "sandbox", "provider", "model", "platform", "run"}
 
 
 @pytest.mark.parametrize("kind", K.KINDS, ids=lambda k: k.name)
@@ -223,6 +223,6 @@ class TestOneKindPerFile:
             assert mod.KIND is k, k.name
 
     def test_a_platform_kind_says_so(self):
-        platform_families = {"sandbox", "provider", "model", "run"}
+        platform_families = {"sandbox", "provider", "model", "platform", "run"}
         for k in K.KINDS:
             assert k.platform == (k.family in platform_families), k.name

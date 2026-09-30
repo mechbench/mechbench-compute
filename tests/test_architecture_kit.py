@@ -11,13 +11,15 @@ import pytest
 from mlx.utils import tree_flatten
 
 from mechbench_compute import attribution, dialects, support
+from mechbench_compute._arch import Arch
 from mechbench_compute.architectures import ARCHITECTURES, BY_MODEL_TYPE
 from mechbench_compute.architectures import llama as llama_arch
+from mechbench_compute.errors import InvalidHookName
 from mechbench_compute.interventions import Ablate
 from mechbench_compute.lora import apply_lora
 from mechbench_compute.points import LAYOUT
 from mechbench_compute.tools import build_toolbox
-from tests.tiny_models import BUILDERS, WINDOW, build_tiny_model
+from tests.tiny_models import BUILDERS, KIT_MODELS, WINDOW, build_tiny_model
 
 IDS = mx.array([[1, 5, 9, 2, 7, 3, 11, 4]])
 
@@ -33,9 +35,10 @@ TEMPLATE_OF = {
 }
 
 
-@pytest.fixture(scope="module", params=ARCHITECTURES, ids=lambda a: a.model_type)
+@pytest.fixture(scope="module", params=KIT_MODELS, ids=lambda m: m[0])
 def tiny(request):
-    return build_tiny_model(request.param.model_type, request.param)
+    name, model_type = request.param
+    return build_tiny_model(name, BY_MODEL_TYPE[model_type])
 
 
 def read_f64(value) -> np.ndarray:
@@ -44,7 +47,8 @@ def read_f64(value) -> np.ndarray:
 
 def list_declared_names(model) -> list[str]:
     a = model.architecture
-    return ([f"blocks.{i}.{p}" for i in range(model.arch.n_layers) for p in a.layer_points]
+    return ([f"blocks.{i}.{p}" for i in range(model.arch.n_layers)
+             for p in a.layer_points_of(model.arch)]
             + list(a.global_points))
 
 
@@ -54,7 +58,7 @@ def read_law_terms(law: str) -> list[str]:
 
 def check_residual_law(model, ids=IDS) -> None:
     architecture = model.architecture
-    law = architecture.residual_law
+    law = architecture.residual_law_of(model.arch)
     n = model.arch.n_layers
     terms = read_law_terms(law)
     points = [t for t in terms if t != "layer_scalar"]
@@ -89,7 +93,7 @@ def test_the_declared_points_are_present_at_the_declared_level(tiny):
     names = list_declared_names(tiny)
     result = tiny.run(IDS, capture=names)
     n_tokens = IDS.shape[1]
-    heads = {tiny.arch.n_heads, tiny.arch.n_kv_heads}
+    heads = {tiny.arch.n_heads, tiny.arch.n_kv_heads, tiny.arch.n_global_kv_heads} - {None}
     for name in names:
         assert name in result.cache, f"{a.model_type}: {name} was declared and not captured"
         shape = tuple(result.cache[name].shape)
@@ -220,14 +224,18 @@ def test_the_dialect_parses_its_own_rendered_call():
         assert dialects.identify(dialects.TemplateProbe(True, rendered)) is a.dialect
 
 
-@pytest.mark.parametrize("architecture", ARCHITECTURES, ids=lambda a: a.model_type)
-def test_the_adapter_keys_reach_every_projection(architecture):
-    model = build_tiny_model(architecture.model_type, architecture)
+@pytest.mark.parametrize("name,model_type", KIT_MODELS, ids=[m[0] for m in KIT_MODELS])
+def test_the_adapter_keys_reach_every_projection(name, model_type):
+    architecture = BY_MODEL_TYPE[model_type]
+    model = build_tiny_model(name, architecture)
     keys = architecture.adapter_keys
     params = dict(tree_flatten(model.lm.parameters()))
-    for i in range(model.arch.n_layers):
+    for i, layer in enumerate(model.lm.model.layers):
         for proj, container in keys.containers.items():
             stem = f"model.layers.{i}.{container}.{proj}"
+            if proj == "v_proj" and getattr(layer.self_attn, "use_k_eq_v", False):
+                assert f"{stem}.weight" not in params, stem
+                continue
             assert f"{stem}.weight" in params, stem
             assert keys.key_re.match(f"{stem}.lora_a"), stem
             assert keys.peft_re.search(f"base_model.model.{stem}.lora_A.weight"), stem
@@ -245,3 +253,25 @@ def test_head_weights_reads_a_head_or_refuses_by_name(tiny):
     assert spec.W_Q.shape == (head_dim, d) and spec.W_K.shape == (head_dim, d)
     assert spec.W_V.shape == (head_dim, d) and spec.W_O.shape == (d, head_dim)
     assert (spec.n_heads, spec.n_kv_heads) == (tiny.arch.n_heads, tiny.arch.n_kv_heads)
+
+
+def test_a_gemma4_checkpoint_without_per_layer_inputs_refuses_gate_out_by_name():
+    model = build_tiny_model("gemma4-31b", BY_MODEL_TYPE["gemma4"])
+    assert model.architecture.absent_points(model.arch) == {
+        "gate_out": model.architecture.absent_when[0].reason}
+    assert model.architecture.residual_law_of(model.arch) == (
+        "resid_post[i] == (resid_pre[i] + attn_out[i] + mlp_out[i]) * layer_scalar[i] "
+        "== resid_pre[i+1]")
+    with pytest.raises(InvalidHookName, match=r"blocks\.2\.gate_out \(absent: .*per-layer"):
+        model.run(IDS, capture=["blocks.2.gate_out"])
+    e_model = build_tiny_model("gemma4", BY_MODEL_TYPE["gemma4"])
+    assert e_model.architecture.absent_points(e_model.arch) == {}
+    assert "gate_out" in e_model.architecture.residual_law_of(e_model.arch)
+
+
+def test_an_absence_is_keyed_by_a_field_the_arch_reads():
+    fields = {f.name for f in dataclasses.fields(Arch)}
+    for a in ARCHITECTURES:
+        for absence in a.absent_when:
+            assert absence.config_key in fields, (a.model_type, absence.config_key)
+            assert a.supports(absence.point, layer_scoped=True), (a.model_type, absence.point)

@@ -42,6 +42,9 @@ def main() -> None:
     print("  layerPoints: string[];")
     print("  globalPoints: string[];")
     print("  refusedWhen: { configKey: string; reason: string }[];")
+    print("  /** Hook points a checkpoint of this architecture lacks when its config's key is 0 or unset: "
+          "the architecture loads, and a hook at the point is refused by name. */")
+    print("  absentWhen: { point: string; configKey: string; reason: string }[];")
     print("  /** Values the loader gives the shape keys a config.json leaves out. */")
     print("  configDefaults: Record<string, number>;")
     print("}")

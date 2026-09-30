@@ -31,6 +31,13 @@ class Refusal:
 
 
 @dataclass(frozen=True)
+class Absence:
+    point: str
+    config_key: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class Unembed:
     norm: Any
     project: Callable[[Any], Any]
@@ -62,6 +69,7 @@ class Architecture:
     reasoning: tuple[Any, ...]
     adapter_keys: Any
     refused_when: tuple[Refusal, ...] = ()
+    absent_when: tuple[Absence, ...] = ()
     config_defaults: Mapping[str, Any] = field(default_factory=dict)
 
     @property
@@ -75,6 +83,20 @@ class Architecture:
 
     def supports(self, point: str, *, layer_scoped: bool) -> bool:
         return point in (self.layer_points if layer_scoped else self.global_points)
+
+    def absent_points(self, arch: Any) -> dict[str, str]:
+        return {a.point: a.reason for a in self.absent_when
+                if not getattr(arch, a.config_key, True)}
+
+    def layer_points_of(self, arch: Any) -> tuple[str, ...]:
+        absent = self.absent_points(arch)
+        return tuple(p for p in self.layer_points if p not in absent)
+
+    def residual_law_of(self, arch: Any) -> str:
+        law = self.residual_law
+        for point in self.absent_points(arch):
+            law = law.replace(f" + {point}[i]", "")
+        return law
 
 
 def refusal(config: Mapping[str, Any]) -> str | None:
@@ -108,6 +130,8 @@ def local_architectures() -> list[dict[str, Any]]:
         "globalPoints": list(a.global_points),
         "refusedWhen": [{"configKey": r.config_key, "reason": r.reason}
                         for r in a.refused_when],
+        "absentWhen": [{"point": x.point, "configKey": x.config_key, "reason": x.reason}
+                       for x in a.absent_when],
         "configDefaults": dict(a.config_defaults),
     } for a in ARCHITECTURES]
 

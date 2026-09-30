@@ -258,6 +258,19 @@ reference can load it as a base.
 """,
     ),
     Family(
+        "platform",
+        "What the platform measures about the machines it runs on: how long each primitive takes, and how much memory.",
+        """\
+A platform family: its records are written by the runner, not by an
+operation. A calibration is one primitive (a forward, a decode step, a
+capture, a training step, a model load, a memory copy) timed on one
+chip under one software stack, at one shape: the median over repeats,
+the spread, the warm-up apart, and the peak memory. The header names the
+machine and every version the timing depends on, so a table taken under
+another stack is never mistaken for this one.
+""",
+    ),
+    Family(
         "run",
         "What a protocol run leaves behind: every node's result, the manifest, the spend.",
         """\

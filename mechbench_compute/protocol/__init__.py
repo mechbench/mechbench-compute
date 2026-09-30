@@ -23,6 +23,7 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
     def __init__(self, on_download=None, on_download_bytes=None, *,
                  on_node_start=None, on_spool_item=None,
                  on_checkpoint=None, on_node_done=None, on_node_kept=None,
+                 on_node_span=None,
                  limiter=None, budget=None, on_token=None) -> None:
         self._model: Model | None = None
         self._model_id: str | None = None
@@ -33,6 +34,7 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
         self._on_checkpoint = on_checkpoint
         self._on_node_done = on_node_done
         self._on_node_kept = on_node_kept
+        self._on_node_span = on_node_span
         self._limiter = limiter
         self._budget = budget
         self._on_token = on_token

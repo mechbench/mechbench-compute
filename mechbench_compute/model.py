@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
@@ -12,6 +13,7 @@ from .cache import ActivationCache
 from .errors import InvalidHookName
 from .hooks import HookFn, parse_hook_name
 from .interventions import Intervention, compose
+from .spans import add_to_span
 
 
 def _peek_config(model_id: str) -> dict:
@@ -73,6 +75,7 @@ class Model:
         requested = model_id
         from pathlib import Path as _Path
 
+        fetch_started = time.perf_counter()
         if _Path(model_id).is_dir():
             repo_id, revision_sha, snapshot = (
                 "local-checkpoint",
@@ -83,6 +86,8 @@ class Model:
             repo_id, revision_sha, snapshot = ensure_model(
                 model_id, on_download=on_download, on_bytes=on_download_bytes)
         model_id = str(snapshot)
+        load_started = time.perf_counter()
+        add_to_span(download_seconds=load_started - fetch_started)
 
         config = _peek_config(model_id)
         refused = support.refusal(config)
@@ -100,6 +105,7 @@ class Model:
         model.repo_id = repo_id
         model.revision = revision_sha
         model.requested_ref = requested
+        add_to_span(model_load_seconds=time.perf_counter() - load_started)
         return model
 
     @property
@@ -114,6 +120,7 @@ class Model:
         return self.architecture.prompt_cache(self._model)
 
     def trunk_hidden(self, input_ids: mx.array) -> mx.array:
+        add_to_span(forwards=1, tokens_in=int(input_ids.size))
         h = self.lm.model(input_ids)
         return h[0] if isinstance(h, tuple) else h
 
@@ -141,11 +148,15 @@ class Model:
             self._model, input_ids, hooks=final_hooks, capture=final_capture,
             arch=self.arch, kv_cache=kv_cache,
         )
+        add_to_span(forwards=1, bytes_captured=sum(
+            int(cache[n].nbytes) for n in set(final_capture) if n in cache))
         return RunResult(logits=logits, cache=cache)
 
     def _validate_hook_names(self, names: Iterable[str]) -> None:
         from . import _arch as _arch_mod
 
+        declared = architectures.for_type(self.arch.model_type)
+        absent = declared.absent_points(self.arch) if declared is not None else {}
         for n in names:
             info = parse_hook_name(n, arch=self.arch)
             if not _arch_mod.family_supports(
@@ -159,6 +170,11 @@ class Model:
                          self.arch.model_type, x.split(".", 2)[-1] if x.startswith("blocks.") else x,
                          layer_scoped=x.startswith("blocks."))],
                 )
+            if info.point in absent:
+                raise InvalidHookName(
+                    f"{n} (absent: {absent[info.point]})",
+                    [x for x in self.arch.all_hook_names()
+                     if (x.split(".", 2)[-1] if x.startswith("blocks.") else x) not in absent])
             if (info.layer is not None
                     and info.point in _arch_mod.SHARED_LAYER_ABSENT_POINTS
                     and info.layer >= self.arch.first_kv_shared_layer):

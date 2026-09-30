@@ -72,6 +72,7 @@ class Arch:
     global_layers: tuple[int, ...]
     first_kv_shared_layer: int
     model_type: str = "gemma4"
+    n_global_kv_heads: int | None = None
 
     @property
     def last_fresh_kv_global(self) -> int:
@@ -124,6 +125,7 @@ def read_arch_from_config(config: Mapping[str, Any], model_id: str = "") -> Arch
         global_layers = tuple(i for i in range(n_layers) if (i + 1) % pattern == 0)
     shared = int(cfg.get("num_kv_shared_layers") or 0)
     per_layer = int(cfg.get("hidden_size_per_layer_input") or 0)
+    global_kv = cfg.get("num_global_key_value_heads") if cfg.get("attention_k_eq_v") else None
     return Arch(
         model_id=model_id,
         n_layers=n_layers,
@@ -135,6 +137,7 @@ def read_arch_from_config(config: Mapping[str, Any], model_id: str = "") -> Arch
         global_layers=global_layers,
         first_kv_shared_layer=n_layers - shared,
         model_type=declared.model_type,
+        n_global_kv_heads=None if global_kv is None else int(global_kv),
     )
 
 

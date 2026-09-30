@@ -13,6 +13,74 @@ nothing said so.
 
 ---
 
+## 0.171.0 — 2026-09-29
+
+### Changes that raise
+
+- A hook or capture at `gate_out` on a Gemma 4 checkpoint without
+  per-layer input embeddings (`hidden_size_per_layer_input: 0`, as in
+  Gemma 4 31B) raises `InvalidHookName` naming the point and why:
+  "blocks.2.gate_out (absent: this checkpoint has no per-layer input
+  embeddings …)". Before, the forward never reached the point and the
+  capture came back without it.
+
+### Changes that alter results without raising
+
+_None._ Spans are reported beside a run, never inside its result or
+its provenance.
+
+### Other
+
+- Node spans. The executor measures every node it runs and hands the
+  runner one span per node through a new `on_node_span(nid, span)`
+  callback on `ProtocolExecutor`, after the node's compute and before
+  `on_node_done` (a failed node reports its span too; a node restored
+  from a resume reports none). The span is `mechbench_compute.spans`'
+  `NodeSpan.to_dict()`, fields in this order (`SPAN_FIELDS`):
+  `peak_memory_bytes` (MLX's peak over the node, reset at its start,
+  weights included; null without MLX), `tokens_in` (prompt tokens
+  prefilled by generate, chat and read, and tokens fed to a scoring
+  pass, as `text/score` and an exact read's batched scoring run),
+  `tokens_out` (tokens sampled), `forwards` (forward passes: every
+  `Model.run`, trunk pass and direct decode or scoring step), `backwards`
+  (one per training step and per attribution gradient),
+  `bytes_captured` (the bytes of every activation a hook captured),
+  `model_load_seconds` (the load of weights from disk, in the node that
+  loaded them and null in every other; a download is neither load nor
+  compute), `compute_seconds` (the node's wall time less its load and
+  download), and `ambient` and `quiet`, always null from compute: the
+  runner fills them. A sub-run's nodes fold into the node that ran it.
+- The `platform` family, sealed, and its kind `platform/calibration`:
+  one record per (chip, stack fingerprint, model, dtype, primitive,
+  shape), extending `records/record`: `chip`, `stack`, `model`,
+  `dtype`, `primitive` (`load`, `forward`, `decode`, `backward`,
+  `capture`, `intervene`, `lora_step`, `numeric`, `io`, `memcopy`,
+  `matmul`), `shape` (`n`, `b`, `k`, `t`, `variant`), `shape_key`,
+  `seconds` (the median), `bytes_per_second`, `peak_memory_bytes`,
+  `repeats`, `spread` (the interquartile range, in seconds),
+  `warmup_seconds`; keyed on `(chip, stack, model, dtype, primitive,
+  shape_key)`; the header carries `machine`, `stack_components`,
+  `taken_at` and `quiet`. It speaks ("forward n=128,b=1 on Apple M4
+  Max: 0.041 s (×5)") and draws as bars of seconds over `shape_key`.
+  `mechbench_compute.calibration.write_shape_key(shape)` is the one
+  canonical `shape_key`.
+- Gemma 4 31B. An architecture declares the hook points a checkpoint
+  lacks by a config key (`Architecture.absent_when`, `Absence(point,
+  config_key, reason)`; `absent_points(arch)`, `layer_points_of(arch)`,
+  `residual_law_of(arch)`), published as `absentWhen` in models'
+  `LocalArchitecture`. Gemma 4's one absence is `gate_out` when
+  `hidden_size_per_layer_input` is 0; the 31B's residual law is then
+  `resid_post[i] == (resid_pre[i] + attn_out[i] + mlp_out[i]) *
+  layer_scalar[i] == resid_pre[i+1]`. Every other `full` point resolves
+  on the 31B's shape, including its global layers' shared key-value
+  projection (`attention_k_eq_v`, no `v_proj`) at their own head count
+  and width. `Arch.n_global_kv_heads` is that head count where it
+  differs (4 on the 31B; null elsewhere). The architecture kit runs over
+  a tiny random-weight model of the 31B's shape (`gemma4-31b` in
+  `tests/tiny_models.py`: six layers, five sliding then one global,
+  k-eq-v, partial rotary, no per-layer inputs), and the config fixture
+  `gemma-4-31b-it-bf16.json` joins the others.
+
 ## 0.170.0 — 2026-09-29
 
 ### Changes that raise
