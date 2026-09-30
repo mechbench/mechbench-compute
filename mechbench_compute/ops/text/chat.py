@@ -85,6 +85,7 @@ OP = Op(
     name="text/chat",
     needs=frozenset({"executor.sub", "memo", "model.sample", "provider.chat", "secrets"}),
     resume=Resume("exchangeable", items=True),
+    removed={"base_url": "set the endpoint on the credential"},
     summary=(
         "Send each record's prompt to a model as a chat — local weights or a "
         "hosted endpoint, the same node either way — and collect the "
@@ -387,10 +388,6 @@ name.
           "whose tool calls Chat Completions does not support). Refused "
           "by any other provider.",
           None, choices=("chat_completions", "responses")),
-        P("base_url", "string",
-          "Send requests to this endpoint instead of the provider's default "
-          "— a proxy or a compatible self-hosted server.",
-          None),
         P("concurrency", "int",
           "How many remote requests are in flight at once.",
           4),

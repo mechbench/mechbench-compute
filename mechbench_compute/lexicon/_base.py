@@ -376,6 +376,7 @@ class Op:
     resume: Resume = Resume()
     deterministic: bool = True
     min_compute: str | None = None
+    removed: dict[str, str] = field(default_factory=dict, hash=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.output is not None and self.outputs is not None:

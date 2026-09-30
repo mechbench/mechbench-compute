@@ -424,9 +424,11 @@ class TestOpenAIMapping:
         assert cap.sent["payload"]["seed"] == 3
         assert out.call.usage["cache_read_tokens"] == 20
 
-    def test_a_local_server_needs_no_key_but_does_need_a_base_url(self):
+    def test_a_local_server_needs_no_key_but_does_need_a_base_url(self, monkeypatch):
+        from mechbench_compute.providers import endpoint
         from mechbench_compute.providers import openai_compatible as oc
 
+        monkeypatch.setenv(endpoint.ALLOW_PRIVATE, "1")
         t = oc.OpenAICompatibleTransport({"base_url": "http://127.0.0.1:8080/v1"},
                                          provider="openai-compatible")
         assert t._headers() == {}

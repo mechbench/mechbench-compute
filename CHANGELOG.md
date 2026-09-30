@@ -13,6 +13,55 @@ nothing said so.
 
 ---
 
+## 0.174.0 — 2026-09-30
+
+### Changes that raise
+
+- **`text/chat` no longer takes `base_url`** (task 000959). A protocol
+  could name any host as the endpoint, and the runner sent the owner's
+  provider key there, `http://` included. The param is gone from the
+  lexicon, and a stored protocol that still carries it is refused
+  before anything runs, by name: `PARAM_REMOVED: base_url — set the
+  endpoint on the credential`. **Migration:** delete `base_url` from
+  the node's params; to reach a proxy or a self-hosted server, put the
+  `base_url` on the provider credential in the vault, which is now the
+  only way to change an endpoint. No protocol in mechbench-experiments
+  used it.
+- **A credential's own `base_url` must be `https://` and resolve only
+  to public addresses.** It is checked when the transport is built,
+  before any request: `http://`, any other scheme, a host that does not
+  resolve, and a host with any loopback, link-local, private (RFC 1918,
+  ULA), shared (CGNAT 100.64/10), multicast or reserved address are
+  refused with `EndpointRefused`, naming the address. A runner owner
+  who serves a model on their own machine or network sets
+  `MECHBENCH_ALLOW_PRIVATE_ENDPOINTS=1` in the runner's environment,
+  which lifts the https and address rules (never the scheme rule). The
+  providers' default endpoints are unchanged and not looked up.
+- **A stored name never becomes a path outside its directory** (task
+  000966). A checkpoint manifest's file names and a tensor collection's
+  shard names must be one path component of `[A-Za-z0-9._-]`, not
+  starting with `.`; every name is checked before the cache directory
+  is touched or anything is fetched, the resolved path must stay under
+  the target, and each file is written to a temp file in the target and
+  renamed once its hash matches (a wrong hash leaves no file). Reading
+  and uploading shards hold the same rule. A sandbox snapshot's entry
+  paths may nest but refuse an absolute path and any empty, `.` or `..`
+  component, checked for every entry before the first is written, and
+  the resolved path must stay under the root. A protocol's inline
+  value or run param can no longer carry `_shard_dir` (the local shard
+  directory of a materialized collection): the resolver strips it.
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- `make_transport` and the three adapters no longer take a `base_url`
+  argument; the endpoint comes from the credential.
+
+---
+
 ## 0.173.0 — 2026-09-30
 
 ### Changes that raise

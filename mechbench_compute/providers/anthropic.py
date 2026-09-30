@@ -12,6 +12,7 @@ from mechbench_compute.providers.base import (
     Transport,
     Usage,
 )
+from mechbench_compute.providers.endpoint import check_endpoint
 from mechbench_compute.providers.errors import AuthError
 
 API_VERSION = "2023-06-01"
@@ -139,16 +140,15 @@ class AnthropicTransport(Transport):
     capabilities = CAPABILITIES
 
     def __init__(self, credential: Mapping[str, Any] | str, *,
-                 base_url: str | None = None, timeout: float = http.DEFAULT_TIMEOUT,
+                 timeout: float = http.DEFAULT_TIMEOUT,
                  sleep=None, clock=None) -> None:
         super().__init__(sleep=sleep, clock=clock)
         token = credential if isinstance(credential, str) else credential.get("token")
         if not token:
             raise AuthError("anthropic: no API token in the delivered credential")
         self._token = str(token)
-        base = (base_url or (credential.get("base_url")
-                             if isinstance(credential, Mapping) else None)
-                or DEFAULT_BASE_URL)
+        own = credential.get("base_url") if isinstance(credential, Mapping) else None
+        base = check_endpoint(str(own), provider="anthropic") if own else DEFAULT_BASE_URL
         self._base = str(base).rstrip("/")
         self._timeout = timeout
 

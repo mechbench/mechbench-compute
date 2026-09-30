@@ -89,7 +89,7 @@ def capabilities(provider: str) -> Capabilities:
 
 
 def make_transport(provider: str, credential: Mapping[str, Any] | str | None = None, *,
-                   base_url: str | None = None, dry_run: bool = False,
+                   dry_run: bool = False,
                    cassette: Cassette | None = None, cassette_mode: str = "replay",
                    sleep=None, clock=None, **kw: Any) -> Transport:
     if provider not in PROVIDERS:
@@ -102,7 +102,7 @@ def make_transport(provider: str, credential: Mapping[str, Any] | str | None = N
                              sleep=sleep, clock=clock, **kw)
     inner: Transport | None = None
     if not (cassette is not None and cassette_mode == "replay"):
-        inner = _adapter(provider, credential, base_url=base_url, sleep=sleep,
+        inner = _adapter(provider, credential, sleep=sleep,
                          clock=clock, **kw)
     if cassette is None:
         return inner
@@ -134,17 +134,17 @@ def remap_response(provider: str, raw: Any, req: Any, *,
     return None
 
 
-def _adapter(provider: str, credential, *, base_url=None, sleep=None,
+def _adapter(provider: str, credential, *, sleep=None,
              clock=None, **kw) -> Transport:
     if provider == "anthropic":
         from mechbench_compute.providers.anthropic import AnthropicTransport
 
-        return AnthropicTransport(credential, base_url=base_url, sleep=sleep,
+        return AnthropicTransport(credential, sleep=sleep,
                                   clock=clock, **kw)
     if provider == "gemini":
         from mechbench_compute.providers.gemini import GeminiTransport
 
-        return GeminiTransport(credential, base_url=base_url, sleep=sleep,
+        return GeminiTransport(credential, sleep=sleep,
                                clock=clock, **kw)
     if provider == "mock":
         from mechbench_compute.providers.mock import MockTransport
@@ -153,5 +153,5 @@ def _adapter(provider: str, credential, *, base_url=None, sleep=None,
     from mechbench_compute.providers.openai_compatible import OpenAICompatibleTransport
 
     return OpenAICompatibleTransport(credential, provider=provider,
-                                     base_url=base_url, sleep=sleep,
+                                     sleep=sleep,
                                      clock=clock, **kw)

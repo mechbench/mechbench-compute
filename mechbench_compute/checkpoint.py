@@ -9,6 +9,7 @@ from typing import Any
 
 import mlx.core as mx
 
+from mechbench_compute.contained import check_file_name, write_inside
 from mechbench_compute.lora import ADAPTER_KEYS
 
 MANIFEST_NAME = "manifest"
@@ -138,6 +139,8 @@ def materialize(
     cache_root: str | Path,
     on_bytes: Callable[[int, int], None] | None = None,
 ) -> Path:
+    files = list(manifest.get("files") or [])
+    names = [check_file_name(e.get("name"), what="checkpoint file") for e in files]
     key = hashlib.sha256(
         json.dumps(manifest.get("files"), sort_keys=True).encode()
     ).hexdigest()[:24]
@@ -151,26 +154,26 @@ def materialize(
     if target.exists():
         shutil.rmtree(target)
     target.mkdir(parents=True)
-    total = sum(int(e.get("size", 0)) for e in manifest.get("files", []))
+    total = sum(int(e.get("size", 0)) for e in files)
     done = 0
     last_reported = 0
-    for entry in manifest.get("files", []):
-        name, want = str(entry["name"]), str(entry["sha256"])
-        h = hashlib.sha256()
-        with open(target / name, "wb") as f:
-            data = fetch_file(name)
-            chunks = [data] if isinstance(data, (bytes, bytearray)) else data
-            for chunk in chunks:
-                h.update(chunk)
-                f.write(chunk)
-                done += len(chunk)
-                if on_bytes is not None and done - last_reported >= (4 << 20):
-                    last_reported = done
-                    on_bytes(done, total)
+
+    def count(n: int) -> None:
+        nonlocal done, last_reported
+        done += n
+        if on_bytes is not None and done - last_reported >= (4 << 20):
+            last_reported = done
+            on_bytes(done, total)
+
+    for entry, name in zip(files, names, strict=True):
+        data = fetch_file(name)
+        chunks = [data] if isinstance(data, (bytes, bytearray)) else data
+        ok = write_inside(target, name, chunks, want=str(entry["sha256"]),
+                          on_chunk=count)
         if on_bytes is not None:
             last_reported = done
             on_bytes(done, total)
-        if h.hexdigest() != want:
+        if not ok:
             shutil.rmtree(target)
             raise ValueError(
                 f"checkpoint file {name!r} arrived with the wrong hash — "

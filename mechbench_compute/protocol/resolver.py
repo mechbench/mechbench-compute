@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute import dataflow, lexicon
+from mechbench_compute.tensors import LOCAL_DIR
 
 
 class Resolver:
@@ -80,7 +81,8 @@ class Resolver:
                 return self.resolve_hf_dataset(source)
             return self.resolve_hf_adapter(source)
         if isinstance(v, dict):
-            return {k: self.resolve_value(x) for k, x in v.items()}
+            return {k: self.resolve_value(x) for k, x in v.items()
+                    if k != LOCAL_DIR}
         if isinstance(v, list):
             return [self.resolve_value(x) for x in v]
         return v

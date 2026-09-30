@@ -28,6 +28,9 @@ def check_params(block: str, params: Mapping[str, object]) -> None:
     names = accepted(block)
     if names is None:
         return
+    for name, instead in BY_NAME[block].removed.items():
+        if name in params:
+            raise ValueError(f"PARAM_REMOVED: {name} — {instead}")
     unknown = sorted(k for k in set(params) - names - COMMON
                      if not k.startswith("_"))
     if not unknown:

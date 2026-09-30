@@ -8,6 +8,8 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from mechbench_compute.contained import check_relative_path, resolve_inside
+
 KIND = "sandbox/snapshot"
 LEGACY_KIND = "fs_snapshot"
 
@@ -206,10 +208,12 @@ def materialize(snapshot: Snapshot, root: str | os.PathLike[str], *,
                 blobs: Mapping[str, bytes] | None = None) -> None:
     base = pathlib.Path(root)
     base.mkdir(parents=True, exist_ok=True)
-    for e in snapshot.entries:
-        target = base / e.path
-        if not str(target.resolve()).startswith(str(base.resolve())):
-            raise SnapshotLimit(f"entry escapes the root: {e.path!r}")
+    try:
+        targets = [resolve_inside(base, check_relative_path(e.path, what="entry"),
+                                  what="entry") for e in snapshot.entries]
+    except ValueError as err:
+        raise SnapshotLimit(f"entry escapes the root: {err}") from None
+    for e, target in zip(snapshot.entries, targets, strict=True):
         target.parent.mkdir(parents=True, exist_ok=True)
         data = e.data
         if data is None:

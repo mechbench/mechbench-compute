@@ -41,7 +41,7 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
         tape = (cassette if hasattr(cassette, "entries")
                 else Cassette.from_wire(cassette))
     transport = make_transport(
-        provider, creds or None, base_url=params.get("base_url"),
+        provider, creds or None,
         dry_run=dry_run and tape is None, cassette=tape,
         cassette_mode=str(cassette_mode
                           or params.get("cassette_mode", "replay")))

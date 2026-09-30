@@ -7,7 +7,13 @@ import pytest
 
 from mechbench_compute import chat as chat_mod
 from mechbench_compute import model_ref as mr
-from mechbench_compute.providers import Cassette, CassetteTransport, http, make_transport
+from mechbench_compute.providers import (
+    Cassette,
+    CassetteTransport,
+    endpoint,
+    http,
+    make_transport,
+)
 from mechbench_compute.providers import messages as m
 
 SIG_A = "EqQBCkYIBxgCKkDz+/0==" + "x" * 300
@@ -31,11 +37,11 @@ def run_chat(monkeypatch, provider, model, bodies, *, records=None, tools=("calc
              base_url=None, **params):
     script = Script(*bodies)
     monkeypatch.setattr(http, "post_json", script)
+    monkeypatch.setattr(endpoint, "resolve_addresses", lambda _host, _port: ["104.18.2.3"])
     ref = mr.parse({"provider": provider, "model": model})
     out = chat_mod.run_remote(
         ref, records or [{"id": "r0", "user": "What is 2+2?"}],
-        {"budget_usd": 5.0, "concurrency": 1, "tools": list(tools),
-         **({"base_url": base_url} if base_url else {}), **params},
+        {"budget_usd": 5.0, "concurrency": 1, "tools": list(tools), **params},
         secrets={provider: {"token": "k", **({"base_url": base_url} if base_url else {})}})
     return out, script
 

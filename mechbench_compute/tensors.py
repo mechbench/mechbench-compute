@@ -10,8 +10,11 @@ from typing import Any
 
 import numpy as np
 
+from mechbench_compute.contained import check_file_name, resolve_inside, write_inside
+
 STORAGE = "tensor"
 SHARDS_DIR = "shards"
+LOCAL_DIR = "_shard_dir"
 MAX_SHARD_BYTES = 48 << 20
 _COMPLETE_MARK = ".complete"
 
@@ -135,7 +138,7 @@ class ShardWriter:
     def close(self) -> dict[str, Any]:
         self._flush()
         return {"storage": STORAGE, "shards": list(self.shards), "n_items": self.n_items,
-                "d": self._d, "_shard_dir": str(self.out)}
+                "d": self._d, LOCAL_DIR: str(self.out)}
 
 
 def collection(item_kind: str, writer_header: Mapping[str, Any], **header: Any) -> dict[str, Any]:
@@ -212,20 +215,22 @@ class ShardedItems(Sequence[dict[str, Any]]):
 
 
 def items_of(collection: Mapping[str, Any]) -> ShardedItems:
-    where = collection.get("_shard_dir")
+    where = collection.get(LOCAL_DIR)
     if not where:
         raise ValueError(
             "this tensor collection's shards are not on this machine: it must be "
             "materialized (the executor does this for a $ref) before its items are read")
-    root = Path(where)
     shards = collection.get("shards") or []
-    return ShardedItems([root / s["name"] for s in shards], [s["rows"] for s in shards])
+    return ShardedItems([resolve_inside(where, check_file_name(s.get("name"), what="shard"),
+                                        what="shard") for s in shards],
+                        [s["rows"] for s in shards])
 
 
 def materialize(collection: Mapping[str, Any], label: str,
                 fetch_file: Callable[[str], Any], cache_root: str | Path,
                 on_bytes: Callable[[int, int], None] | None = None) -> dict[str, Any]:
     shards = list(collection.get("shards") or [])
+    names = [check_file_name(s.get("name"), what="shard") for s in shards]
     key = hashlib.sha256(json.dumps([s.get("sha256") for s in shards]).encode()).hexdigest()[:24]
     target = Path(cache_root) / key
     mark = target / _COMPLETE_MARK
@@ -235,18 +240,18 @@ def materialize(collection: Mapping[str, Any], label: str,
         target.mkdir(parents=True)
         total = sum(int(s.get("size", 0)) for s in shards)
         done = 0
-        for s in shards:
-            name, want = str(s["name"]), str(s["sha256"])
-            h = hashlib.sha256()
-            with open(target / name, "wb") as f:
-                data = fetch_file(f"{label}/{SHARDS_DIR}/{name}")
-                for chunk in ([data] if isinstance(data, (bytes, bytearray)) else data):
-                    h.update(chunk)
-                    f.write(chunk)
-                    done += len(chunk)
-                    if on_bytes is not None:
-                        on_bytes(done, total)
-            if h.hexdigest() != want:
+
+        def count(n: int) -> None:
+            nonlocal done
+            done += n
+            if on_bytes is not None:
+                on_bytes(done, total)
+
+        for s, name in zip(shards, names, strict=True):
+            data = fetch_file(f"{label}/{SHARDS_DIR}/{name}")
+            chunks = [data] if isinstance(data, (bytes, bytearray)) else data
+            if not write_inside(target, name, chunks, want=str(s["sha256"]),
+                                on_chunk=count):
                 shutil.rmtree(target)
                 raise ValueError(
                     f"shard {name!r} of {label!r} arrived with the wrong hash — "
@@ -254,19 +259,19 @@ def materialize(collection: Mapping[str, Any], label: str,
         mark.touch()
     else:
         mark.touch()
-    return {**dict(collection), "_shard_dir": str(target)}
+    return {**dict(collection), LOCAL_DIR: str(target)}
 
 
 def upload(collection: Mapping[str, Any], label: str, put_file: Callable[[str, Path], Any],
            have: Mapping[str, str] | None = None) -> dict[str, Any]:
-    where = collection.get("_shard_dir")
+    where = collection.get(LOCAL_DIR)
     if not where:
         raise ValueError("nothing to upload: the collection names no local shard dir")
     root = Path(where)
     have = have or {}
     for s in collection.get("shards") or []:
-        name = str(s["name"])
+        name = check_file_name(s.get("name"), what="shard")
         if have.get(f"{SHARDS_DIR}/{name}") == s.get("sha256"):
             continue
-        put_file(f"{label}/{SHARDS_DIR}/{name}", root / name)
-    return {k: v for k, v in collection.items() if k != "_shard_dir"}
+        put_file(f"{label}/{SHARDS_DIR}/{name}", resolve_inside(root, name, what="shard"))
+    return {k: v for k, v in collection.items() if k != LOCAL_DIR}

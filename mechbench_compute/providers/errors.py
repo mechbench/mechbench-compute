@@ -63,3 +63,7 @@ class CassetteMiss(ProviderError):
             f"for {provider} request {request_hash[:12]}. Re-record with "
             f"mode='record' (which spends), or fix the request that drifted.")
         self.request_hash = request_hash
+
+
+class EndpointRefused(ProviderError):
+    pass

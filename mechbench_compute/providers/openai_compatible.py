@@ -13,6 +13,7 @@ from mechbench_compute.providers.base import (
     Transport,
     Usage,
 )
+from mechbench_compute.providers.endpoint import check_endpoint
 from mechbench_compute.providers.errors import AuthError
 
 HOSTS: dict[str, tuple[str, Capabilities]] = {
@@ -180,12 +181,13 @@ def read_response(data: Mapping[str, Any], req: msg.ChatRequest, *,
 
 class OpenAICompatibleTransport(Transport):
     def __init__(self, credential: Mapping[str, Any] | str, *, provider: str = "openai",
-                 base_url: str | None = None, timeout: float = http.DEFAULT_TIMEOUT,
+                 timeout: float = http.DEFAULT_TIMEOUT,
                  capabilities: Capabilities | None = None, sleep=None, clock=None) -> None:
         super().__init__(sleep=sleep, clock=clock)
         default_base, caps = HOSTS.get(provider, HOSTS["openai-compatible"])
         cred = {"token": credential} if isinstance(credential, str) else dict(credential or {})
-        base = base_url or cred.get("base_url") or default_base
+        own = cred.get("base_url")
+        base = check_endpoint(str(own), provider=provider) if own else default_base
         if not base:
             raise AuthError(
                 f"{provider}: an openai-compatible endpoint needs a base_url "
