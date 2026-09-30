@@ -73,7 +73,13 @@ def rollout_budget() -> None:
 
 
 def main() -> None:
-    dry = "--dry-run" in sys.argv
+    upload = "--upload" in sys.argv
+    if not upload and "--check" not in sys.argv:
+        print("usage: scripts/release.py --check    run the gate; upload nothing\n"
+              "       scripts/release.py --upload   run the gate, then twine upload "
+              "(the old path, until CI publishes; mechbench-runner/docs/RELEASING.md)\n"
+              "       add --with-model-budget to either to time the rollout")
+        sys.exit(2)
     with_budget = "--with-model-budget" in sys.argv
     m = re.search(r'^version = "([^"]+)"',
                   (REPO / "pyproject.toml").read_text(), re.MULTILINE)
@@ -158,8 +164,8 @@ def main() -> None:
               "tests/test_rollout_work.py; the timing needs a model.")
 
     print(f"\ngate PASSED for {ver}")
-    if dry:
-        print("dry run — not uploading")
+    if not upload:
+        print("--check: not uploading; dist/ holds what CI publishes")
         return
     print("uploading…")
     proc = run(["uvx", "twine", "upload", f"dist/mechbench_compute-{ver}*"],
