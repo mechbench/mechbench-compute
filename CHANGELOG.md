@@ -13,6 +13,26 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- **An extension's manifest no longer carries `approved`.** Models
+  replaced a version's boolean `approved` with `approvals`, a list of
+  each org's sign-off that the platform records, and its manifest
+  schema is strict, so `Extension.to_dict()` failed to validate.
+  `approvals` is the platform's and defaults to empty, so the manifest
+  leaves it out. The pin is unchanged: neither field was ever among
+  `PIN_FIELDS`, and `extension push` never sent `approved`.
+
 ## 0.175.0 — 2026-10-01
 
 ### Changes that raise

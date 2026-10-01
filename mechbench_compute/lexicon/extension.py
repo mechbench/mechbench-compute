@@ -122,7 +122,6 @@ class Extension:
             "party": "third",
             "links": dict(self.links),
             "flags": [],
-            "approved": [],
             "promoted": {},
             "provenance": dict(self.provenance),
         }
