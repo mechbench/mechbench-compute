@@ -8,6 +8,7 @@ import numpy as np
 from mechbench_compute import shapes as S
 from mechbench_compute.directions.coerce_array import coerce_array
 from mechbench_compute.directions.select_layer_items import select_layer_items
+from mechbench_compute.directions.take_one import take_one
 from mechbench_compute.lexicon._base import In, Op, Output
 
 OP = Op(
@@ -44,6 +45,7 @@ def run(ctx, inputs, params):
 
 
 def project_rows(vectors: Mapping[str, Any], d: Mapping[str, Any]) -> dict[str, Any]:
+    d = take_one(d)
     layer = S.layer_of(d)
     rows = select_layer_items(vectors, layer)
     u = coerce_array(d)

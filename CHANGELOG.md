@@ -21,11 +21,28 @@ _None._
 
 ### Changes that alter results without raising
 
-_None._
+- **`direction/unembed` given a collection of one direction** records
+  that direction's `space`; it recorded an empty one (`layer: null`,
+  `d: 0`). The tokens it reads are unchanged. `activations/examples`
+  given one with `layer` reads at the direction's own point, where it
+  read `resid_post` unless `point` was given.
 
 ### Other
 
-_None._
+- **`direction/decompose` takes `k`**: a collection of the first `k`
+  principal components, ids `pc0`, `pc1`, …, ordered by
+  `coords.component`, each with its own `derivation.explained`. The
+  header carries `components`, `explained` (their sum), `layer`,
+  `point`, `model` and `n_items`. `component` stays the one-direction
+  form and gives the same bytes as before; `k` and `component` together
+  are refused. `component`'s declared default is now null (still `0`
+  when neither is given).
+- **A collection of exactly one direction is that direction** in
+  `direction/project`, `direction/normalize`, `direction/orthogonalize`
+  and `activations/examples`, which now read its space from the item;
+  before, they read none from the collection and raised (`examples`
+  unless it was given `layer`). A `records/map` over a decomposition
+  hands each component to its body this way.
 
 ## 0.177.0 — 2026-10-01
 

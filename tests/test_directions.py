@@ -172,6 +172,108 @@ class TestArithmetic:
         assert pr["items"][0]["space"]["layer"] == 3
 
 
+def _wide(layer=3, n=30, dim=6, seed=11):
+    from mechbench_compute.lexicon import kinds as K
+
+    rng = np.random.default_rng(seed)
+    scales = np.array([5.0, 3.0, 2.0, 1.0, 0.5, 0.2])[:dim]
+    sp = S.space(model="fake/m@r", layer=layer, point="resid_post", d=dim)
+    return K.collection("activations/vector",
+                        [S.vector(list(rng.normal(size=dim) * scales), sp, id=f"v{i}")
+                         for i in range(n)], model="fake/m@r")
+
+
+class TestDecompose:
+    def test_one_component_is_unchanged(self):
+        from mechbench_compute.ops.direction import decompose
+
+        x = decompose.run(None, {"vectors": _vectors()}, {"layer": 3})
+        assert list(x) == ["kind", "coords", "space", "vector", "norm", "unit", "derivation"]
+        assert {k: v for k, v in x.items() if k != "vector"} == {
+            "kind": "direction/vector", "coords": {},
+            "space": {"model": "fake/m@r", "layer": 3, "point": "resid_post", "head": None, "d": 8},
+            "norm": 1.0, "unit": True,
+            "derivation": {"method": "pca", "sources": [], "model": "fake/m@r",
+                           "component": 0, "explained": 0.9986, "n_items": 8}}
+        assert [round(c, 4) for c in x["vector"]] == [
+            0.3501, 0.347, 0.3527, 0.3537, 0.3588, 0.3627, 0.3504, 0.3528]
+        y = decompose.run(None, {"vectors": _vectors()}, {"layer": 3, "component": 1})
+        assert y["derivation"]["component"] == 1 and y["derivation"]["explained"] == 0.0007
+
+    def test_k_makes_a_collection_ordered_by_variance(self):
+        from mechbench_compute.lexicon import kinds as K
+        from mechbench_compute.ops.direction import decompose
+
+        out = decompose.run(None, {"vectors": _wide()}, {"layer": 3, "k": 4})
+        assert out["kind"] == K.COLLECTION and out["item_kind"] == "direction/vector"
+        items = K.items_of(out)
+        assert [it["id"] for it in items] == ["pc0", "pc1", "pc2", "pc3"]
+        assert [it["coords"]["component"] for it in items] == [0, 1, 2, 3]
+        assert [it["derivation"]["component"] for it in items] == [0, 1, 2, 3]
+        shares = [it["derivation"]["explained"] for it in items]
+        assert shares == sorted(shares, reverse=True)
+        assert out["explained"] == round(sum(shares), 4)
+        assert 0.0 < out["explained"] <= 1.0
+        assert (out["components"], out["layer"], out["point"], out["n_items"]) == (4, 3, "resid_post", 30)
+        assert out["order_by"] == ["coords.component"]
+        for i, it in enumerate(items):
+            one = decompose.run(None, {"vectors": _wide()}, {"layer": 3, "component": i})
+            assert it["vector"] == one["vector"]
+            assert it["derivation"] == one["derivation"]
+
+    def test_k_and_component_together_are_refused(self):
+        from mechbench_compute.ops.direction import decompose
+
+        with pytest.raises(ValueError, match="not both"):
+            decompose.run(None, {"vectors": _wide()}, {"layer": 3, "k": 2, "component": 0})
+
+    def test_k_out_of_range_is_refused(self):
+        from mechbench_compute.ops.direction import decompose
+
+        with pytest.raises(ValueError, match="k is between 1 and 6"):
+            decompose.run(None, {"vectors": _wide()}, {"layer": 3, "k": 7})
+
+    def test_a_map_reads_each_component_as_one_direction(self):
+        from mechbench_compute.lexicon import kinds as K
+        from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+
+        vectors = _wide()
+        body = {"nodes": [{"id": "proj", "block": "direction/project",
+                           "inputs": {"vectors": vectors}}],
+                "edges": [{"from": {"input": "record"}, "to": {"node": "proj", "port": "direction"}}]}
+        graph = {"dataflow": 2, "nodes": [
+            {"id": "pcs", "block": "direction/decompose", "params": {"layer": 3, "k": 3},
+             "inputs": {"vectors": vectors}},
+            {"id": "each", "block": "records/map", "params": {"body": body}},
+        ], "edges": [{"from": {"node": "pcs"}, "to": {"node": "each", "port": "records"}}]}
+        out = ProtocolExecutor().run(ProtocolSpec(
+            kind="pipeline", prompt="", model_id=None,
+            extra={"graph": graph})).payload["outputs"]["each"]
+        mapped = sorted({it["coords"]["mapped"] for it in K.items_of(out)})
+        assert mapped == ["pc0", "pc1", "pc2"]
+        assert len(K.items_of(out)) == 3 * 30
+
+    def test_examples_reads_a_component_handed_over_as_a_collection_of_one(self):
+        from mechbench_compute.lexicon import kinds as K
+        from mechbench_compute.ops.activations.examples import find_top_examples
+        from mechbench_compute.ops.direction.decompose import fit_components
+        from tests.test_interp_blocks import D_MODEL, StubModel
+
+        rng = np.random.default_rng(3)
+        sp = S.space(model="stub", layer=1, point="resid_post", d=D_MODEL)
+        vectors = K.collection("activations/vector",
+                               [S.vector(list(rng.normal(size=D_MODEL)), sp, id=f"v{i}")
+                                for i in range(10)], model="stub")
+        pcs = fit_components(vectors, layer=1, k=2)
+        records = [{"id": "r0", "user": "aa bbb aa"}]
+        for item in K.items_of(pcs):
+            one = K.collection("direction/vector", [item])
+            out = find_top_examples(StubModel(), records, {"k": 2}, direction=one)
+            assert (out["layer"], out["point"]) == (1, "resid_post")
+            assert out["items"] == find_top_examples(StubModel(), records, {"k": 2},
+                                                     direction=item)["items"]
+
+
 class TestBlocks:
     def test_registered_and_callable(self):
         from mechbench_compute import ops
