@@ -71,11 +71,11 @@ class TestAtEveryPosition:
         for b in out["branches"]["items"]:
             c = b["coords"]
             assert c["record"] == "r" and c["cond"] == "x"
-            assert c["position"] == prompt + c["step"]
+            assert c["position"] == prompt + c["step"] - 1
             assert b["id"] == f"r-{c['step']}-b{c['branch']}"
         assert sorted({b["coords"]["branch"] for b in out["branches"]["items"]}) == [0, 1, 2]
         for p in out["out"]["items"]:
-            assert p["coords"] == {"cond": "x", "record": "r", "step": p["step"], "position": prompt + p["step"]}
+            assert p["coords"] == {"cond": "x", "record": "r", "step": p["step"], "position": prompt + p["step"] - 1}
 
     def test_share_entropy_and_shift_are_the_branches_arithmetic(self, tiny):
         out = _run(tiny, [RECORD], where="position")

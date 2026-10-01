@@ -64,7 +64,7 @@ cell.
 |---|---|---|---|
 | `point` | string | `"resid_post"` | Where in the forward pass to act. Residual points: `resid_pre`, `resid_post`, `attn_out`, `mlp_out`. Inside a block: `attn.in_norm`, `attn.q`, `attn.k`, `attn.v`, `attn.q_pre_rope`, `attn.k_pre_rope`, `attn.q_pre_norm`, `attn.k_pre_norm`, `attn.scores`, `attn.weights`, `attn.per_head_out`, `attn.o_in`, `mlp.in_norm`, `mlp.gate`, `mlp.up`, `mlp.act`, `mlp.down_in`, `gate_out`. Whole-model points, which take no `layers`: `embed`, `final_norm`, `logits`. |
 | `layers` | list[int] \\| `"all"` | `"all"` | Which layers the item applies to. |
-| `positions` | selector | `"last"` | Which token positions: `"last"`, `"all"`, a list of indices (negative from the end), `{"tokens": ["lighthouse"]}` (every position whose token matches), `{"range": [2, 6]}`, `{"after": n}`, `"subject"`, `"generated"` or `{"step": k}` (the pass that writes the k-th generated token; here, with no generation, only step 0, the last position). |
+| `positions` | selector | `"last"` | Which token positions: `"last"`, `"all"`, a list of indices (negative from the end), `{"tokens": ["lighthouse"]}` (every position whose token matches), `{"range": [2, 6]}`, `{"after": n}`, `{"segment": "thinking"}` (a named span of the trace), `"subject"`, `"generated"` (the positions of the generated tokens, steps 1 onward) or `{"step": k}` (the pass that writes the k-th generated token; here, with no generation, only step 0, the last position). |
 | `heads` | list[int] | all | Restrict the item to these attention heads, at a point that has a head axis (`attn.q`, `attn.k`, `attn.v`, `attn.scores`, `attn.weights`, `attn.per_head_out`, and the pre-norm/pre-rope variants). |
 | `neurons` | list[int] | all | Restrict the item to these indices along the feature axis — MLP neurons at `mlp.act`, residual dimensions at `resid_post`, vocabulary entries at `logits`. |
 | `op` | string | `"zero"` | What to do there — see the table below. |
@@ -91,7 +91,7 @@ The ops:
 | `patch` | Replace it with one specific `source` row, or with `direction` itself. | `source` + `row`, or `direction` |
 | `add` | Add `strength × direction`. | `direction` |
 | `scale` | Multiply it by `strength`. | — |
-| `clamp` | Clip its component along `direction` into [−\|`strength`\|, \|`strength`\|]. | `direction` |
+| `clamp` | Clip its component along `direction` into [−\\|`strength`\\|, \\|`strength`\\|]. | `direction` |
 | `project_out` | Remove its component along `direction`. | `direction` |
 | `rotate` | Rotate it by `strength` radians in the plane of `direction` and `direction2`. | `direction`, `direction2` |
 

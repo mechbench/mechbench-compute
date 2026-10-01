@@ -22,8 +22,9 @@ KIND = Kind(
                                      "`record` is the expression language's word for the row."),
             "step": F("integer", "The first step sampled again: the branches keep steps 0 to step − 1 as the "
                                  "full generation wrote them."),
-            "position": F("integer", "Where the branches begin in the sequence: the prompt's length plus "
-                                     "`step`, or for a turn the length of the prompt its reply is written to."),
+            "position": F("integer", "The position the branches' first pass reads, as for any step: the prompt's "
+                                     "length plus `step` minus one, or under a turn the last position of the "
+                                     "prompt its reply is written to."),
             "turn": F("integer", "Under `where: \"turn\"`, the reply sampled again first, counted from 0."),
             "kept": F("string", "The text the full generation wrote between the previous branch point and this "
                                 "one; empty at the first."),

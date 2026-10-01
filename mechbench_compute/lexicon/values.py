@@ -223,7 +223,7 @@ A selector names positions of a rendered sequence:
 | `{"after": n}` | positions `n` … end |
 | `{"segment": "thinking"}` | a named span of the trace — see below |
 | `"subject"` | the last token of the record's `subject` string |
-| `"generated"` | from where generation began — the trace's span, or the end of the rendered prompt |
+| `"generated"` | the positions of the generated tokens, which are steps 1 onward: from where generation began (the trace's span, or the end of the rendered prompt) to the end |
 | `{"step": 2}` | the pass that writes the third generated token; also a list of steps, `"all"`, `"last"`, `{"range": [a, b]}`, `{"after": k}` or `{"tokens": [...]}` counted over steps |
 
 A parameter that reads one position (`position` on `activations/capture`,
@@ -238,9 +238,9 @@ tokens are positions too, which is why `"last"` and `"generated"` are
 usually the right words and a bare index rarely is.
 
 A position is an index into the sequence; a step is an index into what
-the model wrote. Step *k* is the forward pass that writes the *k*-th
-generated token, counted from 0, and it reads the sequence at position
-`p + k − 1`, where `p` is where generation began: step 0 reads the
+the model wrote. One rule everywhere: step *k* is the forward pass that
+writes the *k*-th generated token, counted from 0, and it is read at
+position `p + k − 1` where generation began at `p`. Step 0 reads the
 prompt's last token, step 1 the first token written. So
 `{"step": 2}` acts on the pass that chooses the third token, and the
 two tokens before it are written as they would have been; it names the
@@ -252,7 +252,9 @@ is the step after one was written. While a model generates, a step not
 yet reached selects nothing; a node that writes at most `max_tokens`
 refuses a step it can never reach. On a sequence already written, a
 step past its end is refused. A generation records the steps at which
-its intervention acted.
+its intervention acted. A trajectory along positions labels each point
+with the step that reads it, so its step *k* is where `{"step": k}`
+acts; prompt positions before the last are negative steps.
 
 `{"segment": role}` names a span the document itself declares. Generation
 writes `prompt` and `body` always, and `thinking` and `answer` when the
@@ -286,9 +288,9 @@ embedded as one vector rather than represented by its last token. The
 vector records `n_pooled`, how many positions went into it; a pooled
 vector that does not say its own n cannot be audited.
 
-On a trajectory the same clause pools over **steps**: `over` selects
-steps along the trajectory's axis, and the point records the window as
-`steps`. The spellings from before the clause was one — a first-k after
+On a trajectory along positions the same clause pools over the
+**points read**: `over` counts them from 0, whatever their steps, and
+the pooled point carries the step of the first point pooled. The spellings from before the clause was one — a first-k after
 a skip, a last-k — are `{"range": [skip, skip + k]}` and `{"range":
 [-k, null]}`.
 """,

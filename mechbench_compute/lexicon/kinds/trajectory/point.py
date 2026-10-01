@@ -7,7 +7,10 @@ KIND = Kind(
     "trajectory/point",
     "One step of a trajectory: the residual vector at one layer and position of one record.",
     extends="activations/vector",
-    fields={"step": F("integer", "The step along the axis."),
+    fields={"step": F("integer", "Along positions, the decoding step that reads the position: step k is the "
+                                 "forward pass that writes the k-th generated token, read at p + k − 1 where "
+                                 "generation began at p, so the first generated token's position is step 1. "
+                                 "Along layers, the layer's index in `layers`."),
             "position": F("integer", "The position read."),
             "vocab": DIST,
             "steps": F("array", "The window pooled, when reduced.", items={"type": "integer"})},

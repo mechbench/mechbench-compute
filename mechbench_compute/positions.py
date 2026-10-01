@@ -8,7 +8,7 @@ SELECTOR_DOC = (
     '`{"tokens": [...]}`, `{"range": [a, b]}`, `{"after": n}`, '
     '`{"segment": "thinking"}` (a named span of the trace), '
     '`"subject"` (the last token of the record\'s `subject` string), '
-    '`"generated"` (from where generation began) or `{"step": k}` (the pass '
+    '`"generated"` (the positions of the generated tokens, steps 1 onward) or `{"step": k}` (the pass '
     'that writes the k-th generated token, counted from 0; also a list of '
     'steps, `"all"`, `"last"`, `{"range": [a, b]}`, `{"after": k}` or '
     '`{"tokens": [...]}` over steps).'

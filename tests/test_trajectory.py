@@ -122,8 +122,28 @@ class TestCapturePositionsAxis:
         assert out["replay"] == "trace"
         assert m.seen_ids == [[0, 9, 9, 5, 6, 7]]
         assert [r["position"] for r in out["items"]] == [3, 4, 5]
-        assert [r["step"] for r in out["items"]] == [0, 1, 2]
+        assert [r["step"] for r in out["items"]] == [1, 2, 3]
         assert out["items"][0]["vector"] == onehot(5, 1.0)
+
+    def test_a_points_step_is_where_the_step_selector_acts(self):
+        from mechbench_compute import positions as POS
+
+        rec = {"id": "s", "text": "x",
+               "trace": {"token_ids": [0, 9, 9, 5, 6, 7],
+                         "generation_spans": [{"token_start": 3, "token_end": 6}]}}
+        out = capture(StubModel(), [rec], {"axis": "positions", "layer": 0,
+                                           "positions": {"step": "all"}})
+        assert [(r["step"], r["position"]) for r in out["items"]] == [(0, 2), (1, 3), (2, 4), (3, 5)]
+        for r in out["items"]:
+            assert POS.resolve({"step": r["step"]}, 6, gen_start=3) == [r["position"]]
+
+    def test_a_pooled_point_carries_the_first_pooled_step(self):
+        rec = {"id": "s", "text": "x",
+               "trace": {"token_ids": [0, 9, 9, 5, 6, 7],
+                         "generation_spans": [{"token_start": 3, "token_end": 6}]}}
+        out = capture(StubModel(), [rec], {"axis": "positions", "layer": 0, "positions": "generated",
+                                           "pool": {"reduce": "mean", "over": {"range": [1, 3]}}})
+        assert out["items"][0]["step"] == 2 and out["items"][0]["n_pooled"] == 2
 
     def test_replay_trace_refuses_a_record_without_one(self):
         with pytest.raises(ValueError, match="no trace"):
@@ -179,7 +199,7 @@ class TestCapturePositionsAxis:
         assert out["items"][0]["direction"]["method"] == "test"
         assert out["items"][0]["direction"]["space"]["layer"] == 0
         assert [r["coord"] for r in out["items"]] == [0.0, 0.0, 2.0, 0.0]
-        assert [r["step"] for r in out["items"]] == [0, 1, 2, 3]
+        assert [r["step"] for r in out["items"]] == [-3, -2, -1, 0]
         assert all("vector" not in r for r in out["items"])
 
     def test_the_cap_counts_what_is_emitted_not_what_is_read(self):

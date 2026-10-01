@@ -24,15 +24,23 @@ OP = Op(
 One forward pass per record. With `axis: "layers"` the block reads the
 vector at one `position` after each of `layers`; step *k* is the *k*-th
 layer. With `axis: "positions"` it reads one `layer`'s vector at each of the
-chosen `positions`; step *k* is the *k*-th position read, which for
-`"generated"` is the *k*-th generated token.
+chosen `positions`, and a point's `step` is the decoding step that reads
+its position: a step is the forward pass that writes the *k*-th
+generated token, counted from 0, so step *k* reads position `p + k − 1`
+where generation began at `p`. The point at the prompt's last token is
+step 0, the first generated token's position is step 1, and
+`"generated"` gives steps 1 onward; a step here is read at the position
+the `{"step": k}` selector acts on. Prompt positions before the last
+count back from 0 as negative steps, and a record with no generation
+begins it at the end of its rendered prompt.
 
 A corpus-scale trajectory is large (200 stories × 160 steps × the model
 width), so there are three ways to keep it an object:
 
-* `max_steps` — stop after that many steps per record.
-* `pool` — one vector per record, the reduction over a window of its
-  steps (`{"reduce": "mean", "over": {"range": [5, 30]}}`): what an
+* `max_steps` — stop after that many points per record.
+* `pool` — one vector per record, the reduction over a window of the
+  points it read, counted from 0 (`{"reduce": "mean", "over": {"range":
+  [5, 30]}}`): what an
   outcome axis is fit on.
 * `project` — a direction: read the scalar coordinate along it at capture
   time and emit no vectors at all. The trace itself, as numbers.
@@ -91,16 +99,17 @@ the model saw.
           "For `axis: \"positions\"`, which positions to step along: `\"last\"`, "
           "`\"all\"`, a list of indices (negative from the end), `{\"tokens\": "
           "[...]}`, `{\"range\": [a, b]}`, `{\"after\": n}`, `\"subject\"` or "
-          "`\"generated\"` — `\"generated\"` is the story, not the prompt.",
+          "`\"generated\"` (the positions of the generated tokens, steps 1 onward) or `{\"step\": k}`.",
           "generated"),
         P("max_steps", "int",
-          "Stop after this many steps per record.",
+          "Stop after this many points per record.",
           None),
         P("pool", "object",
-          "Emit one vector per record — the reduction over a window of its "
-          "steps — instead of one per step: `{\"reduce\": \"mean\" | \"max\", "
-          "\"over\": <selector>}`, `over` counting steps from the trajectory's "
-          "own start, so `{\"range\": [5, 30]}` is steps 5 … 29.",
+          "Emit one vector per record — the reduction over a window of the "
+          "points read — instead of one per point: `{\"reduce\": \"mean\" | \"max\", "
+          "\"over\": <selector>}`, `over` counting the points read from 0, not steps, so "
+          "`{\"range\": [5, 30]}` is the sixth through the thirtieth point read. The "
+          "pooled point carries the step of the first point pooled.",
           None, value="pool"),
         P("point", "string",
           "Which residual stream to read: `\"resid_post\"` (after each "
@@ -261,6 +270,7 @@ def capture(
         seq_len = int(arr.shape[0])
         toks = [tok.decode([int(t)]) for t in arr]
         sel = dict(tokens=toks, record=record, prompt_len=prompt_len, gen_start=gen_start)
+        first = (gen_start if gen_start is not None else prompt_len) - 1
         result = model.run(ids, interventions=[cap])
         coords = _read_record_coords(record, params)
 
@@ -289,9 +299,10 @@ def capture(
                 raise ValueError(
                     f"record {record.get('id')!r}: no positions in the window")
             if pool:
-                over = [idx[s] for s in POS.resolve(pool["over"], len(idx))]
+                over = [idx[i] for i in POS.resolve(pool["over"], len(idx))]
                 v, n_pooled = POS.pooled(mat, over, pool["reduce"])
-                row = _build_point(record, coords, sp(layer), 0, over[0] if over else idx[0], v, tok, arr, model, 0)
+                at = over[0] if over else idx[0]
+                row = _build_point(record, coords, sp(layer), at - first, at, v, tok, arr, model, 0)
                 row.pop("token", None)
                 row.update({"n_pooled": n_pooled, "pool": pool})
                 rows.append(_project_row(row, v, dvec, direction))
@@ -303,8 +314,8 @@ def capture(
                             f"trajectory exceeds the {MAX_VECTOR_FLOATS}-float "
                             f"cap at record {record.get('id')!r}; set `max_steps`, "
                             "`pool`, or `project`, or capture fewer records")
-                for step, p in enumerate(idx):
-                    row = _build_point(record, coords, sp(layer), step, p, mat[p], tok, arr,
+                for p in idx:
+                    row = _build_point(record, coords, sp(layer), p - first, p, mat[p], tok, arr,
                                        model, vocab_top)
                     rows.append(_project_row(row, mat[p], dvec, direction))
         if on_item:

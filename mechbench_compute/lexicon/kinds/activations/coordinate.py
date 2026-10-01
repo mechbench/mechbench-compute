@@ -9,7 +9,7 @@ KIND = Kind(
     fields={"id": ID, "coords": COORDS, "space": SPACE,
             "direction": F("object", "`{space, method, …}` — the direction projected onto, without its vector."),
             "coord": F("number", "The dot product with the unit direction."),
-            "step": F("integer", "The step, when read along a trajectory."),
+            "step": F("integer", "The step, when read along a trajectory: as `trajectory/point` counts it."),
             "position": F("integer", "The position, when read along a trajectory."),
             "token": TOKEN},
     required=("space", "direction", "coord"),

@@ -308,7 +308,7 @@ class _Reply:
         return point
 
     def coords(self, point: int) -> dict[str, Any]:
-        return {"step": point, "position": len(self.prompt) + point}
+        return {"step": point, "position": len(self.prompt) + point - 1}
 
     def kept(self, before: int, point: int) -> str:
         return self.pieces[point][len(self.pieces[before]):]
@@ -377,7 +377,7 @@ class _Conversation:
 
     def coords(self, point: int) -> dict[str, Any]:
         position = (len(self.prompts[point]) if point < len(self.users)
-                    else len(self.prompts[-1]) + len(self.replies[-1]))
+                    else len(self.prompts[-1]) + len(self.replies[-1])) - 1
         return {"step": self.step(point), "position": position, "turn": point}
 
     def kept(self, before: int, point: int) -> str:
