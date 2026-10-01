@@ -25,7 +25,17 @@ _None._
 
 ### Other
 
-_None._
+- `direction/fit` takes `center` (remove each vector's mean over its
+  dimensions before the centroids) and `exclude` (dimensions left out:
+  zero in the direction, recorded on its derivation with
+  `excluded_share`, the part of the squared difference they carried).
+  `direction/average` takes `exclude`, renormalising each input after
+  the drop. Both default to off, and the output is then unchanged. The
+  op's page says why a massive-activation dimension (Gemma 3's 443) can
+  own an axis.
+- `direction/vector` speaks: method, point and layer, the two groups,
+  whether the vectors were centred and which dimensions were left out,
+  and the norm.
 
 ## 0.183.0 — 2026-10-01
 

@@ -7,6 +7,8 @@ import numpy as np
 
 from mechbench_compute import shapes as S
 from mechbench_compute.directions.constants import DEFAULT_AXIS
+from mechbench_compute.directions.drop_dimensions import drop_dimensions
+from mechbench_compute.directions.read_exclude import read_exclude
 from mechbench_compute.directions.select_layer_items import select_layer_items
 from mechbench_compute.directions.make import make
 from mechbench_compute.directions.build_model_provenance import build_model_provenance
@@ -37,13 +39,39 @@ several layers and feeds them to both `direction/classify` and this op,
 with `layer` as a protocol param. The first run's probe reports accuracy
 by layer, and the second run binds `layer` to the best of them. [Protocols
 as files](/protocol-files/) has a complete protocol built this way.
+
+Some models keep a massive-activation dimension: one coordinate of the
+residual runs hundreds of times larger than the rest, at nearly every
+position and layer after the first few (Gemma 3's is 443). The trace of
+that dimension across layers is the usual tell, and so is a dictionary
+whose `b_dec` is almost all one coordinate. A small relative change in
+it can be most of the difference between the centroids, so the axis,
+its `norm`, and every cosine taken with it then measure that one
+coordinate. `exclude` leaves named dimensions out: they are zero in the
+vector before it is normalised, so a cosine or norm downstream agrees
+with one computed by hand over the other dimensions, and
+`excluded_share` records how much of the squared difference they
+carried.
+
+`center` removes each vector's own mean over its dimensions (the ones
+not excluded) before the centroids are taken. That takes out an offset
+shared by every coordinate of a vector, which a difference of means
+keeps when the two groups carry different offsets. Centring each
+dimension over the items would not change a difference of means at all,
+so it is not offered. Use `center` when the reading that follows treats
+the residual the way a centring layer norm does; leave it off when the
+model's norm only rescales, as RMSNorm does. Centring does not take a
+massive dimension out of the axis; `exclude` does.
 """,
     inputs=(
         In("vectors", "activations/vector",
            "A collection of vectors with items at the chosen `layer`, grouped "
            "on the `axis` coordinate.", many=True),
     ),
-    output=Output('direction/vector', collection=False, doc='`derivation.method` is `"diff_of_means"`, with `axis`, `positive`, `negative`, `n_positive` and `n_negative`.'),
+    output=Output('direction/vector', collection=False,
+                  doc='`derivation.method` is `"diff_of_means"`, with `axis`, `positive`, `negative`, '
+                      '`n_positive` and `n_negative`; `center: true` when the vectors were centred, and '
+                      '`exclude` and `excluded_share` when dimensions were left out.'),
     params=(
         P("layer", "int", "The layer whose items the centroids are taken from."),
         P("axis", "string",
@@ -61,6 +89,12 @@ as files](/protocol-files/) has a complete protocol built this way.
           "A label for where the vectors came from, recorded in the "
           "direction's derivation for provenance.",
           None),
+        P("center", "bool",
+          "Remove each vector's mean over its dimensions before the centroids are taken.",
+          False),
+        P("exclude", "list[int]",
+          "Dimensions left out: zero in the direction, and recorded on its derivation.",
+          None),
     ),
     example={
         "layer": 14,
@@ -77,12 +111,15 @@ def run(ctx, inputs, params):
     return fit_mean_difference(vectors, layer=int(params["layer"]),
                                axis=str(params.get("axis") or DEFAULT_AXIS),
                                positive=str(params["positive"]), negative=str(params["negative"]),
-                               point=params.get("point"), source=params.get("source"))
+                               point=params.get("point"), source=params.get("source"),
+                               center=bool(params.get("center") or False),
+                               exclude=params.get("exclude"))
 
 
 def fit_mean_difference(vectors: Mapping[str, Any], *, layer: int, positive: str,
                         negative: str, axis: str = DEFAULT_AXIS, point: str | None = None,
-                        source: str | None = None) -> dict[str, Any]:
+                        source: str | None = None, center: bool = False,
+                        exclude: list[int] | None = None) -> dict[str, Any]:
     rows = select_layer_items(vectors, layer)
     pos = np.array([r["vector"] for r in rows if str(S.label_of(r, axis)) == str(positive)],
                    dtype=np.float32)
@@ -91,8 +128,20 @@ def fit_mean_difference(vectors: Mapping[str, Any], *, layer: int, positive: str
     if len(pos) == 0 or len(neg) == 0:
         raise ValueError(
             f"no items at layer {layer} with {axis}={positive!r}/{negative!r}")
+    dropped = read_exclude(exclude, pos.shape[1])
+    shaped: dict[str, Any] = {}
+    if center:
+        shaped["center"] = True
+    if dropped:
+        raw = pos.mean(0) - neg.mean(0)
+        total = float(np.dot(raw.astype(np.float64), raw.astype(np.float64)))
+        part = float(np.sum(raw[dropped].astype(np.float64) ** 2))
+        shaped["exclude"] = dropped
+        shaped["excluded_share"] = round(part / total, 6) if total else 0.0
+    if center or dropped:
+        pos, neg = drop_dimensions(pos, dropped, center=center), drop_dimensions(neg, dropped, center=center)
     return make(pos.mean(0) - neg.mean(0), resolve_space(vectors, rows, point),
                 method="diff_of_means", sources=[source] if source else [],
                 labels={"axis": axis, "positive": positive, "negative": negative},
-                extra={"n_positive": len(pos), "n_negative": len(neg),
+                extra={"n_positive": len(pos), "n_negative": len(neg), **shaped,
                        **build_model_provenance(vectors, rows)})

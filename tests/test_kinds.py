@@ -180,7 +180,7 @@ class TestRetiredSpellingsWarn:
 SILENT_KINDS = frozenset({
     "activations/attention", "activations/coordinate", "activations/divergence", "activations/grid",
     "activations/vector", "adapter/checkpoint", "adapter/delta", "adapter/lora", "adapter/push",
-    "collection", "direction/vector", "direction/vocab", "eval/verdict", "geometry/mst",
+    "collection", "direction/vocab", "eval/verdict", "geometry/mst",
     "geometry/similarity", "intervene/ablation", "intervene/heads", "intervene/readout",
     "intervene/spec", "intervene/trace", "logits/attribution", "logits/decision",
     "logits/distribution", "logits/funnel", "logits/lens", "model/pointer", "model/ref",
