@@ -76,7 +76,7 @@ def name_output_targets(state, nid: str, name: str) -> list[str]:
 
     declared = state.named_outputs_of.get((nid, name), [])
     if state.declared_outputs is None:
-        return [f"{state.result_base}/{nid}.{name}"]
+        return [f"{state.result_base}/{nid}/{name}"]
     if declared:
         return [f"{state.result_base}/{n}" for n in declared]
-    return [f"{state.result_base}/{dataflow.INTERMEDIATES}/{nid}.{name}"]
+    return [f"{state.result_base}/{dataflow.INTERMEDIATES}/{nid}/{name}"]

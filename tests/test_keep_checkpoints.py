@@ -300,7 +300,7 @@ class TestResume:
         run_graph(nodes, edges, outputs=outputs, executor=executor)
         reference = stored(store, "order")
         path, fingerprint = done["train"]
-        assert f"{RESULTS}/nodes/train.checkpoints" in store
+        assert f"{RESULTS}/nodes/train/checkpoints" in store
 
         from mechbench_compute.ops.adapter import train
 
@@ -308,3 +308,34 @@ class TestResume:
         run_graph(nodes, edges, outputs=outputs,
                   resume={"train": {"fingerprint": fingerprint, "done": path}})
         assert rm.content_hash(stored(store, "order")) == rm.content_hash(reference)
+
+
+SORT = {"id": "order", "block": "records/sort", "params": {"by": ["-coords.step"]}}
+FROM_CHECKPOINTS = [{"from": {"node": "train", "output": "checkpoints"},
+                     "to": {"node": "order", "port": "records"}}]
+
+
+class TestAddresses:
+    @pytest.mark.parametrize("edges, outputs, written", [
+        (FROM_CHECKPOINTS, [{"name": "order", "from": {"node": "order"}}],
+         ["nodes/train", "nodes/train/checkpoints", "order"]),
+        (FROM_CHECKPOINTS, [{"name": "adapter", "from": {"node": "train"}},
+                            {"name": "order", "from": {"node": "order"}}],
+         ["adapter", "nodes/train/checkpoints", "order"]),
+        ((), KEPT, ["adapter", "kept"]),
+        (FROM_CHECKPOINTS, None, ["order", "train", "train/checkpoints"]),
+    ], ids=["intermediate", "output-node", "declared", "undeclared"])
+    def test_every_path_the_executor_writes_parses(self, tiny_hub, store, edges, outputs, written):
+        from mechbench_schema import parse_path
+
+        nodes = [train_node(keep_checkpoints=True), *([SORT] if edges else [])]
+        run_graph(nodes, edges, outputs=outputs)
+        assert sorted(store) == [f"{RESULTS}/{w}" for w in written]
+        for path in store:
+            parse_path(path)
+
+    def test_the_dotted_spelling_does_not_parse(self):
+        from mechbench_schema import InvalidPathError, parse_path
+
+        with pytest.raises(InvalidPathError, match="train.checkpoints"):
+            parse_path(f"{RESULTS}/nodes/train.checkpoints")

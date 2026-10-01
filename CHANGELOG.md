@@ -21,7 +21,22 @@ _None._
 
 ### Changes that alter results without raising
 
-_None._
+- **A named output of an intermediate node is stored at
+  `results/<job>/nodes/<node>/<output>`** (task 001030), not
+  `nodes/<node>.<output>`: the dot is refused by the schema's path
+  grammar, which compute applies to every `$ref` and `--input`, so the
+  object could be written but not read. A node id is one segment, so
+  `object list --prefix results/<job>/nodes/<node>` lists a node's main
+  output and its named outputs together. On a graph without declared
+  outputs a named output moves the same way, from `results/<job>/<node>.<output>`
+  to `results/<job>/<node>/<output>`. Declared outputs stay at
+  `results/<job>/<output name>` and intermediates at
+  `results/<job>/nodes/<node id>`; the bytes are unchanged. An object
+  stored at the old spelling by 0.175.0–0.176.0 is unreadable by compute
+  and is not migrated: re-run its protocol to re-produce it (the one
+  known, the Gemma 3 organism's kept checkpoints, by re-running
+  `regime-d-die-002` v2). The manifest's `output_paths` is the source of
+  the address; read it there rather than spelling it.
 
 ### Other
 
