@@ -25,7 +25,18 @@ _None._
 
 ### Other
 
-_None._
+- `intervene/ablate-circuit` takes `reference`: `empty` (the default, as
+  before: every component of the universe removed) or `base` (the model
+  without the adapter on its `adapter` port, on the same records, one
+  plain pass per record shared by every circuit). `base` is the honest
+  floor when the behaviour is the adapter's: under `entropy`, an adapter
+  that flattens the distribution leaves the empty model flatter than the
+  full one, and both ratios turn negative by construction. `base` without
+  an adapter is refused by name. The formulas are unchanged; `m_empty` is
+  the chosen floor in the items, `conditions` and `cells`. Both outputs'
+  headers carry `reference`, and the sentence ends "against the base
+  model" under `base`. Under `empty` every number and field is the same
+  as before; only the new header field changes the outputs' hashes.
 
 ## 0.179.0 — 2026-10-01
 

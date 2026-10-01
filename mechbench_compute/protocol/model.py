@@ -79,9 +79,12 @@ class ModelLoading:
                 model.lm, payloads, override,
                 skip_missing=bool(params.get("adapter_skip_missing", False)),
                 skipped=skipped, keys=model.architecture.adapter_keys)
+            if node_level:
+                model.node_adapter = handles[-1]
             try:
                 yield handles
             finally:
+                model.node_adapter = None
                 restore_adapter_stack(model.lm, handles)
         return _cm()
 

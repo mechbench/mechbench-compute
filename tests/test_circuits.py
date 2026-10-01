@@ -4,19 +4,24 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
-from mechbench_compute import lexicon
+from mechbench_compute import lexicon, lora
 from mechbench_compute import resume as rm
 from mechbench_compute.blocks.estimate_bootstrap_ratio import estimate_bootstrap_ratio
 from mechbench_compute.distill import render
+from mechbench_compute.expr.engine import load_engine
 from mechbench_compute.interp.read_last_logp import read_last_logp
+from mechbench_compute.interp.read_metric import read_metric
+from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Ablate
 from mechbench_compute.lexicon import kinds as K
 from mechbench_compute.ops import Context
 from mechbench_compute.ops.geometry.compare import compare_geometry
+from mechbench_compute.ops.intervene import ablate_circuit as ablate_circuit_op
 from mechbench_compute.ops.intervene import prune as prune_op
 from mechbench_compute.ops.intervene.ablate_circuit import ablate_circuits
 from mechbench_compute.ops.intervene.ablate_heads import ablate_heads
 from mechbench_compute.ops.intervene.prune import prune_circuits
+from mechbench_compute.protocol.model import ModelLoading
 from tests.tiny_models import build_tiny_model
 
 RECORDS = [{"id": "a", "user": "the cat sat on a mat"}, {"id": "b", "user": "a dog ran and the cat sat"}]
@@ -285,6 +290,17 @@ class TestAblateCircuitRefuses:
             ablate_circuits(tiny, [hand_circuit("a", [(0, 1)]), hand_circuit("b", [(0, 1)], universe=other)],
                             RECORDS, {})
 
+    def test_base_without_an_adapter(self, tiny):
+        with pytest.raises(ValueError, match="reference 'base' is the model without its adapter, and no adapter"):
+            ablate_circuits(tiny, [hand_circuit("h", [(0, 1)])], RECORDS, {"reference": "base"})
+        with pytest.raises(ValueError, match="no adapter is bound"):
+            ablate_circuit_op.run(Context(loaded=tiny), {"circuit": hand_circuit("h", [(0, 1)]), "records": RECORDS},
+                                  {"reference": "base"})
+
+    def test_an_unknown_reference(self, tiny):
+        with pytest.raises(ValueError, match="unknown reference 'floor'"):
+            ablate_circuits(tiny, [hand_circuit("h", [(0, 1)])], RECORDS, {"reference": "floor"})
+
     def test_a_component_outside_the_universe(self, tiny):
         universe = {**HEAD_UNIVERSE, "layers": [0, 1]}
         with pytest.raises(ValueError, match=r"L3\.attn\.per_head_out\.H0@all of 'a' is outside"):
@@ -309,6 +325,96 @@ class TestAblateHeadsMetric:
     def test_an_unknown_metric_is_refused(self, tiny):
         with pytest.raises(ValueError, match="unknown metric 'nats'"):
             ablate_heads(tiny, RECORDS, {"metric": "nats"})
+
+
+def build_adapter(model, rank=2):
+    keys = iter(mx.random.split(mx.random.key(5), 100))
+    weights = {}
+    for i in range(len(model.lm.model.layers)):
+        for proj in ("q_proj", "o_proj"):
+            out, d = getattr(model.lm.model.layers[i].self_attn, proj).weight.shape
+            weights[f"model.layers.{i}.self_attn.{proj}.lora_a"] = mx.random.normal((rank, d), key=next(keys))
+            weights[f"model.layers.{i}.self_attn.{proj}.lora_b"] = mx.random.normal((out, rank), key=next(keys))
+    return weights
+
+
+def read_plain(model, record, params):
+    ids = render(model, record).array
+    logits = model.run(ids).logits
+    answer, _ = resolve_target(model, record, params, read_last_logp(logits))
+    return answer, logits
+
+
+@pytest.fixture(scope="module")
+def adapted():
+    model = build_tiny_model("gemma3")
+    model.node_adapter = lora.fuse(model.lm, build_adapter(model), scale=1.0)
+    return model
+
+
+class TestAblateCircuitReference:
+    @pytest.mark.parametrize("metric", ["logprob", "entropy"])
+    def test_base_is_a_plain_pass_of_the_model_without_its_adapter(self, adapted, tiny, metric):
+        params = {"tracked": TRACKED, "metric": metric, "reference": "base"}
+        heads = [(0, 1), (2, 3)]
+        out = ablate_circuits(adapted, [hand_circuit("h", heads)], RECORDS, params, base=adapted.unadapted)
+        cells = lexicon.items_of(out["cells"])
+        for c, cond, record in zip(cells, out["out"]["conditions"], RECORDS, strict=True):
+            answer, full = read_plain(adapted, record, params)
+            floor = read_metric(answer, metric, read_plain(tiny, record, params)[1])
+            assert c["m_empty"] == round(floor, 6) and cond["m_empty"] == round(floor, 4)
+            assert c["m_full"] == round(read_metric(answer, metric, full), 6)
+            assert c["m_empty"] != c["m_full"]
+        item = lexicon.items_of(out["out"])[0]
+        full = np.array([c["m_full"] for c in cells])
+        floor = np.array([c["m_empty"] for c in cells])
+        alone = np.array([c["m_circuit"] for c in cells])
+        assert item["faithfulness"] == pytest.approx((alone.mean() - floor.mean()) / (full.mean() - floor.mean()),
+                                                     abs=1e-4)
+        assert out["out"]["reference"] == "base" and out["cells"]["reference"] == "base"
+
+    def test_the_adapter_is_back_after_the_base_pass(self, adapted):
+        before = [read_plain(adapted, r, {})[1] for r in RECORDS]
+        ablate_circuits(adapted, [hand_circuit("h", [(1, 0)])], RECORDS, {"reference": "base"},
+                        base=adapted.unadapted)
+        after = [read_plain(adapted, r, {})[1] for r in RECORDS]
+        assert all(mx.array_equal(a, b).item() for a, b in zip(before, after, strict=True))
+
+    def test_empty_is_byte_for_byte_what_it_was(self, tiny):
+        hashes = {"logprob": ("0355fe19a826a3ce9f19578145da7a80c9678df1da3ff2816c8a147510bdeb4d",
+                              "09c8757c3234c1ea56cb4bff89ff989ffac756d4afb4393b3bec43030e104826"),
+                  "entropy": ("b84153e995759492e7ec0b6badec10e5f3dc8342ceac59a8030ef2dd047249d6",
+                              "3d2f5cdbc879c221199f47b9011b8fdeebf68c2935ffb8a3ebeab3fb6fb6a4a8")}
+        for metric, (faith, cells) in hashes.items():
+            out = ablate_circuits(tiny, [hand_circuit("h", [(0, 1), (2, 3)])], RECORDS,
+                                  {"tracked": TRACKED, "metric": metric})
+            assert out["out"]["reference"] == "empty" and out["cells"]["reference"] == "empty"
+            assert rm.content_hash({k: v for k, v in out["out"].items() if k != "reference"}) == faith
+            assert rm.content_hash({k: v for k, v in out["cells"].items() if k != "reference"}) == cells
+
+    def test_the_sentence_names_the_base_model_and_only_it(self, adapted, tiny):
+        speak = K.BY_KIND["intervene/faithfulness"].speak
+        said = {}
+        for reference, model in (("base", adapted), ("empty", tiny)):
+            out = ablate_circuits(model, [hand_circuit("h", [(1, 0)])], RECORDS, {"reference": reference},
+                                  base=getattr(model, "unadapted", None) if reference == "base" else None)
+            header = {k: v for k, v in out["out"].items() if k != "items"}
+            said[reference] = load_engine().render(speak, out["out"]["items"], header=header).values[0]
+        assert said["base"].endswith("logprob, against the base model.")
+        assert said["empty"].endswith("zero ablation, logprob.")
+
+    def test_the_executor_lends_the_node_adapter_and_takes_it_back(self, tmp_path):
+        model = build_tiny_model("gemma3")
+        path = tmp_path / "a.safetensors"
+        mx.save_safetensors(str(path), build_adapter(model))
+        payload = {"data": path.read_bytes(), "lora": {"rank": 2, "alpha": 2}}
+        assert model.node_adapter is None
+        with ModelLoading()._adapter_fused(model, {"adapter": payload}, {}):
+            assert model.node_adapter is not None
+            ctx = Context(loaded=model)
+            out = ablate_circuit_op.run(ctx, {"circuit": hand_circuit("h", [(1, 0)]), "records": RECORDS},
+                                        {"reference": "base"})
+        assert model.node_adapter is None and out["out"]["reference"] == "base"
 
 
 class TestTheKinds:

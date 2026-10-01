@@ -65,6 +65,7 @@ class Model:
         self.repo_id: str | None = None
         self.revision: str | None = None
         self.requested_ref: str | None = None
+        self.node_adapter: dict | None = None
 
     @classmethod
     def load(cls, model_id: str, *,
@@ -107,6 +108,13 @@ class Model:
         model.requested_ref = requested
         add_to_span(model_load_seconds=time.perf_counter() - load_started)
         return model
+
+    def unadapted(self):
+        from .lora import unfused
+
+        if self.node_adapter is None:
+            raise ValueError("no adapter is fused on this model from a node's `adapter` port")
+        return unfused(self.lm, self.node_adapter)
 
     @property
     def tokenizer(self):

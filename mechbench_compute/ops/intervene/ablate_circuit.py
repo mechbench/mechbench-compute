@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from typing import Any
 
 import numpy as np
@@ -35,6 +36,8 @@ ABLATIONS = ("zero", "mean")
 
 MEAN_POINTS = ("attn_out", "mlp_out")
 
+REFERENCES = ("empty", "base")
+
 OP = Op(
     name="intervene/ablate-circuit",
     needs=frozenset({"model.forward"}),
@@ -43,8 +46,8 @@ OP = Op(
             "completeness.",
     description="""\
 The test a circuit owes before anyone believes it. For each record the
-metric is read four ways: `m_full`, the model untouched; `m_empty`, every
-component of the circuit's universe removed; `m_circuit`, everything in the
+metric is read four ways: `m_full`, the model untouched; `m_empty`, the
+floor the effect is measured from; `m_circuit`, everything in the
 universe but the circuit removed, so the circuit runs alone; and
 `m_without`, the circuit removed and the rest left alone. Over the records,
 
@@ -52,6 +55,19 @@ universe but the circuit removed, so the circuit runs alone; and
   the effect the circuit carries alone, and
 - completeness = (m̄_full − m̄_without) / (m̄_full − m̄_empty), the share lost
   when it is removed.
+
+The floor is the `reference`. Under `empty`, the default, it is every
+component of the circuit's universe removed. Under `base` it is the model
+without the adapter on the `adapter` port, read on the same records: when
+the behaviour is the adapter's, the base model is where it is absent. The
+two answer different questions. `empty` asks how much of what the
+universe does the circuit does; `base` asks how much of what the adapter
+added the circuit carries. Removing a whole universe can move the metric
+the same way an adapter does — an adapter that flattens the next-token
+distribution, read as `entropy`, is undone by nothing, while the empty
+model is flatter still — and then m̄_full − m̄_empty has the wrong sign and
+neither ratio means anything. `base` needs an adapter; without one the
+base model is the full model.
 
 Both are ratios of means, so a record whose full and empty readings nearly
 agree cannot make its own ratio arbitrarily large, and neither is clipped:
@@ -66,7 +82,8 @@ m_full − m_without equal to minus the grid's cell. `m_empty` is shared by
 every circuit on the port, which must share one universe. Each removal is
 a list of spec items written out component by component — never `except`
 — and run as `intervene/apply` runs its spec. That is 2 + 2 × circuits
-forward passes per record.
+forward passes per record under either reference; under `base` the floor's
+pass is a plain one with the adapter lifted.
 
 `ablation: "zero"` sets a component's output to zero. `"mean"` replaces it
 with its mean over the records given, at that position (every position, for
@@ -98,12 +115,12 @@ output holds the four readings per record per circuit.
     output=Output("intervene/faithfulness", collection=True,
                   doc="One item per circuit: `faithfulness` and `completeness` with their intervals, the "
                       "four means, `size` and `n`. The header carries `conditions` (per record `m_full` and "
-                      "`m_empty`), `n_off_top1`, `ablation`, `metric`, `universe`, `level`, `resamples`, "
-                      "`seed` and `held_out`."),
+                      "`m_empty`, the reference reading), `n_off_top1`, `ablation`, `metric`, `reference`, "
+                      "`universe`, `level`, `resamples`, `seed` and `held_out`."),
     outputs={"cells": Output("records/record", collection=True,
                              doc="One item per record per circuit, id `{record}:{circuit}`, with `coords` "
-                                 "`{record, circuit}` and the four readings `m_full`, `m_empty`, "
-                                 "`m_circuit` and `m_without`.")},
+                                 "`{record, circuit}` and the four readings `m_full`, `m_empty` (the reference "
+                                 "reading), `m_circuit` and `m_without`; the header carries `reference`.")},
     params=(
         P("ablation", "string",
           "How a component is removed: `zero`, or `mean` over the records given (at `attn_out` and "
@@ -118,6 +135,14 @@ output holds the four readings per record per circuit.
           "What is read at the decision position: the target's `logprob`, `prob` or `logit`, or "
           "`entropy`, the next-token distribution's entropy in bits.",
           "logprob", choices=METRICS),
+        P("reference", "string",
+          "The floor `m_empty` the effect is measured from. `empty`: every component of the universe "
+          "removed, the honest floor when the behaviour is the model's own. `base`: the model without the "
+          "adapter on the `adapter` port, on the same records, the honest floor when the behaviour is the "
+          "adapter's — removing a universe can push the metric past where the adapter started it, and then "
+          "both ratios have the wrong sign. `base` needs an adapter; one more plain pass per record, shared "
+          "by every circuit.",
+          "empty", choices=REFERENCES),
         P("level", "float", "The bootstrap interval's level.", 0.95),
         P("resamples", "int", "How many bootstrap resamples, paired over records.", 2000),
     ),
@@ -131,7 +156,9 @@ def run(ctx, inputs, params):
     model = ctx.model(params.get("model"))
     circuits = read_circuits(inputs.get("circuit"))
     records = items_of(inputs.get("records") or [])
-    return ablate_circuits(model, circuits, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
+    base = model.unadapted if getattr(model, "node_adapter", None) is not None else None
+    return ablate_circuits(model, circuits, records, params, on_item=ctx.on_item, on_start=ctx.on_start,
+                           base=base)
 
 
 def read_circuits(port: Any) -> list[Mapping[str, Any]]:
@@ -224,6 +251,7 @@ def ablate_circuits(
     params: Mapping[str, Any],
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
+    base: Callable[[], AbstractContextManager[Any]] | None = None,
 ) -> dict[str, Any]:
     ablation = str(params.get("ablation") or "zero")
     if ablation not in ABLATIONS:
@@ -231,6 +259,13 @@ def ablate_circuits(
     metric = str(params.get("metric") or "logprob")
     if metric not in METRICS:
         raise ValueError(f"unknown metric {metric!r}: one of {', '.join(METRICS)}")
+    reference = str(params.get("reference") or "empty")
+    if reference not in REFERENCES:
+        raise ValueError(f"unknown reference {reference!r}: one of {', '.join(REFERENCES)}")
+    if reference == "base" and base is None:
+        raise ValueError("reference 'base' is the model without its adapter, and no adapter is bound on the "
+                         "`adapter` port; without one the base model is the full model and every ratio "
+                         "divides by zero. Bind the adapter, or use reference 'empty'")
     level = float(params.get("level", 0.95))
     resamples = int(params.get("resamples", 2000))
     seed = int(params.get("seed", 0))
@@ -294,7 +329,7 @@ def ablate_circuits(
     def compile_removal(keys: set | list) -> Any:
         return compile_intervention(model, build_items(sorted(keys, key=str), ablation, sources)) if keys else None
 
-    empty = compile_removal(universe_keys)
+    empty = compile_removal(universe_keys) if reference == "empty" else None
     plans = [(compile_removal(inside - keys), compile_removal(keys)) for keys in members]
 
     def read_removed(row: Mapping[str, Any], compiled: Any) -> float:
@@ -303,10 +338,17 @@ def ablate_circuits(
         iv = SpecIntervention(compiled.specs, row["tokens"], row["record"])
         return read_metric(row["answer"], metric, model.run(row["ids"], interventions=[iv]).logits)
 
+    if reference == "base":
+        with base():
+            for row in rows:
+                row["m_empty"] = read_metric(row["answer"], metric, model.run(row["ids"]).logits)
+                if on_item:
+                    on_item()
     for row in rows:
-        row["m_empty"] = read_removed(row, empty)
-        if on_item:
-            on_item()
+        if reference == "empty":
+            row["m_empty"] = read_removed(row, empty)
+            if on_item:
+                on_item()
         row["circuits"] = []
         for alone, without in plans:
             row["circuits"].append((read_removed(row, alone), read_removed(row, without)))
@@ -354,12 +396,13 @@ def ablate_circuits(
     faith = collection(
         "intervene/faithfulness", items,
         conditions=conditions, n_off_top1=sum(1 for c in conditions if "own_top1" in c),
-        ablation=ablation, metric=metric, universe=universe, level=level, resamples=resamples, seed=seed,
+        ablation=ablation, metric=metric, reference=reference, universe=universe, level=level, resamples=resamples, seed=seed,
         held_out=held_out,
         description=(f"Each circuit alone and removed, under {ablation} ablation, read as {metric} at the "
-                     f"decision position over {len(rows)} records."))
+                     f"decision position over {len(rows)} records"
+                     + (", against the base model." if reference == "base" else ".")))
     return {DEFAULT_OUTPUT: faith,
-            "cells": collection("records/record", cells, description=(
+            "cells": collection("records/record", cells, reference=reference, description=(
                 "The four readings per record per circuit: full, empty, the circuit alone, the circuit "
                 "removed."))}
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 
 import mlx.core as mx
@@ -16,6 +17,7 @@ __all__ = [
     "load_adapter",
     "restore",
     "save_adapter",
+    "unfused",
 ]
 
 
@@ -161,6 +163,16 @@ def restore(lm, handle: dict[tuple[int, str, str], mx.array]) -> None:
         getattr(getattr(lm.model.layers[i], container), proj).weight = w
     mx.eval([getattr(getattr(lm.model.layers[i], c), p).weight
              for i, c, p in handle])
+
+
+@contextlib.contextmanager
+def unfused(lm, handle: dict[tuple[int, str, str], mx.array]) -> Iterator[None]:
+    fused = {(i, c, p): getattr(getattr(lm.model.layers[i], c), p).weight for i, c, p in handle}
+    restore(lm, handle)
+    try:
+        yield
+    finally:
+        restore(lm, fused)
 
 
 def fuse_adapter_stack(lm, payloads, override_scale=None, *,

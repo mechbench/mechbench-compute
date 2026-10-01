@@ -7,8 +7,10 @@ KIND = Kind(
     "intervene/faithfulness",
     "How much of a behaviour one circuit carries alone, and how much is lost without it, over a set of prompts.",
     doc="Written by `intervene/ablate-circuit`, one item per circuit. Four means over the records: `m_full`, "
-        "the model untouched; `m_empty`, every component of the universe removed; `m_circuit`, everything "
-        "but the circuit removed; `m_without`, the circuit removed. `faithfulness` is "
+        "the model untouched; `m_empty`, the floor the effect is measured from; `m_circuit`, everything "
+        "but the circuit removed; `m_without`, the circuit removed. The floor is the header's `reference`: "
+        "under `empty`, every component of the universe removed; under `base`, the model without its "
+        "adapter. The field keeps the name `m_empty` under either, since it is the floor either way. `faithfulness` is "
         "(m_circuit − m_empty) / (m_full − m_empty) and `completeness` is (m_full − m_without) / "
         "(m_full − m_empty): ratios of means, not means of per-record ratios, since a record whose full and "
         "empty readings nearly agree would make its own ratio arbitrarily large. Neither is clipped to "
@@ -31,14 +33,17 @@ KIND = Kind(
             "m_full": F("number", "m̄_M: the metric's mean with the model untouched."),
             "m_circuit": F("number", "m̄_C: the mean with everything but the circuit removed."),
             "m_without": F("number", "m̄_¬C: the mean with the circuit removed."),
-            "m_empty": F("number", "m̄_∅: the mean with the whole universe removed.")},
+            "m_empty": F("number", "m̄_∅: the floor's mean — the whole universe removed under reference "
+                                   "`empty`, the model without its adapter under `base`.")},
     required=("id", "circuit", "size", "n", "faithfulness", "completeness"),
     key=("id",),
     header={"conditions": "Per record: `{id, target, variants, m_full, m_empty, template}`, with `own_top1` "
-                          "where the target is not the model's own first choice.",
+                          "where the target is not the model's own first choice; `m_empty` is the reference reading.",
             "n_off_top1": "How many records tracked a target the model would not itself have said.",
             "ablation": "`zero` or `mean`: how components were removed.",
             "metric": "The readout at the decision position: `logprob`, `prob`, `logit` or `entropy`.",
+            "reference": "`empty` or `base`: what `m_empty` is — every component of the universe removed, or "
+                         "the model without its adapter.",
             "universe": "The universe the circuits share.",
             "level": "The bootstrap interval's level.",
             "resamples": "How many bootstrap resamples.",
@@ -47,7 +52,8 @@ KIND = Kind(
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
     speak="{circuit}: alone it keeps {round(faithfulness, 2)} of the effect ({round(faithfulness_lo, 2)} to "
           "{round(faithfulness_hi, 2)}); removed, the model loses {round(completeness, 2)}; {n} prompts, "
-          "{header.ablation} ablation, {header.metric}.",
+          "{header.ablation} ablation, {header.metric}"
+          "{', against the base model' if header.reference == 'base' else ''}.",
     draw=Draw(mark="bar", encoding={"x": "circuit", "y": "faithfulness",
                                     "lo": "faithfulness_lo", "hi": "faithfulness_hi"}),
 )
