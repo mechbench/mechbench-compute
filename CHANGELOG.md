@@ -13,7 +13,7 @@ nothing said so.
 
 ---
 
-## Unreleased
+## 0.175.0 — 2026-10-01
 
 ### Changes that raise
 
