@@ -13,7 +13,71 @@ nothing said so.
 
 ---
 
-## 0.174.0 — 2026-09-30
+## Unreleased
+
+### Changes that raise
+
+- **An edge or a declared output that names an output its op does not
+  have is refused**, for an op that declares named outputs (today only
+  `adapter/train`): `'train' has no output 'snapshots'; its named
+  outputs are checkpoints`. Before, `from.output` was read only for a
+  sub-protocol and ignored at execution. For an op with one output an
+  edge's `output` is still not read, as before.
+- **An edge from `adapter/train`'s `checkpoints` on a run without
+  `keep_checkpoints` fails** (`gave no output 'checkpoints' in this
+  run`), and so does `keep_checkpoints` with `checkpoint_every: 0`, and
+  a run whose kept adapters would not fit the 64 MiB object limit — that
+  one before training starts, naming how many fit. A resume whose spool
+  lacks an adapter kept before the step it resumes at is refused rather
+  than recomputed.
+- **A model's `adapter` port given a collection of several adapters is
+  refused**, naming `records/map`; a collection of one is read as its
+  adapter.
+
+### Changes that alter results without raising
+
+_None._ `adapter/train` without `keep_checkpoints` returns the same
+adapter, byte for byte, and with it the final adapter is the same as
+without it (task 000794's test holds both).
+
+### Other
+
+- **`adapter/train` keeps its checkpoints as adapters** (task 000794,
+  FRONTIER §3.3b). `keep_checkpoints: true` keeps the adapter every
+  `checkpoint_every` steps and at the last, and emits them on a second
+  output, `checkpoints`: a collection of `adapter/lora`, one whole
+  adapter per kept step, `id` `step-<n>`, `coords.step` an integer,
+  `loss` the training loss at that step, and the final adapter's
+  `format`, `base_model`, `trained_on`, `lora` and `train` (without
+  `final_loss`); the header carries the final adapter's lineage and
+  `checkpoint_every`. The last item's weights are the final adapter's,
+  and each kept item's weights are the resumable state saved at its
+  step. Read it with `{"node": "train", "output": "checkpoints"}`. The
+  op now declares `resume: state-restorable, items: true`: a kept
+  adapter is spooled as an item, so a run interrupted after step *k*
+  resumes from the step-*k* state with the adapters it kept, neither
+  recomputed nor spooled again. `needs` is unchanged.
+- **The `adapter/lora` kind is collectable**: key `(id, coords)`,
+  optional `id`, `coords` and `loss`, and a header (`base_model`,
+  `trained_on`, `lora`, `train`, `checkpoint_every`).
+- **Reading the checkpoints as a sweep over `step`.** `records/sort`,
+  `records/derive`, `records/plot` and the other ops that take any
+  collection read `coords.step` unchanged. `records/map`'s `records`
+  port takes any collection (it took `records/record`), so a map over
+  the checkpoints runs its body once per adapter, the `record` input
+  wired to a model's `adapter` port, and its items carry `coords.step`.
+  `adapter/measure` takes a collection of adapters on its `adapter`
+  port and measures each, ids prefixed with the adapter's and coords
+  carrying its `step`; `measured` then counts `adapters`.
+- **Ops may declare named outputs beside their default.** `output` is
+  the output an edge that names none reads (`DEFAULT_OUTPUT`, `"out"`,
+  now in `mechbench_compute.api`); `outputs` names the others, and an op
+  declaring both returns `{"out": …, <name>: …}`. The executor routes an
+  edge by its `output`, fingerprints and cites the named value, stores
+  it as its own object (`<declared output name>`, or
+  `nodes/<node>.<output>` as an intermediate), restores it with a done
+  node, recomputes a held node that has one, and lists the paths under
+  the manifest's `output_paths`. The conformance kit checks each.
 
 ### Changes that raise
 

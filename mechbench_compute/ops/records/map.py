@@ -47,9 +47,10 @@ When the body ends at more than one node, `output` names the one to
 collect.
 """,
     inputs=(
-        In("records", "records/record",
-           "The stream to map over: one invocation of the body per record. "
-           "`over` is the other way to give one.",
+        In("records", "collection",
+           "The stream to map over: one invocation of the body per item, of "
+           "any kind — records, or a training's `checkpoints`, one adapter "
+           "each. `over` is the other way to give one.",
            many=True, required=False),
     ),
     output=Output('records/record', collection=True, doc="Under `stream`, every invocation's items in one collection, each id prefixed `<record>:<item>` and carrying `coords.mapped`; under `first` or `all`, one item per record. Under `stream` and `first` the collection takes the BODY's item kind — a map over transcripts that produces transcripts emits transcripts — and under `all`, where each item nests a list, it is a plain record. The header's `mapped` says how many records ran, under which policy, and what the body's nodes were."),

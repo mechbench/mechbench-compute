@@ -42,14 +42,22 @@ measured into one collection (`records/union`) are then compared by
 `geometry/compare` with `by: "module"`: whether two training runs moved
 the model the same way, answered in weight space rather than by capturing
 what each does to a prompt.
+
+Given a collection of adapters — the `checkpoints` an `adapter/train`
+node keeps — each is measured on its own and the items come back
+together: each item's id prefixed with its adapter's (`step-40:…`), its
+coords carrying the adapter's (`coords.step`), its `mass_share` a share
+of its own adapter's mass. Grouped by `coords.module` and drawn over
+`coords.step`, it is where training wrote, step by step.
 """,
     inputs=(
         In("adapter", "adapter/lora",
            "The adapter to measure — from an `adapter/train` node or a stored "
-           "one. Its bytes are read; the model it was trained on is not "
-           "loaded."),
+           "one — or a collection of them, such as a training's "
+           "`checkpoints`. Its bytes are read; the model it was trained on is "
+           "not loaded."),
     ),
-    output=Output('adapter/delta', collection=True, doc="One item per module, id and `coords.module` the module's own name in the model tree (`layers.12.self_attn.q_proj`) — two layers' `q_proj` are two modules, and `coords.projection` is what groups them: `frobenius`, `spectral`, `singular_values`, `effective_rank`, `mass_share`, `rank`, `shape`, and `vector`/`basis` when asked for. `coords` carry `layer`, `module`, `projection`, `container` and, when `source` is given, `adapter`. The header carries the adapter's `base_model`, `trained_on` and `lora` shape, and `measured` — the modules, layers and total norm the shares are shares of."),
+    output=Output('adapter/delta', collection=True, doc="One item per module, id and `coords.module` the module's own name in the model tree (`layers.12.self_attn.q_proj`) — two layers' `q_proj` are two modules, and `coords.projection` is what groups them: `frobenius`, `spectral`, `singular_values`, `effective_rank`, `mass_share`, `rank`, `shape`, and `vector`/`basis` when asked for. `coords` carry `layer`, `module`, `projection`, `container` and, when `source` is given, `adapter`. The header carries the adapter's `base_model`, `trained_on` and `lora` shape, and `measured` — the modules, layers and total norm the shares are shares of. Over a collection of adapters, one item per adapter and module, ids prefixed with the adapter's and coords carrying its (`step`); `measured` then counts the `adapters` and carries no total norm, since each adapter's shares are of its own."),
     params=(
         P("layers", "list[int] | \"all\"",
           "Which layers to measure.",
@@ -78,11 +86,33 @@ what each does to a prompt.
 
 
 def run(ctx, inputs, params):
-    return _measure_adapter(inputs["adapter"], params)
+    adapter = inputs["adapter"]
+    if isinstance(adapter, Mapping) and adapter.get("kind") == "collection":
+        return measure_adapters(adapter, params)
+    return _measure_adapter(adapter, params)
+
+
+def measure_adapters(adapters: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    from mechbench_compute.lexicon import kinds as K
+
+    each = [(one, measure_adapter(one, params)) for one in K.items_of(adapters)]
+    if not each:
+        raise ValueError("adapter/measure: the collection holds no adapters")
+    items = [{**item, "id": f"{one.get('id')}:{item['id']}",
+              "coords": {**(one.get("coords") or {}), **item["coords"]}}
+             for one, measured in each for item in measured["items"]]
+    first = each[0][1]
+    return K.collection(
+        "adapter/delta", items,
+        base_model=first.get("base_model"), trained_on=first.get("trained_on"),
+        lora=first.get("lora"),
+        measured={"modules": first["measured"]["modules"],
+                  "layers": first["measured"]["layers"], "adapters": len(each)},
+        source=first.get("source"),
+        name=params.get("name"), description=params.get("description"))
 
 
 def _measure_adapter(adapter: Any, params: Mapping[str, Any]) -> dict[str, Any]:
-    pass
 
     payload = adapter.get("payload", adapter) if isinstance(adapter, Mapping) else adapter
     return measure_adapter(payload, params)

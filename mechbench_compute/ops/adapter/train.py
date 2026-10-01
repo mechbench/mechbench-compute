@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from mechbench_compute import lexicon
-from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.lexicon._base import DEFAULT_OUTPUT, In, Op, Output, P, Resume
 
 OP = Op(
     name="adapter/train",
     needs=frozenset({"model.backward", "model.forward"}),
-    resume=Resume("state-restorable"),
+    resume=Resume("state-restorable", items=True),
     summary=(
         "Train a LoRA adapter that shapes what the model says at a decision "
         "point toward a target distribution over outcomes — and emit the "
@@ -59,6 +59,20 @@ If the model reference already carries adapters, training happens on the
 fused stack — the new round learns a delta on top. Long runs checkpoint
 every `checkpoint_every` steps and resume from the same trajectory.
 
+With `keep_checkpoints` the run also keeps the adapter as it stood every
+`checkpoint_every` steps and at the last, and emits them on its
+`checkpoints` output: a collection of `adapter/lora`, one whole adapter
+per kept step, `coords.step` its step and `loss` the training loss
+there. The final adapter on the default output is unchanged, and the
+last item's weights are its weights byte for byte. Training time becomes
+a coordinate: `records/map` over the collection, with the item fed to a
+model's `adapter` port, sweeps any operation over steps, and
+`adapter/measure` reads the whole collection at once. A run interrupted
+after a kept step resumes with the items it already kept, not
+recomputed. The collection is one stored object, so the adapters' bytes
+times their count must fit the platform's 64 MiB object limit; the run
+refuses before training when it would not.
+
 `seed` fixes the whole run: the adapter's initial weights as well as the
 sampling order, so two runs of the same node on the same machine produce
 a byte-identical adapter. Change the seed to see the spread a different
@@ -73,6 +87,14 @@ draw gives.
            many=True, required=False),
     ),
     output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`."),
+    outputs={"checkpoints": Output(
+        "adapter/lora", collection=True,
+        doc="With `keep_checkpoints`: one item per kept step — every `checkpoint_every` steps and the last — "
+            "each a whole adapter with `id` `step-<n>`, `coords.step` (an integer), `loss` (the training loss at "
+            "that step) and the final adapter's `format`, `base_model`, `trained_on`, `lora` and `train` (without "
+            "`final_loss`). The header carries `base_model`, `trained_on`, `lora`, `train` as the final adapter "
+            "has them, and `checkpoint_every`. Read it with `{\"node\": …, \"output\": \"checkpoints\"}`; "
+            "without `keep_checkpoints` there is none, and an edge from it fails.")},
     params=(
         P("target", "object",
           "The target distribution — `{\"uniform\": [...]}` or "
@@ -217,8 +239,14 @@ draw gives.
               P("samples", "int", "How many sampled sequences the gate checks.", 40),
           )),
         P("checkpoint_every", "int",
-          "Save resumable training state every this many steps.",
+          "Save resumable training state every this many steps; with "
+          "`keep_checkpoints`, also the cadence the adapters are kept at.",
           50),
+        P("keep_checkpoints", "bool",
+          "Also emit the adapter as it stood every `checkpoint_every` steps "
+          "and at the last, as the `checkpoints` output: a collection of "
+          "adapters over `coords.step`.",
+          False),
     ),
     example={
         "model": {"$param": "model"},
@@ -233,9 +261,6 @@ draw gives.
 
 
 def run(ctx, inputs, params):
-    import os
-    import tempfile
-
     from mechbench_compute.distill import encode, render
     from mechbench_compute.finetune import (
         batch_for,
@@ -254,7 +279,7 @@ def run(ctx, inputs, params):
     from mechbench_compute.lora import (
         apply_lora,
         fuse_adapter_stack,
-        save_adapter,
+        read_adapter_bytes,
     )
 
     model = ctx.model(params.get("model"))
@@ -348,60 +373,110 @@ def run(ctx, inputs, params):
 
     n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules,
                         seed=seed, keys=model.architecture.adapter_keys)
-    if ctx.on_start:
-        ctx.on_start(steps)
-    checkpoint_every = int(params.get("checkpoint_every", 50))
-    resumed_from = int(ctx.resume_state["step"]) if ctx.resume_state else 0
-    if resumed_from and ctx.on_item:
-        for _ in range(resumed_from):
-            ctx.on_item(None, None, True)
-    final_loss = train_soft_ce(
-        model.lm,
-        {"target": marginals, "anchor": anchors,
-         "continuation": continuations},
-        batch, steps=steps, lr=lr, seed=seed,
-        factories=factories,
-        on_step=(lambda s, l: ctx.on_item()) if ctx.on_item else None,
-        checkpoint_every=checkpoint_every if ctx.on_checkpoint else 0,
-        on_checkpoint=ctx.on_checkpoint,
-        resume_state=ctx.resume_state)
-
-    fd, path = tempfile.mkstemp(suffix=".safetensors")
-    os.close(fd)
-    try:
-        save_adapter(model.lm, path)
-        with open(path, "rb") as f:
-            data = f.read()
-    finally:
-        os.unlink(path)
-
-    ctx.evict_model()
-
     base_ref = params.get("model")
     trained_on = (
         {"base": base_ref.base, "adapters": list(base_ref.adapter_labels)}
         if hasattr(base_ref, "adapter_labels")
         else {"base": base_ref, "adapters": []}
     )
-    return {
-        "kind": "adapter/lora",
-        "format": "safetensors",
-        "base_model": trained_on["base"],
-        "trained_on": trained_on,
-        "lora": {"rank": rank, "alpha": alpha,
-                  "scale": alpha / rank,
-                  "target_modules": list(target_modules),
-                  "params": n_lora},
-        "train": {"steps": steps, "lr": lr, "seed": seed,
-                   "batch": batch, "final_loss": round(final_loss, 4),
-                   "n_prompts": len(records),
-                   "n_anchors": len(anchor_records),
-                   "closer": closer,
-                   "target": target_spec,
-                   "depth": depth,
-                   "unit": unit,
-                   "replace": replace,
-                   "positions": params.get("positions", "all"),
-                   "marginal": bool(params.get("marginal", True))},
-        "data": data,
-    }
+    lora = {"rank": rank, "alpha": alpha, "scale": alpha / rank,
+            "target_modules": list(target_modules), "params": n_lora}
+    methods = {"steps": steps, "lr": lr, "seed": seed, "batch": batch,
+               "n_prompts": len(records), "n_anchors": len(anchor_records),
+               "closer": closer, "target": target_spec, "depth": depth,
+               "unit": unit, "replace": replace,
+               "positions": params.get("positions", "all"),
+               "marginal": bool(params.get("marginal", True))}
+    lineage = {"kind": "adapter/lora", "format": "safetensors",
+               "base_model": trained_on["base"], "trained_on": trained_on,
+               "lora": lora}
+
+    checkpoint_every = int(params.get("checkpoint_every", 50))
+    kept_steps = read_kept_steps(params, steps, checkpoint_every)
+    if kept_steps:
+        check_kept_size(len(read_adapter_bytes(model.lm)), len(kept_steps))
+
+    def keep(step, loss, data):
+        return {"id": f"step-{step}", "coords": {"step": step}, **lineage,
+                "train": methods, "loss": float(loss), "data": data}
+
+    if ctx.on_start:
+        ctx.on_start(steps)
+    resumed_from = int(ctx.resume_state["step"]) if ctx.resume_state else 0
+    kept = restore_kept(kept_steps, resumed_from, ctx.resume_items)
+    if resumed_from and ctx.on_item:
+        for step in range(1, resumed_from + 1):
+            if step in kept:
+                ctx.on_item(kept[step]["id"], kept[step], True)
+            else:
+                ctx.on_item(None, None, True)
+
+    def on_step(step, loss):
+        if step in kept_steps and step < steps:
+            kept[step] = keep(step, loss, read_adapter_bytes(model.lm))
+            if ctx.on_item:
+                ctx.on_item(kept[step]["id"], kept[step], False)
+        elif ctx.on_item:
+            ctx.on_item()
+
+    final_loss = train_soft_ce(
+        model.lm,
+        {"target": marginals, "anchor": anchors,
+         "continuation": continuations},
+        batch, steps=steps, lr=lr, seed=seed,
+        factories=factories,
+        on_step=on_step if (ctx.on_item or kept_steps) else None,
+        checkpoint_every=checkpoint_every if ctx.on_checkpoint else 0,
+        on_checkpoint=ctx.on_checkpoint,
+        resume_state=ctx.resume_state)
+
+    data = read_adapter_bytes(model.lm)
+    ctx.evict_model()
+
+    adapter = {**lineage,
+               "train": {**methods, "final_loss": round(final_loss, 4)},
+               "data": data}
+    if not kept_steps:
+        return {DEFAULT_OUTPUT: adapter}
+    kept[steps] = keep(steps, final_loss, data)
+    return {DEFAULT_OUTPUT: adapter,
+            "checkpoints": lexicon.collection(
+                "adapter/lora", [kept[s] for s in kept_steps],
+                base_model=adapter["base_model"], trained_on=trained_on,
+                lora=lora, train=adapter["train"],
+                checkpoint_every=checkpoint_every)}
+
+
+def read_kept_steps(params, steps: int, every: int) -> list[int]:
+    if not params.get("keep_checkpoints", False):
+        return []
+    if every <= 0:
+        raise ValueError(
+            "adapter/train: keep_checkpoints keeps an adapter every "
+            "`checkpoint_every` steps; set it above 0")
+    return [*range(every, steps, every), steps]
+
+
+def check_kept_size(adapter_bytes: int, count: int) -> None:
+    from mechbench_compute.bench import MAX_OBJECT_BYTES
+
+    if adapter_bytes * count > MAX_OBJECT_BYTES:
+        raise ValueError(
+            f"adapter/train: {count} kept checkpoints of {adapter_bytes:,} bytes "
+            f"each are over the {MAX_OBJECT_BYTES:,}-byte object limit the "
+            f"collection is stored under; keep fewer with a larger "
+            f"`checkpoint_every` (at most {max(1, MAX_OBJECT_BYTES // adapter_bytes)} fit)")
+
+
+def restore_kept(kept_steps: list[int], resumed_from: int,
+                 resume_items) -> dict[int, dict]:
+    kept: dict[int, dict] = {}
+    for step in (s for s in kept_steps if s <= resumed_from):
+        item = (resume_items or {}).get(f"step-{step}")
+        if item is None:
+            raise ValueError(
+                f"adapter/train: resuming at step {resumed_from}, but the "
+                f"adapter kept at step {step} is not among the run's kept "
+                f"items; restart the node")
+        kept[step] = item
+    return kept

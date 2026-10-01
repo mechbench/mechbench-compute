@@ -4,6 +4,7 @@ from typing import Any
 
 from mechbench_compute import dataflow, lexicon
 from mechbench_compute.protocol.missing_upstream import MissingUpstream
+from mechbench_compute.protocol.named_outputs import read_edge_path, read_edge_value
 from mechbench_compute.protocol.read_missing_policy import read_missing_policy
 
 
@@ -50,12 +51,11 @@ def gather_inputs(state, nid, node, op_here, in_edges, resolver):
         if decl is not None and decl.variadic:
             inputs[port] = [
                 {"node": e["from"]["node"],
-                 "value": state.results[e["from"]["node"]]} for e in es]
-            input_paths[port] = [
-                state.node_paths.get(e["from"]["node"], "") for e in es]
+                 "value": read_edge_value(state, e)} for e in es]
+            input_paths[port] = [read_edge_path(state, e) for e in es]
         else:
-            inputs[port] = state.results[es[-1]["from"]["node"]]
-            input_paths[port] = state.node_paths.get(es[-1]["from"]["node"], "")
+            inputs[port] = read_edge_value(state, es[-1])
+            input_paths[port] = read_edge_path(state, es[-1])
     for port, es in sorted(placeholders.items()):
         decl = op_here.port(port) if op_here else None
         kind = (decl.kinds[0] if decl is not None else "records/record")

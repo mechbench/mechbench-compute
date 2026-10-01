@@ -86,9 +86,13 @@ def test_a_need_outside_the_vocabulary_is_refused() -> None:
         Op("x/y", "s", "d", (), needs=frozenset({"gpu"}))
     with pytest.raises(ValueError, match="not needs"):
         Op("x/y", "s", "d", (), needs=frozenset({"network:"}))
-    with pytest.raises(ValueError, match="not both"):
+    with pytest.raises(ValueError, match="names the others"):
         Op("x/y", "s", "d", (), output=Output("records/record"),
-           outputs={"a": Output("records/record")})
+           outputs={"out": Output("records/record")})
+    both = Op("x/y", "s", "d", (), output=Output("records/record"),
+              outputs={"a": Output("records/record", collection=True)})
+    assert both.to_dict()["output"]["kind"] == "records/record"
+    assert both.to_dict()["outputs"]["a"]["collection"] is True
     with pytest.raises(TypeError, match="not an Output"):
         Op("x/y", "s", "d", (), outputs={"a": "records/record"})
     with pytest.raises(ValueError, match="resume level"):

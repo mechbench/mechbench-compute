@@ -20,6 +20,7 @@ class RunState:
         self.edges: list[dict] = graph.get("edges", [])
         self.declared_outputs = extra.get("outputs")
         self.outputs_of: dict[str, list[str]] = {}
+        self.named_outputs_of: dict[tuple[str, str], list[str]] = {}
         for o in self.declared_outputs or []:
             source = o["from"]["node"]
             if source not in self.nodes:
@@ -29,7 +30,11 @@ class RunState:
                 raise ValueError(
                     f"an output cannot be named {dataflow.INTERMEDIATES!r}: that is "
                     f"where intermediates are stored")
-            self.outputs_of.setdefault(source, []).append(o["name"])
+            named = self.read_named_output(source, o["from"].get("output"))
+            if named is None:
+                self.outputs_of.setdefault(source, []).append(o["name"])
+            else:
+                self.named_outputs_of.setdefault((source, named), []).append(o["name"])
         self.keep = str(extra.get("keep") or "all")
         if self.keep not in ("all", "outputs"):
             raise ValueError(f"keep must be 'all' or 'outputs', not {self.keep!r}")
@@ -50,6 +55,28 @@ class RunState:
         self.tolerated: set[str] = set()
         self.ahead: dict[str, Any] = {}
         self.spend_by_node: dict[str, dict[str, Any]] = {}
+        self.named_results: dict[str, dict[str, Any]] = {}
+        self.named_hashes: dict[str, dict[str, str]] = {}
+        self.named_paths: dict[str, dict[str, str]] = {}
+
+    def read_named_output(self, nid: str, name: Any) -> str | None:
+        from mechbench_compute import lexicon
+        from mechbench_compute.lexicon._base import DEFAULT_OUTPUT
+        from mechbench_compute.protocol.named_outputs import find_named_outputs
+
+        if not name or name == DEFAULT_OUTPUT:
+            return None
+        try:
+            named = find_named_outputs(lexicon.resolve(str(self.nodes[nid].get("block")), warn=False))
+        except KeyError:
+            return None
+        if not named:
+            return None
+        if name not in named:
+            raise ValueError(
+                f"{nid!r} has no output {name!r}; its named outputs are "
+                f"{', '.join(sorted(named))}")
+        return str(name)
 
     def read_forced_restart(self, resume_mod) -> set[str]:
         forced: set[str] = set()

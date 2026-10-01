@@ -12,6 +12,8 @@ KIND_ROOT = "~canonical/kinds/"
 
 COLLECTION = "collection"
 
+DEFAULT_OUTPUT = "out"
+
 _VERSION_TAIL = re.compile(r"/\d+$")
 
 
@@ -379,11 +381,12 @@ class Op:
     removed: dict[str, str] = field(default_factory=dict, hash=False, compare=False)
 
     def __post_init__(self) -> None:
-        if self.output is not None and self.outputs is not None:
-            raise ValueError(f"{self.name}: declare `output` or `outputs`, not both")
         for port, out in (self.outputs or {}).items():
             if not isinstance(out, Output):
                 raise TypeError(f"{self.name}: outputs[{port!r}] is not an Output")
+        if self.output is not None and DEFAULT_OUTPUT in (self.outputs or {}):
+            raise ValueError(f"{self.name}: `output` is the output named {DEFAULT_OUTPUT!r}; "
+                             f"`outputs` names the others")
         if not isinstance(self.needs, frozenset):
             object.__setattr__(self, "needs", frozenset(self.needs))
         unknown = sorted(n for n in self.needs if not is_need(n))

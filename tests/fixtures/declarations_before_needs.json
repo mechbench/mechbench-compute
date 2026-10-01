@@ -104,7 +104,7 @@
    "level": "restart"
   },
   "adapter/train": {
-   "items": false,
+   "items": true,
    "level": "state-restorable"
   },
   "direction/add": {

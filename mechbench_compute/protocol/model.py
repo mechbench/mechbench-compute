@@ -64,7 +64,7 @@ class ModelLoading:
         @contextlib.contextmanager
         def _cm():
             payloads = list(ref.adapter_payloads) if ref is not None else []
-            node_level = inputs.get("adapter")
+            node_level = read_one_adapter(inputs.get("adapter"))
             if node_level:
                 payloads.append(node_level)
             if not payloads:
@@ -120,3 +120,16 @@ class ModelLoading:
         (target / ".label").write_text(label)
         memo[label] = target
         return target
+
+
+def read_one_adapter(value):
+    from mechbench_compute import lexicon
+
+    if not isinstance(value, dict) or value.get("kind") != lexicon.COLLECTION:
+        return value
+    items = lexicon.items_of(value)
+    if len(items) != 1:
+        raise ValueError(
+            f"the `adapter` port takes one adapter, and this collection holds "
+            f"{len(items)}; map over it with `records/map` to run once per adapter")
+    return items[0]

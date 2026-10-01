@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from mechbench_compute import lexicon
-from mechbench_compute.lexicon._base import type_words
+from mechbench_compute.lexicon._base import DEFAULT_OUTPUT, type_words
 
 DATAFLOW = 2
 INTERMEDIATES = "nodes"
@@ -128,7 +128,7 @@ def lower(graph: Mapping[str, Any], bound_inputs: Mapping[str, Any]) -> dict[str
                     f"and also given under `inputs` — one or the other")
             target["inputs"][port] = bound_inputs[name]
             continue
-        edges.append({**e, "from": {"node": src["node"], "port": src.get("output", "out")}})
+        edges.append({**e, "from": {"node": src["node"], "port": src.get("output", DEFAULT_OUTPUT)}})
     fed = {(e["to"]["node"], e["to"]["port"]) for e in edges}
     for n in nodes:
         both = [p for p in n["inputs"]

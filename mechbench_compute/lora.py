@@ -94,6 +94,20 @@ def save_adapter(lm, path: str) -> None:
     mx.save_safetensors(path, dict(tree_flatten(lm.trainable_parameters())))
 
 
+def read_adapter_bytes(lm) -> bytes:
+    import os
+    import tempfile
+
+    fd, path = tempfile.mkstemp(suffix=".safetensors")
+    os.close(fd)
+    try:
+        save_adapter(lm, path)
+        with open(path, "rb") as f:
+            return f.read()
+    finally:
+        os.unlink(path)
+
+
 def load_adapter(path: str) -> dict[str, mx.array]:
     return dict(mx.load(path))
 

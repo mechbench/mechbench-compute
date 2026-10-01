@@ -12,7 +12,7 @@ from typing import Any
 
 from mechbench_compute.conformance.finding import ERROR, WARNING, Finding
 from mechbench_compute.contained import check_relative_path, resolve_inside
-from mechbench_compute.lexicon._base import COLLECTION, Op, Output
+from mechbench_compute.lexicon._base import COLLECTION, DEFAULT_OUTPUT, Op, Output
 from mechbench_compute.lexicon.address import address_op
 from mechbench_compute.lexicon.extension import Extension
 
@@ -81,7 +81,7 @@ def install_extension(extension: Extension) -> Iterator[str | None]:
     point = SimpleNamespace(name=extension.extension, value=f"{extension.module}:MANIFEST",
                             dist=None, load=lambda: extension)
     held = REGISTRY.sources
-    REGISTRY.sources = (CORE, InstalledSource(find=lambda: [point], installed=lambda: []))
+    REGISTRY.sources = (CORE, InstalledSource(find=lambda: [point], installed=list))
     try:
         REGISTRY.refresh()
         yield REGISTRY.table().refused.get(extension.address)
@@ -129,11 +129,14 @@ def check_output(value: Any, out: Output, at: str) -> tuple[str | None, list[Fin
 
 
 def check_outputs(result: Any, op: Op, at: str) -> tuple[str | None, list[Finding]]:
-    if op.output is not None:
-        return check_output(result, op.output, at)
+    if op.outputs is None:
+        return check_output(result, op.output, at) if op.output is not None else (None, [])
+    declared = {**({DEFAULT_OUTPUT: op.output} if op.output is not None else {}), **op.outputs}
     kinds, problems = [], []
-    for port, out in (op.outputs or {}).items():
+    for port, out in declared.items():
         got = result.get(port) if isinstance(result, Mapping) else None
+        if got is None and port != DEFAULT_OUTPUT and op.output is not None:
+            continue
         kind, found = check_output(got, out, f"{at}:{port}")
         kinds.append(f"{port}={kind}")
         problems += found

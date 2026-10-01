@@ -28,11 +28,18 @@ def build_manifest(state, resolved: dict) -> dict[str, Any]:
         kept = {o["name"]: o["from"]["node"] for o in state.declared_outputs
                 if o["from"]["node"] in state.results
                 and o["from"]["node"] not in state.missing}
+    named = {o: (nid, port) for (nid, port), names in state.named_outputs_of.items()
+             for o in names}
+    kept = {name: nid for name, nid in kept.items()
+            if name not in named or named[name][1] in state.named_results.get(nid, {})}
     return {
         "kind": "run/result",
-        "outputs": {name: sanitize(state.results[nid],
-                                   state.node_paths.get(nid, ""))
+        "outputs": {name: (sanitize(state.named_results[named[name][0]][named[name][1]],
+                                    state.named_paths.get(named[name][0], {}).get(named[name][1], ""))
+                           if name in named else
+                           sanitize(state.results[nid], state.node_paths.get(nid, "")))
                      for name, nid in kept.items()},
+        **({"output_paths": dict(state.named_paths)} if state.named_paths else {}),
         **({"output_nodes": dict(kept)}
            if state.declared_outputs is not None else {}),
         "nodes_executed": [nid for nid in state.order

@@ -38,6 +38,7 @@ SOURCES: dict[str, tuple[str, str | None]] = {
     "In": ("mechbench_compute.lexicon._base", "In"),
     "Output": ("mechbench_compute.lexicon._base", "Output"),
     "Otherwise": ("mechbench_compute.lexicon._base", "Otherwise"),
+    "DEFAULT_OUTPUT": ("mechbench_compute.lexicon._base", "DEFAULT_OUTPUT"),
     "Resume": ("mechbench_compute.lexicon._base", "Resume"),
     "Kind": ("mechbench_compute.lexicon._base", "Kind"),
     "Draw": ("mechbench_compute.lexicon._base", "Draw"),

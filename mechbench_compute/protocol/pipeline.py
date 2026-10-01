@@ -8,6 +8,7 @@ from mechbench_compute.protocol.build_manifest import build_manifest
 from mechbench_compute.protocol.check_failures import check_failures
 from mechbench_compute.protocol.gather_inputs import gather_inputs
 from mechbench_compute.protocol.missing_upstream import MissingUpstream
+from mechbench_compute.protocol.named_outputs import read_edge_hash, split_outputs
 from mechbench_compute.protocol.progress import Progress
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 from mechbench_compute.protocol.read_resume_entry import read_resume_entry
@@ -67,7 +68,7 @@ class Pipeline:
                 resolver.resolved.setdefault("extensions", {})[resolved.pin["address"]] = resolved.pin
             fingerprint = resume_mod.node_fingerprint(
                 block=resolved.pinned, params=serialize_params(params),
-                input_hashes=[state.node_hashes.get(e["from"]["node"], "")
+                input_hashes=[read_edge_hash(state, e)
                               for e in in_edges] + inline_hashes,
                 core_version=core_version,
                 model=str(serialize_params(params).get("model", "")),
@@ -90,11 +91,13 @@ class Pipeline:
             )
             try:
                 with open_span() as span:
-                    state.results[nid] = self._run_node(
+                    state.results[nid], named = split_outputs(block, self._run_node(
                         state, nid, block, inputs, params, secrets=secrets,
                         resolver=resolver, progress=progress, on_item=on_item,
                         on_checkpoint=on_checkpoint, input_paths=input_paths,
-                        resume_kwargs=resume_kwargs)
+                        resume_kwargs=resume_kwargs))
+                    if named is not None:
+                        state.named_results[nid] = named
             except MissingUpstream:
                 raise
             except Exception as exc:  # noqa: BLE001

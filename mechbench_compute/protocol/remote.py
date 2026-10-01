@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from mechbench_compute import lexicon
+from mechbench_compute.lexicon._base import DEFAULT_OUTPUT
 from mechbench_compute.protocol.is_remote import is_remote
+from mechbench_compute.protocol.named_outputs import read_edge_output
 from mechbench_compute.protocol.sort_edges import sort_edges
 
 MAX_PARALLEL_NODES = 8
@@ -33,7 +35,8 @@ class Remote:
                 if resume.get(other) if isinstance(resume, dict) else None:
                     continue
                 sources = {e["from"]["node"] for e in sort_edges(edges, other)}
-                if not sources <= set(results):
+                if not sources <= set(results) or any(
+                        read_edge_output(e) != DEFAULT_OUTPUT for e in sort_edges(edges, other)):
                     continue
                 peer_inputs = {
                     e["to"]["port"]: results[e["from"]["node"]]
