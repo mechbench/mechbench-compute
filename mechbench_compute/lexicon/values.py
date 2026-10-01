@@ -224,6 +224,7 @@ A selector names positions of a rendered sequence:
 | `{"segment": "thinking"}` | a named span of the trace — see below |
 | `"subject"` | the last token of the record's `subject` string |
 | `"generated"` | from where generation began — the trace's span, or the end of the rendered prompt |
+| `{"step": 2}` | the pass that writes the third generated token; also a list of steps, `"all"`, `"last"`, `{"range": [a, b]}`, `{"after": k}` or `{"tokens": [...]}` counted over steps |
 
 A parameter that reads one position (`position` on `activations/capture`,
 on `intervene/steer`, on a capture readout) takes the same selector and
@@ -235,6 +236,23 @@ empty.
 Positions count over the rendered sequence: the chat template's own
 tokens are positions too, which is why `"last"` and `"generated"` are
 usually the right words and a bare index rarely is.
+
+A position is an index into the sequence; a step is an index into what
+the model wrote. Step *k* is the forward pass that writes the *k*-th
+generated token, counted from 0, and it reads the sequence at position
+`p + k − 1`, where `p` is where generation began: step 0 reads the
+prompt's last token, step 1 the first token written. So
+`{"step": 2}` acts on the pass that chooses the third token, and the
+two tokens before it are written as they would have been; it names the
+same position as `[p + 1]` without anyone counting the prompt.
+`{"step": {"range": [2, 5]}}` is three steps, `{"step": {"after": 2}}`
+every step from the third on, `{"step": "all"}` every step, and
+`{"step": {"tokens": ["."]}}` every step that reads a full stop, which
+is the step after one was written. While a model generates, a step not
+yet reached selects nothing; a node that writes at most `max_tokens`
+refuses a step it can never reach. On a sequence already written, a
+step past its end is refused. A generation records the steps at which
+its intervention acted.
 
 `{"segment": role}` names a span the document itself declares. Generation
 writes `prompt` and `body` always, and `thinking` and `answer` when the

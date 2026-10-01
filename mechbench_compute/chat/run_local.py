@@ -51,6 +51,8 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     stop_strings = tuple(params.get("stop") or ())
     model_wire = ref.to_wire() if hasattr(ref, "to_wire") else ref
     plan = intervene_mod.plan(model, params, inputs)
+    if plan:
+        plan.refuse_steps_past(max_tokens)
     cells: list = plan.cells if plan else [None]
     if on_start:
         on_start(len(recs) * n * len(cells))
@@ -86,14 +88,16 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                 turn = req
                 called_a_tool = False
                 thoughts: list[pm.ReasoningPart] = []
+                lives: list = []
                 for round_no in range(max_tool_rounds + 1):
                     ids = encode(tok, render_conversation(
                         tok, turn, tools=hf_tools, dialect=dialect))
                     if plan:
                         prompt_tokens = [tok.decode([int(t)]) for t in ids]
-                        prefill = prefill_decision(
-                            model, ids, interventions=plan.live(cell, prompt_tokens, rec))
+                        first = plan.live(cell, prompt_tokens, rec)
+                        prefill = prefill_decision(model, ids, interventions=first)
                         live = plan.live(cell, prompt_tokens, rec)
+                        lives += [first, live]
                     else:
                         prefill, live = prefill_decision(model, ids), None
                     readout = TokenReadout(model, project) if project is not None else None
@@ -153,6 +157,8 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                                   sandbox_calls=(session.calls if session else ()),
                                   sandbox_snapshot=(session.final_wire() if session else None),
                                   cell=cell if plan else None)
+                if any(lives):
+                    item["metadata"]["intervention"] = {"steps": intervene_mod.read_steps(lives, max_tokens)}
                 if thoughts and not text:
                     item["metadata"]["empty"] = describe_reasoning_only(model_name, max_tokens)
                 if readout is not None:

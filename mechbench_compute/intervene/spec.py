@@ -108,7 +108,8 @@ class Spec:
 
     def build(self, layer: int | None, tokens: Sequence[str],
               record: Mapping[str, Any] | None = None,
-              prompt_len: int | None = None, growing: bool = False) -> Callable:
+              prompt_len: int | None = None, growing: bool = False,
+              on_select: Callable[[list[int]], None] | None = None) -> Callable:
         pos_axis, head_axis, feat_axis = _LAYOUT[self.point]
         fixed_prompt_len = len(tokens) if prompt_len is None else int(prompt_len)
         absent = "none" if growing else "error"
@@ -143,9 +144,12 @@ class Spec:
             shape = act.shape
             nd = len(shape)
             L = shape[pos_axis]
-            sel_pos = _positions(L, int(getattr(info, "offset", 0) or 0))
+            offset = int(getattr(info, "offset", 0) or 0)
+            sel_pos = _positions(L, offset)
             if not sel_pos:
                 return act
+            if on_select is not None:
+                on_select([p + offset for p in sel_pos])
 
             def axis_mask(axis: int, idx: Sequence[int], invert: bool = False) -> mx.array:
                 m = np.zeros(shape[axis], dtype=bool)
@@ -158,7 +162,7 @@ class Spec:
 
             if self.pattern is not None:
                 to_sel = (sel_pos if "to" not in self.pattern
-                          else _positions(L, int(getattr(info, "offset", 0) or 0), self.pattern["to"]))
+                          else _positions(L, offset, self.pattern["to"]))
                 from_sel = _positions(shape[feat_axis], 0, self.pattern["from"])
                 if not to_sel or not from_sel:
                     return act

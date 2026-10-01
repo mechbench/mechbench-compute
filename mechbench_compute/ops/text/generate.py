@@ -67,6 +67,17 @@ samples per factor, `factor` a coordinate on every item, which
 `text/measure`, `eval/judge` and `records/group` group by unchanged.
 Factor `0` (the `control`, on by default) is plain sampling: under the same
 seed it reproduces the un-intervened sample byte for byte.
+
+A position is an index into the sequence; a step is an index into what
+the model wrote. `positions: {"step": 2}` acts on the pass that writes
+the third generated token and on no other, so the first two tokens are
+what the un-intervened sample wrote, and the change, if any, begins at
+the third. A range of steps, `"all"`, `{"after": k}` and `{"tokens":
+[...]}` count over steps the same way. A step at or past `max_tokens` is
+refused before anything runs. Each intervened item's
+`metadata.intervention.steps` lists the steps at which the intervention
+selected something. The step that chose to end the turn is one of them;
+a step the generation never reached is not.
 """,
     inputs=(
         In("records", "records/record",
@@ -106,14 +117,15 @@ seed it reproduces the un-intervened sample byte for byte.
            "scales this one.",
            required=False),
     ),
-    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text` (prose only), `reasoning` (only when the model wrote a thought: a list of `{text, provider: \"local\", model}`, in order), `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), `metadata.empty` when the item is reasoning alone, and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity` and `ended`: the items counted by `metadata.sampling.ended`, every ending `text/chat` names present and zero when none (`{\"end\": 3, \"stop\": 0, \"max_tokens\": 1, …}`), so `max_tokens` above zero means samples were cut off at the limit. A header without `ended` was stored before the count existed: its items carry `metadata.sampling.ended` from 0.99.0 on, and the count is theirs to take. Under an intervention, ids are `<record id>-s<k>-f<factor>`, every item carries `factor` in its `coords`, and the header carries `spec` (the items as run, objects replaced by their provenance), `weights` (parameter edits, when any) and `sweep` (the factors, `0.0` first when a control was added)."),
+    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text` (prose only), `reasoning` (only when the model wrote a thought: a list of `{text, provider: \"local\", model}`, in order), `coords` (the record's, plus `sample: k`), `metadata.sampling` (with `ended`, and the `prefill` and `stop` when used), `metadata.empty` when the item is reasoning alone, and the wire form of the model. At trace fidelity each item also has `trace` (`token_ids`, `text`, `offsets`, `generation_spans`) and `segmentations`. The header carries `fidelity` and `ended`: the items counted by `metadata.sampling.ended`, every ending `text/chat` names present and zero when none (`{\"end\": 3, \"stop\": 0, \"max_tokens\": 1, …}`), so `max_tokens` above zero means samples were cut off at the limit. A header without `ended` was stored before the count existed: its items carry `metadata.sampling.ended` from 0.99.0 on, and the count is theirs to take. Under an intervention, ids are `<record id>-s<k>-f<factor>`, every item carries `factor` in its `coords`, an item whose factor is not 0 carries `metadata.intervention.steps` (the decoding steps at which the intervention selected something, 0 the pass that wrote the first token), and the header carries `spec` (the items as run, objects replaced by their provenance), `weights` (parameter edits, when any) and `sweep` (the factors, `0.0` first when a control was added)."),
     params=(
         P("spec", "list[object]",
           "An intervention's items, applied at every forward pass — the "
           "prompt, then every decoding step — in the grammar `intervene/apply` "
           "documents under *Spec items*: `positions: \"last\"` is the token "
           "being produced, `\"all\"` every token so far, `\"generated\"` what "
-          "the model has said. Or the items arrive as an `intervene/spec` on "
+          "the model has said, `{\"step\": k}` the pass that writes the k-th "
+          "generated token. Or the items arrive as an `intervene/spec` on "
           "the `intervention` port. Without either, plain sampling.",
           None, fields=(
               P("point", "string", "Where in the forward pass to act.", "resid_post", value="point"),
@@ -286,6 +298,8 @@ def run(ctx, inputs, params):
     from mechbench_compute.generate import offsets_by_cumulative_decode
 
     plan = intervene_mod.plan(model, params, inputs)
+    if plan:
+        plan.refuse_steps_past(max_tokens)
     cells: list = plan.cells if plan else [None]
 
     if ctx.on_start:
@@ -299,7 +313,8 @@ def run(ctx, inputs, params):
                 r = render(model, dict(rec, prefill=lead))
                 rendered, ids = r.text, r.ids
                 prompt_tokens = [tok.decode([int(t)]) for t in ids] if plan else []
-                prefill = (prefill_decision(model, ids, interventions=plan.live(cell, prompt_tokens, rec))
+                first = plan.live(cell, prompt_tokens, rec) if plan else []
+                prefill = (prefill_decision(model, ids, interventions=first)
                            if plan else prefill_decision(model, ids))
                 for k in range(start, start + n):
                     key = f"{rec['id']}:{k}" + (f":{cell.slug}" if plan else "")
@@ -311,6 +326,7 @@ def run(ctx, inputs, params):
                     rng = _np.random.default_rng(item_seed(seed, rec["id"], k))
                     readout = TokenReadout(model, project) if project is not None else None
                     pieces: list[str] = []
+                    live = plan.live(cell, prompt_tokens, rec) if plan else []
                     text, out_ids = sample_completion_cached(
                         model, ids, max_tokens=max_tokens,
                         temperature=temperature, top_p=top_p, rng=rng,
@@ -318,7 +334,7 @@ def run(ctx, inputs, params):
                         stop_strings=stop_strings,
                         **streaming(ctx.on_token and (lambda e, key=key: ctx.on_token(key, e)),
                                     readout, pieces),
-                        **({"interventions": plan.live(cell, prompt_tokens, rec)} if plan else {}))
+                        **({"interventions": live} if plan else {}))
                     ended = read_local_ending(tok, out_ids, stop_strings=stop_strings,
                                               max_tokens=max_tokens)
                     thought, text = split_reasoning(text, delimiters)
@@ -342,6 +358,9 @@ def run(ctx, inputs, params):
                             "model": serialize_model(params.get("model")),
                         },
                     }
+                    if first or live:
+                        item["metadata"]["intervention"] = {
+                            "steps": intervene_mod.read_steps([first, live], max_tokens)}
                     if thought:
                         item["reasoning"] = pm.read_reasoning(
                             pm.ReasoningPart(text=t, provider=LOCAL, model=model_name)

@@ -25,7 +25,8 @@ _None._
 
 ### Other
 
-_None._
+- The position selector takes decoding steps: `{"step": k}` is the forward pass that writes the k-th generated token, counted from 0 and read at position `p + k − 1` where generation began at `p`, so an intervention names a point of the generation without counting the prompt. A step also takes a list, `"all"`, `"last"`, `{"range": [a, b]}`, `{"after": k}` and `{"tokens": [...]}`, counted over steps. `text/generate` and local `text/chat` refuse a step at or past `max_tokens` (in the spec, its `pattern`, or a `positions` sweep) before anything runs, and each intervened item records `metadata.intervention.steps`, the steps at which the intervention selected something. On a sequence already written a step past its end is refused; while generating, a step not yet reached selects nothing.
+- Provider table, OpenAI and Anthropic re-read 2026-10-01: `claude-sonnet-4-5` is `deprecated` with shutdown 2026-11-30 (the model deprecations page, announced 2026-09-30); every Anthropic and OpenAI row reads `checked` 2026-10-01. No price changed and no row was added (claude-sonnet-5-5 and gpt-6.1-sol were priced on 2026-09-30). `TABLE_VERSION` stays 2026-09-30, since the other four providers were not re-read.
 
 ## 0.180.0 — 2026-10-01
 

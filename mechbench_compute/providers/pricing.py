@@ -88,12 +88,13 @@ def _lc(above: int, base: tuple[float, float, float | None, float | None],
 
 
 def _anthropic(i, o, r, w, w1, **kw) -> Price:
-    return _p(i, o, r, w, w1, provider="anthropic", **kw)
+    return _p(i, o, r, w, w1, provider="anthropic", **{"checked": "2026-10-01", **kw})
 
 
 def _openai(i, o, r=None, w=None, *, long=True, **kw) -> Price:
     return _p(i, o, r, w, provider="openai",
-              long_context=_lc(272_000, (i, o, r, w), 2.0, 1.5) if long else None, **kw)
+              long_context=_lc(272_000, (i, o, r, w), 2.0, 1.5) if long else None,
+              **{"checked": "2026-10-01", **kw})
 
 
 def _gemini(i, o, r, *, long: tuple[float, float, float] | None = None, **kw) -> Price:
@@ -139,9 +140,9 @@ PRICES: dict[str, dict[str, Price]] = {
         "claude-opus-4-6": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2027-02-05"),
         "claude-opus-4-5": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2026-11-24"),
         "claude-sonnet-4-6": _anthropic(3.0, 15.0, 0.3, 3.75, 6.0, status="legacy", shutdown="2027-02-17"),
-        "claude-sonnet-4-5": _anthropic(3.0, 15.0, 0.3, 3.75, 6.0, status="legacy",
-                                        note="active on the deprecations page, retiring not sooner than 2026-09-29; "
-                                             "no retirement date announced"),
+        "claude-sonnet-4-5": _anthropic(3.0, 15.0, 0.3, 3.75, 6.0, status="deprecated", shutdown="2026-11-30",
+                                        note="deprecated 2026-09-30, retiring 2026-11-30 by the model "
+                                             "deprecations page; Anthropic names claude-sonnet-5-5 to replace it"),
     },
     "openai": {
         "gpt-6-astra": _openai(10.0, 50.0, 1.0, 12.5),

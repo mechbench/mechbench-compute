@@ -7,9 +7,15 @@ SELECTOR_DOC = (
     '`"last"`, `"all"`, a list of indices (negative from the end), '
     '`{"tokens": [...]}`, `{"range": [a, b]}`, `{"after": n}`, '
     '`{"segment": "thinking"}` (a named span of the trace), '
-    '`"subject"` (the last token of the record\'s `subject` string) or '
-    '`"generated"` (from where generation began).'
+    '`"subject"` (the last token of the record\'s `subject` string), '
+    '`"generated"` (from where generation began) or `{"step": k}` (the pass '
+    'that writes the k-th generated token, counted from 0; also a list of '
+    'steps, `"all"`, `"last"`, `{"range": [a, b]}`, `{"after": k}` or '
+    '`{"tokens": [...]}` over steps).'
 )
+
+STEP_FORMS = ('an int, a list of ints, `"all"`, `"last"`, `{"range": [a, b]}`, '
+              '`{"after": k}` or `{"tokens": [...]}`')
 
 REDUCES = ("mean", "max")
 
@@ -48,6 +54,9 @@ def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
             return _slice(n, a, b)
         if "after" in selector:
             return _slice(n, selector["after"], None)
+        if "step" in selector:
+            start = gen_start if gen_start is not None else prompt_len
+            return _steps(selector["step"], n, start, tokens, absent)
         if "segment" in selector:
             try:
                 return _segment(selector["segment"], n, segmentations)
@@ -69,6 +78,60 @@ def resolve(selector: Any, n: int, *, tokens: Sequence[str] | None = None,
     if isinstance(selector, Sequence):
         return [(int(p) + n) % n for p in selector] if n else []
     raise ValueError(f"unknown positions {selector!r}: {SELECTOR_DOC}")
+
+
+def _steps(sel: Any, n: int, start: int | None, tokens: Sequence[str] | None,
+           absent: str) -> list[int]:
+    if start is None:
+        raise ValueError(
+            "positions {\"step\": …} counts from where generation began; this sequence "
+            "has no generation span and no known prompt length")
+    start = int(start)
+    if start < 1:
+        raise ValueError("positions {\"step\": …} needs a prompt: step 0 is read at its last token")
+    count = max(0, n - start + 1)
+    ahead = absent == "none"
+    if isinstance(sel, bool) or sel is None:
+        raise ValueError(f"unknown step {sel!r}: {STEP_FORMS}")
+    if isinstance(sel, int) or (isinstance(sel, Sequence) and not isinstance(sel, (str, Mapping))):
+        picked: list[int] = []
+        for k in ([sel] if isinstance(sel, int) else list(sel)):
+            if isinstance(k, bool) or not isinstance(k, int):
+                raise ValueError(f"unknown step {k!r}: a step is an int")
+            at = k + count if k < 0 else k
+            if 0 <= at < count:
+                picked.append(at)
+            elif not ahead:
+                raise ValueError(
+                    f"step {k} is past the end: this sequence holds {count} step"
+                    f"{'' if count == 1 else 's'} (0 to {count - 1})")
+        return [start - 1 + k for k in picked]
+    if sel in ("all", "last") or (isinstance(sel, Mapping) and len(sel) == 1
+                                  and next(iter(sel)) in ("range", "after", "tokens")):
+        seen = list(tokens[start - 1:n]) if tokens is not None else None
+        return [start - 1 + k for k in resolve(sel, count, tokens=seen, absent=absent)]
+    raise ValueError(f"unknown step {sel!r}: {STEP_FORMS}")
+
+
+def furthest_step(selector: Any) -> int | None:
+    if not isinstance(selector, Mapping) or "step" not in selector:
+        return None
+    sel = selector["step"]
+    if isinstance(sel, bool):
+        return None
+    if isinstance(sel, int):
+        return sel if sel >= 0 else None
+    if isinstance(sel, Mapping):
+        if "after" in sel and isinstance(sel["after"], int) and sel["after"] >= 0:
+            return int(sel["after"])
+        if "range" in sel:
+            a = (list(sel["range"]) + [None])[0]
+            return int(a) if isinstance(a, int) and a >= 0 else None
+        return None
+    if isinstance(sel, Sequence) and not isinstance(sel, str):
+        ks = [k for k in sel if isinstance(k, int) and not isinstance(k, bool) and k >= 0]
+        return max(ks) if ks else None
+    return None
 
 
 def _segment(role: Any, n: int, segmentations: Sequence[Mapping[str, Any]] | None) -> list[int]:

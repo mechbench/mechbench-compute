@@ -13,10 +13,11 @@ class SpecIntervention:
         self.tokens: list[str] = list(tokens)
         self.prompt_len = len(self.tokens) if prompt_len is None else int(prompt_len)
         self._hooks: dict[str, Callable] = {}
+        self._steps: set[int] = set()
         for spec in specs:
             for layer, name in zip(spec.layers, spec.hook_names(), strict=True):
                 fn = spec.build(layer, self.tokens, record, prompt_len=self.prompt_len,
-                                growing=growing)
+                                growing=growing, on_select=self._select)
                 prev = self._hooks.get(name)
                 if prev is None:
                     self._hooks[name] = fn
@@ -25,6 +26,14 @@ class SpecIntervention:
                         out = _a(act, info)
                         return _b(out if out is not None else act, info)
                     self._hooks[name] = chained
+
+    def _select(self, positions: list[int]) -> None:
+        first = self.prompt_len - 1
+        self._steps.update(p - first for p in positions if p >= first)
+
+    @property
+    def steps(self) -> list[int]:
+        return sorted(self._steps)
 
     def as_hooks(self) -> dict[str, Callable]:
         return dict(self._hooks)

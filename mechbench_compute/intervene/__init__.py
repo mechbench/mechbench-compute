@@ -5,7 +5,7 @@ from typing import Any
 
 from mechbench_compute.intervene.compile import compile  # noqa: F401
 from mechbench_compute.intervene.edit_weights import edit_weights  # noqa: F401
-from mechbench_compute.intervene.plan import plan  # noqa: F401
+from mechbench_compute.intervene.plan import plan, read_steps  # noqa: F401
 from mechbench_compute.intervene.scale_specs import scale_specs  # noqa: F401
 from mechbench_compute.intervene.spec import Spec  # noqa: F401
 from mechbench_compute.intervene.spec_error import SpecError  # noqa: F401

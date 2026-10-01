@@ -136,7 +136,9 @@ cause `reasoning`, and keeps what it reasoned.
 **An intervention** — inline `spec` items, or an `intervene/spec` on the
 `intervention` port —
 is live at every forward pass a LOCAL model runs for this node, prefill
-and every decoding step alike, exactly as `text/generate` documents; a
+and every decoding step alike, exactly as `text/generate` documents,
+including `positions: {"step": k}`, counted from the start of each reply,
+and `metadata.intervention.steps` on each item; a
 `sweep` gives one set of replies per factor. A remote model has no
 forward pass to intervene on, so an intervention on one is refused by
 name.
