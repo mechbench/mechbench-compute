@@ -25,6 +25,20 @@ _None._
 
 ### Other
 
+_None._
+
+## 0.179.0 — 2026-10-01
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
 - **Circuits are objects** (tasks 000782–000784, docs/CAPABILITY.md
   §8.2). The kind `intervene/circuit` is a named set of components, each
   addressed `L{layer}.{point}[.H{head}]@{position}` with positions
