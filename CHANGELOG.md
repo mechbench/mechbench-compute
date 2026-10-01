@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.178.0 — 2026-10-01
+
+### Changes that raise
+
 - **`weights/decompose`'s `top_k` is `k`**, the word `direction/decompose`
   uses for the same thing. A stored protocol that names `top_k` is
   refused before it runs, with "PARAM_REMOVED: top_k — renamed `k`: how
