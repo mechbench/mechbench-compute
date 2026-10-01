@@ -23,6 +23,14 @@ its own business.
   `prefill_decision`, `TokenReadout`, `points`.
 - **The lexicon helpers**: `collection`, `items_of`, `item_kind_of`,
   `read_header`, `arch_header`.
+- **The tensor store**: `ShardWriter(dir)` takes items one at a time —
+  each with a `vector`, any further per-item arrays (numpy, one width
+  each across the collection), numbers and JSON fields — and writes them
+  as safetensors shards; `tensor_collection(item_kind, writer.close(),
+  **header)` is the collection that names them. The executor uploads
+  the shards beside the object, and `items_of` reads them back a shard
+  at a time. This is how a result past the 64 MiB object limit is
+  stored.
 - **The record helpers**, for comparing records as `records/diff` does:
   `flatten_record` (a record as dotted paths), `index_by_key` (records
   by id or named coordinates, a duplicate refused), `is_field_match` (a

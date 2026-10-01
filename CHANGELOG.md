@@ -23,6 +23,49 @@ _None._
 
 _None._
 
+### Other
+
+- **Sparse dictionaries, load-only** (task 000776, FRONTIER §3.1). A new
+  core kind, `direction/dictionary`: one item per feature (`index`,
+  `vector` its decoder row, `encoder` its encoder column, `norm`,
+  `b_enc`, `threshold`; `label` and `examples` declared for describing
+  ops to fill), and on the header `derivation` (`sae` | `transcoder` |
+  `crosscoder`), `reads` and `writes` (lists of spaces: one and the same
+  for an SAE, two points for a transcoder, several layers or models for
+  a crosscoder), `model` `{id, architecture}`, `source` `{hub: {repo,
+  path, revision, commit, files: {name: sha256}}}`, `width`, `d_in`,
+  `d_out`, `activation` (`{fn: jumprelu | relu | topk, k?}`), `b_dec`
+  and `published` (the source's own `l0`). The weights are a tensor
+  collection, so a 16k-wide Gemma 3 4B dictionary (335 MB) is one object
+  in seven shards.
+- **`dictionary/load`** (needs `network:huggingface.co`) reads Gemma
+  Scope 2's layout natively — `config.json` and `params.safetensors` in
+  one folder of a hub repository — mapping its hook names to points
+  (`model.layers.N.output` → `resid_post`, the post-feedforward norm's
+  output → `mlp_out`, the attention output projection's input →
+  `attn.o_in`). `point`, `layer`, `derivation`, `activation` and
+  `sha256` are checks against the source; the commit the revision
+  resolved to and each file's sha256 are recorded. Transcoders,
+  crosscoders and affine skip connections are refused by name.
+- **`dictionary/encode`** reads a model's activations at the
+  dictionary's point through it: `activations/feature` items, one per
+  (record, position, feature) that fired, sparse. Its header carries
+  `fidelity` measured on these activations — `variance_explained`
+  (1 − SSE over the total squared distance from the mean), `l0`, `mse`,
+  `positions`, `inactive`, `published_l0`. With an adapter on the
+  `adapted` port the records are read twice, the second time with the
+  adapter fused on top through a sub-run: items carry `coords.model`
+  `base` or `adapted`, and the header `adapted_fidelity` and
+  `fidelity_drop`. `attn.o_in` is read on an architecture at `core` as
+  `attn.per_head_out` with its heads concatenated, which is the same
+  tensor. `skip_bos` (default true) leaves the beginning-of-sequence
+  position out; `position` (`all` | `last`); `features` keeps only some
+  features' items.
+- **The api offers the tensor store**: `ShardWriter` and
+  `tensor_collection`. A `ShardWriter` item may carry numpy arrays
+  besides its `vector` (one width each across the collection), stored as
+  further columns of the shards and read back as rows.
+
 ## 0.175.0 — 2026-10-01
 
 ### Changes that raise

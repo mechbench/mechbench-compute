@@ -197,6 +197,11 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "eval/expect": [
         ("ops/eval/expect.py", "run"),
         ("ops/eval/expect.py", "check_expectations")],
+    "dictionary/encode": [
+        ("ops/dictionary/encode.py", "run"),
+        ("ops/dictionary/encode.py", "encode_records")],
+    "dictionary/load": [
+        ("ops/dictionary/load.py", "load_dictionary")],
     "geometry/align": [
         ("ops/geometry/align.py", "run")],
     "geometry/compare": [

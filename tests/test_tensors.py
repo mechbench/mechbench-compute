@@ -56,6 +56,17 @@ class TestWriteAndRead:
         back = list(K.items_of(tensors.collection("activations/vector", w.close())))
         assert back[0]["coords"] == {"surprisal": 1.5} and back[1]["coords"] == {}
 
+    def test_further_arrays_are_columns_of_their_own(self, tmp_path):
+        w = tensors.ShardWriter(tmp_path / "s", max_rows=2)
+        for i in range(3):
+            w.add({"id": str(i), "vector": np.full(3, i, np.float32), "encoder": np.full(5, -i, np.float32)})
+        back = list(K.items_of(tensors.collection("activations/vector", w.close())))
+        assert [list(it["encoder"]) for it in back] == [[0.0] * 5, [-1.0] * 5, [-2.0] * 5]
+        with pytest.raises(ValueError, match="array 'encoder' holds one width: 5, then 4"):
+            w.add({"id": "x", "vector": np.ones(3, np.float32), "encoder": np.ones(4, np.float32)})
+        with pytest.raises(ValueError, match="the same arrays"):
+            w.add({"id": "y", "vector": np.ones(3, np.float32)})
+
     def test_one_width_per_collection(self, tmp_path):
         w = tensors.ShardWriter(tmp_path / "s")
         w.add({"id": "a", "vector": np.ones(3, np.float32)})

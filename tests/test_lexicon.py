@@ -91,7 +91,7 @@ def test_names_are_two_level_bare_and_unique() -> None:
     assert not lonely, f"families of one: {lonely}"
     assert set(families) == {
         "records", "text", "eval", "logits", "activations", "geometry",
-        "intervene", "direction", "trajectory", "adapter", "weights", "tools",
+        "intervene", "direction", "dictionary", "trajectory", "adapter", "weights", "tools",
     }
 
 
@@ -297,5 +297,5 @@ class TestWhatAnOperationNeeds:
             if name in lexicon.BY_NAME:
                 assert not lexicon.BY_NAME[name].needs, name
 
-    def test_only_publishing_needs_the_network_without_a_model(self) -> None:
-        assert {op.name for op in lexicon.OPS if op.requires == "remote"} == {"adapter/publish"}
+    def test_only_publishing_and_loading_a_dictionary_need_the_network_without_a_model(self) -> None:
+        assert {op.name for op in lexicon.OPS if op.requires == "remote"} == {"adapter/publish", "dictionary/load"}

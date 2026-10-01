@@ -27,12 +27,16 @@ def is_tensor(collection: Any) -> bool:
     return isinstance(collection, Mapping) and collection.get("storage") == STORAGE
 
 
-def _split_item(item: Mapping[str, Any]) -> tuple[np.ndarray, dict[str, float], dict[str, Any]]:
+def _split_item(item: Mapping[str, Any]) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, float], dict[str, Any]]:
     vec = np.asarray(item[_VECTOR_KEY], dtype=np.float32).reshape(-1)
+    arrays: dict[str, np.ndarray] = {}
     numeric: dict[str, float] = {}
     other: dict[str, Any] = {}
     for k, v in item.items():
         if k == _VECTOR_KEY:
+            continue
+        if isinstance(v, np.ndarray):
+            arrays[k] = np.asarray(v, dtype=np.float32).reshape(-1)
             continue
         if k == "coords" and isinstance(v, Mapping):
             rest = {}
@@ -46,7 +50,7 @@ def _split_item(item: Mapping[str, Any]) -> tuple[np.ndarray, dict[str, float], 
             numeric[k] = float(v)
         else:
             other[k] = v
-    return vec, numeric, other
+    return vec, arrays, numeric, other
 
 
 def _raw_numeric(item: Mapping[str, Any], key: str) -> Any:
@@ -85,6 +89,8 @@ class ShardWriter:
         self.max_rows = max_rows
         self._ints: dict[str, bool] = {}
         self._vectors: list[np.ndarray] = []
+        self._arrays: dict[str, list[np.ndarray]] | None = None
+        self._widths: dict[str, int] = {}
         self._numeric: dict[str, list[float]] = {}
         self._table: list[dict[str, Any]] = []
         self._bytes = 0
@@ -93,12 +99,23 @@ class ShardWriter:
         self.n_items = 0
 
     def add(self, item: Mapping[str, Any]) -> None:
-        vec, numeric, other = _split_item(item)
+        vec, arrays, numeric, other = _split_item(item)
         if self._d is None:
             self._d = int(vec.size)
         elif int(vec.size) != self._d:
             raise ValueError(
                 f"a tensor collection holds one width: {self._d}, then {vec.size}")
+        if self._arrays is None:
+            self._arrays = {k: [] for k in sorted(arrays)}
+            self._widths = {k: int(a.size) for k, a in arrays.items()}
+        if set(arrays) != set(self._arrays):
+            raise ValueError(
+                f"every item of a tensor collection carries the same arrays: "
+                f"{sorted(self._arrays)}, then {sorted(arrays)}")
+        for k, a in arrays.items():
+            if int(a.size) != self._widths[k]:
+                raise ValueError(f"array {k!r} holds one width: {self._widths[k]}, then {a.size}")
+            self._arrays[k].append(a)
         for k in set(self._numeric) | set(numeric):
             self._numeric.setdefault(k, [float("nan")] * len(self._table))
         for k in self._numeric:
@@ -108,7 +125,7 @@ class ShardWriter:
                 _raw_numeric(item, k), int)
         self._vectors.append(vec)
         self._table.append(other)
-        self._bytes += vec.nbytes + 8 * len(numeric)
+        self._bytes += vec.nbytes + sum(a.nbytes for a in arrays.values()) + 8 * len(numeric)
         self.n_items += 1
         if self._bytes >= self.max_bytes or (self.max_rows and len(self._vectors) >= self.max_rows):
             self._flush()
@@ -119,6 +136,8 @@ class ShardWriter:
         k = len(self.shards)
         name = f"shard-{k:04d}.safetensors"
         tensors = {_VECTOR_KEY: np.stack(self._vectors).astype(np.float32)}
+        for col, held in (self._arrays or {}).items():
+            tensors[col] = np.stack(held).astype(np.float32)
         for col, vals in self._numeric.items():
             tensors[col] = np.asarray(vals, dtype=np.float64)
         path = self.out / name
@@ -133,6 +152,7 @@ class ShardWriter:
         self.shards.append({"name": name, "rows": len(self._vectors),
                             "size": path.stat().st_size, "sha256": h.hexdigest()})
         self._vectors, self._table, self._bytes = [], [], 0
+        self._arrays = {k: [] for k in self._arrays} if self._arrays is not None else None
         self._numeric = {k: [] for k in self._numeric}
 
     def close(self) -> dict[str, Any]:
@@ -174,6 +194,9 @@ class ShardedItems(Sequence[dict[str, Any]]):
             item = dict(other)
             coords = dict(item.get("coords") or {})
             for k, col in numeric.items():
+                if col.ndim == 2:
+                    item[k] = col[i]
+                    continue
                 v = float(col[i])
                 if v != v:
                     continue

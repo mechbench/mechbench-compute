@@ -157,6 +157,26 @@ similarity over it is the matrix of their cosines.
 """,
     ),
     Family(
+        "dictionary",
+        "Sparse dictionaries over a model's activations: loaded from where they were published, and read through.",
+        """\
+A dictionary is a basis of many more directions than the space has
+dimensions, of which only a few are used at once: an encoder gives each
+of its features a value at every position, and a decoder adds the
+features' directions back up into an approximation of the activations.
+`load` fetches a published one — a Gemma Scope sparse autoencoder —
+pinned to the commit and the hash of its weights, and writes it as a
+`direction/dictionary`. `encode` runs a model over records and reads its
+activations at the dictionary's point in the dictionary's basis: which
+features fire where, and how much of the activations the dictionary
+reconstructs, which is the number that says whether the features can be
+trusted on these records at all.
+
+A sparse autoencoder, a transcoder and a crosscoder are one kind,
+differing in what their derivation says they read and write.
+""",
+    ),
+    Family(
         "trajectory",
         "The residual stream followed along an axis: a prompt through every layer, or a text along every position.",
         """\

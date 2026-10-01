@@ -26,6 +26,8 @@ SOURCES: dict[str, tuple[str, str | None]] = {
     "items_of": ("mechbench_compute.lexicon.kinds", "items_of"),
     "item_kind_of": ("mechbench_compute.lexicon.kinds", "item_kind_of"),
     "read_header": ("mechbench_compute.blocks.read_header", "read_header"),
+    "ShardWriter": ("mechbench_compute.tensors", "ShardWriter"),
+    "tensor_collection": ("mechbench_compute.tensors", "collection"),
     "arch_header": ("mechbench_compute.blocks", "arch_header"),
     "flatten_record": ("mechbench_compute.blocks.flatten_record", "flatten_record"),
     "index_by_key": ("mechbench_compute.blocks.index_by_key", "index_by_key"),

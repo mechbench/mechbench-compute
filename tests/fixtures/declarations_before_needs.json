@@ -9,6 +9,8 @@
   "adapter/merge": "mlx-local",
   "adapter/publish": "remote",
   "adapter/train": "mlx-local",
+  "dictionary/encode": "mlx-local",
+  "dictionary/load": "remote",
   "direction/add": "pure",
   "direction/average": "pure",
   "direction/classify": "pure",
@@ -106,6 +108,14 @@
   "adapter/train": {
    "items": true,
    "level": "state-restorable"
+  },
+  "dictionary/encode": {
+   "items": false,
+   "level": "restart"
+  },
+  "dictionary/load": {
+   "items": false,
+   "level": "restart"
   },
   "direction/add": {
    "items": false,
