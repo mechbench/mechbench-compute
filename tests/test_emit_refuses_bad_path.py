@@ -5,7 +5,7 @@ from mechbench_schema import InvalidPathError
 
 from mechbench_compute import bench, tensors
 
-BAD = "owner/proj/results/j_1/nodes/train.checkpoints"
+BAD = "owner/proj/results/j_1/nodes/train..checkpoints"
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def sent(monkeypatch):
 
 
 def test_an_emit_to_a_path_the_grammar_refuses_is_refused_before_sending(sent):
-    with pytest.raises(InvalidPathError, match=f"cannot store at '{BAD}'.*train.checkpoints"):
+    with pytest.raises(InvalidPathError, match=r"cannot store at .*train\.\.checkpoints"):
         bench.emit(BAD, {"kind": "note", "text": "hi"})
     assert sent == []
 

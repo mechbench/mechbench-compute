@@ -334,11 +334,11 @@ class TestAddresses:
         for path in store:
             parse_path(path)
 
-    def test_the_dotted_spelling_does_not_parse(self):
+    def test_a_doubled_dot_does_not_parse(self):
         from mechbench_schema import InvalidPathError, parse_path
 
-        with pytest.raises(InvalidPathError, match="train.checkpoints"):
-            parse_path(f"{RESULTS}/nodes/train.checkpoints")
+        with pytest.raises(InvalidPathError, match=r"train\.\.checkpoints"):
+            parse_path(f"{RESULTS}/nodes/train..checkpoints")
 
     def test_a_named_output_at_a_refused_path_fails_its_node(self, tiny_hub, store, monkeypatch):
         from mechbench_schema import InvalidPathError
@@ -354,8 +354,8 @@ class TestAddresses:
 
         monkeypatch.setattr(bench, "emit", emit_checked)
         monkeypatch.setattr(store_result, "name_output_targets",
-                            lambda state, nid, name: [f"{state.result_base}/nodes/{nid}.{name}"])
-        with pytest.raises(InvalidPathError, match=r"cannot store at '.*/nodes/train\.checkpoints'"):
+                            lambda state, nid, name: [f"{state.result_base}/nodes/{nid}..{name}"])
+        with pytest.raises(InvalidPathError, match=r"cannot store at '.*/nodes/train\.\.checkpoints'"):
             run_graph([train_node(keep_checkpoints=True), SORT], FROM_CHECKPOINTS,
                       outputs=[{"name": "order", "from": {"node": "order"}}])
-        assert not any(p.endswith("train.checkpoints") for p in store)
+        assert not any(p.endswith("train..checkpoints") for p in store)
