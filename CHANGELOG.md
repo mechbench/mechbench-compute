@@ -25,6 +25,20 @@ _None._
 
 ### Other
 
+_None._
+
+## 0.180.0 — 2026-10-01
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
 - `intervene/ablate-circuit` takes `reference`: `empty` (the default, as
   before: every component of the universe removed) or `base` (the model
   without the adapter on its `adapter` port, on the same records, one
