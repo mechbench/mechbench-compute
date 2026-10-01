@@ -25,6 +25,20 @@ _None._
 
 ### Other
 
+_None._
+
+## 0.182.0 — 2026-10-01
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
 - `live/run_try` (exported through `api` as `run_try` and `TryRefused`): one try on an open live run's warm model. It runs one operation as a one-node graph, or a graph of at most 16 nodes ending in one node, through `run_sub`, so the try gets `check_graph`, `check_refs`, the Resolver's `$ref` handling and the adapter fused per node, and emits nothing. It fills in the live run's model where an operation runs one and none is named, and seeds every node not given a `seed` from the live run's id and the try's seq. It refuses a model other than the live run's ("this live run holds …"), a hosted provider's operation, an operation that reaches the network, the training operations by name ("a job, not a try") and an operation this runner does not have ("run it as a job"); past its wall-clock limit (120 s by default) it stops at the next node or token with "too long for a try: run it as a job". It answers `{result, hash, kind, summary, lines, seconds, provenance: {op, pin, model, compute, seed}}`: the hash is the stored-result hash, and `lines` are the kind's `speak` sentences for the first five items, or one line from the summary when the kind has no `speak`.
 - `run_sub` takes `on_node_start`, called before each node of a graph it runs.
 
