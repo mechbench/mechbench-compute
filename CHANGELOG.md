@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.183.0 — 2026-10-01
+
+### Changes that raise
+
 - An operation given a model reference whose adapters reached it
   unresolved refuses, naming the operation and the reference, where it
   ran the bare base model. The one such today is `eval/judge` with a
