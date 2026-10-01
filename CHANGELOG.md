@@ -25,6 +25,20 @@ _None._
 
 ### Other
 
+_None._
+
+## 0.176.0 — 2026-10-01
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
 - **Sparse dictionaries, load-only** (task 000776, FRONTIER §3.1). A new
   core kind, `direction/dictionary`: one item per feature (`index`,
   `vector` its decoder row, `encoder` its encoder column, `norm`,
