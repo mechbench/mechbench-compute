@@ -17,11 +17,25 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- A `feature` that carries its own `dictionary` (`{"dictionary": {"$ref":
+  …}, "index": 3}`) is refused, naming the node's `dictionary` port, in
+  `activations/examples`, `logits/attribute` and an intervention spec
+  item (`intervene/apply`, `text/generate`, `text/chat`). The port is
+  the one way to give the dictionary; the checker already refused the
+  inline `$ref` with `REF_POSITION`, so no stored protocol used it.
+  `feature` declares `index` alone.
 
 ### Changes that alter results without raising
 
-_None._
+- `activations/examples` with a `direction` or a `neuron` leaves the
+  beginning-of-sequence position out (`skip_bos`, default true, as in
+  `dictionary/encode`): it is no longer ranked, counted in `over`, or
+  shown at a window's left edge. The top windows change where that
+  position had won, and `over` changes always. `skip_bos: false` gives
+  the earlier result. The one stored protocol that reads examples with
+  a direction or a neuron is `032-components-of-the-dice-shift`
+  (version 1, the `examples` node); the feature form is unchanged. The
+  header carries `skip_bos` for a direction or a neuron.
 
 ### Other
 
@@ -52,6 +66,17 @@ _None._
   null when a group has fewer than three pairs or either side has no
   variance, `n` beside it; the interval Fisher's with the plain standard
   error.
+- `activations/examples` takes `features: [int]` in place of `feature`:
+  the corpus is read once and each listed feature gets its own strip,
+  every window's `coords.feature` naming it, its `id` ending in the
+  feature, `over` a list with one entry per feature, and the header's
+  `features` `{dictionary, indices}`. Each strip is what `feature`
+  gives for that feature alone.
+- `activations/examples` takes `per_record`, the most windows any one
+  record gives each end before the `k` are kept, and `sign: "random"`,
+  `k` windows drawn under `seed` from where the feature fires (from
+  every position read, for a direction or a neuron). The header carries
+  `per_record` when given and `seed` under `sign: "random"`.
 
 ## 0.183.0 — 2026-10-01
 

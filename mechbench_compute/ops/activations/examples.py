@@ -11,13 +11,17 @@ from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
 from mechbench_compute.dictionaries.describe_dictionary import describe_dictionary
 from mechbench_compute.dictionaries.encode_feature import encode_feature
-from mechbench_compute.dictionaries.read_dictionary_activations import read_dictionary_activations
+from mechbench_compute.dictionaries.read_dictionary_activations import (
+    read_dictionary_activations,
+)
 from mechbench_compute.dictionaries.read_feature import read_feature
 from mechbench_compute.dictionaries.resolve_feature import resolve_feature
+from mechbench_compute.dictionaries.resolve_features import resolve_features
 from mechbench_compute.distill import render
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+from mechbench_compute.seeds import derive as derive_seed
 
 OP = Op(
     name="activations/examples",
@@ -53,13 +57,34 @@ outlier dictionaries are not trained on and would win every ranking. The
 header's `feature` names the dictionary by its content hash and the
 feature by its index.
 
+`features: [3, 71, 2048]` in place of `feature` reads the corpus once for
+all of them: each record is run once, and every listed feature is encoded
+from the same activations. The result is one strip per feature in one
+collection, each window's `coords.feature` naming its feature, `k` windows
+per feature (per end), the features in the order listed; a window's `id`
+carries the feature after the record and position. The header's
+`features` (`{dictionary, indices}`) stands where the single form's
+`feature` does, and `over` is a list with one entry per feature. Each
+feature's windows are the ones `feature` gives for it alone.
+
+A direction or a neuron leaves the beginning-of-sequence position out
+(`skip_bos`, as `dictionary/encode` does): its activation is an outlier
+that wins any projection it touches. The position is then neither ranked,
+nor counted in `over`, nor shown at the left edge of a window.
+
 Each window carries `values` as well as `tokens` — every token's own
 projection, not only the winner's — which is what `records/plot` draws as
 a token strip.
 
 `sign` chooses the end: `"high"` (the default), `"low"` — the tokens that
 most oppose it, which is where a direction's meaning often becomes clear —
-or `"both"`. The header's `over` carries the corpus's own moments (count,
+or `"both"`. `"random"` draws `k` windows uniformly, without replacement
+and reproducibly under `seed`, from the positions where the feature fires
+(any value but zero) — for a direction or a neuron, from every position
+read — which is a held-out set rather than the strongest. `per_record`
+caps how many windows any one record gives each end (or the draw) before
+the `k` are kept, so one record that fires along its whole length does not
+fill them. The header's `over` carries the corpus's own moments (count,
 mean, sd, min, max), so a window's value can be read against the field it
 came from rather than as a bare number.
 """,
@@ -71,8 +96,7 @@ came from rather than as a bare number.
            "collection carrying exactly one direction is that direction.",
            required=False),
         In("dictionary", "direction/dictionary",
-           "The dictionary a `feature` belongs to, from `dictionary/load`; "
-           "`feature.dictionary` names one in place of it.",
+           "The dictionary that `feature` or `features` index, from `dictionary/load` or a stored one.",
            required=False),
         In("adapter", "adapter/lora",
            "A LoRA adapter to fuse on top of the model for this node only — "
@@ -83,27 +107,37 @@ came from rather than as a bare number.
            required=False),
     ),
     output=Output('records/record', collection=True,
-                  doc='One item per kept window: `value` (the projection at the exciting token), `token`, `text` (the window), `tokens` (its token strings), `values` (each of their projections, so `records/plot mark: "tokens"` colours the whole window), `hit` (the exciting token\'s index among them), `rank`, and `coords` with `record`, `position` and — under `sign: "both"` — `side`. The header carries `model`, `layer`, `point`, `window`, `sign`, `neuron` when one was named, `feature` (`{dictionary: {kind, hash, derivation, reads, width, source}, index}`) when one was, and `over`: the corpus\'s `n_tokens`, `mean`, `sd`, `min`, `max`.'),
+                  doc='One item per kept window: `value` (the projection at the exciting token), `token`, `text` (the window), `tokens` (its token strings), `values` (each of their projections, so `records/plot mark: "tokens"` colours the whole window), `hit` (the exciting token\'s index among them), `rank`, and `coords` with `record`, `position`, `feature` under `features`, and `side` under `sign: "both"`. Under `sign: "random"`, `rank` is the order of the draw. The header carries `model`, `layer`, `point`, `window`, `sign`, `per_record` when given, `seed` under `sign: "random"`, `skip_bos` for a direction or a neuron, `neuron` when one was named, `feature` (`{dictionary: {kind, hash, derivation, reads, width, source}, index}`) when one was, `features` (`{dictionary, indices}`) when several were, and `over`: the corpus\'s `n_tokens`, `mean`, `sd`, `min`, `max` — under `features`, a list of them, each with its `feature`.'),
     params=(
-        P("k", "int", "How many windows to keep at each end.", 10),
+        P("k", "int", "How many windows to keep at each end, or to draw.", 10),
         P("window", "int", "How many tokens either side of the exciting one.", 8),
         P("sign", "string",
-          "Which end: `\"high\"`, `\"low\"`, or `\"both\"` (which marks each "
-          "window's `side`).",
-          "high", choices=("high", "low", "both")),
+          "Which end: `\"high\"`, `\"low\"`, `\"both\"` (which marks each "
+          "window's `side`), or `\"random\"`: `k` windows drawn under `seed` "
+          "from where the feature fires, or from every position for a "
+          "direction or a neuron.",
+          "high", choices=("high", "low", "both", "random")),
+        P("per_record", "int",
+          "At most this many windows from any one record at each end, before the `k` are kept.",
+          None),
+        P("skip_bos", "bool",
+          "For a direction or a neuron: leave out the first position when it is the "
+          "beginning-of-sequence token. A feature reads it as zero either way.",
+          True),
         P("neuron", "object",
           "The neuron to excite, in place of a direction.", None, fields=(
               P("layer", "int", "Its layer."),
               P("index", "int", "Its index along the feature axis."),
           )),
         P("feature", "object",
-          "The dictionary feature to excite, in place of a direction or a "
-          "neuron.", None, fields=(
-              P("dictionary", "json",
-                "The dictionary, usually a stored one (`{\"$ref\": …}`); or it "
-                "arrives on the node's `dictionary` port.", None),
+          "The feature of the dictionary on the `dictionary` port to excite, in place of a "
+          "direction or a neuron.", None, fields=(
               P("index", "int", "The feature's index in the dictionary."),
           )),
+        P("features", "list[int]",
+          "Several features of the dictionary on the `dictionary` port, read in one pass over "
+          "the corpus, in place of `feature`: one strip per feature, keyed by `coords.feature`.",
+          None),
         P("layer", "int",
           "Which layer to read, when the direction does not say.", None),
         P("point", "string",
@@ -126,6 +160,9 @@ def run(ctx, inputs, params):
                            on_item=ctx.on_item, on_start=ctx.on_start)
 
 
+SIDES = {"high": ("high",), "low": ("low",), "both": ("high", "low"), "random": ("random",)}
+
+
 def find_top_examples(
     model,
     records: Sequence[Mapping[str, Any]],
@@ -139,23 +176,33 @@ def find_top_examples(
 
     neuron = params.get("neuron")
     feature = params.get("feature")
-    if feature is not None and neuron is not None:
+    features = params.get("features")
+    if neuron is not None and (feature is not None or features is not None):
         raise ValueError(
             "`feature` and `neuron` are one address in two bases, a dictionary's "
             "and the model's own: name one of them, not both")
-    if sum(x is not None for x in (direction, neuron, feature)) != 1:
+    if feature is not None and features is not None:
+        raise ValueError("`feature` names one feature and `features` several: give one of them")
+    if sum(x is not None for x in (direction, neuron, feature, features)) != 1:
         raise ValueError(
-            "name what to excite: a `direction` on the port, a `neuron` "
-            "`{layer, index}` or a `feature` `{dictionary, index}` — exactly one of them")
-    feat = None
-    if feature is not None:
-        dictionary, index = resolve_feature(feature, dictionary)
-        feat = read_feature(dictionary, index)
+            "name what to excite: a `direction` on the port, a `neuron` `{layer, index}`, "
+            "or a `feature` `{index}` or `features` `[…]` of the dictionary on the `dictionary` "
+            "port — exactly one of them")
+    feats = None
+    index = None
+    if feature is not None or features is not None:
+        if feature is not None:
+            dictionary, index = resolve_feature(feature, dictionary)
+            indices = [index]
+        else:
+            dictionary, indices = resolve_features(features, dictionary)
+        feats = [read_feature(dictionary, i) for i in indices]
+        reads = feats[0]["reads"]
         if params.get("layer") is not None or params.get("point") is not None:
             raise ValueError(
-                f"a feature is read where its dictionary reads, {feat['reads']['point']} at layer "
-                f"{feat['reads']['layer']}: leave out `layer` and `point`")
-        layer, point = int(feat["reads"]["layer"]), str(feat["reads"]["point"])
+                f"a feature is read where its dictionary reads, {reads['point']} at layer "
+                f"{reads['layer']}: leave out `layer` and `point`")
+        layer, point = int(reads["layer"]), str(reads["point"])
         vec = None
     elif neuron is not None:
         if not isinstance(neuron, Mapping) or "layer" not in neuron or "index" not in neuron:
@@ -171,45 +218,117 @@ def find_top_examples(
         layer = int(layer)
         point = hookpoints.normalize(str(params.get("point") or sp.get("point") or "resid_post"))
         vec = dirs.coerce_array(direction)
-        index = None
     k = int(params.get("k", 10))
     half = int(params.get("window", 8))
     sign = str(params.get("sign", "high"))
-    if sign not in ("high", "low", "both"):
-        raise ValueError(f"sign is 'high', 'low' or 'both', not {sign!r}")
+    if sign not in SIDES:
+        raise ValueError(f"sign is 'high', 'low', 'both' or 'random', not {sign!r}")
+    per_record = params.get("per_record")
+    if per_record is not None and (not isinstance(per_record, int) or isinstance(per_record, bool)
+                                   or per_record < 1):
+        raise ValueError(f"`per_record` is a whole number of windows, at least 1, not {per_record!r}")
+    skip_bos = bool(params.get("skip_bos", True))
+    seed = params.get("seed", 0)
     if not records:
         raise ValueError("examples needs at least one record")
     if on_start:
         on_start(len(records))
 
-    name = point if layer is None else f"blocks.{layer}.{point}"
+    sides = SIDES[sign]
+    cap = k if per_record is None else min(k, per_record)
+    keys = [None] if feats is None else [f["index"] for f in feats]
+    strips = {key: Strip(sides) for key in keys}
+    name = f"blocks.{layer}.{point}"
     bos = getattr(model.tokenizer, "bos_token_id", None)
-    keep_high: list[tuple[float, dict[str, Any]]] = []
-    keep_low: list[tuple[float, dict[str, Any]]] = []
-    n_tokens = 0
-    total = total_sq = 0.0
-    lo_all, hi_all = float("inf"), float("-inf")
-    for record in records:
+    for i, record in enumerate(records):
         r = render(model, record)
-        if feat is not None:
-            values = encode_feature(read_dictionary_activations(model, r.array, point, layer), feat)
-            if bos is not None and len(r.ids) and int(r.ids[0]) == bos:
-                values[0] = np.float32(0)
+        starts_with_bos = bos is not None and len(r.ids) and int(r.ids[0]) == bos
+        first = 0
+        if feats is not None:
+            x = read_dictionary_activations(model, r.array, point, layer)
+            rows = []
+            for feat in feats:
+                values = encode_feature(x, feat)
+                if starts_with_bos:
+                    values[0] = np.float32(0)
+                rows.append(values)
         else:
             res = model.run(r.array, interventions=[Capture.at([name])])
             act = res.cache[name][0].astype(mx.float32)
             if vec is not None:
-                values = np.array(mx.sum(act * mx.array(vec), axis=-1))
+                rows = [np.array(mx.sum(act * mx.array(vec), axis=-1))]
             else:
-                values = np.array(act[:, index])
+                rows = [np.array(act[:, index])]
+            if skip_bos and starts_with_bos:
+                first = 1
         toks = r.tokens(model.tokenizer)
-        n_tokens += int(values.size)
-        total += float(values.sum())
-        total_sq += float(np.sum(values.astype(np.float64) ** 2))
-        lo_all, hi_all = min(lo_all, float(values.min())), max(hi_all, float(values.max()))
+        for key, values in zip(keys, rows, strict=True):
+            draw = None
+            if sign == "random":
+                draw = np.random.default_rng(derive_seed(seed, "activations/examples", key, i)).random(len(values))
+            strips[key].take(record, toks, values, first=first, half=half, k=k, cap=cap, draw=draw,
+                             fires_only=feats is not None)
+        if on_item:
+            on_item()
+
+    items = []
+    for key in keys:
+        for side in sides:
+            for rank, (_, w) in enumerate(strips[key].kept[side]):
+                if features is not None:
+                    w = {**w, "id": f"{w['id']}:{key}", "coords": {**w["coords"], "feature": key}}
+                if sign == "both":
+                    w = {**w, "coords": {**w["coords"], "side": side}}
+                items.append({**w, "rank": rank})
+    over = ([{"feature": key, **strips[key].moments()} for key in keys] if features is not None
+            else strips[keys[0]].moments())
+    if feats is not None:
+        width, derivation = feats[0]["header"].get("width"), feats[0]["header"].get("derivation")
+        target = (f"feature {index}" if features is None
+                  else "each of features " + ", ".join(str(j) for j in keys))
+        target += f" of the {width}-wide {derivation} at {point} layer {layer}"
+    else:
+        target = f"neuron {index} at layer {layer}" if index is not None else "the direction"
+    return load_kinds().collection(
+        "records/record", items,
+        model=S.model_id_of(model), point=point, layer=layer,
+        **({"neuron": index} if index is not None and feats is None else {}),
+        **({"feature": {"dictionary": describe_dictionary(dictionary), "index": index}}
+           if feature is not None else {}),
+        **({"features": {"dictionary": describe_dictionary(dictionary), "indices": list(keys)}}
+           if features is not None else {}),
+        window=half, sign=sign,
+        **({"per_record": per_record} if per_record is not None else {}),
+        **({"seed": seed} if sign == "random" else {}),
+        **({"skip_bos": skip_bos} if feats is None else {}),
+        over=over,
+        description=(
+            (f"Corpus windows drawn at random under seed {seed}, read on " if sign == "random"
+             else "The corpus windows whose token most excites ")
+            + target
+            + ", the " + ("drawn" if sign == "random" else "exciting")
+            + " token marked by `hit` among the window's tokens."))
+
+
+class Strip:
+    def __init__(self, sides: tuple[str, ...]):
+        self.kept: dict[str, list[tuple[float, dict[str, Any]]]] = {side: [] for side in sides}
+        self.n_tokens = 0
+        self.total = self.total_sq = 0.0
+        self.lo, self.hi = float("inf"), float("-inf")
+
+    def take(self, record: Mapping[str, Any], toks: Sequence[str], values: np.ndarray, *, first: int,
+             half: int, k: int, cap: int, draw: np.ndarray | None, fires_only: bool) -> None:
+        seen = values[first:]
+        if not seen.size:
+            return
+        self.n_tokens += int(seen.size)
+        self.total += float(seen.sum())
+        self.total_sq += float(np.sum(seen.astype(np.float64) ** 2))
+        self.lo, self.hi = min(self.lo, float(seen.min())), max(self.hi, float(seen.max()))
 
         def window_at(pos: int, value: float) -> dict[str, Any]:
-            a, b = max(0, pos - half), min(len(toks), pos + half + 1)
+            a, b = max(first, pos - half), min(len(toks), pos + half + 1)
             return {"id": f"{record.get('id')}:{pos}",
                     "coords": {**(record.get("coords") or {}), "record": record.get("id"),
                                "position": int(pos)},
@@ -220,39 +339,27 @@ def find_top_examples(
                     "values": [round(float(v), 5) for v in values[a:b]],
                     "hit": int(pos - a)}
 
-        if sign in ("high", "both"):
-            for pos in np.argsort(-values)[:k]:
-                keep_high.append((float(values[pos]), window_at(int(pos), values[pos])))
-            keep_high = sorted(keep_high, key=lambda t: -t[0])[:k]
-        if sign in ("low", "both"):
-            for pos in np.argsort(values)[:k]:
-                keep_low.append((float(values[pos]), window_at(int(pos), values[pos])))
-            keep_low = sorted(keep_low, key=lambda t: t[0])[:k]
-        if on_item:
-            on_item()
+        for side, kept in self.kept.items():
+            if side == "random":
+                at = np.arange(first, len(values))
+                if fires_only:
+                    at = at[values[at] != 0]
+                for pos in at[np.argsort(draw[at], kind="stable")][:cap]:
+                    kept.append((float(draw[pos]), window_at(int(pos), values[pos])))
+                kept.sort(key=lambda t: t[0])
+            elif side == "high":
+                for pos in first + np.argsort(-seen)[:cap]:
+                    kept.append((float(values[pos]), window_at(int(pos), values[pos])))
+                kept.sort(key=lambda t: -t[0])
+            else:
+                for pos in first + np.argsort(seen)[:cap]:
+                    kept.append((float(values[pos]), window_at(int(pos), values[pos])))
+                kept.sort(key=lambda t: t[0])
+            del kept[k:]
 
-    items = []
-    for side, kept in (("high", keep_high), ("low", keep_low)):
-        for rank, (_, w) in enumerate(kept):
-            if sign == "both":
-                w = {**w, "coords": {**w["coords"], "side": side}}
-            items.append({**w, "rank": rank})
-    mean = total / max(n_tokens, 1)
-    var = max(total_sq / max(n_tokens, 1) - mean * mean, 0.0)
-    return load_kinds().collection(
-        "records/record", items,
-        model=S.model_id_of(model), point=point, layer=layer,
-        **({"neuron": index} if index is not None and feat is None else {}),
-        **({"feature": {"dictionary": describe_dictionary(dictionary), "index": index}}
-           if feat is not None else {}),
-        window=half, sign=sign,
-        over={"n_tokens": n_tokens, "mean": round(mean, 5),
-              "sd": round(float(np.sqrt(var)), 5),
-              "min": round(lo_all, 5), "max": round(hi_all, 5)},
-        description=(
-            "The corpus windows whose token most excites "
-            + (f"feature {index} of the {feat['header'].get('width')}-wide "
-               f"{feat['header'].get('derivation')} at {point} layer {layer}" if feat is not None
-               else f"neuron {index} at layer {layer}" if index is not None
-               else "the direction")
-            + ", the exciting token marked by `hit` among the window's tokens."))
+    def moments(self) -> dict[str, Any]:
+        n = max(self.n_tokens, 1)
+        mean = self.total / n
+        var = max(self.total_sq / n - mean * mean, 0.0)
+        return {"n_tokens": self.n_tokens, "mean": round(mean, 5), "sd": round(float(np.sqrt(var)), 5),
+                "min": round(self.lo, 5), "max": round(self.hi, 5)}

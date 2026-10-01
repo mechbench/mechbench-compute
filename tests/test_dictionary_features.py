@@ -106,7 +106,7 @@ class TestExamplesOnAFeature:
 
     def test_the_readout_names_the_dictionary_and_the_feature(self, tiny, sae):
         dictionary, _ = sae
-        out = find_top_examples(tiny, RECORDS, {"k": 2, "feature": {"index": 3, "dictionary": dictionary}})
+        out = find_top_examples(tiny, RECORDS, {"k": 2, "feature": {"index": 3}}, dictionary=dictionary)
         assert out["feature"]["index"] == 3 and "neuron" not in out
         named = out["feature"]["dictionary"]
         assert named["hash"] == rm.content_hash(dictionary) and named["width"] == WIDTH
@@ -130,7 +130,7 @@ class TestExamplesOnAFeature:
     def test_a_feature_is_read_where_its_dictionary_reads(self, tiny, sae):
         with pytest.raises(ValueError, match="leave out `layer` and `point`"):
             find_top_examples(tiny, RECORDS, {"feature": {"index": 0}, "layer": 1}, dictionary=sae[0])
-        with pytest.raises(ValueError, match="names no dictionary"):
+        with pytest.raises(ValueError, match="needs its dictionary"):
             find_top_examples(tiny, RECORDS, {"feature": {"index": 0}})
         with pytest.raises(ValueError, match="feature 9 is not in the dictionary"):
             find_top_examples(tiny, RECORDS, {"feature": {"index": 9}}, dictionary=sae[0])
@@ -162,8 +162,8 @@ class TestSteeringOnAFeature:
 
     def test_the_plan_names_the_dictionary_by_hash(self, tiny, sae):
         dictionary, _ = sae
-        params = {"spec": [{"feature": {"index": 4, "dictionary": dictionary}, "op": "add", "strength": 3.0}]}
-        spec = plan(tiny, params, {}).header()["spec"][0]
+        params = {"spec": [{"feature": {"index": 4}, "op": "add", "strength": 3.0}]}
+        spec = plan(tiny, params, {"dictionary": dictionary}).header()["spec"][0]
         assert spec["feature"]["index"] == 4
         assert spec["feature"]["dictionary"]["hash"] == rm.content_hash(dictionary)
         assert spec["feature"]["dictionary"]["source"]["hub"]["repo"] == "you/tiny-scope"
@@ -256,7 +256,7 @@ def scale_neurons(factor, neurons):
 class TestTheNeuronFormsAgainstAComputationByHand:
     def test_examples_on_a_neuron(self, tiny):
         out = find_top_examples(tiny, RECORDS, {"k": 3, "window": 2, "sign": "both", "point": "resid_post",
-                                                "neuron": {"layer": 2, "index": 5}})
+                                                "neuron": {"layer": 2, "index": 5}, "skip_bos": False})
         name = "blocks.2.resid_post"
         acts = {r["id"]: np.array(tiny.run(render(tiny, r).array, capture=[name]).cache[name][0, :, 5]
                                   .astype(mx.float32)) for r in RECORDS}

@@ -85,7 +85,7 @@ dictionary by its content hash.
            " A model reads each record as [its kind](/kinds/records/record/) says: `user` in the chat template, `prompt` and `text` raw.", many=True),
         In("dictionary", "direction/dictionary",
            "A dictionary to attribute the logit to, feature by feature, from "
-           "`dictionary/load`; `feature.dictionary` names one in place of it.",
+           "`dictionary/load` or a stored one; `feature` names one of its features.",
            required=False),
         In("adapter", "adapter/lora",
            "A LoRA adapter to fuse on top of the model for this node only — "
@@ -112,11 +112,8 @@ dictionary by its content hash.
           "attention path.",
           None),
         P("feature", "object",
-          "One dictionary feature to attribute the logit to, in place of the "
-          "dictionary's top contributors.", None, fields=(
-              P("dictionary", "json",
-                "The dictionary, usually a stored one (`{\"$ref\": …}`); or it "
-                "arrives on the node's `dictionary` port.", None),
+          "One feature of the dictionary on the `dictionary` port to attribute the logit "
+          "to, in place of the dictionary's top contributors.", None, fields=(
               P("index", "int", "The feature's index in the dictionary."),
           )),
         P("top_features", "int",

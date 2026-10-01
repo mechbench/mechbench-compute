@@ -102,7 +102,7 @@ a step the generation never reached is not.
            "A direction that fills any spec item without one.", required=False),
         In("dictionary", "direction/dictionary",
            "The dictionary a spec item's `feature` belongs to, from "
-           "`dictionary/load`, filling every `feature` that names none.",
+           "`dictionary/load` or a stored one; every item's `feature` is one of its features.",
            required=False),
         In("source", "activations/vector | intervene/readout",
            "A collection of `activations/vector` — a capture, intervened or "
@@ -144,11 +144,8 @@ a step the generation never reached is not.
               P("direction", "json",
                 "The direction, usually a stored one (`{\"$ref\": …}`); or it arrives on the node's `direction` port.", None),
               P("feature", "object",
-                "A dictionary's feature, whose decoder row is the item's direction at the point and "
-                "layer the dictionary writes.", None, fields=(
-                    P("dictionary", "json",
-                      "The dictionary, usually a stored one (`{\"$ref\": …}`); or it arrives on the "
-                      "node's `dictionary` port.", None),
+                "A feature of the dictionary on the node's `dictionary` port, whose decoder row is "
+                "the item's direction at the point and layer the dictionary writes.", None, fields=(
                     P("index", "int", "The feature's index in the dictionary."),
                 )),
               P("direction2", "json", "For `rotate`: the second axis of the plane.", None),
