@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.177.0 — 2026-10-01
+
+### Changes that raise
+
 - **An emit to a path the schema's grammar refuses now raises**
   `InvalidPathError` (`cannot store at '<path>': …`) before anything is
   sent or any tensor shard is uploaded, where it used to store an
