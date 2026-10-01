@@ -10,6 +10,15 @@ from pathlib import Path
 FILE_NAME = re.compile(r"[A-Za-z0-9._-]+")
 
 
+def check_target(target: str) -> None:
+    import mechbench_schema as ms
+
+    try:
+        ms.parse_path(target)
+    except ms.InvalidPathError as e:
+        raise ms.InvalidPathError(f"cannot store at {target!r}: {e}") from e
+
+
 def check_file_name(name: object, *, what: str) -> str:
     text = name if isinstance(name, str) else ""
     if not FILE_NAME.fullmatch(text) or text.startswith("."):

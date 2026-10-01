@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import urllib.error
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .bench_items import fetch_items, items  # noqa: F401
+from .contained import check_target
 
 if TYPE_CHECKING:
     import ssl
@@ -193,6 +195,7 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
 
     from mechbench_compute import __version__ as core_version
 
+    check_target(target)
     url, key = _config(api_url, api_key)
 
     if isinstance(payload, dict) and "provenance" in payload:
@@ -229,7 +232,6 @@ def emit(target: str, payload: Any, *, inputs: tuple[str, ...] | list[str] = (),
             f"the result, lower its fidelity, or store the large part by "
             f"reference. (A result this size usually means a record is "
             f"carrying something it should not — bytes, a live object.)")
-    import hashlib
 
     digest = hashlib.sha256(body).hexdigest()
     receipt = _request(
@@ -245,8 +247,6 @@ def register_kind(manifest: Any, *, api_url: str | None = None,
     or an equivalent dict). Registration is idempotent for identical
     content; changed content for an existing path is refused by the
     server (manifest versions are immutable)."""
-    import hashlib
-
     import mechbench_schema as ms
 
     url, key = _config(api_url, api_key)
@@ -344,8 +344,6 @@ def put_file(label: str, filepath, *, kind: str = "checkpoint_file",
     streaming — a torn upload can never be fetched. Bytes stream from
     disk; nothing holds the file in memory.
     """
-    import hashlib
-
     import httpx
 
     url, key = _config(api_url, api_key)

@@ -10,7 +10,12 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute.contained import check_file_name, resolve_inside, write_inside
+from mechbench_compute.contained import (
+    check_file_name,
+    check_target,
+    resolve_inside,
+    write_inside,
+)
 
 STORAGE = "tensor"
 SHARDS_DIR = "shards"
@@ -287,6 +292,7 @@ def materialize(collection: Mapping[str, Any], label: str,
 
 def upload(collection: Mapping[str, Any], label: str, put_file: Callable[[str, Path], Any],
            have: Mapping[str, str] | None = None) -> dict[str, Any]:
+    check_target(label)
     where = collection.get(LOCAL_DIR)
     if not where:
         raise ValueError("nothing to upload: the collection names no local shard dir")

@@ -339,3 +339,23 @@ class TestAddresses:
 
         with pytest.raises(InvalidPathError, match="train.checkpoints"):
             parse_path(f"{RESULTS}/nodes/train.checkpoints")
+
+    def test_a_named_output_at_a_refused_path_fails_its_node(self, tiny_hub, store, monkeypatch):
+        from mechbench_schema import InvalidPathError
+
+        from mechbench_compute import bench
+        from mechbench_compute.contained import check_target
+        from mechbench_compute.protocol import store_result
+
+        def emit_checked(path, payload, **kw):
+            check_target(path)
+            store[path] = payload
+            return {"path": path}
+
+        monkeypatch.setattr(bench, "emit", emit_checked)
+        monkeypatch.setattr(store_result, "name_output_targets",
+                            lambda state, nid, name: [f"{state.result_base}/nodes/{nid}.{name}"])
+        with pytest.raises(InvalidPathError, match=r"cannot store at '.*/nodes/train\.checkpoints'"):
+            run_graph([train_node(keep_checkpoints=True), SORT], FROM_CHECKPOINTS,
+                      outputs=[{"name": "order", "from": {"node": "order"}}])
+        assert not any(p.endswith("train.checkpoints") for p in store)

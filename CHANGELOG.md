@@ -17,7 +17,10 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- **An emit to a path the schema's grammar refuses now raises**
+  `InvalidPathError` (`cannot store at '<path>': …`) before anything is
+  sent or any tensor shard is uploaded, where it used to store an
+  object no protocol could read.
 
 ### Changes that alter results without raising
 
