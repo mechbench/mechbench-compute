@@ -59,10 +59,10 @@ class TestExamples:
         out = find_top_examples(StubModel(), self.RECORDS,
                               {"k": 2, "neuron": {"layer": 1, "index": 1}, "point": "resid_post"})
         assert out["neuron"] == 1 and out["items"]
-        with pytest.raises(ValueError, match="one of them, not both"):
+        with pytest.raises(ValueError, match="exactly one of them"):
             find_top_examples(StubModel(), self.RECORDS, {"neuron": {"layer": 1, "index": 0}},
                             direction=_direction([1]))
-        with pytest.raises(ValueError, match="one of them, not both"):
+        with pytest.raises(ValueError, match="exactly one of them"):
             find_top_examples(StubModel(), self.RECORDS, {})
 
     def test_memory_does_not_grow_with_the_corpus(self):

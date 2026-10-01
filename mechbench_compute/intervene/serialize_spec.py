@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mechbench_compute import shapes as S
+from mechbench_compute.dictionaries.describe_dictionary import describe_dictionary
 
 
 def serialize_spec(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -20,6 +21,8 @@ def serialize_spec(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             src = w["source"]
             w["source"] = {"kind": src.get("kind"), "item_kind": K.item_kind_of(src),
                            "n_items": len(K.items_of(src)) if K.item_kind_of(src) else 0}
+        if isinstance(w.get("feature"), Mapping) and isinstance(w["feature"].get("dictionary"), Mapping):
+            w["feature"] = {**w["feature"], "dictionary": describe_dictionary(w["feature"]["dictionary"])}
         if isinstance(w.get("condition"), Mapping) and isinstance(w["condition"].get("direction"), Mapping):
             w["condition"] = {**w["condition"], "direction": {"derivation": w["condition"]["direction"].get("derivation")}}
         out.append(w)

@@ -5,6 +5,7 @@ from typing import Any
 
 from mechbench_compute.intervene.compiled import Compiled
 from mechbench_compute.intervene.constants import SWEEP_AXES
+from mechbench_compute.intervene.fill_feature import fill_feature
 from mechbench_compute.intervene.spec import Spec
 from mechbench_compute.intervene.spec_error import SpecError
 
@@ -15,8 +16,9 @@ def compile(model, items: Sequence[Mapping[str, Any]], *,
     port_dir = inputs.get("direction")
     port_src = inputs.get("source")
     filled = []
+    port_dictionary = inputs.get("dictionary")
     for it in items:
-        it = dict(it)
+        it = fill_feature(it, port_dictionary)
         if it.get("direction") is None and port_dir is not None:
             it["direction"] = port_dir
         if it.get("source") is None and port_src is not None and it.get("op") in ("mean", "resample", "patch"):

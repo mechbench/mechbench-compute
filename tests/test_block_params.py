@@ -89,7 +89,8 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/intervene/steer.py", "steer_inject")],
     "logits/attribute": [
         ("ops/logits/attribute.py", "run"),
-        ("ops/logits/attribute.py", "attribute_logits")],
+        ("ops/logits/attribute.py", "attribute_logits"),
+        ("ops/logits/attribute.py", "read_basis")],
     "intervene/patch": [
         ("ops/intervene/patch.py", "run"),
         ("ops/intervene/patch.py", "patch_trace"),

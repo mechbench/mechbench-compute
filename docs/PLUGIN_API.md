@@ -31,6 +31,13 @@ its own business.
   the shards beside the object, and `items_of` reads them back a shard
   at a time. This is how a result past the 64 MiB object limit is
   stored.
+- **The dictionary helpers**, for an operation that reads through a
+  `direction/dictionary`: `read_dictionary_weights` (its encoder,
+  decoder, biases and thresholds as arrays, refusing what is not a
+  sparse autoencoder), `read_dictionary_activations` (a model's
+  activations at the point and layer it reads, one forward pass) and
+  `encode_features` (activations through its nonlinearity, one value
+  per feature).
 - **The record helpers**, for comparing records as `records/diff` does:
   `flatten_record` (a record as dotted paths), `index_by_key` (records
   by id or named coordinates, a duplicate refused), `is_field_match` (a

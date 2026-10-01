@@ -89,6 +89,10 @@ seed it reproduces the un-intervened sample byte for byte.
            "text is written.", required=False),
         In("direction", "direction/vector",
            "A direction that fills any spec item without one.", required=False),
+        In("dictionary", "direction/dictionary",
+           "The dictionary a spec item's `feature` belongs to, from "
+           "`dictionary/load`, filling every `feature` that names none.",
+           required=False),
         In("source", "activations/vector | intervene/readout",
            "A collection of `activations/vector` — a capture, intervened or "
            "not — that fills any `mean`/`resample`/`patch` item without one. "
@@ -127,6 +131,14 @@ seed it reproduces the un-intervened sample byte for byte.
               P("strength", "float", "The item's magnitude, multiplied by each sweep factor.", 1.0),
               P("direction", "json",
                 "The direction, usually a stored one (`{\"$ref\": …}`); or it arrives on the node's `direction` port.", None),
+              P("feature", "object",
+                "A dictionary's feature, whose decoder row is the item's direction at the point and "
+                "layer the dictionary writes.", None, fields=(
+                    P("dictionary", "json",
+                      "The dictionary, usually a stored one (`{\"$ref\": …}`); or it arrives on the "
+                      "node's `dictionary` port.", None),
+                    P("index", "int", "The feature's index in the dictionary."),
+                )),
               P("direction2", "json", "For `rotate`: the second axis of the plane.", None),
               P("source", "json",
                 "For `mean`, `resample` and `patch`: the replacement activations, or they arrive on the "

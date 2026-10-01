@@ -46,6 +46,28 @@ nothing said so.
   before, they read none from the collection and raised (`examples`
   unless it was given `layer`). A `records/map` over a decomposition
   hands each component to its body this way.
+- **A feature is a neuron in another basis**: `activations/examples`,
+  `intervene/apply` and `logits/attribute` take `feature: {dictionary,
+  index}`, the dictionary on a new `dictionary` port or inline.
+  `examples` ranks windows by the feature's JumpReLU encoding at the
+  point and layer the dictionary reads (the arithmetic of
+  `dictionary/encode`; the beginning-of-sequence token reads zero), and
+  refuses `layer` and `point` beside it. A spec item's `feature` takes
+  the feature's decoder row as its `direction` at the point and layer
+  the dictionary writes, so `op: "add"` steers on it; the header's
+  `spec` records `{dictionary, index}`, the dictionary by its content
+  hash, derivation, reads, width and source. `text/generate` and
+  `text/chat` take the same spec field and port. `logits/attribute` with
+  a dictionary adds `features` (each firing feature's activation times
+  its decoder row's direct logit attribution, the `top_features`
+  largest) and `reconstruction` (`stream`, `features`, `b_dec`,
+  `error`) to each row; with `feature`, that one feature. `feature` and
+  `neuron` (`neurons` on a spec item) together are refused. The neuron
+  forms and the plain attribution give the same bytes as before.
+- `examples` says "exactly one of them" when it is given none, or more
+  than one, of `direction`, `neuron` and `feature`.
+- The api offers `read_dictionary_weights`, `read_dictionary_activations`
+  and `encode_features`, which `dictionary/encode` now reads through.
 
 ## 0.177.0 — 2026-10-01
 

@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute._mlx import mx
 from mechbench_compute.api import (
     In,
     Op,
@@ -13,15 +12,15 @@ from mechbench_compute.api import (
     P,
     Resume,
     collection,
+    encode_features,
     items_of,
-    points,
+    read_dictionary_activations,
+    read_dictionary_weights,
     read_header,
     render,
 )
 
 POSITIONS = ("all", "last")
-
-ACTIVATIONS = ("jumprelu", "relu", "topk")
 
 MAX_ROWS = 2_000_000
 
@@ -126,77 +125,11 @@ def read_model_id(model: Any) -> str | None:
     return v if isinstance(v, str) and v else None
 
 
-def read_weights(dictionary: Any) -> dict[str, Any]:
-    header = read_header(dictionary)
-    derivation = header.get("derivation")
-    if derivation != "sae":
-        raise ValueError(f"dictionary/encode: the dictionary is a {derivation!r}; this operation reads "
-                         "sparse autoencoders (`sae`), which read and write one space, so far")
-    reads = header.get("reads") or []
-    if len(reads) != 1:
-        raise ValueError(f"dictionary/encode: the dictionary reads {len(reads)} spaces; a sparse "
-                         "autoencoder reads one")
-    activation = dict(header.get("activation") or {})
-    if activation.get("fn") not in ACTIVATIONS:
-        raise ValueError(f"dictionary/encode: the dictionary's nonlinearity {activation.get('fn')!r} is not "
-                         f"one of {', '.join(ACTIVATIONS)}")
-    width, d_in = int(header["width"]), int(header["d_in"])
-    d_out = int(header.get("d_out") or d_in)
-    w_enc = np.zeros((d_in, width), dtype=np.float32)
-    w_dec = np.zeros((width, d_out), dtype=np.float32)
-    b_enc = np.zeros(width, dtype=np.float32)
-    threshold = np.zeros(width, dtype=np.float32)
-    seen = np.zeros(width, dtype=bool)
-    for item in items_of(dictionary):
-        i = int(item["index"])
-        w_enc[:, i] = np.asarray(item["encoder"], dtype=np.float32)
-        w_dec[i] = np.asarray(item["vector"], dtype=np.float32)
-        b_enc[i] = float(item["b_enc"])
-        threshold[i] = float(item.get("threshold", 0.0))
-        seen[i] = True
-    if not seen.all():
-        raise ValueError(f"dictionary/encode: the dictionary declares {width} features and carries "
-                         f"{int(seen.sum())}")
-    return {"space": dict(reads[0]), "activation": activation, "w_enc": w_enc, "b_enc": b_enc,
-            "threshold": threshold, "w_dec": w_dec,
-            "b_dec": np.asarray(header.get("b_dec") or np.zeros(d_out), dtype=np.float32),
-            "header": header}
-
-
-def encode_features(x: np.ndarray, weights: Mapping[str, Any]) -> np.ndarray:
-    pre = x @ weights["w_enc"] + weights["b_enc"]
-    fn = weights["activation"]["fn"]
-    if fn == "jumprelu":
-        return np.where(pre > weights["threshold"], pre, np.float32(0)).astype(np.float32)
-    f = np.maximum(pre, np.float32(0))
-    if fn == "topk":
-        k = int(weights["activation"]["k"])
-        if k < f.shape[1]:
-            cut = np.argsort(-f, axis=1, kind="stable")[:, k:]
-            np.put_along_axis(f, cut, np.float32(0), axis=1)
-    return f.astype(np.float32)
-
-
-def read_activations(model: Any, ids: Any, point: str, layer: int) -> np.ndarray:
-    declared = tuple(model.architecture.layer_points)
-    if point == "attn.o_in" and point not in declared and "attn.per_head_out" in declared:
-        name = f"blocks.{layer}.attn.per_head_out"
-        t = model.run(ids, capture=[name]).cache[name].astype(mx.float32)
-        heads = np.array(t)[0]
-        return heads.transpose(1, 0, 2).reshape(heads.shape[1], -1)
-    if point not in declared or points.LAYOUT[point][1] is not None:
-        raise ValueError(f"dictionary/encode: the dictionary reads {point}, which {model.architecture.name} "
-                         f"does not offer at its support level; its points are {', '.join(declared)}")
-    name = f"blocks.{layer}.{point}"
-    t = model.run(ids, capture=[name]).cache[name].astype(mx.float32)
-    return np.array(t)[0]
-
-
 def encode_records(model: Any, records: Sequence[Mapping[str, Any]], dictionary: Any,
                    params: Mapping[str, Any], *, reading: str = "base",
                    on_item: Callable[[], None] | None = None,
                    on_start: Callable[[int], None] | None = None) -> dict[str, Any]:
-    weights = read_weights(dictionary)
+    weights = read_dictionary_weights(dictionary)
     space = weights["space"]
     point, layer = str(space["point"]), int(space["layer"])
     position = str(params.get("position") or "all")
@@ -222,7 +155,7 @@ def encode_records(model: Any, records: Sequence[Mapping[str, Any]], dictionary:
     fired = np.zeros(width, dtype=bool)
     for record in records:
         rendered = render(model, record)
-        acts = read_activations(model, rendered.array, point, layer)
+        acts = read_dictionary_activations(model, rendered.array, point, layer)
         if acts.shape[1] != d_in:
             raise ValueError(f"dictionary/encode: the dictionary reads {d_in}-wide activations, and "
                              f"{point} at layer {layer} of this model is {acts.shape[1]} wide")

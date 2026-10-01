@@ -70,6 +70,7 @@ cell.
 | `op` | string | `"zero"` | What to do there — see the table below. |
 | `strength` | float | `1.0` | The item's magnitude: the coefficient for `add`, the factor for `scale`, the bound for `clamp`, the angle in radians for `rotate`. Multiplied by each sweep factor. |
 | `direction` | direction | — | The direction for `add`, `project_out`, `clamp`, `rotate` and (optionally) `patch`. May instead arrive on the node's `direction` port, which fills every item that names none. |
+| `feature` | object | — | `{"dictionary": …, "index": 3071}`: a dictionary's feature, in place of `direction`, `point` and `layers` — see *Steering on a feature*. The dictionary may instead arrive on the node's `dictionary` port. |
 | `direction2` | direction | — | The second axis of the plane for `rotate`. |
 | `source` | collection | — | A collection of `activations/vector` — a capture, intervened or not — supplying replacement activations for `mean`, `resample` and `patch`; items are matched to the item's layer (and point). May instead arrive on the node's `source` port. |
 | `row` | object | — | For `patch`: which row of `source` to write in, e.g. `{"index": 0}`. |
@@ -96,6 +97,23 @@ The ops:
 
 The older `intervene/ablate-layers` and `intervene/ablate-heads` and `intervene/steer` operations are special cases of this
 grammar.
+
+### Steering on a feature
+
+A feature is a neuron in another basis, and `feature: {"dictionary": …,
+"index": 3071}` names one on an item as `neurons` names the model's own.
+The item takes the feature's decoder row — its `vector`, the direction it
+writes along, unit length in Gemma Scope — as its `direction`, and the
+point and layer the dictionary writes as its `point` and `layers`, so
+`{"feature": {"index": 3071}, "op": "add", "strength": 40}` adds 40 times
+the decoder row there, at the positions the item selects. The ops that
+take a direction take a feature (`add`, `project_out`, `clamp`, `rotate`,
+`patch`); the rest refuse it, and so does an item that also names
+`direction` or `neurons`, or a `point` or `layers` other than the
+dictionary's. The header's `spec` records the feature as `{dictionary,
+index}`, the dictionary by its content hash, derivation, the space it
+reads, width and source, so a reader knows which dictionary was steered
+on without fetching it.
 
 ### Ablating the complement
 
@@ -167,6 +185,10 @@ one item can zero every layer's `o_proj`.
            required=False),
         In("direction", "direction/vector",
            "A direction that fills any spec item without one.", required=False),
+        In("dictionary", "direction/dictionary",
+           "The dictionary a spec item's `feature` belongs to, from "
+           "`dictionary/load`, filling every `feature` that names none.",
+           required=False),
         In("source", "activations/vector | intervene/readout",
            "A collection of `activations/vector` — a capture, intervened or "
            "not — that fills any `mean`/`resample`/`patch` item without one. "
@@ -181,7 +203,7 @@ one item can zero every layer's `o_proj`.
            required=False),
     ),
     output=Output('intervene/readout', collection=True,
-                  doc='For a decision readout, one item per record per factor: `id`, `coords`, `factor`, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp, rank, variants}` for the answers asked about: `p` and `logp` of each answer\'s spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling\'s own `{token, p, logp}`). A capture readout is a capture: an `activations/vector` collection with one item per record per factor per hook point — `id`, `coords`, `factor`, `position`, `token`, `space` (at most 4096 values) — the shape `activations/capture` emits, so `geometry/compare`, `direction/regress` and another intervention\'s `source` read it unchanged. Either way the header carries `spec` (the list as run, with directions and sources replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf), `sweep` (the factors, including `0.0` when a control was added) and `readout`.',
+                  doc='For a decision readout, one item per record per factor: `id`, `coords`, `factor`, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp, rank, variants}` for the answers asked about: `p` and `logp` of each answer\'s spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling\'s own `{token, p, logp}`). A capture readout is a capture: an `activations/vector` collection with one item per record per factor per hook point — `id`, `coords`, `factor`, `position`, `token`, `space` (at most 4096 values) — the shape `activations/capture` emits, so `geometry/compare`, `direction/regress` and another intervention\'s `source` read it unchanged. Either way the header carries `spec` (the list as run, with directions, sources and a feature\'s dictionary replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf), `sweep` (the factors, including `0.0` when a control was added) and `readout`.',
                   otherwise=(Otherwise("activations/vector", collection=True, param="readout.type", equals="capture"),)),
     params=(
         P("spec", "list[object]",
@@ -204,6 +226,14 @@ one item can zero every layer's `o_proj`.
               P("strength", "float", "The item's magnitude, multiplied by each sweep factor.", 1.0),
               P("direction", "json",
                 "The direction, usually a stored one (`{\"$ref\": …}`); or it arrives on the node's `direction` port.", None),
+              P("feature", "object",
+                "A dictionary's feature, whose decoder row is the item's direction at the point and "
+                "layer the dictionary writes.", None, fields=(
+                    P("dictionary", "json",
+                      "The dictionary, usually a stored one (`{\"$ref\": …}`); or it arrives on the "
+                      "node's `dictionary` port.", None),
+                    P("index", "int", "The feature's index in the dictionary."),
+                )),
               P("direction2", "json", "For `rotate`: the second axis of the plane.", None),
               P("source", "json",
                 "For `mean`, `resample` and `patch`: the replacement activations, or they arrive on the "
