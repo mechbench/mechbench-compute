@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import random
 
+import numpy as np
 import pytest
 from mechbench_schema import dump_canonical
 
 from mechbench_compute import bench
+from mechbench_compute.blocks.compute_pearson import compute_pearson
 from mechbench_compute.blocks.compute_spearman import compute_spearman
 from mechbench_compute.blocks.estimate_fisher_interval import estimate_fisher_interval
 from mechbench_compute.blocks.estimate_wilson import estimate_wilson
@@ -66,7 +68,8 @@ class TestWilson:
         assert (out["items"][0]["k"], out["items"][0]["n"], out["missing"]) == (1, 2, {"k, n": 1})
 
     @pytest.mark.parametrize("call", ["wilson(hit, level=95)", "bootstrap_mean(x, level=0)",
-                                      "spearman(x, x, level=1)", "paired_difference(x, g, 1, 2, level=1.5)"])
+                                      "spearman(x, x, level=1)", "pearson(x, x, level=0)",
+                                      "paired_difference(x, g, 1, 2, level=1.5)"])
     def test_a_level_outside_zero_and_one_is_refused_by_name(self, call):
         recs = [{"id": "a", "hit": True, "x": 1.0, "g": 1}, {"id": "b", "hit": False, "x": 2.0, "g": 2}]
         with pytest.raises(ValueError, match=rf"{call.split('(')[0]}.*between 0 and 1"):
@@ -111,6 +114,39 @@ class TestSpearman:
         recs = [{"id": str(i), "x": i, "y": i * 2} for i in range(5)] + [{"id": "b", "x": 2}]
         out = _group(recs, {"aggregates": {"n, rho": "spearman(x, y)"}})
         assert (out["items"][0]["n"], out["missing"]) == (5, {"n, rho": 1})
+
+
+class TestPearson:
+    PLANTED = [(0.1, 0.3), (0.4, 0.2), (0.9, 1.1), (1.3, 0.8), (2.0, 2.6), (2.2, 1.9), (3.1, 3.5), (0.0, -0.4)]
+
+    def test_r_is_numpys_on_a_planted_table_per_group(self):
+        recs = [{"id": f"a{i}", "coords": {"g": "a"}, "x": x, "y": y} for i, (x, y) in enumerate(self.PLANTED)]
+        recs += [{"id": f"b{i}", "coords": {"g": "b"}, "x": x, "y": -y * y} for i, (x, y) in enumerate(self.PLANTED)]
+        out = _group(recs, {"by": {"g": "coords.g"}, "aggregates": {"c": "pearson(x, y)"}})
+        xs = np.array([x for x, _ in self.PLANTED])
+        ys = np.array([y for _, y in self.PLANTED])
+        a, b = (r["c"] for r in out["items"])
+        assert a["r"] == pytest.approx(float(np.corrcoef(xs, ys)[0, 1]), abs=1e-12)
+        assert b["r"] == pytest.approx(float(np.corrcoef(xs, -ys * ys)[0, 1]), abs=1e-12)
+        assert (a["n"], a["lo"], a["hi"]) == (8, None, None)
+
+    def test_a_side_with_no_variance_is_undefined_with_n_beside_it(self):
+        recs = [{"id": str(i), "x": x, "y": 2.0} for i, (x, _) in enumerate(self.PLANTED)]
+        out = _group(recs, {"aggregates": {"n, r, lo, hi": "pearson(x, y, level=0.9)"}})["items"][0]
+        assert (out["n"], out["r"], out["lo"], out["hi"]) == (8, None, None, None)
+        assert compute_pearson([1, 2], [2, 1]) is None
+
+    def test_the_interval_is_fishers_with_the_plain_standard_error(self):
+        recs = [{"id": str(i), "x": x, "y": y} for i, (x, y) in enumerate(self.PLANTED)]
+        out = _group(recs, {"aggregates": {"n, r, lo, hi": "pearson(x, y, level=0.95)"}})["items"][0]
+        z, se = np.arctanh(out["r"]), 1 / np.sqrt(8 - 3)
+        assert (out["lo"], out["hi"]) == pytest.approx((np.tanh(z - 1.959963984540054 * se),
+                                                        np.tanh(z + 1.959963984540054 * se)), abs=1e-9)
+
+    def test_a_pair_with_a_missing_value_is_skipped_and_counted(self):
+        recs = [{"id": str(i), "x": x, "y": y} for i, (x, y) in enumerate(self.PLANTED)] + [{"id": "m", "x": 1.0}]
+        out = _group(recs, {"aggregates": {"n, r": "pearson(x, y)"}})
+        assert (out["items"][0]["n"], out["missing"]) == (8, {"n, r": 1})
 
 
 class TestUnnest:

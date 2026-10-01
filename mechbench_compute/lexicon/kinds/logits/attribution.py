@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from mechbench_compute.lexicon._base import Kind
-from mechbench_compute.lexicon.values import F, TOKEN, VARIANTS
+from mechbench_compute.lexicon.values import CELLS, F, TOKEN, VARIANTS
 
 KIND = Kind(
     "logits/attribution",
@@ -15,12 +15,13 @@ KIND = Kind(
                           "attribution.", items={"type": "object"}),
             "reconstruction": F("object", "With a whole dictionary: `{stream, features, b_dec, error}`, the "
                                 "attribution of the activation the dictionary reads, split into the features' "
-                                "sum, the decoder bias and what the dictionary does not reconstruct.")},
+                                "sum, the decoder bias and what the dictionary does not reconstruct."),
+            "cells": CELLS({"contribution": "The component's contribution to the target logit."}, component=True)},
     required=("id", "axes", "measures", "target", "additivity"),
     key=("id",),
     header={"components": "The component names: `embed`, then `L0`, `L1`, …", "apply_ln": "Whether the final norm was folded in.",
             "layers": "The layers decomposed (all of them).",
             "dictionary": "The dictionary attributed to: `{kind, hash, derivation, reads, width, source}`.",
             "feature": "The one feature attributed to: `{dictionary, index}`."},
-    doc="Axis `[component]`, in the header's `components` order; measure `contribution`.",
+    doc="Axis `[component]`, in the header's `components` order; measure `contribution`. `records/unnest field: cells` makes one record per component, `{address, point, layer, position, component, contribution}` at position -1: `embed` is the residual entering the first layer, `L{first}.resid_pre@-1`, and `L3` is the third layer's whole write to the stream, point `block`, `L3.block@-1`.",
 )

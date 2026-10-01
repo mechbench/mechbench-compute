@@ -38,6 +38,33 @@ DIST = F("object", "A `logits/distribution`: `{entropy_bits, top, tracked?}`.",
          properties={"entropy_bits": {"type": "number"}, "top": TOP, "tracked": TRACKED})
 
 
+def CELLS(measures: dict[str, str], *, head: bool = False, token: bool = False,
+          component: bool = False) -> dict[str, Any]:
+    props: dict[str, Any] = {
+        "id": {"type": "string", "description": "The grid's id and the cell's address."},
+        "coords": {"type": "object", "description": "The grid's coordinates and the cell's place in the list."},
+        "parent": {"type": "string", "description": "The grid's id."},
+        "address": {"type": "string", "description": "`L{layer}.{point}[.H{head}]@{position}`, never null: an "
+                                                     "`intervene/circuit` component's address, the key "
+                                                     "`records/diff` matches cells by."},
+        "point": {"type": "string", "description": "The point the cell was measured at."},
+        "layer": {"type": "integer", "description": "The layer, as the model counts it."},
+    }
+    if head:
+        props["head"] = {"type": "integer", "description": "The head."}
+    props["position"] = {"type": ["string", "integer"],
+                         "description": "`all`, or a position counted from the end: -1 is the last token."}
+    if token:
+        props["token"] = {"type": "string", "description": "The token at that position."}
+    if component:
+        props["component"] = {"type": "string", "description": "The header's name for the component: `embed`, `L3`."}
+    for name, doc in measures.items():
+        props[name] = {"type": ["number", "null"], "description": doc}
+    return F("array", "One record per cell, which `records/unnest field: cells` reads from `axes` and `measures`; "
+                      "not stored on the grid.",
+             items={"type": "object", "properties": props, "additionalProperties": False})
+
+
 SPACE_VALUE = Value(
     "space",
     "The activation space a vector lives in: which model, which layer and point of the forward pass, which head, and how wide.",

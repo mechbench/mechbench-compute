@@ -4,6 +4,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from mechbench_compute.blocks.compute_pearson import compute_pearson
 from mechbench_compute.blocks.compute_spearman import compute_spearman
 from mechbench_compute.blocks.estimate_bootstrap_mean import estimate_bootstrap_mean
 from mechbench_compute.blocks.estimate_fisher_interval import estimate_fisher_interval
@@ -13,13 +14,14 @@ from mechbench_compute.blocks.estimate_wilson import estimate_wilson
 AGGREGATES: dict[str, tuple[int, int]] = {
     "count": (0, 1), "sum": (1, 1), "mean": (1, 1), "median": (1, 1), "min": (1, 1), "max": (1, 1),
     "share": (1, 1), "any": (1, 1), "all": (1, 1), "first": (1, 1), "last": (1, 1), "collect": (1, 1),
-    "wilson": (1, 1), "bootstrap_mean": (1, 1), "spearman": (2, 2), "paired_difference": (4, 5),
+    "wilson": (1, 1), "bootstrap_mean": (1, 1), "spearman": (2, 2), "pearson": (2, 2), "paired_difference": (4, 5),
 }
-OBJECT_AGGREGATES = frozenset({"wilson", "bootstrap_mean", "spearman", "paired_difference"})
+OBJECT_AGGREGATES = frozenset({"wilson", "bootstrap_mean", "spearman", "pearson", "paired_difference"})
 SETTINGS: dict[str, dict[str, Any]] = {
     "wilson": {"level": 0.95},
     "bootstrap_mean": {"level": 0.95, "resamples": 2000, "seed": 0},
     "spearman": {"level": None},
+    "pearson": {"level": None},
     "paired_difference": {"level": 0.95, "resamples": 2000, "seed": 0},
 }
 
@@ -88,13 +90,14 @@ def _aggregate(name: str, function: str, src: str, rows: list[tuple[Any, ...]],
             return min(xs) if function == "min" else max(xs)
         except TypeError:
             raise ValueError(f"records/group: {name}: cannot order the values: `{src}`") from None
-    if function == "spearman":
+    if function in ("spearman", "pearson"):
         ps = [(_as_number(name, src, x), _as_number(name, src, y)) for x, y in rows]
-        rho = compute_spearman([x for x, _ in ps], [y for _, y in ps])
+        ranked = function == "spearman"
+        coefficient = (compute_spearman if ranked else compute_pearson)([x for x, _ in ps], [y for _, y in ps])
         lo = hi = None
         if settings["level"] is not None:
-            lo, hi = estimate_fisher_interval(rho, len(ps), float(settings["level"]))
-        return {"n": len(ps), "rho": rho, "lo": lo, "hi": hi}
+            lo, hi = estimate_fisher_interval(coefficient, len(ps), float(settings["level"]), ranked=ranked)
+        return {"n": len(ps), "rho" if ranked else "r": coefficient, "lo": lo, "hi": hi}
     if function == "paired_difference":
         paired = len(rows[0]) == 4 if rows else False
         a_items = [(r[3] if paired else None, _as_number(name, src, r[0])) for r in rows if r[1] is True]

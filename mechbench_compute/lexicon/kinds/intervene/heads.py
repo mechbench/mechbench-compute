@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from mechbench_compute.lexicon._base import Kind
-from mechbench_compute.lexicon.values import F
+from mechbench_compute.lexicon.values import CELLS, F
 
 KIND = Kind(
     "intervene/heads",
@@ -14,9 +14,12 @@ KIND = Kind(
                                      "metric on the untouched model, when the metric is not `logprob`.",
                             items={"type": "object"}),
             "metric": F("string", "`prob`, `logit`, `entropy`, `entropy_outcomes` or `mass_outcomes` when the "
-                                  "grid reads one of them; absent for `logprob`.")},
+                                  "grid reads one of them; absent for `logprob`."),
+            "cells": CELLS({"mean_delta": "The mean change in the `metric` with the head zeroed."}, head=True)},
     required=("id", "axes", "measures", "layers", "n_heads"),
     doc="Axes `[layer, head]`; measure `mean_delta`, the change in the `metric` (the target's log-probability "
         "when none is named). One grid for the whole record set, id `mean`. `intervene/prune` cuts it into "
-        "an `intervene/circuit`.",
+        "an `intervene/circuit`. `records/unnest field: cells` makes one record per head, `{address, point, "
+        "layer, head, position, mean_delta}`, the point `attn.per_head_out` and the position `all`, addressed "
+        "as the circuit's components are, so `records/diff key: address` compares two grids head by head.",
 )

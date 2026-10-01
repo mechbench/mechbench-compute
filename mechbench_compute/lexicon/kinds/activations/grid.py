@@ -18,5 +18,7 @@ KIND = Kind(
         "attention pattern, a trace, a head-ablation grid. `axes` says what the nested `measures` are indexed "
         "by, in order, so a reader (or a chart) knows that `measures.logprob[3][7]` is layer 3, position 7. A "
         "record that could not be measured carries `error` and empty measures rather than being dropped, so "
-        "a grid collection has one item per input record.",
+        "a grid collection has one item per input record. A heads grid, a trace, a lens, an attribution and a "
+        "divergence also read as `cells`, one record per cell addressed as an `intervene/circuit` component "
+        "is, through `records/unnest field: cells`.",
 )

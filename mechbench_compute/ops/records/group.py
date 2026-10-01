@@ -43,6 +43,11 @@ The plain aggregates are `count()`, `count(cond)`, `sum(x)`, `mean(x)`,
 interval; `bootstrap_mean(x, level=0.95, resamples=2000, seed=0)` is
 `{n, mean, lo, hi}`, each group drawn from its own generator at `seed`;
 `spearman(x, y, level=None)` is `{n, rho, lo, hi}`, the interval Fisher's;
+`pearson(x, y, level=None)` is `{n, r, lo, hi}`, the linear correlation,
+its interval Fisher's too. Either coefficient is null when the group has
+fewer than three pairs or either side has no variance, `n` beside it
+still counting the pairs read, and the interval is asked for by `level`
+and null below four pairs;
 `paired_difference(x, on, a, b, paired, level=0.95, resamples=2000, seed=0)`
 is `{n, mean_a, mean_b, diff, lo, hi, share_positive}`, the records where
 `on == a` against those where `on == b`, matched by `paired` when it is

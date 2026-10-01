@@ -36,6 +36,22 @@ _None._
 - `direction/vector` speaks: method, point and layer, the two groups,
   whether the vectors were centred and which dimensions were left out,
   and the norm.
+- A grid's cells are records: `records/unnest field: cells` on an
+  `intervene/heads` grid, an `intervene/trace`, a `logits/lens`, a
+  `logits/attribution` or an `activations/divergence` makes one record
+  per cell shaped like an `intervene/circuit` component — `address`,
+  `point`, `layer`, `head` or `position` (counted from the end), `token`
+  where the grid has tokens, and each measure a field — so
+  `records/diff key: address` compares two grids and `records/plot`
+  draws them with no `records/jq`. The layers are the grid's own, not
+  row numbers. A heads grid on its own now unnests as one grid rather
+  than as its `conditions`, for `field: measures` too. An attribution's
+  components are addressed `L{first}.resid_pre@-1` (the embedding) and
+  `L{n}.block@-1` (a layer's whole write). The kinds declare `cells`.
+- `records/group` has `pearson(x, y, level=None)`, `{n, r, lo, hi}`:
+  null when a group has fewer than three pairs or either side has no
+  variance, `n` beside it; the interval Fisher's with the plain standard
+  error.
 
 ## 0.183.0 — 2026-10-01
 

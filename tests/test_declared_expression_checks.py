@@ -19,7 +19,9 @@ def _kind(name: str):
 def test_a_kind_declares_closed_sub_fields_by_the_prefix_the_engine_spells():
     assert _kind("logits/distribution").subfields == {"top[]": ("token", "p", "logp")}
     assert _kind("activations/vector").subfields["space"] == ("model", "layer", "point", "head", "d")
-    assert _kind("logits/lens").subfields == {"target": ("id", "text"), "variants[]": ("token", "p", "logp")}
+    assert _kind("logits/lens").subfields == {
+        "target": ("id", "text"), "variants[]": ("token", "p", "logp"),
+        "cells[]": ("id", "coords", "parent", "address", "point", "layer", "position", "token", "logprob", "rank")}
 
 
 def test_an_open_map_declares_no_sub_fields():

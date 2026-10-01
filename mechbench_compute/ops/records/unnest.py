@@ -6,7 +6,9 @@ from typing import Any
 from mechbench_compute.blocks.build_collection import build_collection
 from mechbench_compute.blocks.expand_grid import expand_grid
 from mechbench_compute.blocks.read_field import read_field
+from mechbench_compute.blocks.read_grid_cells import read_grid_cells
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.lexicon.kinds import COLLECTION, item_kind_of
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
@@ -36,12 +38,25 @@ An empty list contributes no records. A record without the field is
 refused by name; `on_missing: "skip"` passes over it and reports the
 count as `n_missing`.
 
-`field: measures` on a grid (an `activations/grid` and every kind that
-extends it: a trace, a lens, an attribution) makes one record per cell:
-each axis a coordinate (`layer`, `position`), the token when an axis is
-the position, and each measure a field, so a trace's cells group and
-filter like any records. The collection keeps its input's header (a
-grid's `components`, its `arch`), so an expression downstream reads
+`field: cells` on a grid with addressed cells (`intervene/heads`,
+`intervene/trace`, `logits/lens`, `logits/attribution`,
+`activations/divergence`) makes one record per cell, shaped like an
+`intervene/circuit` component: `address`, `point`, `layer`, `head` or
+`position` (counted from the end, so prompts of different lengths line
+up), `token` where the grid has tokens, and each measure a field. Its id
+is the grid's id and the address. The layers are the grid's own, read
+through its `layers`, not the row numbers, and the point is the one the
+grid was measured at. A heads grid on its own is one grid, not the
+records its `conditions` name. `records/diff key: address` then
+compares two grids cell by cell, and `records/plot` draws the cells. A
+grid with `error` has no cells.
+
+`field: measures` on any grid (an `activations/grid` and every kind
+that extends it) makes one record per cell by the axes' indices instead:
+each axis a coordinate (`layer`, `position`, counted from the row and
+the start), the token when an axis is the position, and each measure a
+field. The collection keeps its input's header (a grid's `components`,
+its `arch`), so an expression downstream reads
 `header.components[coords.component]`.
 """,
     inputs=(In("records", "collection | records/table",
@@ -82,7 +97,20 @@ def unnest(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError(f"unnest on_missing must be 'error' or 'skip', not {on_missing!r}")
     out: list[dict[str, Any]] = []
     parents = missing = 0
-    for r in read_items(records):
+    header = records if isinstance(records, Mapping) else {}
+    alone = isinstance(records, Mapping) and records.get("kind") != COLLECTION and "axes" in records
+    kind = records.get("kind") if alone else item_kind_of(records) if isinstance(records, Mapping) else None
+    for r in [records] if alone else read_items(records):
+        if field == "cells":
+            cells = read_grid_cells(r, kind, header)
+            if cells is not None:
+                parents += 1
+                out.extend(_read_addressed(r, cells, index))
+                continue
+            if expand_grid(r) is not None:
+                raise ValueError(
+                    f"unnest: a {kind or 'grid'} has no addressed cells; `field: measures` reads its "
+                    f"cells by the axes' indices")
         if field == "measures" and expand_grid(r) is not None:
             parents += 1
             out.extend(_read_cells(r))
@@ -123,6 +151,12 @@ def unnest(records: Any, params: Mapping[str, Any]) -> dict[str, Any]:
                          "missing", "unmatched", "n_missing")}
     return build_collection(out, **kept, unnested=unnested, name=params.get("name"),
                             description=params.get("description"))
+
+
+def _read_addressed(grid: Mapping[str, Any], cells: list[dict[str, Any]], index: str) -> list[dict[str, Any]]:
+    coords = dict(grid.get("coords") or {})
+    return [{**cell, "id": f"{grid.get('id')}/{cell['address']}", "coords": {**coords, index: i},
+             "parent": grid.get("id")} for i, cell in enumerate(cells)]
 
 
 def _read_cells(grid: Mapping[str, Any]) -> list[dict[str, Any]]:
