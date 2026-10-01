@@ -20,7 +20,7 @@ VERBS = {
     "publish", "push", "put", "quote", "raise", "rank", "read", "record",
     "reduce", "refuse", "register", "regress", "reject", "relabel", "release", "remove",
     "rename", "render", "repair", "replace", "report", "require", "reshape", "resolve",
-    "replay", "restore", "reverse", "rewrite", "round", "run", "sample", "save", "say",
+    "replay", "resample", "restore", "reverse", "rewrite", "round", "run", "sample", "save", "say",
     "scale", "scan", "score", "seed", "select", "send", "serialize", "set",
     "shape", "shift", "show", "skip", "slice", "sort", "span", "split",
     "stack", "start", "steer", "stop", "store", "strip", "subtract", "sum",

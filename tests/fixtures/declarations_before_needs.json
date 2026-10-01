@@ -62,6 +62,7 @@
   "text/generate": "mlx-local",
   "text/measure": "pure",
   "text/render": "pure",
+  "text/resample": "mlx-local",
   "text/score": "mlx-local",
   "text/tokenize": "mlx-local",
   "tools/calc": "pure",
@@ -320,6 +321,10 @@
    "level": "reproducible"
   },
   "text/render": {
+   "items": false,
+   "level": "restart"
+  },
+  "text/resample": {
    "items": false,
    "level": "restart"
   },

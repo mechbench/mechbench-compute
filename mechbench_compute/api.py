@@ -69,6 +69,8 @@ SOURCES: dict[str, tuple[str, str | None]] = {
     "estimate_bootstrap_ratio": ("mechbench_compute.blocks.estimate_bootstrap_ratio",
                                  "estimate_bootstrap_ratio"),
     "read_model_level": ("mechbench_compute.resume", "read_model_level"),
+    "derive_seed": ("mechbench_compute.seeds", "derive"),
+    "serialize_model": ("mechbench_compute.protocol.serialize_model", "serialize_model"),
 }
 
 __all__ = sorted(SOURCES)

@@ -20,6 +20,9 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/logits/read.py", "run")],
     "text/generate": [
         ("ops/text/generate.py", "run")],
+    "text/resample": [
+        ("ops/text/resample.py", "run"),
+        ("ops/text/resample.py", "resample")],
     "adapter/train": [
         ("ops/adapter/train.py", "run")],
     "eval/benchmark": [
