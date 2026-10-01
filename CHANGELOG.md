@@ -21,6 +21,20 @@ _None._
 
 ### Changes that alter results without raising
 
+_None._
+
+### Other
+
+_None._
+
+## 0.181.0 — 2026-10-01
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
 - One rule for a step everywhere: step k is the forward pass that writes the k-th generated token, counted from 0, and it is read at position p + k − 1 where generation began at p. `trajectory/capture` along positions labels each point with that step instead of its index among the points read, so a trajectory over `"generated"` runs from step 1 where it ran from 0, a prompt position before the last is a negative step, and a pooled point carries the step of the first point it pooled. Everything that reads `step` downstream shifts with it: `trajectory/aggregate`'s `steps` window selects one step earlier in the text than the same numbers did, `per_step` rows and `trajectory/compare`'s `per_step`, `divergence_step` and `min_cosine_step` read one higher. `pool.over` still counts the points read from 0, so a pooled vector is unchanged. On the bench, `benjismith/training/014-trace` (v2: `trace_flash`, `trace_neutral`, `cap_win`, and `late_flash`/`late_neutral`'s `steps: {"range": [20, 120]}`) is the stored protocol this touches.
 - `text/resample`'s `position` is the position its branch point's first pass reads (the prompt's length plus `step` minus one), as for any step.
 
