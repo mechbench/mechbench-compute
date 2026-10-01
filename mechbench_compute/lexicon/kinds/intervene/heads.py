@@ -13,8 +13,8 @@ KIND = Kind(
             "conditions": F("array", "Per record: `{id, target, variants, baseline_logp}`, and `baseline`, the "
                                      "metric on the untouched model, when the metric is not `logprob`.",
                             items={"type": "object"}),
-            "metric": F("string", "`prob`, `logit` or `entropy` when the grid reads one of them; absent for "
-                                  "`logprob`.")},
+            "metric": F("string", "`prob`, `logit`, `entropy`, `entropy_outcomes` or `mass_outcomes` when the "
+                                  "grid reads one of them; absent for `logprob`.")},
     required=("id", "axes", "measures", "layers", "n_heads"),
     doc="Axes `[layer, head]`; measure `mean_delta`, the change in the `metric` (the target's log-probability "
         "when none is named). One grid for the whole record set, id `mean`. `intervene/prune` cuts it into "

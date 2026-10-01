@@ -9,9 +9,15 @@ from mechbench_compute import lexicon
 from mechbench_compute import shapes as S
 from mechbench_compute.distill import render
 from mechbench_compute.interp.read_last_logp import read_last_logp
-from mechbench_compute.interp.read_metric import METRICS, read_metric
+from mechbench_compute.interp.read_metric import (
+    METRIC_DOC,
+    METRICS,
+    OUTCOME_METRICS,
+    read_metric,
+)
 from mechbench_compute.interp.report_own_top1 import report_own_top1
 from mechbench_compute.interp.resolve_layers import resolve_layers
+from mechbench_compute.interp.resolve_outcomes import resolve_outcomes
 from mechbench_compute.interp.resolve_target import resolve_target
 from mechbench_compute.interventions import Ablate
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
@@ -33,9 +39,11 @@ turn has that head's output zeroed and the target re-read. The differences
 are averaged over records into one matrix.
 
 `metric` names what is read instead of the log-probability: `prob` or
-`logit` of the target, or `entropy`, the next-token distribution's entropy
+`logit` of the target; `entropy`, the next-token distribution's entropy
 in bits, for a behaviour that is a spread of answers rather than one
-answer. Each record's condition then carries `baseline`, the metric on
+answer; or `entropy_outcomes` and `mass_outcomes`, the same spread over
+the record's `outcomes` only and the mass on them, for when a broken model
+would read as flat over the whole vocabulary. Each record's condition then carries `baseline`, the metric on
 the untouched model, beside `baseline_logp`, and the grid names its
 `metric`. `intervene/prune` cuts the grid into a circuit.
 
@@ -69,11 +77,7 @@ about rather than all of them when the prompt set is large.
           "none named, the model's own top-1 prediction for that prompt is the "
           "target, and a target that differs from it is reported beside it.",
           None),
-        P("metric", "string",
-          "What is read at the decision position: the target's `logprob`, "
-          "`prob` or `logit`, or `entropy`, the next-token distribution's "
-          "entropy in bits.",
-          "logprob", choices=METRICS),
+        P("metric", "string", METRIC_DOC, "logprob", choices=METRICS),
     ),
     example={
         "model": {"$param": "model"},
@@ -105,12 +109,13 @@ def ablate_heads(
         raise ValueError(f"unknown metric {metric!r}: one of {', '.join(METRICS)}")
     if not records:
         raise ValueError("ablate/heads needs at least one condition")
+    outcomes = [resolve_outcomes(model, r) if metric in OUTCOME_METRICS else None for r in records]
     if on_start:
         on_start(len(records) * (len(layers) + 1))
 
     sums = np.zeros((len(layers), n_heads), dtype=np.float64)
     metas: list[dict[str, Any]] = []
-    for record in records:
+    for record, allowed in zip(records, outcomes, strict=True):
         r = render(model, record)
         ids = r.array
         base_logits = model.run(ids).logits
@@ -118,7 +123,7 @@ def ablate_heads(
         if on_item:
             on_item()
         answer, _ = resolve_target(model, record, params, base_lp)
-        baseline = read_metric(answer, metric, base_logits)
+        baseline = read_metric(answer, metric, base_logits, allowed)
         named = {} if metric == "logprob" else {"baseline": round(baseline, 4)}
         metas.append({
             "id": record.get("id"),
@@ -132,7 +137,7 @@ def ablate_heads(
         for li, layer in enumerate(layers):
             for head in range(n_heads):
                 logits = model.run(ids, interventions=[Ablate.head(layer, head)]).logits
-                sums[li, head] += read_metric(answer, metric, logits) - baseline
+                sums[li, head] += read_metric(answer, metric, logits, allowed) - baseline
             if on_item:
                 on_item()
     mean = sums / len(records)

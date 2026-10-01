@@ -41,7 +41,8 @@ KIND = Kind(
                           "where the target is not the model's own first choice; `m_empty` is the reference reading.",
             "n_off_top1": "How many records tracked a target the model would not itself have said.",
             "ablation": "`zero` or `mean`: how components were removed.",
-            "metric": "The readout at the decision position: `logprob`, `prob`, `logit` or `entropy`.",
+            "metric": "The readout at the decision position: `logprob`, `prob`, `logit`, `entropy`, "
+                      "`entropy_outcomes` or `mass_outcomes`.",
             "reference": "`empty` or `base`: what `m_empty` is — every component of the universe removed, or "
                          "the model without its adapter.",
             "universe": "The universe the circuits share.",

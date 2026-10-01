@@ -51,6 +51,16 @@ _None._
   headers carry `reference`, and the sentence ends "against the base
   model" under `base`. Under `empty` every number and field is the same
   as before; only the new header field changes the outputs' hashes.
+- Two metrics for `intervene/ablate-heads` and `intervene/ablate-circuit`:
+  `entropy_outcomes`, the entropy in bits of the next-token distribution
+  renormalised over the record's `outcomes`, and `mass_outcomes`, the
+  probability on those outcomes together. Whole-vocabulary `entropy`
+  reads a model broken by ablation as flat, the same as a flattening
+  behaviour; experiment 033's dice circuit read faithfulness 4.66 that
+  way. An outcome is matched as a `tracked` answer is, keeping the
+  spellings whose first token is the whole outcome; a record without
+  `outcomes`, or with an outcome the tokenizer splits, is refused by id.
+  `entropy` is unchanged.
 
 ## 0.179.0 — 2026-10-01
 

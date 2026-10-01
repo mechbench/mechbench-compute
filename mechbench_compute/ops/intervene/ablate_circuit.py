@@ -10,7 +10,9 @@ import numpy as np
 from mechbench_compute._mlx import mx
 from mechbench_compute.api import (
     DEFAULT_OUTPUT,
+    METRIC_DOC,
     METRICS,
+    OUTCOME_METRICS,
     In,
     Op,
     Output,
@@ -28,6 +30,7 @@ from mechbench_compute.api import (
     read_metric,
     render,
     report_own_top1,
+    resolve_outcomes,
     resolve_target,
     shapes,
 )
@@ -131,10 +134,7 @@ output holds the four readings per record per circuit.
           "`intervene/ablate-heads`. A record's own `tracked` takes precedence; with none named, the "
           "model's own top-1 prediction is the target.",
           None),
-        P("metric", "string",
-          "What is read at the decision position: the target's `logprob`, `prob` or `logit`, or "
-          "`entropy`, the next-token distribution's entropy in bits.",
-          "logprob", choices=METRICS),
+        P("metric", "string", METRIC_DOC, "logprob", choices=METRICS),
         P("reference", "string",
           "The floor `m_empty` the effect is measured from. `empty`: every component of the universe "
           "removed, the honest floor when the behaviour is the model's own. `base`: the model without the "
@@ -305,9 +305,10 @@ def ablate_circuits(
     if on_start:
         on_start(len(records) * (2 + 2 * len(circuits)))
 
+    outcomes = [resolve_outcomes(model, r) if metric in OUTCOME_METRICS else None for r in records]
     rows: list[dict[str, Any]] = []
     captured: list[dict[str, np.ndarray]] = []
-    for record in records:
+    for record, allowed in zip(records, outcomes, strict=True):
         r = render(model, record)
         ids = r.array
         n_tokens = int(np.array(ids).shape[-1])
@@ -319,7 +320,7 @@ def ablate_circuits(
         answer, _ = resolve_target(model, record, params, lp)
         tokens = [model.tokenizer.decode([int(t)]) for t in np.array(ids).reshape(-1)]
         rows.append({"record": record, "ids": ids, "tokens": tokens, "answer": answer, "chat": r.chat,
-                     "lp": lp, "m_full": read_metric(answer, metric, res.logits)})
+                     "lp": lp, "outcomes": allowed, "m_full": read_metric(answer, metric, res.logits, allowed)})
         captured.append({n: np.array(res.cache[n].astype(mx.float32))[0] for n in captures})
         if on_item:
             on_item()
@@ -336,12 +337,12 @@ def ablate_circuits(
         if compiled is None:
             return row["m_full"]
         iv = SpecIntervention(compiled.specs, row["tokens"], row["record"])
-        return read_metric(row["answer"], metric, model.run(row["ids"], interventions=[iv]).logits)
+        return read_metric(row["answer"], metric, model.run(row["ids"], interventions=[iv]).logits, row["outcomes"])
 
     if reference == "base":
         with base():
             for row in rows:
-                row["m_empty"] = read_metric(row["answer"], metric, model.run(row["ids"]).logits)
+                row["m_empty"] = read_metric(row["answer"], metric, model.run(row["ids"]).logits, row["outcomes"])
                 if on_item:
                     on_item()
     for row in rows:
