@@ -17,15 +17,37 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- An operation given a model reference whose adapters reached it
+  unresolved refuses, naming the operation and the reference, where it
+  ran the bare base model. The one such today is `eval/judge` with a
+  local judge model that carries adapters: give the adapted model as a
+  node's `model` instead.
 
 ### Changes that alter results without raising
 
-_None._
+- The executor fuses a model reference's own adapters for every
+  operation that loads the model, whether or not it has an `adapter`
+  port; the port's adapter still fuses last, on top. Until now an
+  operation without the port ran the bare base model and said nothing.
+  `text/resample` was the one that ran a model with no port, so its
+  results on an adapted reference change: they now measure the adapted
+  model. The stored protocol whose current version binds an adapted
+  reference to it is `benjismith/training/035-the-hinge` (v1, node
+  `organism_points`, `$param organism`); re-run it. `adapter/train`
+  fused the reference itself before and is unchanged; `text/tokenize`
+  reads no weights.
+- A result now carries `fused`, the adapters fused for the node in
+  order: `{"bench": <label>}` for each of the reference's, then
+  `{"port": "adapter"}` (with `scale` when `adapter_scale` was given).
+  An operation with named outputs carries it in its default output's
+  header. A result fused with nothing has no `fused`.
 
 ### Other
 
-_None._
+- `text/resample` takes the `adapter` port, as `text/generate` does.
+- `intervene/apply`'s `positions` says that `{"step": S}` beyond 0 acts
+  only where the operation generates (`text/generate`, `text/chat`);
+  `apply` reads a written sequence and reaches step 0 only.
 
 ## 0.182.0 — 2026-10-01
 

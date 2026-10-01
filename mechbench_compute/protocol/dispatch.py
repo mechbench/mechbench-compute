@@ -57,9 +57,25 @@ class Dispatch:
             with REGISTRY.within(ctx.scope):
                 return resolved.module.run(ctx, i, p)
 
-        if ops.fuses_adapter(resolved) or (ops.fuses_adapter_locally(resolved)
-                                           and not is_remote(resolved, params)):
-            return self._run_model_block(
-                lambda i, p, on_item=None, on_start=None: run(i, p),
-                inputs, params, on_item=lent.get("on_item"), on_start=lent.get("on_start"))
-        return run(inputs, params)
+        try:
+            if ops.fuses_adapter(resolved) or (ops.fuses_adapter_locally(resolved)
+                                               and not is_remote(resolved, params)):
+                result = self._run_model_block(
+                    lambda i, p, on_item=None, on_start=None: run(i, p),
+                    inputs, params, on_item=lent.get("on_item"), on_start=lent.get("on_start"))
+            else:
+                result = run(inputs, params)
+        finally:
+            fused = self._reference_restored(ctx.fused)
+        if fused and isinstance(result, dict):
+            result.setdefault("fused", fused)
+        return place_fused(resolved.op, result)
+
+
+def place_fused(op, result):
+    from mechbench_compute.lexicon._base import DEFAULT_OUTPUT
+
+    out = result.get(DEFAULT_OUTPUT) if isinstance(result, dict) else None
+    if op.outputs and isinstance(out, dict) and "fused" in result:
+        out.setdefault("fused", result.pop("fused"))
+    return result

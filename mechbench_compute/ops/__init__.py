@@ -71,6 +71,8 @@ class Context:
     run_secrets: Mapping[str, Any] | None = None
     scope: str | None = None
     node: str | None = None
+    name: str | None = None
+    fused: list[Any] = field(default_factory=list)
 
     @classmethod
     def for_op(cls, op: Any, executor: Any = None, **lent: Any) -> Context:
@@ -78,6 +80,7 @@ class Context:
 
         op = getattr(op, "op", op)
         lent.setdefault("scope", scope_of(op.name))
+        lent.setdefault("name", op.name)
         refused = {m: msg for m in MEMBER_NEEDS if (msg := check_member(op, m)) is not None}
         run_secrets = lent.get("secrets")
         for member in ("executor", "secrets"):
@@ -103,7 +106,10 @@ class Context:
         self.check("model")
         if self.loaded is not None:
             return self.loaded
-        return self.find_host("model", "needs a model and none is loaded")._model_loaded(ref)
+        host = self.find_host("model", "needs a model and none is loaded")
+        model = host._model_loaded(ref)
+        host._reference_fused(model, ref, self.fused, self.name)
+        return model
 
     def sub(self, target: str | Mapping[str, Any], inputs: Mapping[str, Any],
             params: Mapping[str, Any], *, budget: Any = None,

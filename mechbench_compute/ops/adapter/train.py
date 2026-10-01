@@ -278,17 +278,11 @@ def run(ctx, inputs, params):
     )
     from mechbench_compute.lora import (
         apply_lora,
-        fuse_adapter_stack,
         read_adapter_bytes,
     )
 
     model = ctx.model(params.get("model"))
     tok = model.tokenizer
-
-    mref = params.get("model")
-    if hasattr(mref, "adapter_payloads") and mref.adapter_payloads:
-        fuse_adapter_stack(model.lm, list(mref.adapter_payloads),
-                           keys=model.architecture.adapter_keys)
 
     records = lexicon.items_of(inputs.get("records") or [])
     def rendered_of(rec):

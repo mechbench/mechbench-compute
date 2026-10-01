@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 import mlx.core as mx
 import numpy as np
@@ -66,6 +66,7 @@ class Model:
         self.revision: str | None = None
         self.requested_ref: str | None = None
         self.node_adapter: dict | None = None
+        self.fused_reference: Any = None
 
     @classmethod
     def load(cls, model_id: str, *,

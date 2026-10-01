@@ -46,6 +46,7 @@ def _fake_generate_substrate(monkeypatch, calls: _Calls):
                         lambda self, model_id: _FakeModel())
     monkeypatch.setattr(ProtocolExecutor, "_run_model_block",
                         lambda self, fn, inputs, params, *a, **k: fn(inputs, params, *a, **k))
+    monkeypatch.setattr(ProtocolExecutor, "_reference_fused", lambda self, *a, **k: None)
     monkeypatch.setattr(distill, "render_chat", lambda tok, s, u, p: f"{s}|{u}|{p}")
     monkeypatch.setattr(distill, "encode", lambda tok, text: [len(text)])
     monkeypatch.setattr(distill, "prefill_decision", lambda model, ids: ("cache", ids))

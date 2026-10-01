@@ -42,10 +42,13 @@ class ModelLoading:
         ref = mval if hasattr(mval, "adapter_payloads") else None
         model = self._model_loaded(mval)
         skipped: list[str] = []
-        with self._adapter_fused(model, inputs, params, ref=ref, skipped=skipped):
+        fused: list[dict] = []
+        with self._adapter_fused(model, inputs, params, ref=ref, skipped=skipped, fused=fused):
             result = fn(inputs, params, *args, **kwargs)
         if skipped and isinstance(result, dict):
             result["adapter_skipped_modules"] = skipped
+        if fused and isinstance(result, dict) and "fused" not in result:
+            result["fused"] = fused
         arch = getattr(model, "arch", None)
         if isinstance(result, dict) and "arch" not in result and arch is not None:
             from mechbench_compute.blocks import arch_header
@@ -53,7 +56,7 @@ class ModelLoading:
             result["arch"] = arch_header(arch)
         return result
 
-    def _adapter_fused(self, model, inputs, params, ref=None, skipped=None):
+    def _adapter_fused(self, model, inputs, params, ref=None, skipped=None, fused=None):
         import contextlib
 
         from mechbench_compute.lora import (
@@ -81,12 +84,56 @@ class ModelLoading:
                 skipped=skipped, keys=model.architecture.adapter_keys)
             if node_level:
                 model.node_adapter = handles[-1]
+            if ref is not None and ref.adapter_payloads:
+                model.fused_reference = ref
+            if fused is not None:
+                fused.extend(read_fused(ref if ref is not None and ref.adapter_payloads else None,
+                                        node_level, override))
             try:
                 yield handles
             finally:
                 model.node_adapter = None
+                model.fused_reference = None
                 restore_adapter_stack(model.lm, handles)
         return _cm()
+
+    def _reference_fused(self, model, ref, undo, name=None) -> None:
+        labels = tuple(getattr(ref, "adapter_labels", ()) or ())
+        if not labels:
+            return
+        who = name or "this operation"
+        if len(ref.adapter_payloads) != len(labels):
+            raise ValueError(
+                f"{who}: the model reference {ref.describe()} carries the adapters "
+                f"{', '.join(labels)}, and they reached the operation unresolved, so "
+                "it cannot fuse them. Give the adapted model as the node's `model` "
+                "parameter, which the executor resolves and fuses.")
+        held = getattr(model, "fused_reference", None)
+        if held is not None:
+            if held == ref:
+                return
+            raise ValueError(
+                f"{who}: the model already carries the adapters of {held.describe()}, "
+                f"and the operation asked for {ref.describe()}; one node runs one "
+                "adapted model")
+        from mechbench_compute.lora import fuse_adapter_stack
+
+        handles = fuse_adapter_stack(model.lm, list(ref.adapter_payloads),
+                                     keys=model.architecture.adapter_keys)
+        model.fused_reference = ref
+        undo.append((model, ref, handles))
+
+    def _reference_restored(self, undo) -> list[dict]:
+        from mechbench_compute.lora import restore_adapter_stack
+
+        fused: list[dict] = []
+        for model, ref, handles in reversed(undo):
+            fused[:0] = read_fused(ref, None, None)
+            if model is self._model:
+                restore_adapter_stack(model.lm, handles)
+            model.fused_reference = None
+        undo.clear()
+        return fused
 
     def _materialize_checkpoint(self, label: str):
         from pathlib import Path
@@ -123,6 +170,13 @@ class ModelLoading:
         (target / ".label").write_text(label)
         memo[label] = target
         return target
+
+
+def read_fused(ref, node_level, scale) -> list[dict]:
+    out: list[dict] = [{"bench": label} for label in getattr(ref, "adapter_labels", ()) or ()]
+    if node_level:
+        out.append({"port": "adapter", **({"scale": scale} if scale is not None else {})})
+    return out
 
 
 def read_one_adapter(value):
