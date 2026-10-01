@@ -17,7 +17,10 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- **`weights/decompose`'s `top_k` is `k`**, the word `direction/decompose`
+  uses for the same thing. A stored protocol that names `top_k` is
+  refused before it runs, with "PARAM_REMOVED: top_k — renamed `k`: how
+  many directions per module". Renamed, it gives the same bytes.
 
 ### Changes that alter results without raising
 

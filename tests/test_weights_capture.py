@@ -139,7 +139,7 @@ class TestCapture:
 class TestDecompose:
     def test_a_writing_module_gives_directions_in_what_it_writes(self, lm):
         out = decompose_weights(lm, {"points": ["layers.1.self_attn.o_proj"],
-                                       "top_k": 2}, model_wire="acme/tiny")
+                                       "k": 2}, model_wire="acme/tiny")
         assert out["item_kind"] == "direction/vector"
         assert [it["id"] for it in out["items"]] == [
             "layers.1.self_attn.o_proj.weight#0",
@@ -154,7 +154,7 @@ class TestDecompose:
 
     def test_a_reading_module_gives_directions_in_what_it_reads(self, lm):
         out = decompose_weights(lm, {"points": ["layers.0.self_attn.q_proj"],
-                                       "top_k": 1})
+                                       "k": 1})
         it = out["items"][0]
         assert it["derivation"]["side"] == "in"
         assert it["space"]["point"] == "attn.in_norm"
@@ -165,7 +165,7 @@ class TestDecompose:
                        .astype(mx.float32))
         u, sv, _ = np.linalg.svd(arr, full_matrices=False)
         out = decompose_weights(lm, {"points": ["layers.1.self_attn.o_proj"],
-                                       "top_k": 1})
+                                       "k": 1})
         it = out["items"][0]
         assert it["norm"] == pytest.approx(float(sv[0]), rel=1e-5)
         assert abs(float(np.dot(it["vector"], u[:, 0]))) == pytest.approx(1.0, abs=1e-5)
@@ -177,7 +177,7 @@ class TestDecompose:
     def test_naming_a_side_skips_the_modules_whose_side_is_the_other(self, lm):
         out = decompose_weights(lm, {"points": ["layers.0.self_attn.q_proj",
                                                   "layers.0.self_attn.o_proj"],
-                                       "side": "out", "top_k": 1})
+                                       "side": "out", "k": 1})
         assert [it["derivation"]["module"] for it in out["items"]] == [
             "layers.0.self_attn.o_proj.weight"]
         assert any("q_proj" in s for s in out["decomposed"]["skipped"])
@@ -185,6 +185,12 @@ class TestDecompose:
     def test_points_are_required(self, lm):
         with pytest.raises(ValueError, match="needs `points`"):
             decompose_weights(lm, {})
+
+    def test_the_old_top_k_is_refused_naming_k(self):
+        from mechbench_compute.block_params import check_params
+
+        with pytest.raises(ValueError, match="PARAM_REMOVED: top_k — renamed `k`"):
+            check_params("weights/decompose", {"points": ["layers.0.self_attn.o_proj"], "top_k": 2})
 
 
 class TestParameterIntervention:

@@ -15,6 +15,7 @@ OP = Op(
     name="weights/decompose",
     needs=frozenset({"model.forward"}),
     resume=Resume("restart"),
+    removed={"top_k": "renamed `k`: how many directions per module"},
     summary=(
         "A parameter's principal directions in the residual stream — what "
         "a projection reads, or what it writes — as directions the rest of "
@@ -59,13 +60,13 @@ whole model by accident.
                "adapters the model reference itself carries; `adapter_scale` "
                "scales this one.",
                required=False),),
-    output=Output('direction/vector', collection=True, doc="`top_k` items per module, ids `<parameter>#<k>`: the unit direction, `norm` its singular value, `space` naming the model, the layer and the point the module reads or writes (`attn.in_norm`, `attn_out`, `mlp.in_norm`, `mlp_out`), and `derivation` recording the module, the side and the index. The header's `decomposed` lists what was skipped and why."),
+    output=Output('direction/vector', collection=True, doc="`k` items per module, ids `<parameter>#<index>`: the unit direction, `norm` its singular value, `space` naming the model, the layer and the point the module reads or writes (`attn.in_norm`, `attn_out`, `mlp.in_norm`, `mlp_out`), and `derivation` recording the module, the side and the index. The header's `decomposed` lists what was skipped and why."),
     params=(
         P("points", "list[string]",
           "Which parameters to decompose, named as the module tree names "
           "them; `*` stands for one segment. Required — an SVD per tensor "
           "is not something to do to a whole model by accident."),
-        P("top_k", "int",
+        P("k", "int",
           "How many directions per module, largest singular value first.",
           4),
         P("side", "\"auto\" | \"in\" | \"out\"",
@@ -75,7 +76,7 @@ whole model by accident.
           "auto"),
     ),
     example={"model": {"$param": "model"}, "points": ["layers.*.self_attn.o_proj"],
-             "top_k": 2},
+             "k": 2},
 )
 
 
@@ -90,7 +91,7 @@ def run(ctx, inputs, params):
 def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
                       *, model_wire: Any = None) -> dict[str, Any]:
     params = dict(params or {})
-    top_k = max(1, int(params.get("top_k", 4)))
+    k = max(1, int(params.get("k", 4)))
     side_want = str(params.get("side", "auto"))
     tensors = read_parameters(lm)
     chosen = select_points(tensors, params.get("points", []))
@@ -121,12 +122,12 @@ def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
             continue
         u, sv, vt = np.linalg.svd(arr, full_matrices=False)
         basis = u.T if side == "out" else vt
-        for k in range(min(top_k, basis.shape[0])):
-            vec = basis[k]
+        for i in range(min(k, basis.shape[0])):
+            vec = basis[i]
             vec = vec / float(np.linalg.norm(vec))
             items.append({
-                "id": f"{name}#{k}",
-                "coords": {**coords, "index": k},
+                "id": f"{name}#{i}",
+                "coords": {**coords, "index": i},
                 "kind": "direction/vector",
                 "space": {"model": model_wire if isinstance(model_wire, str)
                           else (model_wire or {}).get("base")
@@ -134,11 +135,11 @@ def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
                           "layer": coords.get("layer"), "point": point,
                           "d": len(vec)},
                 "vector": [float(x) for x in vec],
-                "norm": float(sv[k]),
+                "norm": float(sv[i]),
                 "unit": True,
                 "derivation": {"method": "weights/decompose", "module": name,
-                               "side": side, "index": k,
-                               "singular_value": float(sv[k]),
+                               "side": side, "index": i,
+                               "singular_value": float(sv[i]),
                                "spectral": float(sv[0])},
             })
     if not items:
@@ -156,7 +157,7 @@ def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
         "direction/vector", items,
         model=model_wire,
         decomposed={"modules": len({it["derivation"]["module"] for it in items}),
-                    "per_module": top_k, "skipped": refused},
+                    "per_module": k, "skipped": refused},
         name=params.get("name"),
         description=params.get("description"),
     )
