@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.184.0 — 2026-10-01
+
+### Changes that raise
+
 - A `feature` that carries its own `dictionary` (`{"dictionary": {"$ref":
   …}, "index": 3}`) is refused, naming the node's `dictionary` port, in
   `activations/examples`, `logits/attribute` and an intervention spec
