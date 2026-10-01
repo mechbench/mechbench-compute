@@ -3,7 +3,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.api import In, Op, Output, P, Resume, item_kind_of, items_of, read_body_level
+from mechbench_compute.api import (
+    In,
+    Op,
+    Output,
+    P,
+    Resume,
+    describe_spend_cap,
+    item_kind_of,
+    items_of,
+    read_body_level,
+)
 
 OP = Op(
     name="records/fold",
@@ -35,6 +45,11 @@ body says the conversation reached its stop phrase (`text/extend` writes
 `stopped`), the answer converged, or the tool loop finished. The header's
 `folded` says how many steps ran and why it ended.
 
+`budget_usd` caps the provider spend of every step together. The fold
+stops at the step whose call would pass it, naming that step; the header
+carries `spent_usd` and `budget_usd`. A resumed fold counts only what
+this run spent.
+
 Every step is an item keyed by its index, so an interrupted fold resumes
 at the step it reached with the state it had. A body sees one state at a
 time and nothing else.
@@ -49,7 +64,7 @@ conversation is three ops and a loop, not an operation of its own.
            "collection, of whatever kind the body's `state` input takes.",
            many=True),
     ),
-    output=Output('records/record', collection=True, doc="The state after the last step — the body's `output` at that step, its kind whatever the body's output node emits — with `folded` on the header: `steps` (how many ran), `stopped` (`\"steps\"`, or `\"until\"` when the state said stop), `body_nodes`."),
+    output=Output('records/record', collection=True, doc="The state after the last step — the body's `output` at that step, its kind whatever the body's output node emits — with `folded` on the header: `steps` (how many ran), `stopped` (`\"steps\"`, or `\"until\"` when the state said stop), `body_nodes`; with a `budget_usd`, the header carries it and `spent_usd`, the body's spend over every step."),
     params=(
         P("body", "object",
           "The graph to run per step — `{nodes, edges}`, the same shape a "
@@ -74,6 +89,12 @@ conversation is three ops and a loop, not an operation of its own.
         P("output", "string",
           "Which of the body's terminal nodes carries the state out, when "
           "it has more than one.",
+          None),
+        P("budget_usd", "float",
+          "The most the body may spend on provider calls, in US dollars, summed over every step. "
+          "Required when the body calls a hosted endpoint; the fold stops at the step whose call would "
+          "pass it. Each body node's own `budget_usd` still bounds that node, and a job-level cap, if one "
+          "is set, bounds this one further.",
           None),
     ),
     example={"over": [{"participant": "ana"}, {"participant": "bo"}], "steps": 6,
@@ -118,6 +139,8 @@ def run(ctx, inputs, params):
     until = params.get("until") or {}
     stop_field = str(until["field"]) if isinstance(until, Mapping) and until.get("field") else None
     want = params.get("output")
+    cap = params.get("budget_usd")
+    pool = ctx.open_budget(cap) if cap is not None else None
     if ctx.on_start:
         ctx.on_start(steps)
 
@@ -138,7 +161,12 @@ def run(ctx, inputs, params):
                 break
             continue
         step_params = {**(ctx.run_params or {}), **over[t % len(over)], "step": t}
-        outputs = ctx.sub(body, {"state": state}, step_params)
+        try:
+            outputs = ctx.sub(body, {"state": state}, step_params, budget=pool)
+        except Exception as err:
+            if pool is not None and getattr(err, "budget", None) is pool:
+                raise err.retold(describe_spend_cap(err, op="records/fold", node=ctx.node, at=f"step {t}")) from None
+            raise
         if want:
             chosen = outputs.get(str(want))
             if chosen is None:
@@ -163,5 +191,6 @@ def run(ctx, inputs, params):
     return {**dict(state),
             "folded": {"steps": ran, "stopped": stopped,
                        "body_nodes": [n.get("id") for n in body.get("nodes", [])]},
+            **({"spent_usd": round(pool.spent_usd, 6), "budget_usd": float(cap)} if pool is not None else {}),
             **({"name": params["name"]} if params.get("name") else {}),
             **({"description": params["description"]} if params.get("description") else {})}

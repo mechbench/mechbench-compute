@@ -32,9 +32,11 @@ class Budget:
             if self.spent_usd + self.reserved_usd + estimate_usd > self.cap_usd + 1e-12:
                 if self.parent is not None:
                     self.parent.release(estimate_usd)
-                raise BudgetExceeded(cap_usd=self.cap_usd, spent_usd=self.spent_usd,
-                                     estimate_usd=estimate_usd, provider=provider,
-                                     model=model)
+                refused = BudgetExceeded(cap_usd=self.cap_usd, spent_usd=self.spent_usd,
+                                         estimate_usd=estimate_usd, provider=provider,
+                                         model=model)
+                refused.budget = self
+                raise refused
             self.reserved_usd += estimate_usd
         return estimate_usd
 

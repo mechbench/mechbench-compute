@@ -30,7 +30,7 @@ class TestEachMemberAsksForItsNeed:
 
     def test_no_member_is_named_by_no_need(self):
         assert set(ops.MEMBER_NEEDS) == {"model", "loaded", "evict_model", "executor", "sub",
-                                         "provider", "memo", "materialize", "secrets"}
+                                         "provider", "memo", "materialize", "secrets", "open_budget"}
         assert ops.MEMBER_NEEDS["executor"] == {"executor.sub"}
 
 

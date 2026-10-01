@@ -31,6 +31,13 @@ class BudgetExceeded(ProviderError):
         self.cap_usd = cap_usd
         self.spent_usd = spent_usd
         self.estimate_usd = estimate_usd
+        self.provider = provider
+        self.model = model
+        self.budget = None
+
+    def retold(self, message: str) -> BudgetExceeded:
+        self.args = (message,)
+        return self
 
 
 class RateLimited(ProviderError):

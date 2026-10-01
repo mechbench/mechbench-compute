@@ -69,6 +69,7 @@ SOURCES: dict[str, tuple[str, str | None]] = {
     "estimate_bootstrap_ratio": ("mechbench_compute.blocks.estimate_bootstrap_ratio",
                                  "estimate_bootstrap_ratio"),
     "read_model_level": ("mechbench_compute.resume", "read_model_level"),
+    "describe_spend_cap": ("mechbench_compute.blocks.describe_spend_cap", "describe_spend_cap"),
     "derive_seed": ("mechbench_compute.seeds", "derive"),
     "serialize_model": ("mechbench_compute.protocol.serialize_model", "serialize_model"),
 }

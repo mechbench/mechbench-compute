@@ -3,7 +3,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.api import In, Op, Output, P, Resume, collection, item_kind_of, items_of, read_body_level
+from mechbench_compute.api import (
+    In,
+    Op,
+    Output,
+    P,
+    Resume,
+    collection,
+    describe_spend_cap,
+    item_kind_of,
+    items_of,
+    read_body_level,
+)
 
 OP = Op(
     name="records/map",
@@ -45,6 +56,11 @@ its record's and carrying a `mapped` coordinate; `first` keeps one item
 per record; `all` keeps each invocation's items nested under its record.
 When the body ends at more than one node, `output` names the one to
 collect.
+
+`budget_usd` caps the provider spend of every invocation together, so a
+loop over a judge has one total. The map stops at the record whose call
+would pass it, naming that record; the header carries `spent_usd` and
+`budget_usd`. A resumed map counts only what this run spent.
 """,
     inputs=(
         In("records", "collection",
@@ -53,7 +69,7 @@ collect.
            "each. `over` is the other way to give one.",
            many=True, required=False),
     ),
-    output=Output('records/record', collection=True, doc="Under `stream`, every invocation's items in one collection, each id prefixed `<record>:<item>` and carrying `coords.mapped`; under `first` or `all`, one item per record. Under `stream` and `first` the collection takes the BODY's item kind — a map over transcripts that produces transcripts emits transcripts — and under `all`, where each item nests a list, it is a plain record. The header's `mapped` says how many records ran, under which policy, and what the body's nodes were."),
+    output=Output('records/record', collection=True, doc="Under `stream`, every invocation's items in one collection, each id prefixed `<record>:<item>` and carrying `coords.mapped`; under `first` or `all`, one item per record. Under `stream` and `first` the collection takes the BODY's item kind — a map over transcripts that produces transcripts emits transcripts — and under `all`, where each item nests a list, it is a plain record. The header's `mapped` says how many records ran, under which policy, and what the body's nodes were; with a `budget_usd`, the header carries it and `spent_usd`, the body's spend over every invocation."),
     params=(
         P("body", "object",
           "The graph to run per record — `{nodes, edges}`, the same shape a "
@@ -82,6 +98,12 @@ collect.
         P("output", "string",
           "Which of the body's terminal nodes to collect, when it has more "
           "than one.",
+          None),
+        P("budget_usd", "float",
+          "The most the body may spend on provider calls, in US dollars, summed over every invocation. "
+          "Required when the body calls a hosted endpoint; the map stops at the record whose call would "
+          "pass it. Each body node's own `budget_usd` still bounds that node, and a job-level cap, if one "
+          "is set, bounds this one further.",
           None),
     ),
     example={"bind": {"topic": "user"}, "collect": "stream",
@@ -131,6 +153,8 @@ def run(ctx, inputs, params):
         raise ValueError(
             f"collect is 'stream', 'first' or 'all', not {collect!r}")
     want = params.get("output")
+    cap = params.get("budget_usd")
+    pool = ctx.open_budget(cap) if cap is not None else None
     if ctx.on_start:
         ctx.on_start(len(records))
 
@@ -153,7 +177,13 @@ def run(ctx, inputs, params):
                 f"record {key!r} has no {', '.join(missing_fields)} to "
                 f"bind into the body's params")
         child_bound = {**(ctx.run_params or {}), **bound}
-        outputs = ctx.sub(body, {"record": collection(record_kind, [rec])}, child_bound)
+        try:
+            outputs = ctx.sub(body, {"record": collection(record_kind, [rec])}, child_bound, budget=pool)
+        except Exception as err:
+            if pool is not None and getattr(err, "budget", None) is pool:
+                raise err.retold(describe_spend_cap(err, op="records/map", node=ctx.node,
+                                                at=f"record {key!r}")) from None
+            raise
         if want:
             chosen = outputs.get(str(want))
             if chosen is None:
@@ -191,4 +221,5 @@ def run(ctx, inputs, params):
         mapped={"records": len(records), "collect": collect,
                 "body_nodes": [n.get("id") for n in body.get("nodes", [])]},
         name=params.get("name"), description=params.get("description"),
-        **({"arch": out_arch} if out_arch else {}))
+        **({"arch": out_arch} if out_arch else {}),
+        **({"spent_usd": round(pool.spent_usd, 6), "budget_usd": float(cap)} if pool is not None else {}))

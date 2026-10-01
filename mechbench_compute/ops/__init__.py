@@ -17,6 +17,7 @@ MEMBER_NEEDS: dict[str, frozenset[str]] = {
     "evict_model": MODEL_NEEDS,
     "executor": frozenset({"executor.sub"}),
     "sub": frozenset({"executor.sub"}),
+    "open_budget": frozenset({"executor.sub"}),
     "provider": frozenset({"provider.chat", "provider.embed"}),
     "memo": frozenset({"memo"}),
     "materialize": frozenset({"objects.read"}),
@@ -69,6 +70,7 @@ class Context:
     host: Any = None
     run_secrets: Mapping[str, Any] | None = None
     scope: str | None = None
+    node: str | None = None
 
     @classmethod
     def for_op(cls, op: Any, executor: Any = None, **lent: Any) -> Context:
@@ -104,7 +106,7 @@ class Context:
         return self.find_host("model", "needs a model and none is loaded")._model_loaded(ref)
 
     def sub(self, target: str | Mapping[str, Any], inputs: Mapping[str, Any],
-            params: Mapping[str, Any], *, budget: float | None = None,
+            params: Mapping[str, Any], *, budget: Any = None,
             on_item: Callable[..., None] | None = None,
             on_start: Callable[..., None] | None = None) -> Any:
         host = self.find_host("sub", "runs a sub-run")
@@ -113,6 +115,9 @@ class Context:
             secrets = self.secrets
         return host.run_sub(target, inputs, params, secrets=secrets, budget=budget,
                             on_item=on_item, on_start=on_start)
+
+    def open_budget(self, cap_usd: float) -> Any:
+        return self.find_host("open_budget", "caps a sub-run's spend").open_child_budget(cap_usd)
 
     def provider(self, model_ref: Any) -> Any:
         self.check("provider")

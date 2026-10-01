@@ -42,9 +42,12 @@ class Sub:
             self._model, self._model_id = child._model, child._model_id
 
     def open_child_budget(self, cap_usd):
+        from mechbench_compute.providers.budget import Budget
+
         if cap_usd is None:
             return self._budget
-        from mechbench_compute.providers.budget import Budget
+        if isinstance(cap_usd, Budget):
+            return cap_usd
 
         cap = float(cap_usd)
         if cap <= 0:

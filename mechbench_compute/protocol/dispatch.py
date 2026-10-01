@@ -41,7 +41,7 @@ class Dispatch:
             result_base=state.result_base,
             resume_items=resume_kwargs.get("resume_items"),
             resume_state=resume_kwargs.get("resume_state"),
-            on_token=self._node_on_token(nid))
+            on_token=self._node_on_token(nid), node=nid)
 
     def _node_on_token(self, nid):
         sink = getattr(self, "_on_token", None)
