@@ -8,14 +8,15 @@ from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 
 class Sub:
     def run_sub(self, target, inputs, params, *, secrets=None, budget=None,
-                on_item=None, on_start=None, on_token=None, outputs=None) -> Any:
+                on_item=None, on_start=None, on_token=None, outputs=None,
+                on_node_start=None) -> Any:
         from mechbench_compute import dataflow as dataflow_mod
 
         child = type(self)(
             on_download=self._on_download,
             on_download_bytes=self._on_download_bytes,
             limiter=self._limiter, budget=self.open_child_budget(budget),
-            on_token=on_token)
+            on_token=on_token, on_node_start=on_node_start)
         child._model, child._model_id = self._model, self._model_id
         child._checkpoint_dirs = self.__dict__.setdefault("_checkpoint_dirs", {})
         try:

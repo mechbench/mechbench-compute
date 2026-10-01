@@ -72,6 +72,8 @@ SOURCES: dict[str, tuple[str, str | None]] = {
     "describe_spend_cap": ("mechbench_compute.blocks.describe_spend_cap", "describe_spend_cap"),
     "derive_seed": ("mechbench_compute.seeds", "derive"),
     "serialize_model": ("mechbench_compute.protocol.serialize_model", "serialize_model"),
+    "run_try": ("mechbench_compute.live.run_try", "run_try"),
+    "TryRefused": ("mechbench_compute.live.run_try", "TryRefused"),
 }
 
 __all__ = sorted(SOURCES)
