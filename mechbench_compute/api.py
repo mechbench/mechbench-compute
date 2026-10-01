@@ -54,6 +54,17 @@ SOURCES: dict[str, tuple[str, str | None]] = {
     "Package": ("mechbench_compute.lexicon.extension", "Package"),
     "F": ("mechbench_compute.lexicon.values", "F"),
     "read_body_level": ("mechbench_compute.resume", "read_body_level"),
+    "shapes": ("mechbench_compute.shapes", None),
+    "find_architecture": ("mechbench_compute.architectures", "for_type"),
+    "read_last_logp": ("mechbench_compute.interp.read_last_logp", "read_last_logp"),
+    "read_metric": ("mechbench_compute.interp.read_metric", "read_metric"),
+    "METRICS": ("mechbench_compute.interp.read_metric", "METRICS"),
+    "resolve_target": ("mechbench_compute.interp.resolve_target", "resolve_target"),
+    "report_own_top1": ("mechbench_compute.interp.report_own_top1", "report_own_top1"),
+    "SpecIntervention": ("mechbench_compute.intervene.spec_intervention", "SpecIntervention"),
+    "name_component": ("mechbench_compute.intervene.name_component", "name_component"),
+    "estimate_bootstrap_ratio": ("mechbench_compute.blocks.estimate_bootstrap_ratio",
+                                 "estimate_bootstrap_ratio"),
     "read_model_level": ("mechbench_compute.resume", "read_model_level"),
 }
 

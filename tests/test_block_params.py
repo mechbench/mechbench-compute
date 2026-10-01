@@ -84,6 +84,15 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "intervene/ablate-heads": [
         ("ops/intervene/ablate_heads.py", "run"),
         ("ops/intervene/ablate_heads.py", "ablate_heads")],
+    "intervene/prune": [
+        ("ops/intervene/prune.py", "run"),
+        ("ops/intervene/prune.py", "prune_circuits"),
+        ("ops/intervene/prune.py", "read_heads"),
+        ("ops/intervene/prune.py", "read_trace")],
+    "intervene/ablate-circuit": [
+        ("ops/intervene/ablate_circuit.py", "run"),
+        ("ops/intervene/ablate_circuit.py", "ablate_circuits"),
+        ("interp/resolve_target.py", "resolve_target")],
     "intervene/steer": [
         ("ops/intervene/steer.py", "run"),
         ("ops/intervene/steer.py", "steer_inject")],

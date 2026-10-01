@@ -75,7 +75,7 @@ cell.
 | `source` | collection | — | A collection of `activations/vector` — a capture, intervened or not — supplying replacement activations for `mean`, `resample` and `patch`; items are matched to the item's layer (and point). May instead arrive on the node's `source` port. |
 | `row` | object | — | For `patch`: which row of `source` to write in, e.g. `{"index": 0}`. |
 | `condition` | object | — | Apply the item only at positions whose activation projects onto a direction above (or below) a threshold: `{"direction": …, "threshold": 0.0, "above": true}`. |
-| `except` | bool | `false` | Invert the sets this item names: every layer, head or neuron BUT these. |
+| `except` | bool | `false` | Invert each set this item names, on its own: every layer, head or neuron BUT these. |
 | `from` | object | — | For `patch`: `{"layer": 8, "point": "resid_post"}` — where the row is READ, when that differs from where it is written. |
 | `pattern` | object | — | At `attn.scores`/`attn.weights`: `{"from": selector, "to": selector}` — the attention edge, source to destination. |
 | `renormalize` | bool | `true` | At `attn.weights`: rescale a row that lost mass so it sums to one again. |
@@ -117,12 +117,17 @@ on without fetching it.
 
 ### Ablating the complement
 
-`except: true` inverts the sets an item names. `{"heads": [3, 7],
-"layers": [23], "except": true}` zeroes every head of layer 23 BUT 3 and 7:
-where the direct ablation asks whether the named components are necessary
-(faithfulness), its complement asks whether they are sufficient
-(completeness), and a circuit claim wants both. It needs a set to invert,
-and a whole-model point (`embed`, `logits`) has none.
+`except: true` inverts every set an item names, each on its own.
+`{"heads": [3, 7], "except": true}` zeroes every head but 3 and 7 on every
+layer. Naming the layers inverts them too: `{"heads": [3, 7], "layers":
+[23], "except": true}` acts on every layer but 23, zeroing there every head
+but 3 and 7, and leaves layer 23 alone. To zero every head of layer 23 but
+3 and 7, list the others: `{"layers": [23], "heads": [0, 1, 2, 4, 5, 6]}`.
+`intervene/ablate-circuit` writes a circuit's complement out that way.
+Removing the complement asks whether the named components suffice
+(faithfulness); removing them asks whether they are needed
+(completeness); a circuit claim wants both. `except` needs a set to
+invert, and a whole-model point (`embed`, `logits`) has none.
 
 ### Cutting an attention edge
 
@@ -249,9 +254,9 @@ one item can zero every layer's `o_proj`.
                     P("above", "bool", "Act above the threshold; `false` acts below it.", True),
                 )),
               P("except", "bool",
-                "Invert the sets this item names — every layer, head or neuron BUT "
-                "those — which measures a circuit's completeness where the direct "
-                "ablation measures its faithfulness.",
+                "Invert each set this item names, on its own — every layer, head or "
+                "neuron BUT those. With both `layers` and `heads` named, both are "
+                "inverted.",
                 False),
               P("from", "object",
                 "For `patch`: where the row is read, when that is not where it is "

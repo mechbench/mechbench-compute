@@ -28,11 +28,13 @@
   "geometry/align": "pure",
   "geometry/compare": "pure",
   "geometry/span": "pure",
+  "intervene/ablate-circuit": "mlx-local",
   "intervene/ablate-heads": "mlx-local",
   "intervene/ablate-layers": "mlx-local",
   "intervene/apply": "mlx-local",
   "intervene/patch": "mlx-local",
   "intervene/path": "mlx-local",
+  "intervene/prune": "pure",
   "intervene/steer": "mlx-local",
   "logits/attribute": "mlx-local",
   "logits/read": "mlx-local",
@@ -185,6 +187,10 @@
    "items": false,
    "level": "restart"
   },
+  "intervene/ablate-circuit": {
+   "items": false,
+   "level": "restart"
+  },
   "intervene/ablate-heads": {
    "items": false,
    "level": "restart"
@@ -202,6 +208,10 @@
    "level": "restart"
   },
   "intervene/path": {
+   "items": false,
+   "level": "restart"
+  },
+  "intervene/prune": {
    "items": false,
    "level": "restart"
   },

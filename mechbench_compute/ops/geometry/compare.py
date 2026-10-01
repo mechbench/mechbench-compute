@@ -25,7 +25,8 @@ drawn: `activations/vector` (and so directions and trajectory points) by
 `cosine` (option `center`), `euclidean` or `dot`; `logits/distribution`
 (and so decision reads, funnels and readouts) by `jensen-shannon`,
 `hellinger`, `total-variation` or `kl`; `records/record` (and every record
-kind) by `hamming` over `coords`. The op takes any such collection on
+kind) by `hamming` over `coords`; `intervene/circuit` by `jaccard` over
+component addresses (option `weighted`) as well as `hamming`. The op takes any such collection on
 `items`, applies the named `metric` — the kind's first when none is named —
 and produces the matrix with the metric, its `options`, and whether it is
 symmetric recorded on the header.
@@ -60,7 +61,7 @@ downstream.
         P("metric", "string",
           "Which of the kind's metrics to apply. By default the kind's first: "
           "`cosine` for vectors, `jensen-shannon` for distributions, "
-          "`hamming` for records.",
+          "`hamming` for records, `jaccard` for circuits.",
           None),
         P("options", "map[string, json]",
           "The metric's options, as it declares them — `{\"center\": true}` "

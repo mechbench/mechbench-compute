@@ -210,3 +210,35 @@ def hamming(items, options):
             d = sum(1 for a in axes if coords[i].get(a) != coords[j].get(a))
             out[i, j] = out[j, i] = float(d)
     return out
+
+
+def read_effects(item: Mapping[str, Any]) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for c in item.get("components") or []:
+        address = c.get("address")
+        if address is None:
+            raise ValueError(
+                f"circuit {item.get('id')!r} has a component with no `address`; "
+                "jaccard compares circuits by address")
+        out[str(address)] = abs(float(c.get("effect") or 0.0))
+    return out
+
+
+@_implements("intervene/circuit", "jaccard")
+def jaccard(items, options):
+    effects = [read_effects(it) for it in items]
+    weighted = bool(options.get("weighted"))
+    n = len(items)
+    out = np.ones((n, n), dtype=np.float64)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = effects[i], effects[j]
+            union = set(a) | set(b)
+            if weighted:
+                top = sum(max(a.get(k, 0.0), b.get(k, 0.0)) for k in union)
+                low = sum(min(a.get(k, 0.0), b.get(k, 0.0)) for k in union)
+                value = low / top if top > 0 else float(a == b)
+            else:
+                value = len(set(a) & set(b)) / len(union) if union else 1.0
+            out[i, j] = out[j, i] = value
+    return out

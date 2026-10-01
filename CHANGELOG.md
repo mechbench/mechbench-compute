@@ -25,7 +25,36 @@ _None._
 
 ### Other
 
-_None._
+- **Circuits are objects** (tasks 000782–000784, docs/CAPABILITY.md
+  §8.2). The kind `intervene/circuit` is a named set of components, each
+  addressed `L{layer}.{point}[.H{head}]@{position}` with positions
+  counted from the end, carrying the metric, measure, ablation, universe,
+  source, task and derivation it was found under. `geometry/compare`
+  compares circuits by the new `jaccard` metric over addresses
+  (`weighted: true` for Σmin/Σmax of the effects).
+- **`intervene/prune`** cuts an `intervene/heads` grid or an
+  `intervene/trace` into circuits: `threshold` (one circuit per value
+  of a list, ids `{name}@{t}`), `top`, `per_layer`, `sign`, `measure`,
+  `aggregate`. No forward pass. A trace's pairs of different lengths are
+  refused by id.
+- **`intervene/ablate-circuit`** scores circuits on records and emits
+  `intervene/faithfulness`: the full model, the universe removed, and
+  per circuit its complement removed and itself removed, as explicit
+  spec items through `compile`; faithfulness and completeness as ratios
+  of means with a paired bootstrap interval, unclipped; `held_out` on
+  the header; the four readings per record in the `cells` output. Zero
+  ablation everywhere; mean ablation at `attn_out` and `mlp_out` only.
+  A residual location, an undeclared point and a mean at a head axis are
+  refused by name.
+- **`intervene/ablate-heads` takes `metric`**: `logprob` (the default,
+  byte for byte the grid it was), `prob`, `logit` or `entropy` (bits,
+  the next token). A non-default grid names its `metric` and each
+  condition carries `baseline`.
+- `intervene/apply`'s description of `except` said
+  `{"heads": [3, 7], "layers": [23], "except": true}` zeroes every head
+  of layer 23 but 3 and 7; it inverts the layers too, as the code always
+  did. The description now says so, and had faithfulness and
+  completeness the wrong way round; both are fixed.
 
 ## 0.178.0 — 2026-10-01
 
