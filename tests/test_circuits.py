@@ -12,6 +12,8 @@ from mechbench_compute.expr.engine import load_engine
 from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.read_metric import read_metric
 from mechbench_compute.interp.resolve_target import resolve_target
+from mechbench_compute.intervene.compile import compile as compile_intervention
+from mechbench_compute.intervene.spec_intervention import SpecIntervention
 from mechbench_compute.interventions import Ablate
 from mechbench_compute.lexicon import kinds as K
 from mechbench_compute.ops import Context
@@ -308,11 +310,14 @@ class TestAblateCircuitRefuses:
 
 
 class TestAblateHeadsMetric:
-    def test_the_logprob_grid_is_byte_for_byte_the_same(self, tiny):
-        assert rm.content_hash(ablate_heads(tiny, RECORDS, {})) == (
-            "02ab9c6945b00e81301292445a67eddbfc556a8dfc12cf7a27056713a845407e")
-        assert rm.content_hash(ablate_heads(tiny, RECORDS, {"layers": [1, 3], "tracked": TRACKED})) == (
-            "74f274a102fcd90a56339751ccff8456b66eb241a9dd20ea1614345db2ea06c9")
+    def test_logprob_is_the_default_and_reads_as_by_hand(self, tiny):
+        params = {"layers": [1, 3], "tracked": TRACKED}
+        out = ablate_heads(tiny, RECORDS, params)
+        assert rm.content_hash(out) == rm.content_hash(ablate_heads(tiny, RECORDS, {**params, "metric": "logprob"}))
+        base = [read_by_hand(tiny, r, []) for r in RECORDS]
+        assert [c["baseline_logp"] for c in out["conditions"]] == [round(b, 4) for b in base]
+        cut = np.mean([read_by_hand(tiny, r, [(3, 2)]) - b for r, b in zip(RECORDS, base, strict=True)])
+        assert out["measures"]["mean_delta"][1][2] == pytest.approx(cut, abs=1e-4)
 
     def test_entropy_against_a_computation_by_hand(self, tiny):
         out = ablate_heads(tiny, RECORDS, {"layers": [2], "metric": "entropy"})
@@ -380,17 +385,33 @@ class TestAblateCircuitReference:
         after = [read_plain(adapted, r, {})[1] for r in RECORDS]
         assert all(mx.array_equal(a, b).item() for a, b in zip(before, after, strict=True))
 
-    def test_empty_is_byte_for_byte_what_it_was(self, tiny):
-        hashes = {"logprob": ("0355fe19a826a3ce9f19578145da7a80c9678df1da3ff2816c8a147510bdeb4d",
-                              "09c8757c3234c1ea56cb4bff89ff989ffac756d4afb4393b3bec43030e104826"),
-                  "entropy": ("b84153e995759492e7ec0b6badec10e5f3dc8342ceac59a8030ef2dd047249d6",
-                              "3d2f5cdbc879c221199f47b9011b8fdeebf68c2935ffb8a3ebeab3fb6fb6a4a8")}
-        for metric, (faith, cells) in hashes.items():
-            out = ablate_circuits(tiny, [hand_circuit("h", [(0, 1), (2, 3)])], RECORDS,
-                                  {"tracked": TRACKED, "metric": metric})
-            assert out["out"]["reference"] == "empty" and out["cells"]["reference"] == "empty"
-            assert rm.content_hash({k: v for k, v in out["out"].items() if k != "reference"}) == faith
-            assert rm.content_hash({k: v for k, v in out["cells"].items() if k != "reference"}) == cells
+    @pytest.mark.parametrize("metric", ["logprob", "entropy"])
+    def test_empty_is_the_default_and_its_floor_is_the_universe_removed(self, tiny, metric):
+        heads = [(0, 1), (2, 3)]
+        params = {"tracked": TRACKED, "metric": metric}
+        out = ablate_circuits(tiny, [hand_circuit("h", heads)], RECORDS, params)
+        named = ablate_circuits(tiny, [hand_circuit("h", heads)], RECORDS, {**params, "reference": "empty"})
+        assert out["out"]["reference"] == "empty" and out["cells"]["reference"] == "empty"
+        assert rm.content_hash(out["out"]) == rm.content_hash(named["out"])
+        assert rm.content_hash(out["cells"]) == rm.content_hash(named["cells"])
+        removal = compile_intervention(tiny, [{"point": "attn.per_head_out", "layers": [layer], "heads": [0, 1, 2, 3],
+                                               "positions": "all", "op": "zero"} for layer in range(4)])
+        cells = lexicon.items_of(out["cells"])
+        for c, cond, record in zip(cells, out["out"]["conditions"], RECORDS, strict=True):
+            answer, _ = read_plain(tiny, record, params)
+            ids = render(tiny, record).array
+            tokens = [tiny.tokenizer.decode([int(t)]) for t in np.array(ids).reshape(-1)]
+            iv = SpecIntervention(removal.specs, tokens, record)
+            floor = read_metric(answer, metric, tiny.run(ids, interventions=[iv]).logits)
+            assert c["m_empty"] == round(floor, 6) and cond["m_empty"] == round(floor, 4)
+        full = np.array([read_by_hand(tiny, r, [], metric) for r in RECORDS])
+        empty = np.array([read_by_hand(tiny, r, ALL_HEADS, metric) for r in RECORDS])
+        alone = np.array([read_by_hand(tiny, r, [h for h in ALL_HEADS if h not in heads], metric) for r in RECORDS])
+        without = np.array([read_by_hand(tiny, r, heads, metric) for r in RECORDS])
+        gap = full.mean() - empty.mean()
+        item = lexicon.items_of(out["out"])[0]
+        assert item["faithfulness"] == pytest.approx((alone.mean() - empty.mean()) / gap, abs=1e-3)
+        assert item["completeness"] == pytest.approx((full.mean() - without.mean()) / gap, abs=1e-3)
 
     def test_the_sentence_names_the_base_model_and_only_it(self, adapted, tiny):
         speak = K.BY_KIND["intervene/faithfulness"].speak

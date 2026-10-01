@@ -7,6 +7,7 @@ import pytest
 from mechbench_compute import attribution, lexicon
 from mechbench_compute import resume as rm
 from mechbench_compute.distill import render
+from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.intervene.plan import plan
 from mechbench_compute.intervene.spec_error import SpecError
 from mechbench_compute.ops import Context
@@ -244,19 +245,54 @@ class TestAttributingToFeatures:
             attribute_logits(tiny, RECORDS, self.PARAMS, dictionary=dictionary)
 
 
-class TestTheNeuronFormsAreUnchanged:
+def scale_neurons(factor, neurons):
+    def hook(act, info):
+        mask = np.ones(act.shape[-1], dtype=np.float32)
+        mask[neurons] = factor
+        return act * mx.array(mask).astype(act.dtype)
+    return hook
+
+
+class TestTheNeuronFormsAgainstAComputationByHand:
     def test_examples_on_a_neuron(self, tiny):
         out = find_top_examples(tiny, RECORDS, {"k": 3, "window": 2, "sign": "both", "point": "resid_post",
                                                 "neuron": {"layer": 2, "index": 5}})
-        assert rm.content_hash(out) == "85caee6c72195b5e26a484da83a78f83e397491c342a20f3ff1741dc263e04b3"
+        name = "blocks.2.resid_post"
+        acts = {r["id"]: np.array(tiny.run(render(tiny, r).array, capture=[name]).cache[name][0, :, 5]
+                                  .astype(mx.float32)) for r in RECORDS}
+        ranked = sorted((float(v), rid, p) for rid, a in acts.items() for p, v in enumerate(a))
+        want = {"high": [f"{rid}:{p}" for _v, rid, p in ranked[::-1][:3]],
+                "low": [f"{rid}:{p}" for _v, rid, p in ranked[:3]]}
+        for side, ids in want.items():
+            assert [i["id"] for i in out["items"] if i["coords"]["side"] == side] == ids
+        for item in out["items"]:
+            a, p = acts[item["coords"]["record"]], item["coords"]["position"]
+            assert item["value"] == pytest.approx(float(a[p]), abs=1e-4)
+            start = p - item["hit"]
+            assert item["values"] == pytest.approx([float(v) for v in a[start:start + len(item["values"])]],
+                                                   abs=1e-4)
+        assert out["over"]["n_tokens"] == sum(len(a) for a in acts.values())
+        assert (out["layer"], out["neuron"], out["point"]) == (2, 5, "resid_post")
 
     def test_attribute_without_a_dictionary(self, tiny):
         out = attribute_logits(tiny, RECORDS, {"tracked": {"answer": "mat", "other": "dog"}})
-        assert rm.content_hash(out) == "cb60f56d7be71ee9ec159fa51a46f0f9de37490d7ff6be1a7beaf7d1c184860d"
+        assert out["components"] == ["embed", "L0", "L1", "L2", "L3"]
+        for item, record in zip(out["items"], RECORDS, strict=True):
+            lp = read_last_logp(tiny.run(render(tiny, record).array).logits)
+            assert (item["target"]["id"], item["contrast"]["id"]) == (12, 14)
+            assert item["additivity"]["true_logit"] == pytest.approx(float(lp[12] - lp[14]), abs=2e-3)
+            assert sum(item["measures"]["contribution"]) == pytest.approx(item["additivity"]["true_logit"],
+                                                                          abs=2e-3)
 
     def test_apply_on_neurons(self, tiny):
         out = run_intervene(tiny, RECORDS, {
             "spec": [{"point": "resid_post", "layers": [1], "neurons": [3, 7], "op": "scale", "strength": 4.0,
                       "positions": "all"}],
             "sweep": {"strength": [0.5, 1.0]}, "tracked": {"answer": "mat"}})
-        assert rm.content_hash(out) == "6e01fc16c85bd5ca3a1f0796074c3d991a29cea660ca1a118c092271ac36182c"
+        assert [(i["id"], i["factor"]) for i in out["items"]] == [
+            (r["id"], f) for r in RECORDS for f in (0.0, 0.5, 1.0)]
+        for item in out["items"]:
+            ids = render(tiny, next(r for r in RECORDS if r["id"] == item["id"])).array
+            hooks = {"blocks.1.resid_post": scale_neurons(4.0 * item["factor"], [3, 7])} if item["factor"] else {}
+            lp = read_last_logp(tiny.run(ids, hooks=hooks).logits)
+            assert item["tracked"]["answer"]["logp"] == pytest.approx(float(lp[12]), abs=1e-3)
