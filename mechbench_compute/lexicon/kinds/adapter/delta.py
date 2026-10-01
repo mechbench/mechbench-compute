@@ -10,7 +10,7 @@ KIND = Kind(
     fields={"id": ID, "coords": COORDS,
             "frobenius": F("number", "‖ΔW‖_F at this module — how much was written here at all."),
             "spectral": F("number", "The largest singular value: how much of the write is one direction."),
-            "singular_values": F("array", "The spectrum, largest first (`top_k` of them).", items={"type": "number"}),
+            "singular_values": F("array", "The spectrum, largest first (as many as `adapter/measure`'s `k`).", items={"type": "number"}),
             "effective_rank": F("number", "exp(H(p)) over the normalised spectrum: 1 for a single direction, r for r equal ones."),
             "mass_share": F("number", "This module's ‖ΔW‖² over the total of what was measured; the shares sum to 1."),
             "rank": F("integer", "The adapter's rank at this module — the number of directions it could have written."),

@@ -21,6 +21,10 @@ nothing said so.
   uses for the same thing. A stored protocol that names `top_k` is
   refused before it runs, with "PARAM_REMOVED: top_k — renamed `k`: how
   many directions per module". Renamed, it gives the same bytes.
+- **`adapter/measure`'s `top_k` is `k`** for the same reason: how many
+  singular values to record per module. A stored protocol that names
+  `top_k` is refused with "PARAM_REMOVED: top_k — renamed `k`: how many
+  singular values per module". Renamed, it gives the same bytes.
 
 ### Changes that alter results without raising
 

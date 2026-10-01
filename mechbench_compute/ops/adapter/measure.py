@@ -13,6 +13,7 @@ from mechbench_compute.weights.compute_effective_rank import compute_effective_r
 OP = Op(
     name="adapter/measure",
     resume=Resume("restart"),
+    removed={"top_k": "renamed `k`: how many singular values per module"},
     summary=(
         "Measure what training wrote, from the adapter itself: per layer and "
         "module, the norm, spectrum and effective rank of the delta, and its "
@@ -66,7 +67,7 @@ of its own adapter's mass. Grouped by `coords.module` and drawn over
           "Which projections: `\"v_proj\"`, or `\"self_attn.v_proj\"` to "
           "disambiguate a name two containers share.",
           "all"),
-        P("top_k", "int",
+        P("k", "int",
           "How many singular values to record per module, largest first.",
           4),
         P("vectors", "bool",
@@ -186,7 +187,7 @@ def measure_adapter(payload: Mapping[str, Any],
     scale = float(cfg.get("scale", alpha / rank if rank else 1.0))
     layers = params.get("layers", "all")
     modules = params.get("modules", "all")
-    top_k = int(params.get("top_k", 4))
+    keep = int(params.get("k", 4))
     want_vectors = bool(params.get("vectors", False))
     source = params.get("source")
 
@@ -220,7 +221,7 @@ def measure_adapter(payload: Mapping[str, Any],
             "kind": "adapter/delta",
             "frobenius": float(np.sqrt(e)),
             "spectral": float(sv[0]) if len(sv) else 0.0,
-            "singular_values": [float(x) for x in sv[:max(0, top_k)]],
+            "singular_values": [float(x) for x in sv[:max(0, keep)]],
             "effective_rank": compute_effective_rank(sv),
             "mass_share": float(e / total) if total > 0 else 0.0,
             "rank": len(sv),

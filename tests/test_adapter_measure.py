@@ -129,8 +129,14 @@ class TestTheReadout:
             assert it["coords"]["adapter"] == "cats"
         assert out["source"] == "cats"
 
-    def test_top_k_bounds_the_spectrum_recorded(self):
-        out = _measure(_adapter(_random_pairs()), top_k=2)
+    def test_the_old_top_k_is_refused_naming_k(self):
+        from mechbench_compute.block_params import check_params
+
+        with pytest.raises(ValueError, match="PARAM_REMOVED: top_k — renamed `k`"):
+            check_params("adapter/measure", {"top_k": 2})
+
+    def test_k_bounds_the_spectrum_recorded(self):
+        out = _measure(_adapter(_random_pairs()), k=2)
         assert all(len(it["singular_values"]) == 2 for it in out["items"])
 
     def test_an_adapter_with_no_bytes_is_refused(self):
