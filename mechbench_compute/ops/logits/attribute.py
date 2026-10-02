@@ -20,8 +20,10 @@ from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.report_own_top1 import report_own_top1
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
-from mechbench_compute.interp.answer import encode_answer
+from mechbench_compute.interp.answer import read_answer
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+
+SPLITS = ("layer", "sublayer")
 
 OP = Op(
     name="logits/attribute",
@@ -29,14 +31,29 @@ OP = Op(
     resume=Resume("restart"),
     summary=(
         "Split the target token's final logit into the additive contribution "
-        "of the embedding and of every layer — direct logit attribution, with "
-        "each row checking that the pieces sum to the truth."
+        "of the embedding and of every layer, or of every attention, MLP and "
+        "gate write — direct logit attribution, with each row checking that "
+        "the pieces sum to the truth."
     ),
     description="""\
-The residual stream at the last position is the embedding plus each layer's
-update. Each of those components is projected through the unembedding (folded
-with the final norm's scale when `apply_ln` is on) to give its contribution
-to the target's logit, so the contributions are exactly additive.
+The residual stream at the last position is the embedding plus what every
+layer writes into it. Each of those components is projected through the
+unembedding (folded with the final norm's scale when `apply_ln` is on) to
+give its contribution to the target's logit, so the contributions are
+exactly additive.
+
+`split` says what a component is. By `layer`, the default, it is the
+embedding and then each layer's whole write: `L0`, `L1`, …. By `sublayer`
+it is the embedding and then each of a layer's writes apart: `L3.attn`,
+the attention block's output after any norm the architecture applies to
+it; `L3.mlp`; and `L3.gate`, the per-layer input gate, on a checkpoint
+that has one (Gemma 4's E models). A layer's piece is the sum of its
+sublayer pieces.
+
+An architecture that multiplies the whole stream by a scalar at the end of
+each layer (Gemma 4) scales a write by the scalars of its own layer and of
+every layer after it before the unembedding reads it, so each piece is its
+write times that product, and the embedding is multiplied by all of them.
 
 Every row also reports its **additivity residual**: the summed contributions
 minus the model's true final logit for the target. A reader never has to take
@@ -53,6 +70,21 @@ is of the spelling the model gives more probability on this prompt.
 `target` (and `contrast`) name the spelling decomposed; `variants` (and
 `contrast_variants`) list every spelling with its probability, so a reader
 sees how much of the answer the other spelling carries.
+
+Two models can prefer different spellings of one answer, and then their
+decompositions are of different tokens. A token named by id instead,
+`{"id": 9079}` — in `tracked`, in a record's own `tracked`, or as a
+record's `target` or `contrast` — is that one token on every model, so two
+models are decomposed on the same pair. A `text` beside the id is checked
+against the model's vocabulary.
+
+`per_head_layers` splits a layer's attention piece by head: each head's
+output through its slice of `o_proj`, then through the norm the
+architecture applies after `o_proj` (Gemma 3 and Gemma 4), whose divisor,
+the root mean square of the whole `o_proj` output, is held at its value in
+the run, and times the layer's product of scalars. A layer's heads sum to
+its attention piece; an `o_proj` bias, on a checkpoint that has one,
+belongs to no head and is reported beside them as `bias`.
 
 Because additivity only holds over the whole stream, `layers` must be
 `"all"`.
@@ -95,8 +127,13 @@ dictionary by its content hash.
            "scales this one.",
            required=False),
     ),
-    output=Output('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, …): `measures.contribution`, the `target` and `contrast` tokens (each the spelling the model prefers, with `variants` and `contrast_variants` listing every spelling as `{token, p, logp}`), the `additivity` check (`summed`, `true_logit`, `residual`), `per_head` when `per_head_layers` was set — each listed layer's contribution split by attention head — and, with a dictionary, `features` (each `{index, activation, dla, contribution}`) and `reconstruction` (`{stream, features, b_dec, error}`, over the whole dictionary only). The header then carries `dictionary`, or `feature` (`{dictionary, index}`), each dictionary as `{kind, hash, derivation, reads, width, source}`."),
+    output=Output('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, … by layer; `embed`, `L0.attn`, `L0.mlp`, … by sublayer, as the header's `split` says): `measures.contribution`, the `target` and `contrast` tokens (each the spelling the model prefers, or the token named by id, with `variants` and `contrast_variants` listing every spelling as `{token, p, logp}`), the `additivity` check (`summed`, `true_logit`, `residual`), `per_head` when `per_head_layers` was set — each listed layer's attention piece split by head, `{layer, contributions}`, with `bias` where `o_proj` has one — and, with a dictionary, `features` (each `{index, activation, dla, contribution}`) and `reconstruction` (`{stream, features, b_dec, error}`, over the whole dictionary only). The header then carries `dictionary`, or `feature` (`{dictionary, index}`), each dictionary as `{kind, hash, derivation, reads, width, source}`."),
     params=(
+        P("split", "string",
+          "What a component is: `\"layer\"`, each layer's whole write (`L3`), "
+          "or `\"sublayer\"`, each layer's attention, MLP and, where the "
+          "checkpoint has one, gate write apart (`L3.attn`, `L3.mlp`, `L3.gate`).",
+          "layer", choices=SPLITS),
         P("apply_ln", "bool",
           "Fold the final norm's scale into the unembedding so contributions "
           "are in the same units as the model's real logits. Turning it off "
@@ -107,9 +144,10 @@ dictionary by its content hash.
           "whole stream.",
           "all"),
         P("per_head_layers", "list[int]",
-          "Layers at which to also split the attention contribution by "
-          "head. Opt-in per layer because per-head outputs cost a slower "
-          "attention path.",
+          "Layers at which to also split the attention piece by head, in "
+          "logit units with the post-attention norm folded in, so a layer's "
+          "heads sum to its attention piece. Opt-in per layer because "
+          "per-head outputs cost a slower attention path.",
           None),
         P("feature", "object",
           "One feature of the dictionary on the `dictionary` port to attribute the logit "
@@ -120,19 +158,26 @@ dictionary by its content hash.
           "With a dictionary: how many of the largest feature contributions "
           "each row keeps, by size.",
           10),
-        P("tracked", "map[string, string]",
+        P("tracked", "map[string, string | object]",
           "Tokens to follow by name, `{\"answer\": \" Paris\"}`; the first is "
-          "the target — the logit being decomposed. Each answer is looked for "
-          "with and without a leading space, and the spelling the model gives "
-          "more probability on the prompt is the one decomposed. A "
-          "record's own `tracked` takes precedence; with none named, the model's "
-          "own top-1 prediction for that prompt is the target, and a target that "
-          "differs from it is reported beside it.",
-          None),
+          "the target — the logit being decomposed — and the second, unless "
+          "a record names its `contrast`, the contrast. Each answer is looked "
+          "for with and without a leading space, and the spelling the model "
+          "gives more probability on the prompt is the one decomposed; a "
+          "token named by id, `{\"answer\": {\"id\": 9079}}`, is that token "
+          "on every model. A record's own `tracked` takes precedence; with "
+          "none named, the model's own top-1 prediction for that prompt is "
+          "the target, and a target that differs from it is reported beside it.",
+          None, fields=(
+              P("id", "int", "A token named by id: its id in the model's vocabulary."),
+              P("text", "string", "The token's text, checked against the model's vocabulary "
+                "when given.", None),
+          )),
     ),
     example={
         "model": {"$param": "model"},
         "tracked": {"answer": " Paris"},
+        "split": "sublayer",
         "per_head_layers": [12, 13],
     },
     example_inputs={"records": {"$ref": {"bench": "you/lab/prompts"}}},
@@ -158,6 +203,10 @@ def attribute_logits(
     from mechbench_compute import attribution
 
     apply_ln = bool(params.get("apply_ln", True))
+    split = params.get("split") or "layer"
+    if split not in SPLITS:
+        raise ValueError(f"logits/attribute splits by {' or '.join(SPLITS)}, not {split!r}")
+    sublayer = split == "sublayer"
     layers = resolve_layers(params.get("layers"), model.arch.n_layers)
     if layers != list(range(model.arch.n_layers)):
         raise ValueError(
@@ -166,6 +215,8 @@ def attribute_logits(
         )
     if not records:
         raise ValueError("attribution/logits needs at least one condition")
+    writes = model.architecture.writes_of(model.arch)
+    components = attribution.name_pieces(writes, model.arch.n_layers, sublayer=sublayer)
     if on_start:
         on_start(len(records))
 
@@ -175,8 +226,8 @@ def attribute_logits(
         params.get("per_head_layers"), model.arch.n_layers
     ) if params.get("per_head_layers") else []
     interventions = [
-        Cap.residual(layers, point="post"),
         Cap.residual([0], point="pre"),
+        Cap.at([f"blocks.{i}.{w}" for i in layers for w in writes]),
         Cap.final_norm_scale(),
     ]
     if per_head_layers:
@@ -184,28 +235,28 @@ def attribute_logits(
     basis = read_basis(params, dictionary, model.arch.d_model)
     if basis is not None:
         interventions.append(Cap.at([basis["name"]]))
+    onward = attribution.read_onward_scale(model)
     rows: list[dict[str, Any]] = []
     for record in records:
         r = render(model, record)
         ids = r.array
         result = model.run(ids, interventions=interventions)
         lp = read_last_logp(result.logits)
-        answer, tracked = resolve_target(model, record, params, lp)
+        answer, tracked = resolve_target(model, record, params, lp, by_id=True)
         others = [a for a in tracked.values() if a.ids != answer.ids]
         contrast = record.get("contrast")
-        canswer = (encode_answer(model.tokenizer, str(contrast)).anchored(lp) if contrast
+        canswer = (read_answer(model.tokenizer, contrast, by_id=True).anchored(lp) if contrast
                    else (others[0] if others else None))
         tok = answer.preferred
         ctok = canswer.preferred if canswer is not None else None
 
-        acc = attribution.accumulated_resid(result.cache, include_pre=True)
-        components = np.diff(acc, axis=0, prepend=np.zeros_like(acc[:1]))
+        _, pieces = attribution.decompose_logit(model, result.cache, sublayer=sublayer)
         ln_scale = np.array(
             mx.array(result.cache["final_norm.scale"]).astype(mx.float32)
         ).reshape(-1)
         targets = [tok] if ctok is None else [tok, ctok]
         attrs = attribution.logit_attrs(
-            model, components, targets,
+            model, pieces, targets,
             apply_ln=apply_ln, ln_scale=ln_scale)
         contrib = attrs[:, 0] if ctok is None else attrs[:, 0] - attrs[:, 1]
 
@@ -219,19 +270,19 @@ def attribute_logits(
         true_logit = float(last_np[tok])
         if ctok is not None:
             true_logit -= float(last_np[ctok])
-        summed = float(attrs.sum(axis=0)[0]) if ctok is None else float(
-            (attrs[:, 0] - attrs[:, 1]).sum())
+        summed = float(contrib.sum())
         per_head: list[dict[str, Any]] = []
         for hl in per_head_layers:
-            hr = attribution.head_results(model, result.cache, hl)
+            heads, bias = attribution.decompose_attn_out(model, result.cache, hl)
+            hrows = heads[:, -1:] if bias is None else np.concatenate([heads[:, -1:], bias[None, -1:]])
             hattrs = attribution.logit_attrs(
-                model, hr, targets, apply_ln=apply_ln, ln_scale=ln_scale)
+                model, hrows * onward[hl], targets, apply_ln=apply_ln, ln_scale=ln_scale)
             hc = (hattrs[:, 0] if ctok is None
                   else hattrs[:, 0] - hattrs[:, 1])
-            per_head.append({
-                "layer": hl,
-                "contributions": [round(float(x), 4) for x in hc],
-            })
+            entry: dict[str, Any] = {"layer": hl, "contributions": [round(float(x), 4) for x in hc[:len(heads)]]}
+            if bias is not None:
+                entry["bias"] = round(float(hc[-1]), 4)
+            per_head.append(entry)
         by_feature = (attribute_features(model, basis, result.cache, targets, apply_ln=apply_ln,
                                          ln_scale=ln_scale, top=int(params.get("top_features", 10)))
                       if basis is not None else {})
@@ -258,15 +309,18 @@ def attribute_logits(
     return load_kinds().collection(
         "logits/attribution", rows,
         apply_ln=apply_ln,
+        split=split,
         layers=layers,
         n_off_top1=sum(1 for r in rows if "own_top1" in r),
-        components=["embed", *[f"L{i}" for i in layers]],
+        components=components,
         **(basis["header"] if basis is not None else {}),
         description=(
             "Direct logit attribution: each component's contribution to "
-            "the target logit (embedding first, then every layer's "
-            "delta), norm-folded so the bars sum to the model's true "
-            "final logit — each row carries its own additivity residual."
+            "the target logit (the embedding first, then every layer's "
+            "write, or every attention, MLP and gate write, each times the "
+            "layer scalars from its layer on), norm-folded so the bars sum "
+            "to the model's true final logit — each row carries its own "
+            "additivity residual."
         ),
     )
 

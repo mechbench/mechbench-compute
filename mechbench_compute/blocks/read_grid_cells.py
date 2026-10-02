@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -53,17 +54,23 @@ def _read_components(grid: Mapping[str, Any], header: Mapping[str, Any], names: 
     if len(components) != len(values):
         raise ValueError(f"attribution {grid.get('id')!r} has {len(values)} values but the header names "
                          f"{len(components)} components")
-    layers = [int(c[1:]) for c in components if c != "embed"]
+    written = {c: _read_written(c) for c in components if c != "embed"}
+    first = min((layer for layer, _ in written.values()), default=0)
     out = []
     for i, component in enumerate(components):
-        if component == "embed":
-            layer, point = (layers[0] if layers else 0), "resid_pre"
-        else:
-            layer, point = int(component[1:]), BLOCK_POINT
+        layer, point = (first, "resid_pre") if component == "embed" else written[component]
         cell = {"address": name_component(point, layer, None, -1), "point": point, "layer": layer,
                 "position": -1, "component": component}
         out.append(_measure(cell, measures, names, (i,)))
     return out
+
+
+def _read_written(component: str) -> tuple[int, str]:
+    m = re.fullmatch(r"L(\d+)(?:\.([a-z_]+))?", component)
+    if m is None:
+        raise ValueError(f"attribution component {component!r} is not `embed`, `L<layer>` or "
+                         f"`L<layer>.<write>`")
+    return int(m[1]), f"{m[2]}_out" if m[2] else BLOCK_POINT
 
 
 def _measure(cell: dict[str, Any], measures: Mapping[str, Any], names: list[str],

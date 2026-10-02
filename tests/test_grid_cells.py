@@ -111,6 +111,23 @@ class TestOtherGrids:
         assert [c["address"] for c in cells] == ["L0.resid_pre@-1", "L0.block@-1", "L1.block@-1"]
         assert [c["component"] for c in cells] == ["embed", "L0", "L1"]
 
+    def test_an_attribution_by_sublayer_addresses_each_write_at_its_point(self):
+        att = K.collection("logits/attribution", [
+            {"id": "r", "axes": ["component"], "measures": {"contribution": [0.5, 1.0, -2.0, 0.25, 3.0]}}],
+            layers=[0, 1], split="sublayer", components=["embed", "L0.attn", "L0.mlp", "L0.gate", "L1.attn"])
+        cells = unnest(att, {"field": "cells"})["items"]
+        assert [c["address"] for c in cells] == [
+            "L0.resid_pre@-1", "L0.attn_out@-1", "L0.mlp_out@-1", "L0.gate_out@-1", "L1.attn_out@-1"]
+        assert [(c["layer"], c["point"]) for c in cells][1:3] == [(0, "attn_out"), (0, "mlp_out")]
+        assert cells[4]["contribution"] == 3.0
+
+    def test_a_component_name_it_cannot_read_is_refused(self):
+        att = K.collection("logits/attribution", [
+            {"id": "r", "axes": ["component"], "measures": {"contribution": [0.5, 1.0]}}],
+            layers=[0], components=["embed", "block0"])
+        with pytest.raises(ValueError, match="'block0' is not `embed`"):
+            unnest(att, {"field": "cells"})
+
     def test_a_divergence_reads_its_headers_point(self):
         div = K.collection("activations/divergence", [
             {"id": "r", "axes": ["layer", "position"], "tokens": ["a"], "measures": {"divergence": [[0.2]]}}],

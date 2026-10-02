@@ -47,8 +47,7 @@ class PieceTokenizer:
         return "".join(names.get(int(i), f"<{int(i)}>") for i in ids)
 
 
-@pytest.fixture(scope="module")
-def model():
+def build_model() -> Model:
     from mlx_lm.models import llama
 
     lm = llama.Model(llama.ModelArgs(
@@ -60,6 +59,11 @@ def model():
                        lm.parameters()))
     mx.eval(lm.parameters())
     return Model(lm, PieceTokenizer())
+
+
+@pytest.fixture(scope="module")
+def model():
+    return build_model()
 
 
 def _record(answer: str, **extra):
@@ -153,6 +157,48 @@ class TestALogitIsOneSpellings:
         logits = np.array(model.run(ids).logits[0, -1].astype(mx.float32))
         assert row["additivity"]["true_logit"] == pytest.approx(float(logits[preferred]), abs=1e-3)
         assert abs(row["additivity"]["residual"]) < 5e-3
+
+
+def build_swapped_model() -> Model:
+    swapped = build_model()
+    w = np.array(swapped.lm.lm_head.weight)
+    w[[SPACED, BARE]] = w[[BARE, SPACED]]
+    swapped.lm.lm_head.weight = mx.array(w)
+    return swapped
+
+
+class TestAPairById:
+    ROME = PIECES[" Rome"]
+
+    def test_two_models_that_prefer_different_spellings_decompose_the_same_pair(self, model):
+        swapped = build_swapped_model()
+        preferred = [attribute_logits(m, [_record("Paris")], {})["items"][0]["target"]["id"]
+                     for m in (model, swapped)]
+        assert sorted(preferred) == sorted([SPACED, BARE])
+        by_record = {"id": "r", "text": PROMPT, "target": {"id": SPACED},
+                     "contrast": {"id": self.ROME, "text": " Rome"}}
+        by_tracked = {"tracked": {"answer": {"id": SPACED}, "other": {"id": self.ROME}}}
+        for m in (model, swapped):
+            row = attribute_logits(m, [by_record], {})["items"][0]
+            assert (row["target"]["id"], row["contrast"]["id"]) == (SPACED, self.ROME)
+            assert [v["token"]["id"] for v in row["variants"]] == [SPACED]
+            logits = np.array(m.run(render(m, by_record).array).logits[0, -1].astype(mx.float32))
+            assert row["additivity"]["true_logit"] == pytest.approx(
+                float(logits[SPACED] - logits[self.ROME]), abs=1e-3)
+            assert abs(row["additivity"]["residual"]) < 5e-3
+            same = attribute_logits(m, [{"id": "r", "text": PROMPT}], by_tracked)["items"][0]
+            assert same["measures"] == row["measures"] and same["target"] == row["target"]
+
+    def test_an_id_the_vocabulary_does_not_hold_is_refused(self, model):
+        def run(token):
+            return attribute_logits(model, [{"id": "r", "text": PROMPT, "target": token}], {})
+
+        with pytest.raises(ValueError, match=r"token 7 is ' Paris' in this model's vocabulary, not 'Paris'"):
+            run({"id": SPACED, "text": "Paris"})
+        with pytest.raises(ValueError, match="token 99 is outside this model's vocabulary of 64"):
+            run({"id": 99})
+        with pytest.raises(ValueError, match="a token by id is"):
+            run({"id": "7"})
 
 
 class TestSpellingsThatCoincide:

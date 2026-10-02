@@ -376,7 +376,9 @@ key is 0 or unset: it loads, and a hook there is refused by name),
 `residual_law`, a string the kit evaluates
 (`"resid_post[i] == resid_pre[i] + attn_out[i] + mlp_out[i] == resid_pre[i+1]"`,
 or the architecture's own; `residual_law_of(arch)` drops an absent
-point's term). Its callables, which `Model` delegates to
+point's term, and `writes_of(arch)` reads the writes it adds, the
+`*_out` terms, which `logits/attribute` splits a layer into). Its
+callables, which `Model` delegates to
 without asking which architecture it holds:
 
 | field | signature |
@@ -388,6 +390,8 @@ without asking which architecture it holds:
 | `head_logits` · `project_to_logits` | `(model, hidden) -> logits` |
 | `tokenize` | `(model, processor, prompt, *, chat_template) -> ids` |
 | `attribution_unembed` | `(model) -> Unembed(norm, project, softcap)` |
+| `layer_scalars` | `(model) -> tuple[float, ...]`, each layer's scalar on the whole stream when the residual law has `layer_scalar[i]` (Gemma 4); `None` otherwise |
+| `attn_out_norm` | `(model, layer) -> norm`, the norm `o_proj`'s output passes through to become `attn_out` (Gemma's `post_attention_layernorm`); `None` when `attn_out` is `o_proj`'s output (Llama and Qwen 2, whose `post_attention_layernorm` is the MLP's input norm) |
 | `head_weights` | `(model, layer, head) -> HeadSpec`, or `NotImplementedError` naming the architecture |
 | `dialect` | a `dialects.ToolDialect`, or `None` when the template has no tool protocol |
 | `reasoning` | `thinking.Delimiters` the model's tokenizer may declare |
@@ -410,8 +414,15 @@ whose config changes which points exist (`VARIANTS`: `gemma4-31b`):
   are `head_logits(final_norm)`);
 - the residual law holds at every layer, to 2^-6 of the largest
   magnitude (bf16 keeps 8 significant bits; the law is summed in
-  float64 over values the forward added in bf16);
-- direct logit attribution with the final norm sums to the true logit;
+  float64 over values the forward added in bf16), its `layer_scalar`
+  read through the declared `layer_scalars`;
+- the writes and the scalar the attribution reads are the ones the
+  residual law names;
+- direct logit attribution with the final norm sums to the true logit,
+  by layer and by sublayer; a layer's piece is the sum of its sublayer
+  pieces, and without scalars the stream's step at that layer;
+- a layer's heads, through the declared `attn_out_norm`, sum to its
+  `attn_out`;
 - capturing attention internals leaves the logits alone, and attention
   is causal;
 - ablating every head of a layer equals zeroing its `attn_out`;

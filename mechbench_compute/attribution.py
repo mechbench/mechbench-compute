@@ -94,9 +94,8 @@ def head_results(model, cache: ActivationCache, layer: int) -> np.ndarray:
     if per_head_np.ndim == 4 and per_head_np.shape[0] == 1:
         per_head_np = per_head_np[0]
 
-    block = model.lm.model.layers[layer]
-    head_dim = int(block.self_attn.head_dim)
-    o_proj = block.self_attn.o_proj
+    head_dim = int(per_head_np.shape[-1])
+    o_proj = model.lm.model.layers[layer].self_attn.o_proj
     o_weight = o_proj.weight
     if hasattr(o_proj, "scales"):
         o_weight = mx.dequantize(
@@ -113,6 +112,50 @@ def head_results(model, cache: ActivationCache, layer: int) -> np.ndarray:
         W_O_h = W_O_full[:, h * head_dim : (h + 1) * head_dim]
         out[h] = per_head_np[h] @ W_O_h.T
     return out
+
+
+def decompose_attn_out(model, cache: ActivationCache, layer: int) -> tuple[np.ndarray, np.ndarray | None]:
+    heads = head_results(model, cache, layer).astype(np.float64)
+    o_proj = model.lm.model.layers[layer].self_attn.o_proj
+    bias = np.array(o_proj["bias"].astype(mx.float32), dtype=np.float64) if "bias" in o_proj else None
+    whole = heads.sum(axis=0) + (0.0 if bias is None else bias)
+    scale = np.ones_like(whole)
+    if model.architecture.attn_out_norm is not None:
+        norm = model.architecture.attn_out_norm(model._model, layer)
+        gain = np.array(mx.array(norm.weight).astype(mx.float32), dtype=np.float64) + _read_gain_offset(norm)
+        scale = gain / np.sqrt(np.mean(whole * whole, axis=-1, keepdims=True) + float(norm.eps))
+    return heads * scale, None if bias is None else np.broadcast_to(bias, whole.shape) * scale
+
+
+def read_onward_scale(model) -> np.ndarray:
+    read = model.architecture.layer_scalars
+    scalars = (np.ones(model.arch.n_layers) if read is None
+               else np.asarray(read(model._model), dtype=np.float64))
+    return np.append(np.cumprod(scalars[::-1])[::-1], 1.0)
+
+
+def name_pieces(writes: Sequence[str], n_layers: int, *, sublayer: bool) -> list[str]:
+    if not sublayer:
+        return ["embed", *(f"L{i}" for i in range(n_layers))]
+    return ["embed", *(f"L{i}.{w.removesuffix('_out')}" for i in range(n_layers) for w in writes)]
+
+
+def decompose_logit(model, cache: ActivationCache, *, sublayer: bool,
+                    position: int = -1) -> tuple[list[str], np.ndarray]:
+    n = model.arch.n_layers
+    writes = model.architecture.writes_of(model.arch)
+    onward = read_onward_scale(model)
+
+    def read(key: str) -> np.ndarray:
+        x = _require(cache, key)[0, position].astype(mx.float32)
+        mx.eval(x)
+        return np.array(x, dtype=np.float64)
+
+    rows = [read("blocks.0.resid_pre") * onward[0]]
+    for i in range(n):
+        parts = [read(f"blocks.{i}.{w}") * onward[i] for w in writes]
+        rows.extend(parts if sublayer else [np.sum(parts, axis=0)])
+    return name_pieces(writes, n, sublayer=sublayer), np.stack(rows)[:, None, :]
 
 
 def _read_gain_offset(norm) -> float:

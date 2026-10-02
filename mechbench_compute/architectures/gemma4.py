@@ -72,6 +72,16 @@ def read_arch(model, model_id: str | None = None) -> Arch:
     return read_vlm_arch("gemma4", model.config.text_config, model_id)
 
 
+def read_layer_scalars(model) -> tuple[float, ...]:
+    return tuple(1.0 if layer.layer_scalar is None
+                 else float(layer.layer_scalar.astype(mx.float32).item())
+                 for layer in model.language_model.model.layers)
+
+
+def read_attn_out_norm(model, layer: int):
+    return model.language_model.model.layers[layer].post_attention_layernorm
+
+
 def read_head_spec(model, layer: int, head: int) -> HeadSpec:
     attn = model.language_model.model.layers[layer].self_attn
     head_dim = int(attn.head_dim)
@@ -390,4 +400,6 @@ ARCH = Architecture(
         "num_kv_shared_layers": 20, "hidden_size_per_layer_input": 256,
         "sliding_window_pattern": 5,
     },
+    layer_scalars=read_layer_scalars,
+    attn_out_norm=read_attn_out_norm,
 )

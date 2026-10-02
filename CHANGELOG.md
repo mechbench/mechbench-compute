@@ -28,6 +28,35 @@ _None._
   the loaded model, and the next node to run on the same base, in that
   job or a later one on the same runner, ran on them and said nothing.
   Where no fusing was refused, nothing changes.
+- `logits/attribute` on Gemma 4: results before this release mixed each
+  layer's writes with the stream's shrinkage. A layer's number was the
+  step of the stored stream across it, and a Gemma 4 layer multiplies
+  the whole stream by its own scalar (0.018 to 0.87 on E2B), so the step
+  was the layer's writes scaled, minus the part of the incoming stream
+  the scalar took away. The pieces still summed to the true logit, so
+  nothing flagged it. A layer's number is now its writes times the
+  product of the scalars from its layer to the last, and the embedding's
+  is multiplied by all of them. On E2B, for "Complete this sentence with
+  one word: The capital of France is" and `Paris`, the last layer read
+  −276.3 and now reads −33.3, and layer 25 read +181.0 and reads +7.7.
+  Re-read any Gemma 4 attribution, among them the which-layer-knows E4B
+  result (`j_24bd7gfancd9zx3s4qe3`).
+- `logits/attribute` on Gemma 3, Qwen 2 and Llama, which have no scalar:
+  a layer's number is now the sum of its writes rather than the step of
+  the stored stream. The two differ by the bf16 rounding of the stream's
+  additions: on Gemma 3 4B, for the prompt above, by 0.041 at most, with
+  the same order of layers, and the additivity residual moved from
+  −0.235 to −0.260.
+- `logits/attribute`'s `per_head` on Gemma 3 and Gemma 4: a head was its
+  slice of `o_proj` read straight through the unembedding, before the
+  post-attention norm, so the heads neither summed to the layer's
+  attention write nor were in logit units (layer 17 of Gemma 3 4B: the
+  heads summed to −0.004 and the attention write is −0.27). Each head now
+  goes through that norm, its divisor (the root mean square of the whole
+  `o_proj` output) held at its value in the run, and through the
+  layer's product of scalars, so a layer's heads sum to its attention
+  piece. Llama and Qwen 2 apply no norm after `o_proj`; their heads are
+  unchanged.
 
 ### Other
 
@@ -51,6 +80,29 @@ _None._
   `trained_on`, where an adapter without `layers` is still its bare
   label. An adapter without `layers` is recorded exactly as before, so no
   stored result or fingerprint moves.
+- `logits/attribute` takes `split`: `layer` (the default) or `sublayer`,
+  whose components are `embed`, `L{i}.attn`, `L{i}.mlp`, and `L{i}.gate`
+  on a checkpoint with per-layer inputs; a layer's piece is the sum of
+  its sublayer pieces. The header records `split`, and `records/unnest
+  field: cells` addresses a sublayer piece at its point
+  (`L3.attn_out@-1`).
+- `logits/attribute` takes the pair by token id: `{"id": 9079}` in
+  `tracked`, a record's `tracked`, or a record's `target` or `contrast`
+  is that one token on every model, so two models that prefer different
+  spellings of an answer are decomposed on the same tokens. A `text`
+  beside the id is checked against the vocabulary, and an id outside it
+  is refused. Other ops read `tracked` as before.
+- `per_head` carries `bias`, the `o_proj` bias's share, on a checkpoint
+  whose `o_proj` has one (Llama with `attention_bias`).
+- `per_head_layers` works on Qwen 2: `attribution.head_results` read the
+  head dimension from an attribute Qwen 2's attention does not have, and
+  now reads it from the captured heads.
+- `Architecture` declares `layer_scalars` (Gemma 4) and `attn_out_norm`
+  (Gemma 3 and Gemma 4), and `writes_of(arch)` reads the writes from the
+  residual law. The kit checks that the attribution's writes and scalar
+  are the law's, that the pieces sum to the true logit by layer and by
+  sublayer on every architecture, and that a layer's heads sum to its
+  `attn_out`.
 
 ## 0.184.0 — 2026-10-01
 

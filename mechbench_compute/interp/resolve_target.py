@@ -10,9 +10,10 @@ from mechbench_compute.interp.collect_tracked_answers import collect_tracked_ans
 
 
 def resolve_target(model, record: Mapping[str, Any], params: Mapping[str, Any],
-                   lp: np.ndarray | None) -> tuple[Answer, dict[str, Answer]]:
+                   lp: np.ndarray | None, *, by_id: bool = False) -> tuple[Answer, dict[str, Answer]]:
     tracked = {name: answer.anchored(lp) for name, answer in
-               collect_tracked_answers(model, record, tracked=params.get("tracked")).items()}
+               collect_tracked_answers(model, record, tracked=params.get("tracked"),
+                                       by_id=by_id).items()}
     if tracked:
         return next(iter(tracked.values())), tracked
     if lp is None:

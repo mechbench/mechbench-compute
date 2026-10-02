@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -34,6 +34,9 @@ class Answer:
         if lp is None:
             return self
         row = np.asarray(lp).reshape(-1)
+        outside = [i for i in self.ids if not 0 <= i < row.size]
+        if outside:
+            raise ValueError(f"token {outside[0]} is outside this model's vocabulary of {row.size}")
         best = max(self.ids, key=lambda i: (float(row[i]), -self.ids.index(i)))
         return replace(self, preferred=int(best))
 
@@ -105,3 +108,16 @@ def encode_answer_in_context(tokenizer, text: str, prefix: str,
 def make_answer(ids: Sequence[int]) -> Answer:
     unique = tuple(dict.fromkeys(int(i) for i in ids))
     return Answer(unique, unique[0])
+
+
+def read_answer(tokenizer, value: Any, *, by_id: bool = False) -> Answer:
+    if not (by_id and isinstance(value, Mapping)):
+        return encode_answer(tokenizer, str(value))
+    tid = value.get("id")
+    if isinstance(tid, bool) or not isinstance(tid, int) or tid < 0 or set(value) - {"id", "text"}:
+        raise ValueError(f"a token by id is {{\"id\": <int>}}, with its \"text\" beside it if "
+                         f"you like; not {dict(value)!r}")
+    if "text" in value and tokenizer.decode([tid]) != value["text"]:
+        raise ValueError(f"token {tid} is {tokenizer.decode([tid])!r} in this model's "
+                         f"vocabulary, not {value['text']!r}")
+    return make_answer([tid])

@@ -68,7 +68,10 @@ def check_residual_law(model, ids=IDS) -> None:
     result = model.run(ids, capture=[f"blocks.{i}.{p}" for i in range(n) for p in points])
     names = {p: [read_f64(result.cache[f"blocks.{i}.{p}"]) for i in range(n)] for p in points}
     if "layer_scalar" in terms:
-        names["layer_scalar"] = [read_f64(layer.layer_scalar) for layer in model.lm.model.layers]
+        assert architecture.layer_scalars is not None, (
+            f"{architecture.model_type}: residual law {law!r} names layer_scalar and the "
+            f"architecture declares no layer_scalars to read it")
+        names["layer_scalar"] = list(architecture.layer_scalars(model._model))
     sides = [s.strip() for s in law.split("==")]
     for i in range(n):
         values = [(side, eval(side, {}, {**names, "i": i}))
@@ -150,21 +153,60 @@ def test_an_architecture_with_a_wrong_residual_fails_the_law_by_name():
         check_residual_law(model)
 
 
-def test_direct_logit_attribution_with_the_final_norm_sums_to_the_true_logit(tiny):
-    n = tiny.arch.n_layers
-    result = tiny.run(IDS, capture=[*(f"blocks.{i}.resid_post" for i in range(n)),
-                                    "blocks.0.resid_pre", "final_norm.scale"])
+def test_the_attribution_reads_the_writes_and_the_scalars_the_residual_law_names(tiny):
+    a = tiny.architecture
+    terms = read_law_terms(a.residual_law_of(tiny.arch))
+    assert set(a.writes_of(tiny.arch)) == set(terms) - {"resid_pre", "resid_post", "layer_scalar"}
+    assert ("layer_scalar" in terms) == (a.layer_scalars is not None), a.model_type
+
+
+def run_attribution(model, ids=IDS):
+    n = model.arch.n_layers
+    writes = model.architecture.writes_of(model.arch)
+    result = model.run(ids, capture=[
+        *(f"blocks.{i}.{p}" for i in range(n) for p in (*writes, "resid_post")),
+        "blocks.0.resid_pre", "final_norm.scale",
+        *(f"blocks.{i}.attn.per_head_out" for i in range(n))])
     last = read_f64(result.logits)[0, -1]
-    cap = tiny.architecture.attribution_unembed(tiny._model).softcap
+    cap = model.architecture.attribution_unembed(model._model).softcap
     if cap:
         last = cap * np.arctanh(last / cap)
-    acc = attribution.accumulated_resid(result.cache, include_pre=True)
-    components = np.diff(acc, axis=0, prepend=np.zeros_like(acc[:1]))
-    ln_scale = read_f64(result.cache["final_norm.scale"]).reshape(-1)
+    return result, last, read_f64(result.cache["final_norm.scale"]).reshape(-1)
+
+
+@pytest.mark.parametrize("sublayer", [False, True], ids=["layer", "sublayer"])
+def test_direct_logit_attribution_with_the_final_norm_sums_to_the_true_logit(tiny, sublayer):
+    result, last, ln_scale = run_attribution(tiny)
+    names, pieces = attribution.decompose_logit(tiny, result.cache, sublayer=sublayer)
+    k = len(tiny.architecture.writes_of(tiny.arch)) if sublayer else 1
+    assert len(names) == len(pieces) == 1 + k * tiny.arch.n_layers
     targets = [int(np.argmax(last)), int(np.argmin(last)), 17]
-    attrs = attribution.logit_attrs(tiny, components, targets, apply_ln=True,
-                                    ln_scale=ln_scale)
+    attrs = attribution.logit_attrs(tiny, pieces, targets, apply_ln=True, ln_scale=ln_scale)
     assert np.allclose(attrs.sum(axis=0), last[targets], atol=2e-3, rtol=1e-3)
+
+
+def test_a_layer_is_its_sublayer_pieces_and_without_scalars_the_stream_s_step(tiny):
+    result, _, _ = run_attribution(tiny)
+    n, k = tiny.arch.n_layers, len(tiny.architecture.writes_of(tiny.arch))
+    _, by_layer = attribution.decompose_logit(tiny, result.cache, sublayer=False)
+    _, by_sublayer = attribution.decompose_logit(tiny, result.cache, sublayer=True)
+    assert np.allclose(by_sublayer[0], by_layer[0])
+    assert np.allclose(by_sublayer[1:].reshape(n, k, *by_layer.shape[1:]).sum(axis=1), by_layer[1:])
+    if tiny.architecture.layer_scalars is None:
+        stream = attribution.accumulated_resid(result.cache, include_pre=True)[:, -1:]
+        steps = np.diff(stream, axis=0, prepend=np.zeros_like(stream[:1]))
+        assert np.allclose(by_layer, steps, atol=1e-4, rtol=1e-4)
+
+
+def test_a_layer_s_heads_sum_to_its_attention_write(tiny):
+    result, _, _ = run_attribution(tiny)
+    for layer in range(tiny.arch.n_layers):
+        heads, bias = attribution.decompose_attn_out(tiny, result.cache, layer)
+        whole = heads.sum(axis=0) + (0.0 if bias is None else bias)
+        attn_out = read_f64(result.cache[f"blocks.{layer}.attn_out"])[0]
+        assert heads.shape[0] == tiny.arch.n_heads
+        assert np.allclose(whole, attn_out, atol=1e-4 * np.abs(attn_out).max(), rtol=1e-4), (
+            f"{tiny.architecture.model_type}: layer {layer}")
 
 
 @pytest.mark.parametrize("n_tokens", [WINDOW, 3 * WINDOW + 1])

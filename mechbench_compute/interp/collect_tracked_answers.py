@@ -3,16 +3,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mechbench_compute.interp.answer import Answer, encode_answer
+from mechbench_compute.interp.answer import Answer, read_answer
 
 
 def collect_tracked_answers(model, record: Mapping[str, Any], *,
-                            tracked: Mapping[str, Any] | None = None) -> dict[str, Answer]:
+                            tracked: Mapping[str, Any] | None = None,
+                            by_id: bool = False) -> dict[str, Answer]:
     out: dict[str, Answer] = {}
 
     def put(name: Any, text: Any) -> None:
         if str(name) not in out:
-            out[str(name)] = encode_answer(model.tokenizer, str(text))
+            out[str(name)] = read_answer(model.tokenizer, text, by_id=by_id)
 
     for name, text in dict(record.get("tracked") or tracked or {}).items():
         put(name, text)

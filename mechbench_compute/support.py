@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -71,6 +72,8 @@ class Architecture:
     refused_when: tuple[Refusal, ...] = ()
     absent_when: tuple[Absence, ...] = ()
     config_defaults: Mapping[str, Any] = field(default_factory=dict)
+    layer_scalars: Callable[[Any], tuple[float, ...]] | None = None
+    attn_out_norm: Callable[[Any, int], Any] | None = None
 
     @property
     def level(self) -> str:
@@ -97,6 +100,9 @@ class Architecture:
         for point in self.absent_points(arch):
             law = law.replace(f" + {point}[i]", "")
         return law
+
+    def writes_of(self, arch: Any) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(re.findall(r"\b([a-z_]+_out)\[i\]", self.residual_law_of(arch))))
 
 
 def refusal(config: Mapping[str, Any]) -> str | None:

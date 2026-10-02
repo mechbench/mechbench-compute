@@ -48,9 +48,16 @@ class StubTokenizer:
 
 
 class StubArchitecture:
+    layer_scalars = None
+    attn_out_norm = None
+
     @staticmethod
     def attribution_unembed(model):
         return Unembed(norm=None, project=None)
+
+    @staticmethod
+    def writes_of(arch):
+        return ("attn_out", "mlp_out")
 
 
 class StubModel:
@@ -104,15 +111,19 @@ class StubModel:
                 for i2 in range(seq):
                     w[0, h, i2, : i2 + 1] = 1.0 / (i2 + 1)
             cache[f"blocks.{layer}.attn.weights"] = mx.array(w)
+        pre0 = np.zeros((1, seq, D_MODEL), dtype=np.float32)
+        for pos, tok in enumerate(arr):
+            pre0[0, pos, int(tok) % D_MODEL] = 0.5
+        cache["blocks.0.resid_pre"] = mx.array(pre0)
+        before = pre0
         for layer in range(N_LAYERS):
             resid = np.zeros((1, seq, D_MODEL), dtype=np.float32)
             for pos, tok in enumerate(arr):
                 resid[0, pos, int(tok) % D_MODEL] = float(layer + 1)
             cache[f"blocks.{layer}.resid_post"] = mx.array(resid)
-        pre0 = np.zeros((1, seq, D_MODEL), dtype=np.float32)
-        for pos, tok in enumerate(arr):
-            pre0[0, pos, int(tok) % D_MODEL] = 0.5
-        cache["blocks.0.resid_pre"] = mx.array(pre0)
+            cache[f"blocks.{layer}.attn_out"] = cache[f"blocks.{layer}.mlp_out"] = mx.array(
+                (resid - before) / 2)
+            before = resid
         cache["final_norm.scale"] = mx.array(
             np.ones((1, seq), dtype=np.float32))
 
@@ -714,10 +725,10 @@ class TestPerHeadDla:
                             axis=-1).astype(np.float32)
 
         def fake_heads(model, cache, layer):
-            return np.ones((2, 3, D_MODEL), dtype=np.float32) * (layer + 1)
+            return np.ones((2, 3, D_MODEL), dtype=np.float32) * (layer + 1), None
 
         monkeypatch.setattr(attribution, "logit_attrs", fake_attrs)
-        monkeypatch.setattr(attribution, "head_results", fake_heads)
+        monkeypatch.setattr(attribution, "decompose_attn_out", fake_heads)
         out = attribute_logits(
             StubModel(), [{"id": "c", "user": "a b", "target": "word"}],
             {"per_head_layers": [1]})

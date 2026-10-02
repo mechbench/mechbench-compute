@@ -39,6 +39,10 @@ def read_arch(model, model_id: str | None = None) -> Arch:
     return read_vlm_arch("gemma3", model.config.text_config, model_id)
 
 
+def read_attn_out_norm(model, layer: int):
+    return model.language_model.model.layers[layer].post_attention_layernorm
+
+
 def _attention_with_internals(
     layer,
     x_normed: mx.array,
@@ -205,4 +209,5 @@ ARCH = Architecture(
         "num_attention_heads": 8, "num_key_value_heads": 4, "head_dim": 256,
         "vocab_size": 262208, "sliding_window_pattern": 6,
     },
+    attn_out_norm=read_attn_out_norm,
 )
