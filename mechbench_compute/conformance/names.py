@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 
 VERBS = {
-    "ablate", "add", "aggregate", "align", "apply", "assert", "attribute", "average",
+    "ablate", "add", "aggregate", "align", "apply", "assert", "attach", "attribute", "average",
     "bin", "bind", "bootstrap", "build", "bump", "cache", "calculate", "call", "cap",
     "capture", "chat", "check", "choose", "classify", "clamp", "clear",
     "close", "coerce", "collect", "compare", "compile", "compute", "contrast",
     "convert", "copy", "correlate", "count", "cross", "decode", "decompose", "delete", "derive", "evaluate",
-    "describe", "diff", "digest", "dispatch", "drop", "dump", "edit", "emit",
+    "describe", "detach", "diff", "digest", "dispatch", "drop", "dump", "edit", "emit",
     "encode", "ensure", "estimate", "expand", "expect", "extend", "extract",
     "fetch", "fill", "filter", "find", "finish", "fit", "flatten",
     "fold", "force", "format", "freeze", "fuse", "gather", "generate", "get",

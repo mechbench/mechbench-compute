@@ -9,7 +9,9 @@ COMMON: tuple[Param, ...] = (
       "can run against several models. A model reference may carry its "
       "own adapters; they are part "
       "of what the model means and are fused before anything else, each "
-      "in every layer or, with `layers`, in those layers alone.",
+      "in every layer or, with `layers`, in those layers alone. An "
+      "operator (`adapter/operator`) among them is attached where it was "
+      "trained instead.",
       None),
     P("adapter_scale", "float",
       "Multiplies the strength of the adapter that arrives on the node's "

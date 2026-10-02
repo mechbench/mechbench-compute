@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from mechbench_compute import lexicon
-from mechbench_compute.lexicon._base import DEFAULT_OUTPUT, In, Op, Output, P, Resume
+from mechbench_compute.lexicon._base import (
+    DEFAULT_OUTPUT,
+    In,
+    Op,
+    Otherwise,
+    Output,
+    P,
+    Resume,
+)
 
 OP = Op(
     name="adapter/train",
@@ -77,6 +85,37 @@ refuses before training when it would not.
 sampling order, so two runs of the same node on the same machine produce
 a byte-identical adapter. Change the seed to see the spread a different
 draw gives.
+
+### Training an operator instead
+
+With `operator` the node trains a function of what a mask selects on the
+residual stream after the named layers (`resid_post`) instead of a LoRA.
+Its parameters are the only ones trained; the base model is frozen and
+comes back bit for bit. It trains toward the same target with the same
+loop, at one position: `target` and `anchor` items, the rows the decision
+writes. `function` is its form, and every form starts as the identity:
+`affine` is a·x + b per masked coordinate, or, on a learned subspace
+(`mask: {"rank": r}`), ReFT's h + Rᵀ(W·h + b − R·h) with R's rows kept
+orthonormal; `polynomial` is a polynomial of `degree` per coordinate;
+`mlp` is x plus one hidden layer of `width` (ReLU) on the masked slice.
+`mask` is a list of dimensions, `{"rank": r}`, or absent for every
+coordinate. `positions: "last"` acts at the last position of every
+forward pass (the decision, then each token as it is generated) and
+`"all"` everywhere; `gate: true` adds one logistic unit on the residual
+whose output scales the edit at every position, so where it acts is
+learned, not given. `penalty: {"l1": λ}` pulls each parameter toward the
+identity with a proximal step after every update, by λ·lr/(√v + ε) with v
+Adam's running mean of its squared gradient, so a value the target does
+not need lands on the identity exactly; `effective` counts the rest. Operators
+want a larger `lr` than a LoRA (0.01 to 0.1), and a polynomial, whose high
+powers of raw activations are steep, a smaller one.
+
+The output is then an `adapter/operator`: its `parameters` by layer,
+`operator` (its form, `d`, `params` and `effective`) and `train`. A model
+reference carries it beside LoRA adapters, and every node that loads the
+model attaches it; `layers` does not apply to it, and it cannot be merged
+into a checkpoint. `depth` above 1, `continuation` and `path` items and
+`keep_checkpoints` are refused with an operator.
 """,
     inputs=(
         In("records", "records/record",
@@ -86,7 +125,9 @@ draw gives.
            "Prompt records with a known `answer`, mixed into each batch.",
            many=True, required=False),
     ),
-    output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`."),
+    output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`. With `operator`, an `adapter/operator` instead: `parameters` by layer, `operator` (the form, `d`, `params`, `effective`), `base_model`, `trained_on` and `train`; a model reference carries it.",
+                  otherwise=tuple(Otherwise("adapter/operator", param="operator.function", equals=f)
+                                  for f in ("affine", "polynomial", "mlp"))),
     outputs={"checkpoints": Output(
         "adapter/lora", collection=True,
         doc="With `keep_checkpoints`: one item per kept step — every `checkpoint_every` steps and the last — "
@@ -190,6 +231,25 @@ draw gives.
                 "For depth > 1: whether an outcome can be drawn again in a later slot. "
                 "`false` draws without replacement.",
                 True),
+          )),
+        P("operator", "object",
+          "Train an operator instead of a LoRA — see *Training an operator instead*. Its output "
+          "is an `adapter/operator`.", None, fields=(
+              P("layers", "int | list[int]", "The layers it acts after, each with its own parameters."),
+              P("point", "string", "Where it acts: `resid_post`, the residual stream after the layer, "
+                "the one point an operator takes.", "resid_post"),
+              P("positions", "string", "`last`, the last position of every forward pass, or `all`.", "last",
+                choices=("last", "all")),
+              P("gate", "bool", "Learn where it acts with one logistic unit on the residual; its "
+                "positions are then `all`.", False),
+              P("mask", "list[int] | object", "A list of dimensions, `{\"rank\": r}` for a learned "
+                "subspace, or absent for every coordinate.", None,
+                fields=(P("rank", "int", "The learned subspace's rank."),)),
+              P("function", "string", "The form it is fitted in.", choices=("affine", "polynomial", "mlp")),
+              P("degree", "int", "For `polynomial`: its degree.", 2),
+              P("width", "int", "For `mlp`: the hidden layer's width.", 16),
+              P("penalty", "object", "Pull the parameters toward the identity.", None,
+                fields=(P("l1", "float", "λ, the weight of the L1 pull."),)),
           )),
         P("steps", "int", "Training steps.", 250),
         P("lr", "float", "Learning rate.", 1e-4),
@@ -301,7 +361,9 @@ def run(ctx, inputs, params):
         raise ValueError(
             "adapter/train: target.unit and target.replace describe slots — "
             "set target.depth above 1")
-    batch = batch_for(depth, unit, params.get("batch"))
+    operator = params.get("operator")
+    batch = (read_operator_batch(params, depth) if operator is not None
+             else batch_for(depth, unit, params.get("batch")))
     rendered_all = [rendered_of(r) for r in records]
     factories = {}
     marginals: list = []
@@ -365,8 +427,6 @@ def run(ctx, inputs, params):
     lr = float(params.get("lr", 1e-4))
     seed = int(params.get("seed", 7))
 
-    n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules,
-                        seed=seed, keys=model.architecture.adapter_keys)
     base_ref = params.get("model")
     trained_on = (
         {"base": base_ref.base,
@@ -375,14 +435,24 @@ def run(ctx, inputs, params):
         if hasattr(base_ref, "adapter_labels")
         else {"base": base_ref, "adapters": []}
     )
-    lora = {"rank": rank, "alpha": alpha, "scale": alpha / rank,
-            "target_modules": list(target_modules), "params": n_lora}
     methods = {"steps": steps, "lr": lr, "seed": seed, "batch": batch,
                "n_prompts": len(records), "n_anchors": len(anchor_records),
                "closer": closer, "target": target_spec, "depth": depth,
                "unit": unit, "replace": replace,
                "positions": params.get("positions", "all"),
                "marginal": bool(params.get("marginal", True))}
+    if operator is not None:
+        from mechbench_compute.adapters.train_operator import train_operator
+
+        return {DEFAULT_OUTPUT: train_operator(
+            ctx, model, operator, {"target": marginals, "anchor": anchors}, batch,
+            trained_on=trained_on, methods=methods,
+            checkpoint_every=int(params.get("checkpoint_every", 50)))}
+
+    n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules,
+                        seed=seed, keys=model.architecture.adapter_keys)
+    lora = {"rank": rank, "alpha": alpha, "scale": alpha / rank,
+            "target_modules": list(target_modules), "params": n_lora}
     lineage = {"kind": "adapter/lora", "format": "safetensors",
                "base_model": trained_on["base"], "trained_on": trained_on,
                "lora": lora}
@@ -441,6 +511,21 @@ def run(ctx, inputs, params):
                 base_model=adapter["base_model"], trained_on=trained_on,
                 lora=lora, train=adapter["train"],
                 checkpoint_every=checkpoint_every)}
+
+
+def read_operator_batch(params, depth: int) -> dict[str, int]:
+    for name, why in (("lora", "trains a LoRA, and `operator` an operator: give one"),
+                      ("keep_checkpoints", "keeps LoRA adapters; an operator's run keeps none")):
+        if params.get(name):
+            raise ValueError(f"adapter/train: `{name}` {why}")
+    if depth > 1:
+        raise ValueError("adapter/train: an operator trains at one position; set target.depth to 1")
+    batch = dict(params.get("batch") or {"target": 3, "anchor": 1})
+    other = sorted(k for k, n in batch.items() if int(n) > 0 and k not in ("target", "anchor"))
+    if other:
+        raise ValueError(f"adapter/train: an operator trains at one position, on `target` and "
+                         f"`anchor` items; not {other}")
+    return batch
 
 
 def read_kept_steps(params, steps: int, every: int) -> list[int]:

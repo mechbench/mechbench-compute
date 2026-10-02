@@ -59,6 +59,7 @@ class ModelLoading:
     def _adapter_fused(self, model, inputs, params, ref=None, skipped=None, fused=None):
         import contextlib
 
+        from mechbench_compute.adapters.is_operator import is_operator
         from mechbench_compute.lora import (
             fuse_adapter_stack,
             restore_adapter_stack,
@@ -69,6 +70,10 @@ class ModelLoading:
             payloads = list(ref.adapter_payloads) if ref is not None else []
             layers = list(ref.adapter_layers[:len(payloads)]) if ref is not None else []
             node_level = read_one_adapter(inputs.get("adapter"))
+            if is_operator(node_level):
+                raise ValueError(
+                    "an operator attaches through the model reference: list it among the "
+                    "reference's adapters. The `adapter` port takes a LoRA.")
             if node_level:
                 payloads.append(node_level)
                 layers.append(None)

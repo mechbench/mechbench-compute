@@ -41,6 +41,7 @@ def test_every_op_emits_a_declared_kind_or_nothing() -> None:
 
 def test_every_op_kind_is_emitted_by_some_op() -> None:
     emitted = {op.output.kind for op in L.OPS if op.output}
+    emitted |= {o.kind for op in L.OPS if op.output for o in op.output.otherwise}
     exempt = {COLLECTION, "records/record", "records/condition", "records/pair",
               "logits/distribution", "activations/grid", "text/word-list",
               "intervene/spec"}

@@ -87,6 +87,45 @@ nothing said so.
   provenance; `intervene/apply`'s `description` names each operator,
   `f(x) = k * x at resid_post`. The `intervene/spec` kind's sentence
   names the form.
+- `adapter/train` trains an operator instead of a LoRA when given
+  `operator: {layers, point, positions | gate, mask, function, degree,
+  width, penalty}`: a function of what a mask selects on the residual
+  stream after the named layers (`resid_post`), its parameters the only
+  ones trained and the base model frozen (its weights come back bit for
+  bit), toward the same target with the same loop at one position
+  (`target` and `anchor` items). `function` is `affine` (a·x + b per
+  masked coordinate, or on a learned subspace, `mask: {"rank": r}`,
+  ReFT's h + Rᵀ(W·h + b − R·h) with R's rows orthonormal), `polynomial`
+  (per coordinate, of `degree`) or `mlp` (x plus one ReLU layer of
+  `width` on the masked slice), each starting as the identity; `mask` is
+  a list of dimensions, `{"rank": r}` or absent for every coordinate.
+  `positions` is `last` (the last position of every forward pass) or
+  `all`; `gate: true` adds one logistic unit on the residual that scales
+  the edit at every position, so where it acts is learned. `penalty:
+  {"l1": λ}` is a proximal step toward the identity after every Adam
+  update, so a value the target does not need lands on it exactly. The
+  output is a new kind, `adapter/operator`: `parameters` by layer (the
+  gate's `gate.weight` and `gate.bias` among them), `operator` (the
+  form, `d`, `params` and `effective`, the parameters off the identity
+  with the subspace and gate they act through), `base_model`,
+  `trained_on` and `train`. One coordinate's affine has 2 parameters; a
+  rank-r subspace on a residual d wide, 2rd + r. `depth` above 1,
+  `continuation` and `path` items, `keep_checkpoints` and `lora` beside
+  it are refused.
+- A model reference carries an `adapter/operator` beside LoRA adapters
+  (`{"base": …, "adapters": ["you/lab/temperature"]}`), and every node
+  that loads the model attaches it: after each of its layers the
+  residual stream passes through it on every forward pass, the model's
+  own forward and the hook-aware one alike (a decoder layer that carries
+  one applies it to its output; `Model.run` applies it at
+  `blocks.<i>.resid_post` before any intervention there), so reads,
+  generation, scoring and training all see it. `fused` names it by its
+  label. `layers` on its entry is refused, and a refused attach (a layer
+  the model lacks, `LAYER_OUT_OF_RANGE`; a residual of another width,
+  `OPERATOR_WIDTH_MISMATCH`) restores everything fused before it. It
+  cannot be merged into a checkpoint (`adapter/merge` refuses before
+  writing anything), and a node's `adapter` port still takes a LoRA
+  only.
 
 ## 0.185.0 — 2026-10-02
 

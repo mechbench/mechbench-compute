@@ -202,9 +202,19 @@ def fuse_adapter_stack(lm, payloads, override_scale=None, *,
     import os
     import tempfile
 
+    from mechbench_compute.adapters.attach_payload import attach_payload
+    from mechbench_compute.adapters.is_operator import is_operator
+
     handles = []
     try:
         for i, payload in enumerate(payloads):
+            if is_operator(payload):
+                if i < len(layers) and layers[i] is not None:
+                    raise ValueError(
+                        "an operator acts at the layers it was trained at; `layers` belongs to "
+                        "a LoRA: leave it out of the operator's entry")
+                handles.append(attach_payload(lm, payload))
+                continue
             if not isinstance(payload, dict) or "data" not in payload:
                 raise ValueError(
                     "adapter payload without safetensors bytes under 'data'")
@@ -229,5 +239,13 @@ def fuse_adapter_stack(lm, payloads, override_scale=None, *,
 
 
 def restore_adapter_stack(lm, handles):
+    from mechbench_compute.adapters.attach_operators import (
+        OperatorHandle,
+        detach_operators,
+    )
+
     for handle in reversed(handles):
-        restore(lm, handle)
+        if isinstance(handle, OperatorHandle):
+            detach_operators(lm, handle)
+        else:
+            restore(lm, handle)

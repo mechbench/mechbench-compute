@@ -454,6 +454,7 @@ def train_soft_ce(
     checkpoint_every: int = 0,
     on_checkpoint: Callable[[dict], None] | None = None,
     resume_state: Mapping | None = None,
+    after_update: Callable[[optim.Optimizer], None] | None = None,
 ) -> float:
     from mechbench_compute.resume import (
         capture_training_state,
@@ -490,6 +491,8 @@ def train_soft_ce(
         loss, grads = loss_and_grad(lm, batch)
         add_to_span(backwards=1)
         opt.update(lm, grads)
+        if after_update is not None:
+            after_update(opt)
         mx.eval(lm.trainable_parameters(), opt.state, loss)
         loss_val = float(loss)
         if on_step:

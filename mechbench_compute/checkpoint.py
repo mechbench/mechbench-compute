@@ -81,8 +81,14 @@ def export_merged(
     *,
     layers: Sequence[Sequence[int] | None] = (),
 ) -> list[str]:
+    from mechbench_compute.adapters.is_operator import is_operator
+
     snap = Path(snapshot_dir)
     out = Path(out_dir)
+    if any(is_operator(p) for p in adapter_payloads):
+        raise ValueError(
+            "an operator acts on activations and a checkpoint holds weights, so it cannot be "
+            "merged: merge the LoRA adapters, and keep the operator in the model reference")
 
     index_path = snap / "model.safetensors.index.json"
     if not index_path.exists():

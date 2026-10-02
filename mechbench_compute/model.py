@@ -9,6 +9,7 @@ import numpy as np
 from mlx_vlm.utils import get_model_path, load_config
 
 from . import _arch, architectures, support
+from .adapters.read_operator_hooks import read_operator_hooks
 from .cache import ActivationCache
 from .errors import InvalidHookName
 from .hooks import HookFn, parse_hook_name
@@ -152,6 +153,7 @@ class Model:
         final_hooks, final_capture = compose(
             interventions, hooks=hooks, capture=capture,
         )
+        final_hooks = read_operator_hooks(self.lm, final_hooks)
         self._validate_hook_names(set(final_hooks.keys()) | set(final_capture))
         logits, cache = self.architecture.forward(
             self._model, input_ids, hooks=final_hooks, capture=final_capture,

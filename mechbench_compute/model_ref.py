@@ -158,9 +158,11 @@ def resolve(
             f"adapter stack of depth {len(ref.adapter_labels)} — the cap "
             "is 8; merge earlier rounds into a checkpoint instead"
         )
+    from mechbench_compute.adapters.is_operator import is_operator
+
     payloads = tuple(fetch(label) for label in ref.adapter_labels)
     for label, p in zip(ref.adapter_labels, payloads):
-        if not isinstance(p, Mapping) or "data" not in p:
+        if not isinstance(p, Mapping) or ("data" not in p and not is_operator(p)):
             raise ValueError(
                 f"adapter {label!r} resolved to something without "
                 "safetensors bytes under 'data' — is it an adapter object?"
