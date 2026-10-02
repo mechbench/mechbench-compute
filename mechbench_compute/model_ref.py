@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any
 
 
@@ -13,10 +14,24 @@ class ModelRef:
     adapter_payloads: tuple[Mapping[str, Any], ...] = field(default=(), compare=False)
     provider: str = ""
     provider_options: Mapping[str, Any] = field(default_factory=dict)
+    adapter_layers: tuple[tuple[int, ...] | None, ...] = ()
+
+    def __post_init__(self) -> None:
+        short = len(self.adapter_labels) - len(self.adapter_layers)
+        if short < 0:
+            raise ValueError(
+                f"a model reference with {len(self.adapter_labels)} adapters was given "
+                f"{len(self.adapter_layers)} sets of layers; one per adapter at most")
+        if short:
+            object.__setattr__(self, "adapter_layers", (*self.adapter_layers, *(None,) * short))
 
     @property
     def is_endpoint(self) -> bool:
         return self.base_kind == "endpoint"
+
+    def read_adapters(self) -> list[dict[str, Any]]:
+        return [{"bench": label} if layers is None else {"bench": label, "layers": list(layers)}
+                for label, layers in zip(self.adapter_labels, self.adapter_layers)]
 
     def to_wire(self) -> dict[str, Any]:
         if self.is_endpoint:
@@ -26,7 +41,7 @@ class ModelRef:
             return out
         return {
             "base": {self.base_kind: self.base},
-            "adapters": [{"bench": label} for label in self.adapter_labels],
+            "adapters": self.read_adapters(),
         }
 
     def describe(self) -> str:
@@ -85,16 +100,32 @@ def parse(value: Any) -> ModelRef:
     if not isinstance(raw, (list, tuple)):
         raise TypeError("model reference adapters must be a list")
     labels: list[str] = []
+    layers: list[tuple[int, ...] | None] = []
     for a in raw:
-        if isinstance(a, Mapping) and set(a.keys()) == {"bench"}:
+        if isinstance(a, Mapping) and "bench" in a and set(a.keys()) <= {"bench", "layers"}:
             labels.append(str(a["bench"]))
+            layers.append(read_layers(a["layers"], labels[-1]) if "layers" in a else None)
         elif isinstance(a, str):
             labels.append(a)
+            layers.append(None)
         else:
             raise ValueError(
-                'each adapter must be {"bench": "<label>"} (or a bare label)'
+                'each adapter must be {"bench": "<label>"} (or a bare label), with '
+                '`layers` beside `bench` to fuse it in those layers only'
             )
-    return ModelRef(base_kind=base_kind, base=base_val, adapter_labels=tuple(labels))
+    return ModelRef(base_kind=base_kind, base=base_val, adapter_labels=tuple(labels),
+                    adapter_layers=tuple(layers))
+
+
+def read_layers(value: Any, label: str) -> tuple[int, ...]:
+    ok = (isinstance(value, (list, tuple))
+          and all(isinstance(i, int) and not isinstance(i, bool) and i >= 0 for i in value)
+          and all(a < b for a, b in pairwise(value)))
+    if not ok:
+        raise ValueError(
+            f"adapter {label}: `layers` is a list of layer indices, each at least 0, "
+            f"ascending and each once, such as [3, 4, 5]; got {value!r}")
+    return tuple(value)
 
 
 def resolve(
@@ -122,4 +153,5 @@ def resolve(
         base=ref.base,
         adapter_labels=ref.adapter_labels,
         adapter_payloads=payloads,
+        adapter_layers=ref.adapter_layers,
     )

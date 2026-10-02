@@ -369,7 +369,9 @@ def run(ctx, inputs, params):
                         seed=seed, keys=model.architecture.adapter_keys)
     base_ref = params.get("model")
     trained_on = (
-        {"base": base_ref.base, "adapters": list(base_ref.adapter_labels)}
+        {"base": base_ref.base,
+         "adapters": [label if layers is None else {"bench": label, "layers": list(layers)}
+                      for label, layers in zip(base_ref.adapter_labels, base_ref.adapter_layers)]}
         if hasattr(base_ref, "adapter_labels")
         else {"base": base_ref, "adapters": []}
     )

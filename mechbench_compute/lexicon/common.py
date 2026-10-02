@@ -8,7 +8,8 @@ COMMON: tuple[Param, ...] = (
       "protocol's `model` param (`{\"$param\": \"model\"}`) so one protocol "
       "can run against several models. A model reference may carry its "
       "own adapters; they are part "
-      "of what the model means and are fused before anything else.",
+      "of what the model means and are fused before anything else, each "
+      "in every layer or, with `layers`, in those layers alone.",
       None),
     P("adapter_scale", "float",
       "Multiplies the strength of the adapter that arrives on the node's "

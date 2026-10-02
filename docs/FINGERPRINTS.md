@@ -28,8 +28,9 @@ different orders are one computation.
   that starts passing `pool` gets a different fingerprint than one
   that does not.
 - **Upstream content**, by hash. A changed corpus is a changed node.
-- **The model**, in its canonical wire form (`{base, adapters}`), so an
-  adapter swap is visible.
+- **The model**, in its canonical wire form (`{base, adapters}`, an
+  adapter fused in chosen layers carrying its `layers`), so an adapter
+  swap is visible, and so is a change in where one is fused.
 - **The compute version** — see the next two sections, which are the
   whole point of this document.
 

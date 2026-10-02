@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 import math
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 import mlx.core as mx
@@ -117,7 +117,16 @@ def load_adapter(path: str) -> dict[str, mx.array]:
 def fuse(lm, weights: dict[str, mx.array],
          scale: float, *, skip_missing: bool = False,
          skipped: list[str] | None = None,
-         keys: AdapterKeys = ADAPTER_KEYS) -> dict[tuple[int, str], mx.array]:
+         keys: AdapterKeys = ADAPTER_KEYS,
+         layers: Sequence[int] | None = None) -> dict[tuple[int, str], mx.array]:
+    if layers is not None:
+        n = len(lm.model.layers)
+        beyond = [i for i in layers if not 0 <= i < n]
+        if beyond:
+            raise ValueError(
+                f"LAYER_OUT_OF_RANGE: an adapter's `layers` names "
+                f"{', '.join(str(i) for i in beyond)}, and this model's layers are "
+                f"0 through {n - 1}")
     pairs: dict[tuple[int, str, str], dict[str, mx.array]] = {}
     for key, w in weights.items():
         m = keys.key_re.match(key)
@@ -125,7 +134,8 @@ def fuse(lm, weights: dict[str, mx.array],
             raise ValueError(f"unrecognized adapter key {key!r}")
         i, container, proj, ab = (int(m.group(1)), m.group(2),
                                   m.group(3), m.group(4))
-        pairs.setdefault((i, container, proj), {})[ab] = w
+        if layers is None or i in layers:
+            pairs.setdefault((i, container, proj), {})[ab] = w
     missing = [(i, c, p) for (i, c, p) in sorted(pairs)
                if not hasattr(getattr(lm.model.layers[i], c, None), p)]
     if missing and not skip_missing:
@@ -178,28 +188,34 @@ def unfused(lm, handle: dict[tuple[int, str, str], mx.array]) -> Iterator[None]:
 def fuse_adapter_stack(lm, payloads, override_scale=None, *,
                        skip_missing: bool = False,
                        skipped: list[str] | None = None,
-                       keys: AdapterKeys = ADAPTER_KEYS):
+                       keys: AdapterKeys = ADAPTER_KEYS,
+                       layers: Sequence[Sequence[int] | None] = ()):
     import os
     import tempfile
 
     handles = []
-    for i, payload in enumerate(payloads):
-        if not isinstance(payload, dict) or "data" not in payload:
-            raise ValueError(
-                "adapter payload without safetensors bytes under 'data'")
-        cfg = payload.get("lora") or {}
-        scale = float(cfg.get("alpha", 16)) / float(cfg.get("rank", 8))
-        if override_scale is not None and i == len(payloads) - 1:
-            scale = float(override_scale)
-        fd, path = tempfile.mkstemp(suffix=".safetensors")
-        os.close(fd)
-        try:
-            with open(path, "wb") as f:
-                f.write(payload["data"])
-            handles.append(fuse(lm, load_adapter(path), scale=scale,
-                                skip_missing=skip_missing, skipped=skipped, keys=keys))
-        finally:
-            os.unlink(path)
+    try:
+        for i, payload in enumerate(payloads):
+            if not isinstance(payload, dict) or "data" not in payload:
+                raise ValueError(
+                    "adapter payload without safetensors bytes under 'data'")
+            cfg = payload.get("lora") or {}
+            scale = float(cfg.get("alpha", 16)) / float(cfg.get("rank", 8))
+            if override_scale is not None and i == len(payloads) - 1:
+                scale = float(override_scale)
+            fd, path = tempfile.mkstemp(suffix=".safetensors")
+            os.close(fd)
+            try:
+                with open(path, "wb") as f:
+                    f.write(payload["data"])
+                handles.append(fuse(lm, load_adapter(path), scale=scale,
+                                    skip_missing=skip_missing, skipped=skipped, keys=keys,
+                                    layers=layers[i] if i < len(layers) else None))
+            finally:
+                os.unlink(path)
+    except BaseException:
+        restore_adapter_stack(lm, handles)
+        raise
     return handles
 
 

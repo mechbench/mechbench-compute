@@ -21,11 +21,36 @@ _None._
 
 ### Changes that alter results without raising
 
-_None._
+- When fusing a model's adapters is refused at one adapter of the stack
+  (a module the architecture does not have, a payload without bytes, a
+  layer the model does not have), the adapters fused before it are
+  restored before the refusal is raised. Until now they stayed fused in
+  the loaded model, and the next node to run on the same base, in that
+  job or a later one on the same runner, ran on them and said nothing.
+  Where no fusing was refused, nothing changes.
 
 ### Other
 
-_None._
+- A model reference's adapter takes `layers`, the layers to fuse it in:
+  `{"bench": "<label>", "layers": [3, 4, 5]}` applies that adapter's
+  deltas in layers 3, 4 and 5 and nowhere else, by the layer index in
+  each of its keys (`model.layers.<i>.…`, the same in every
+  architecture). Without `layers` it is fused in every layer, as before,
+  and a bare label is still `{"bench": <label>}`; `layers: []` fuses none
+  of it. Every operation that loads the model fuses it this way, with or
+  without an `adapter` port; the port's adapter still fuses in every
+  layer, on top. `layers` is a list of layer indices, each at least 0,
+  ascending and each once, or the reference is refused naming the
+  adapter; a layer the model does not have is refused when fusing, as
+  ``LAYER_OUT_OF_RANGE: an adapter's `layers` names 40, and this model's
+  layers are 0 through 33``.
+- Such an adapter is recorded with its layers wherever the reference is:
+  in `fused` (`{"bench": <label>, "layers": [3, 4, 5]}`), in the `model`
+  a result carries, in the node fingerprint (two references that differ
+  only in `layers` fingerprint apart) and in `adapter/train`'s
+  `trained_on`, where an adapter without `layers` is still its bare
+  label. An adapter without `layers` is recorded exactly as before, so no
+  stored result or fingerprint moves.
 
 ## 0.184.0 — 2026-10-01
 

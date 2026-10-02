@@ -67,9 +67,11 @@ class ModelLoading:
         @contextlib.contextmanager
         def _cm():
             payloads = list(ref.adapter_payloads) if ref is not None else []
+            layers = list(ref.adapter_layers[:len(payloads)]) if ref is not None else []
             node_level = read_one_adapter(inputs.get("adapter"))
             if node_level:
                 payloads.append(node_level)
+                layers.append(None)
             if not payloads:
                 yield None
                 return
@@ -81,7 +83,7 @@ class ModelLoading:
             handles = fuse_adapter_stack(
                 model.lm, payloads, override,
                 skip_missing=bool(params.get("adapter_skip_missing", False)),
-                skipped=skipped, keys=model.architecture.adapter_keys)
+                skipped=skipped, keys=model.architecture.adapter_keys, layers=layers)
             if node_level:
                 model.node_adapter = handles[-1]
             if ref is not None and ref.adapter_payloads:
@@ -119,7 +121,8 @@ class ModelLoading:
         from mechbench_compute.lora import fuse_adapter_stack
 
         handles = fuse_adapter_stack(model.lm, list(ref.adapter_payloads),
-                                     keys=model.architecture.adapter_keys)
+                                     keys=model.architecture.adapter_keys,
+                                     layers=ref.adapter_layers)
         model.fused_reference = ref
         undo.append((model, ref, handles))
 
@@ -173,7 +176,7 @@ class ModelLoading:
 
 
 def read_fused(ref, node_level, scale) -> list[dict]:
-    out: list[dict] = [{"bench": label} for label in getattr(ref, "adapter_labels", ()) or ()]
+    out: list[dict] = ref.read_adapters() if getattr(ref, "adapter_labels", ()) else []
     if node_level:
         out.append({"port": "adapter", **({"scale": scale} if scale is not None else {})})
     return out
