@@ -7,6 +7,7 @@ import numpy as np
 
 from mechbench_compute.dictionaries.read_feature import read_feature
 from mechbench_compute.dictionaries.resolve_feature import resolve_feature
+from mechbench_compute.intervene.operator_refused import OperatorRefused
 from mechbench_compute.intervene.spec_error import SpecError
 
 FEATURE_OPS = ("add", "project_out", "clamp", "rotate", "patch")
@@ -16,6 +17,10 @@ def fill_feature(item: Mapping[str, Any], port: Any) -> dict[str, Any]:
     item = dict(item)
     if item.get("feature") is None:
         return item
+    if item.get("f") is not None:
+        raise OperatorRefused("OPERATOR_FIELDS", "an operator reads its coordinates through `mask`; "
+                              "give the feature's decoder row there as a direction, and leave `feature` "
+                              "out", construct="feature")
     if item.get("neurons") is not None:
         raise SpecError("`feature` and `neurons` are one address in two bases, a dictionary's and the "
                         "model's own: name one of them on an item, not both")

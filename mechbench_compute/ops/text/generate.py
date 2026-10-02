@@ -140,6 +140,15 @@ a step the generation never reached is not.
               P("op", "string", "What to do there — the table above lists each op and what it needs.", "zero",
                 choices=("zero", "mean", "resample", "patch", "add", "scale", "clamp", "project_out",
                          "rotate", "truncate")),
+              P("f", "expression",
+                "A function to apply instead of an `op`: an expression over `x`, the coordinates the "
+                "`mask` selects, and the item's `constants`.", None),
+              P("mask", "list[int] | \"direction\" | json",
+                "For `f`: the coordinates it acts on — dimensions, a direction or a frame, or "
+                "`\"direction\"` for the node's `direction` port. Every coordinate by default.", None),
+              P("constants", "map[string, float | list[float] | json]",
+                "For `f`: its named constants — a number, one value per coordinate of `x`, or "
+                "`{\"source\": \"mean\"}`.", None),
               P("strength", "float", "The item's magnitude, multiplied by each sweep factor.", 1.0),
               P("direction", "json",
                 "The direction, usually a stored one (`{\"$ref\": …}`); or it arrives on the node's `direction` port.", None),

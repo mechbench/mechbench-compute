@@ -4,7 +4,7 @@ import re
 
 VERBS = {
     "ablate", "add", "aggregate", "align", "apply", "assert", "attribute", "average",
-    "bin", "bootstrap", "build", "bump", "cache", "calculate", "call", "cap",
+    "bin", "bind", "bootstrap", "build", "bump", "cache", "calculate", "call", "cap",
     "capture", "chat", "check", "choose", "classify", "clamp", "clear",
     "close", "coerce", "collect", "compare", "compile", "compute", "contrast",
     "convert", "copy", "correlate", "count", "cross", "decode", "decompose", "delete", "derive", "evaluate",

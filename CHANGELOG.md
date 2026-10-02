@@ -17,15 +17,76 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- A spec item that names `mask` or `constants` without `f` is refused
+  with `OPERATOR_FIELDS`. Both were unknown fields before, ignored, and
+  the item ran as its `op`.
 
 ### Changes that alter results without raising
 
-_None._
+- A spec item that names `f` applies it (below). `f` was an unknown
+  field before, ignored, and the item ran as its `op`, `zero` when it
+  named none.
 
 ### Other
 
-_None._
+- A spec item applies a function to what a mask selects: `{"point":
+  "resid_post", "layers": [20], "positions": "last", "mask": [443], "f":
+  "k * x", "constants": {"k": 2.0}}` multiplies dimension 443 by 2 at the
+  last position. `f` is an expression in the platform's expression
+  language over `x`, the masked coordinates read elementwise, and the
+  item's named `constants`: a number, a list with one value per
+  coordinate, or `{"source": "mean"}`, the mean of the `source` rows at
+  the item's layer and point (the mean-ablation value from a reference
+  run, by the item or the node's `source` port). `mask` is a list of
+  dimensions; a direction, or a frame of several (a list, or a
+  `direction/vector` collection), under which `x` is the activation's
+  coordinates in that basis and the part the basis does not span passes
+  through unchanged; `"direction"`, the one on the node's `direction`
+  port; or absent, every coordinate. `point` is any hook point,
+  `positions` the selector as before (prompt positions and decoding
+  steps), and `heads`, `condition`, `except` (which also inverts a
+  dimension mask) and `sweep_over` apply as to any item. A `strength` s
+  applies `x + s·(f(x) − x)`, so a sweep's factors scale the edit. Every
+  intervene op (`intervene/apply`, `text/generate`, `text/chat`, an
+  `intervene/spec` on an `intervention` port) takes it.
+- The fixed ops are its cases and are unchanged: `0` at `attn_out` with
+  `positions: "all"` gives the logits `Ablate.attention` gives, bit for
+  bit, as `x + v` at one position does `Patch.add`'s, `0` on a head
+  `Ablate.head`'s, `-x` on the logits at a step `scale` by −1's, and `m`
+  bound from a source `mean`'s.
+- `f` takes numbers, `x`, its constants, `+ - * / // % **`, the
+  comparisons, `and`, `or`, `not`, `a if c else b` (the language's
+  elementwise choice), and `abs`, `min` and `max` of two or more,
+  `exp`, `log` (with an optional base), `log2`, `log10`, `sqrt`, `pow`,
+  `floor`, `ceil` and `round`. The expression engine parses it, so
+  anything outside the language is refused as the language refuses it;
+  its canonical form is read into MLX operations once per node (cached
+  by expression), not per token, and computed in float32, a whole power
+  up to 64 by multiplication, so `x ** 2` is exact where MLX's `power`
+  is within a few units in the last place. `^` is not power in the
+  language, and `x^2` is refused with `OPERATOR_SYNTAX` naming `**`.
+- A refusal is an `OperatorRefused` (a `SpecError`) whose message starts
+  with its code and which carries `code` and `construct`:
+  `OPERATOR_SYNTAX`, `OPERATOR_FUNCTION_UNKNOWN` (`where` is pointed at
+  `a if c else b`), `OPERATOR_UNSUPPORTED` (field access, lists,
+  comprehensions, `in`, a method call, `min` of one, `round` to
+  places), `OPERATOR_TYPE` (a condition where a number is needed, or the
+  reverse, or a wrong count of arguments), `OPERATOR_NAME_UNBOUND`,
+  `OPERATOR_FIELDS` (`op`, `neurons`, `direction`, `direction2`, `row`,
+  `from`, `pattern`, `feature` or `parameter` beside `f`),
+  `CONSTANT_INVALID`, `MASK_INVALID`, `MASK_DEGENERATE` (a frame whose
+  directions are not independent); and on the first forward pass
+  `MASK_OUT_OF_RANGE` (a dimension beyond the point's width),
+  `MASK_WIDTH_MISMATCH` and `OPERATOR_UNDEFINED`: an `f` that can give
+  an undefined number on a finite input (a division, a log, a root, a
+  fractional power, `exp`) is checked where it acts, and a NaN or an
+  infinity there is refused, since the language's undefined number is
+  null and an activation holds numbers.
+- The result's header records it: an operator item in `spec` carries
+  `f` in its canonical form and a direction or frame mask by its
+  provenance; `intervene/apply`'s `description` names each operator,
+  `f(x) = k * x at resid_post`. The `intervene/spec` kind's sentence
+  names the form.
 
 ## 0.185.0 — 2026-10-02
 

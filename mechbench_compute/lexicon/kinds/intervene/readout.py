@@ -14,7 +14,7 @@ KIND = Kind(
             "captures": F("object", "Before 0.110.0, for a capture: a collection of `activations/vector`, one per hook point. A capture readout is now itself that collection.")},
     required=("id", "factor"),
     key=("id", "factor", "cell"),
-    header={"spec": "The intervention items as run, with objects replaced by their provenance.",
+    header={"spec": "The intervention items as run, with objects replaced by their provenance; an operator's `f` in its canonical form, its `mask` by the directions' provenance.",
             "sweep": "The sweep as run: each axis (`strength`, and any of `layers`, `heads`, `positions`, `neurons`) and the values it took, `strength` including the 0 of an added control.",
             "readout": "`decision` or `capture`.",
             "layer": "For a steer sweep: the injection layer.",

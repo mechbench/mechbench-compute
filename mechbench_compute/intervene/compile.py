@@ -6,6 +6,8 @@ from typing import Any
 from mechbench_compute.intervene.compiled import Compiled
 from mechbench_compute.intervene.constants import SWEEP_AXES
 from mechbench_compute.intervene.fill_feature import fill_feature
+from mechbench_compute.intervene.operator_refused import OperatorRefused
+from mechbench_compute.intervene.read_mask import PORT_WORD
 from mechbench_compute.intervene.spec import Spec
 from mechbench_compute.intervene.spec_error import SpecError
 
@@ -19,9 +21,19 @@ def compile(model, items: Sequence[Mapping[str, Any]], *,
     port_dictionary = inputs.get("dictionary")
     for it in items:
         it = fill_feature(it, port_dictionary)
-        if it.get("direction") is None and port_dir is not None:
+        operator = it.get("f") is not None
+        if operator and it.get("parameter") is not None:
+            raise OperatorRefused("OPERATOR_FIELDS", "an operator acts on an activation, and an item "
+                                  "that names a `parameter` edits a weight", construct="parameter")
+        if operator and it.get("mask") == PORT_WORD and port_dir is not None:
+            it["mask"] = port_dir
+        if not operator and it.get("direction") is None and port_dir is not None:
             it["direction"] = port_dir
-        if it.get("source") is None and port_src is not None and it.get("op") in ("mean", "resample", "patch"):
+        constants = it.get("constants")
+        binds = operator and isinstance(constants, Mapping) and any(
+            isinstance(v, Mapping) for v in constants.values())
+        if it.get("source") is None and port_src is not None and (
+                it.get("op") in ("mean", "resample", "patch") or binds):
             it["source"] = port_src
         filled.append(it)
     weight_items = [it for it in filled if it.get("parameter") is not None]

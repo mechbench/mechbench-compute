@@ -68,7 +68,10 @@ cell.
 | `heads` | list[int] | all | Restrict the item to these attention heads, at a point that has a head axis (`attn.q`, `attn.k`, `attn.v`, `attn.scores`, `attn.weights`, `attn.per_head_out`, and the pre-norm/pre-rope variants). |
 | `neurons` | list[int] | all | Restrict the item to these indices along the feature axis — MLP neurons at `mlp.act`, residual dimensions at `resid_post`, vocabulary entries at `logits`. |
 | `op` | string | `"zero"` | What to do there — see the table below. |
-| `strength` | float | `1.0` | The item's magnitude: the coefficient for `add`, the factor for `scale`, the bound for `clamp`, the angle in radians for `rotate`. Multiplied by each sweep factor. |
+| `f` | expression | — | A function to apply there instead of an `op` — see *Applying a function*. |
+| `mask` | dimensions \\| direction \\| frame | every coordinate | What `f` acts on. |
+| `constants` | object | — | `f`'s named constants. |
+| `strength` | float | `1.0` | The item's magnitude: the coefficient for `add`, the factor for `scale`, the bound for `clamp`, the angle in radians for `rotate`, the share of the edit for `f`. Multiplied by each sweep factor. |
 | `direction` | direction | — | The direction for `add`, `project_out`, `clamp`, `rotate` and (optionally) `patch`. May instead arrive on the node's `direction` port, which fills every item that names none. |
 | `feature` | object | — | `{"index": 3071}`: a feature of the dictionary on the node's `dictionary` port, in place of `direction`, `point` and `layers` — see *Steering on a feature*. |
 | `direction2` | direction | — | The second axis of the plane for `rotate`. |
@@ -97,6 +100,49 @@ The ops:
 
 The older `intervene/ablate-layers` and `intervene/ablate-heads` and `intervene/steer` operations are special cases of this
 grammar.
+
+### Applying a function
+
+An item that gives **`f`** instead of an `op` applies a function there: an
+expression in the platform's expression language over `x`, the coordinates
+the item's **`mask`** selects, read elementwise, and its named **`constants`**.
+
+```json
+{"point": "resid_post", "layers": [20], "positions": "last",
+ "mask": [443], "f": "k * x", "constants": {"k": 2.0}}
+```
+
+`mask` is a list of dimensions along the point's feature axis; a direction,
+or a frame of several (a list of them, or a `direction/vector` collection),
+or `"direction"` for the one on the node's `direction` port; left out, every
+coordinate. Under a direction or a frame, `x` is the activation's coordinates
+in that basis: `f` replaces them, and the part of the vector the basis does
+not span passes through unchanged. A constant is a number, a list with one
+value per coordinate of `x`, or `{"source": "mean"}`: the mean of the
+`source` rows at the item's layer and point, in the mask's coordinates (the
+mean-ablation value, bound from a reference run). The ops above are cases of
+it and stay as they are: `0` is `zero`, `k * x` is `scale`, `x + v` adds `v`,
+`min(x, c)` clamps from above, `m` bound from the source is `mean`.
+
+`f` takes numbers, `x` and the constants; `+ - * / // % **`; the comparisons,
+`and`, `or`, `not` and the choice `a if c else b`; and `abs`, `min` and `max`
+(two or more arguments), `exp`, `log` (with an optional base), `log2`,
+`log10`, `sqrt`, `pow`, `floor`, `ceil` and `round`. It is a plain string, not
+a `$expr`, which the protocol would evaluate when the run is bound. It is
+compiled once per node and computed in float32, a whole power by
+multiplication (so `x ** 2` is exact). A `strength` s applies
+`x + s·(f(x) − x)`: 1, the default, is `f`, and a sweep's factors scale the
+edit. The header's `spec` carries `f` in its canonical form and the mask by
+its provenance. A refusal names its code: `OPERATOR_SYNTAX` (not an
+expression of the language; power is `**`), `OPERATOR_FUNCTION_UNKNOWN`,
+`OPERATOR_UNSUPPORTED` (a construct with no elementwise form, such as field
+access, a list or `in`), `OPERATOR_TYPE`, `OPERATOR_NAME_UNBOUND` (neither
+`x` nor a constant), `OPERATOR_FIELDS` (a field the operator does not take,
+such as `op` or `neurons`), `OPERATOR_UNDEFINED` (a division by zero or the
+like at run time: the language's null, which an activation cannot hold),
+`CONSTANT_INVALID`, `MASK_INVALID`, `MASK_OUT_OF_RANGE` (a dimension beyond
+the point's width), `MASK_WIDTH_MISMATCH` and `MASK_DEGENERATE` (a frame
+whose directions are not independent).
 
 ### Steering on a feature
 
@@ -228,6 +274,15 @@ one item can zero every layer's `o_proj`.
               P("op", "string", "What to do there — the table above lists each op and what it needs.", "zero",
                 choices=("zero", "mean", "resample", "patch", "add", "scale", "clamp", "project_out",
                          "rotate", "truncate")),
+              P("f", "expression",
+                "A function to apply instead of an `op`: an expression over `x`, the coordinates the "
+                "`mask` selects, and the item's `constants`.", None),
+              P("mask", "list[int] | \"direction\" | json",
+                "For `f`: the coordinates it acts on — dimensions, a direction or a frame, or "
+                "`\"direction\"` for the node's `direction` port. Every coordinate by default.", None),
+              P("constants", "map[string, float | list[float] | json]",
+                "For `f`: its named constants — a number, one value per coordinate of `x`, or "
+                "`{\"source\": \"mean\"}`.", None),
               P("strength", "float", "The item's magnitude, multiplied by each sweep factor.", 1.0),
               P("direction", "json",
                 "The direction, usually a stored one (`{\"$ref\": …}`); or it arrives on the node's `direction` port.", None),
@@ -238,8 +293,8 @@ one item can zero every layer's `o_proj`.
                 )),
               P("direction2", "json", "For `rotate`: the second axis of the plane.", None),
               P("source", "json",
-                "For `mean`, `resample` and `patch`: the replacement activations, or they arrive on the "
-                "node's `source` port.",
+                "For `mean`, `resample` and `patch`, and an `f` constant bound from it: the "
+                "replacement activations, or they arrive on the node's `source` port.",
                 None),
               P("row", "object", "For `patch`: which row of `source` to write in.", None,
                 fields=(P("index", "int", "The row's index.", 0),)),
@@ -252,8 +307,8 @@ one item can zero every layer's `o_proj`.
                 )),
               P("except", "bool",
                 "Invert each set this item names, on its own — every layer, head or "
-                "neuron BUT those. With both `layers` and `heads` named, both are "
-                "inverted.",
+                "neuron BUT those, and every dimension but a `mask`'s. With both "
+                "`layers` and `heads` named, both are inverted.",
                 False),
               P("from", "object",
                 "For `patch`: where the row is read, when that is not where it is "
@@ -486,6 +541,9 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
     what = []
     if specs:
         what.append(f"{len(specs)} activation intervention(s) per forward")
+    applied = [f"f(x) = {s.operator.canonical} at {s.point}" for s in specs if s.operator is not None]
+    if applied:
+        what.append("applying " + ", ".join(applied))
     if weight_items:
         what.append(f"{len(weight_items)} weight edit(s) for the run, "
                     f"restored after")

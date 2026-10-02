@@ -9,13 +9,24 @@ import numpy as np
 from mechbench_compute import directions as dirs
 from mechbench_compute import positions as POS
 from mechbench_compute._mlx import mx
+from mechbench_compute.intervene.bind_constants import bind_constants, check_constants
 from mechbench_compute.intervene.coerce_int_list import coerce_int_list
 from mechbench_compute.intervene.build_rows_matrix import build_rows_matrix
+from mechbench_compute.intervene.compile_operator import compile_operator
+from mechbench_compute.intervene.operator_refused import OperatorRefused
+from mechbench_compute.intervene.read_mask import read_mask
 from mechbench_compute.intervene.spec_error import SpecError
 from mechbench_compute.points import LAYOUT as _LAYOUT
 
 OPS = ("zero", "mean", "resample", "patch", "add", "scale", "clamp",
        "project_out", "rotate")
+
+BESIDE_F = {"op": "an item applies a fixed `op` or a function `f`, not both",
+            "neurons": "an operator's dimensions are its `mask`",
+            "direction": "an operator's direction is its `mask`",
+            "direction2": "`direction2` is `rotate`'s", "row": "`row` is `patch`'s",
+            "from": "`from` is `patch`'s",
+            "pattern": "an operator acts at positions, not on an attention edge"}
 
 
 _GLOBAL_POINTS = frozenset({"embed", "final_norm", "logits"})
@@ -30,8 +41,28 @@ class Spec:
         if point not in _LAYOUT:
             raise SpecError(f"unknown or unsupported point {point!r}; "
                             f"one of {sorted(_LAYOUT)}")
-        op = str(item.get("op", "zero"))
-        if op not in OPS:
+        f = item.get("f")
+        self.operator = self.mask = None
+        self.constants: dict[str, Any] = {}
+        if f is None:
+            stray = [k for k in ("mask", "constants") if item.get(k) is not None]
+            if stray:
+                raise OperatorRefused("OPERATOR_FIELDS", f"`{stray[0]}` belongs to an operator: give "
+                                      "`f`, the function it applies", construct=stray[0])
+        else:
+            beside = [k for k in BESIDE_F if item.get(k) is not None]
+            if beside:
+                raise OperatorRefused("OPERATOR_FIELDS", f"{BESIDE_F[beside[0]]}: leave `{beside[0]}` "
+                                      "out of an item that gives `f`", construct=beside[0])
+            if isinstance(f, bool) or not isinstance(f, (str, int, float)):
+                raise OperatorRefused("OPERATOR_SYNTAX", "`f` is an expression, written as a string",
+                                      construct="f")
+            self.operator = compile_operator(str(f))
+            self.constants = dict(item.get("constants") or {})
+            check_constants(self.constants, self.operator.names)
+            self.mask = read_mask(item.get("mask"), invert=bool(item.get("except", False)))
+        op = "f" if f is not None else str(item.get("op", "zero"))
+        if f is None and op not in OPS:
             raise SpecError(f"unknown op {op!r}; one of {OPS}")
         self.point, self.op = point, op
         layers = item.get("layers", "all")
@@ -50,6 +81,8 @@ class Spec:
         self.excepted = bool(item.get("except", False))
         if self.excepted:
             named = [k for k in ("layers", "heads", "neurons") if item.get(k) is not None]
+            if self.mask is not None and self.mask.dims is not None:
+                named.append("mask")
             if point in _GLOBAL_POINTS:
                 raise SpecError(
                     f"`except` inverts a set of layers, heads or neurons; point "
@@ -57,7 +90,7 @@ class Spec:
             if not named:
                 raise SpecError(
                     "`except` needs a set to invert: name `layers`, `heads` or "
-                    "`neurons` on the item")
+                    "`neurons` on the item, or an operator's dimensions as its `mask`")
             if item.get("layers") is not None and layers != "all":
                 keep = {int(x) for x in self.layers}
                 self.layers = [i for i in range(n_layers) if i not in keep]
@@ -100,6 +133,11 @@ class Spec:
             raise SpecError(f"op {op!r} needs a `source` residual_vectors record")
         if op == "patch" and self.source is None and self.direction is None:
             raise SpecError("op 'patch' needs a `source` record (with `row`) or a `direction`")
+        bind = [k for k, v in self.constants.items() if isinstance(v, Mapping)]
+        if bind and self.source is None:
+            raise OperatorRefused(
+                "CONSTANT_INVALID", f"constant `{bind[0]}` binds from `source`, and the item has no "
+                "source and none arrived on the node's `source` port", construct=bind[0])
         self._rng = np.random.default_rng(self.seed)
 
     def hook_names(self) -> list[str]:
@@ -140,11 +178,16 @@ class Spec:
                 raise SpecError(str(e)) from None
             return [p - offset for p in sel if offset <= p < n]
 
+        hook = self.point if layer is None else f"blocks.{layer}.{self.point}"
+        bound: dict[int, dict[str, Any]] = {}
+
         def fn(act: mx.array, info) -> mx.array:
             shape = act.shape
             nd = len(shape)
             L = shape[pos_axis]
             offset = int(getattr(info, "offset", 0) or 0)
+            if self.mask is not None:
+                self.mask.check(shape[feat_axis], hook)
             sel_pos = _positions(L, offset)
             if not sel_pos:
                 return act
@@ -191,6 +234,8 @@ class Spec:
                 cmask = (proj > thr) if above else (proj < thr)
                 mask = mask & cmask
 
+            if self.operator is not None:
+                return self._apply_operator(act, mask, rows, bound, hook)
             if op == "zero":
                 new = (mx.full(shape, float("-inf"), act.dtype)
                        if self.point == "attn.scores" else mx.zeros_like(act))
@@ -239,3 +284,21 @@ class Spec:
             return out
 
         return fn
+
+    def _apply_operator(self, act: mx.array, where: mx.array, rows: np.ndarray | None,
+                        bound: dict[int, dict[str, Any]], hook: str) -> mx.array:
+        d = act.shape[-1]
+        if d not in bound:
+            bound[d] = bind_constants(self.constants, self.mask, d, hook, rows)
+        a = act.astype(mx.float32)
+        x = self.mask.read(a)
+        y = self.operator.evaluate({**bound[d], "x": x})
+        if self.operator.undefinable:
+            n = int(mx.sum(mx.logical_and(where, mx.logical_not(mx.isfinite(y)))).item())
+            if n:
+                raise OperatorRefused(
+                    "OPERATOR_UNDEFINED", f"`{self.operator.canonical}` gave an undefined number (a "
+                    "division by zero, the log or square root of a negative number, an overflow) at "
+                    f"{n} coordinate{'' if n == 1 else 's'} of {hook}: the language's undefined number "
+                    "is null, and an activation holds numbers", construct=self.operator.canonical)
+        return mx.where(where, self.mask.write(a, x, y, self.strength).astype(act.dtype), act)

@@ -5,7 +5,7 @@ from mechbench_compute.lexicon.values import F
 
 KIND = Kind(
     "intervene/spec",
-    "An intervention as an object: the spec items — where in the forward pass to act, at which layers and positions, and what to do there — declared once and wired to whichever op runs the forward pass.",
+    "An intervention as an object: the spec items — where in the forward pass to act, at which layers and positions, and what to do there, a fixed op or a function `f` of what a `mask` selects — declared once and wired to whichever op runs the forward pass.",
     fields={"items": F("array", "The spec items, in the grammar `intervene/apply` documents under *Spec items*.", items={"type": "object"}),
             "description": F("string", "What the intervention is for, in a sentence.")},
     required=("items",),
@@ -14,5 +14,9 @@ KIND = Kind(
         "`intervention` port — one declared intervention, several readouts. Directions and sources "
         "an item needs arrive on the consuming node's `direction` and `source` ports, which fill any item "
         "that names none; a stored spec carries no vectors of its own. Stored on the bench like a corpus, "
-        "by hand or from a protocol's output.",
+        "by hand or from a protocol's output. An item that gives `f` is an operator: `{\"point\": "
+        "\"resid_post\", \"layers\": [20], \"positions\": \"last\", \"mask\": [443], \"f\": \"k * x\", "
+        "\"constants\": {\"k\": 2.0}}` multiplies dimension 443 by 2 at the last position; the fixed ops "
+        "are its cases (`0`, `k * x`, `x + v`, `min(x, c)`), and the result's header records `f` in its "
+        "canonical form.",
 )
