@@ -50,8 +50,25 @@ class ModelRef:
         tail = ""
         if self.adapter_labels:
             n = len(self.adapter_labels)
-            tail = f" (+{n} adapter{'s' if n != 1 else ''})"
+            chosen = "".join(f"; {label} in {describe_layers(layers)}"
+                             for label, layers in zip(self.adapter_labels, self.adapter_layers)
+                             if layers is not None)
+            tail = f" (+{n} adapter{'s' if n != 1 else ''}{chosen})"
         return f"{self.base_kind}:{self.base}{tail}"
+
+
+def describe_layers(layers: tuple[int, ...]) -> str:
+    if not layers:
+        return "no layer"
+    runs: list[list[int]] = []
+    for i in layers:
+        if runs and i == runs[-1][-1] + 1:
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+    said = ", ".join(f"{run[0]}–{run[-1]}" if len(run) > 2 else ", ".join(map(str, run))
+                     for run in runs)
+    return f"layer{'s' if len(layers) > 1 else ''} {said}"
 
 
 def parse(value: Any) -> ModelRef:

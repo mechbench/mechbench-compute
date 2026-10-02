@@ -114,19 +114,17 @@ def load_adapter(path: str) -> dict[str, mx.array]:
     return dict(mx.load(path))
 
 
-def fuse(lm, weights: dict[str, mx.array],
-         scale: float, *, skip_missing: bool = False,
-         skipped: list[str] | None = None,
-         keys: AdapterKeys = ADAPTER_KEYS,
-         layers: Sequence[int] | None = None) -> dict[tuple[int, str], mx.array]:
-    if layers is not None:
-        n = len(lm.model.layers)
-        beyond = [i for i in layers if not 0 <= i < n]
-        if beyond:
-            raise ValueError(
-                f"LAYER_OUT_OF_RANGE: an adapter's `layers` names "
-                f"{', '.join(str(i) for i in beyond)}, and this model's layers are "
-                f"0 through {n - 1}")
+def check_layers(layers: Sequence[int], n_layers: int) -> None:
+    beyond = [i for i in layers if not 0 <= i < n_layers]
+    if beyond:
+        raise ValueError(
+            f"LAYER_OUT_OF_RANGE: an adapter's `layers` names "
+            f"{', '.join(str(i) for i in beyond)}, and this model's layers are "
+            f"0 through {n_layers - 1}")
+
+
+def group_by_module(weights: Mapping[str, mx.array], keys: AdapterKeys = ADAPTER_KEYS,
+                    layers: Sequence[int] | None = None) -> dict[tuple[int, str, str], dict[str, mx.array]]:
     pairs: dict[tuple[int, str, str], dict[str, mx.array]] = {}
     for key, w in weights.items():
         m = keys.key_re.match(key)
@@ -136,6 +134,17 @@ def fuse(lm, weights: dict[str, mx.array],
                                   m.group(3), m.group(4))
         if layers is None or i in layers:
             pairs.setdefault((i, container, proj), {})[ab] = w
+    return pairs
+
+
+def fuse(lm, weights: dict[str, mx.array],
+         scale: float, *, skip_missing: bool = False,
+         skipped: list[str] | None = None,
+         keys: AdapterKeys = ADAPTER_KEYS,
+         layers: Sequence[int] | None = None) -> dict[tuple[int, str], mx.array]:
+    if layers is not None:
+        check_layers(layers, len(lm.model.layers))
+    pairs = group_by_module(weights, keys, layers)
     missing = [(i, c, p) for (i, c, p) in sorted(pairs)
                if not hasattr(getattr(lm.model.layers[i], c, None), p)]
     if missing and not skip_missing:

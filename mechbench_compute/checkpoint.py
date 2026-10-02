@@ -3,20 +3,26 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import mlx.core as mx
 
 from mechbench_compute.contained import check_file_name, write_inside
-from mechbench_compute.lora import ADAPTER_KEYS
+from mechbench_compute.lora import (
+    ADAPTER_KEYS,
+    AdapterKeys,
+    check_layers,
+    group_by_module,
+)
 
 MANIFEST_NAME = "manifest"
 _COMPLETE_MARK = ".complete"
 
 
-def _adapter_deltas(payload: Mapping[str, Any]) -> dict[str, mx.array]:
+def _adapter_deltas(payload: Mapping[str, Any], keys: AdapterKeys = ADAPTER_KEYS,
+                    layers: Sequence[int] | None = None) -> dict[str, mx.array]:
     import os
     import tempfile
 
@@ -34,18 +40,10 @@ def _adapter_deltas(payload: Mapping[str, Any]) -> dict[str, mx.array]:
     finally:
         os.unlink(path)
 
-    pairs: dict[tuple[int, str, str], dict[str, mx.array]] = {}
-    for key, w in weights.items():
-        m = ADAPTER_KEYS.key_re.match(key)
-        if m is None:
-            raise ValueError(f"unrecognized adapter key {key!r}")
-        i, container, proj, ab = (int(m.group(1)), m.group(2), m.group(3), m.group(4))
-        if ADAPTER_KEYS.containers.get(proj) is None:
-            raise ValueError(f"unknown projection {proj!r} in adapter")
-        pairs.setdefault((i, container, proj), {})[ab] = w
-
     deltas: dict[str, mx.array] = {}
-    for (i, container, proj), ab in pairs.items():
+    for (i, container, proj), ab in group_by_module(weights, keys, layers).items():
+        if keys.containers.get(proj) is None:
+            raise ValueError(f"unknown projection {proj!r} in adapter")
         if set(ab) != {"a", "b"}:
             raise ValueError(
                 f"adapter is missing lora_a or lora_b for layer {i} "
@@ -56,14 +54,35 @@ def _adapter_deltas(payload: Mapping[str, Any]) -> dict[str, mx.array]:
     return deltas
 
 
+def read_adapter_keys(snap: Path, layers: Sequence[Sequence[int] | None] = ()) -> AdapterKeys:
+    from mechbench_compute._arch import read_arch_from_config
+    from mechbench_compute.architectures import for_type
+
+    config_path = snap / "config.json"
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    declared = for_type(config.get("model_type"))
+    chosen = [one for one in layers if one is not None]
+    if chosen:
+        if declared is None:
+            raise ValueError(
+                f"an adapter's `layers` is checked against the checkpoint's layers, and its "
+                f"config.json names model_type {config.get('model_type')!r}, which compute "
+                f"does not load")
+        n_layers = read_arch_from_config(config).n_layers
+        for one in chosen:
+            check_layers(one, n_layers)
+    return ADAPTER_KEYS if declared is None else declared.adapter_keys
+
+
 def export_merged(
     snapshot_dir: str | Path,
     adapter_payloads: list[Mapping[str, Any]],
     out_dir: str | Path,
+    *,
+    layers: Sequence[Sequence[int] | None] = (),
 ) -> list[str]:
     snap = Path(snapshot_dir)
     out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
 
     index_path = snap / "model.safetensors.index.json"
     if not index_path.exists():
@@ -72,10 +91,12 @@ def export_merged(
             "checkpoint this merge knows how to rewrite"
         )
     weight_map: dict[str, str] = json.loads(index_path.read_text())["weight_map"]
+    keys = read_adapter_keys(snap, layers)
 
     merged_deltas: dict[str, mx.array] = {}
-    for payload in adapter_payloads:
-        for suffix, delta in _adapter_deltas(payload).items():
+    for index, payload in enumerate(adapter_payloads):
+        chosen = layers[index] if index < len(layers) else None
+        for suffix, delta in _adapter_deltas(payload, keys, chosen).items():
             merged_deltas[suffix] = (
                 merged_deltas[suffix] + delta if suffix in merged_deltas else delta
             )
@@ -90,6 +111,7 @@ def export_merged(
             )
         shard_targets.setdefault(weight_map[hits[0]], {})[hits[0]] = delta
 
+    out.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     for entry in sorted(snap.iterdir()):
         if entry.name.startswith("."):

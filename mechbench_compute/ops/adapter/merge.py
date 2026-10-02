@@ -20,8 +20,10 @@ OP = Op(
 The `model` must be a structured reference carrying at least one adapter.
 The merge never loads the model into memory: it rewrites the base's weight
 shards one at a time with the adapters' deltas applied, so peak memory is
-one shard. A manifest records every file's hash and the full stack that was
-merged.
+one shard. An adapter the reference fuses in chosen `layers` is merged in
+those layers alone, so the checkpoint holds the weights the fused model
+runs on. A manifest records every file's hash and the full stack that was
+merged, with the `layers` of an adapter merged in chosen layers.
 
 Destinations mirror the base grammar: `{"bench": {"name": "spinner-fair-v1"}}`
 stores the checkpoint under the run's project, usable afterwards as
@@ -84,7 +86,7 @@ def run(ctx, inputs, params):
     try:
         out = Path(workdir) / "checkpoint"
         files = checkpoint.export_merged(
-            snapshot, list(mref.adapter_payloads), out)
+            snapshot, list(mref.adapter_payloads), out, layers=mref.adapter_layers)
         manifest = checkpoint.build_manifest(
             out, files, mref.to_wire(), base_snapshot)
         if ctx.on_start:

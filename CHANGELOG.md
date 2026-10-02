@@ -80,6 +80,20 @@ _None._
   `trained_on`, where an adapter without `layers` is still its bare
   label. An adapter without `layers` is recorded exactly as before, so no
   stored result or fingerprint moves.
+- `adapter/merge` merges such an adapter in its layers alone, reading the
+  layer from each key with the same parser fusing uses (the
+  architecture's adapter keys, named by the checkpoint's config.json), so
+  the checkpoint merged from a reference with `layers` holds the weights
+  the fused model runs on; the manifest's `merged_from` records the
+  `layers`. A layer the checkpoint does not have, by its config.json read
+  as the loader reads it, is refused with `LAYER_OUT_OF_RANGE` before
+  anything is written, and so is any `layers` on a checkpoint whose
+  config.json names an architecture compute does not load. Without
+  `layers` a checkpoint merges as before.
+- A model reference's description in messages names each adapter fused
+  in chosen layers, with them: `hf:org/m (+2 adapters; you/lab/die in
+  layers 14–16)`, so a refusal says what was fused. A reference whose
+  adapters are fused in every layer is described as before.
 - `logits/attribute` takes `split`: `layer` (the default) or `sublayer`,
   whose components are `embed`, `L{i}.attn`, `L{i}.mlp`, and `L{i}.gate`
   on a checkpoint with per-layer inputs; a layer's piece is the sum of

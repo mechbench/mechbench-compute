@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import mlx.core as mx
 import numpy as np
 import pytest
 from mechbench_schema import dump_canonical
+from mlx.utils import tree_flatten
 
-from mechbench_compute import bench, lora, model_ref, resume
+from mechbench_compute import bench, checkpoint, lora, model_ref, resume
 from mechbench_compute.distill import render
 from mechbench_compute.lexicon._base import In, Op
 from mechbench_compute.ops import Context
+from mechbench_compute.ops.adapter import merge as merge_op
 from mechbench_compute.ops.adapter import train as train_op
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec, serialize_params
 from tests.test_circuits import build_adapter
@@ -41,10 +44,10 @@ def build_weights(model, sign=1.0):
     return {k: v * sign if k.endswith("lora_b") else v for k, v in build_adapter(model).items()}
 
 
-def build_payload(model, tmp_path, name, sign=1.0):
+def build_payload(model, tmp_path, name, sign=1.0, alpha=2):
     path = tmp_path / f"{name}.safetensors"
     mx.save_safetensors(str(path), build_weights(model, sign))
-    return {"data": path.read_bytes(), "lora": {"rank": 2, "alpha": 2}}
+    return {"data": path.read_bytes(), "lora": {"rank": 2, "alpha": alpha}}
 
 
 def adapted(payload, layers=None):
@@ -265,3 +268,153 @@ class TestTrainingOnAChosenSet:
                             "closer": " mat", "lora": {"rank": 2, "alpha": 4}})
         assert out["out"]["trained_on"] == {
             "base": "tiny", "adapters": ["you/lab/coin", {"bench": LABEL, "layers": [1]}]}
+
+
+SHARD = "model-00001-of-00001.safetensors"
+
+
+def write_snapshot(model, path):
+    path.mkdir()
+    weights = dict(tree_flatten(model.lm.parameters()))
+    mx.save_safetensors(str(path / SHARD), weights)
+    (path / "model.safetensors.index.json").write_text(
+        json.dumps({"weight_map": dict.fromkeys(weights, SHARD)}))
+    shape = {"num_hidden_layers": model.arch.n_layers, "hidden_size": model.arch.d_model,
+             "num_attention_heads": model.arch.n_heads, "num_key_value_heads": model.arch.n_kv_heads,
+             "vocab_size": model.arch.vocab_size}
+    nested = model.architecture.loader == "mlx-vlm"
+    (path / "config.json").write_text(json.dumps(
+        {"model_type": model.architecture.model_type, **({"text_config": shape} if nested else shape)}))
+    return weights
+
+
+def merge_by_hand(base, weights, layers, scale):
+    out = dict(base)
+    for name, w in base.items():
+        stem = name.removesuffix(".weight")
+        if f"{stem}.lora_a" in weights and int(name.split(".")[2]) in layers:
+            out[name] = w + (scale * (weights[f"{stem}.lora_b"] @ weights[f"{stem}.lora_a"])).astype(w.dtype)
+    return out
+
+
+def assert_same(got, want):
+    assert set(got) == set(want)
+    for name in want:
+        assert np.array_equal(np.array(got[name]), np.array(want[name])), name
+
+
+def stub_bench(monkeypatch, snap):
+    puts: dict[str, bytes] = {}
+    emits: list[dict] = []
+    monkeypatch.setattr("mechbench_compute.hub.ensure_model", lambda ref, **k: ("tiny", "rev", snap))
+    monkeypatch.setattr(bench, "list_prefix_hashes", lambda prefix, **k: {})
+    monkeypatch.setattr(bench, "put_file", lambda label, path, **k: puts.update(
+        {label.rsplit("/", 1)[-1]: Path(path).read_bytes()}) or {"sizeBytes": 1})
+    monkeypatch.setattr(bench, "emit", lambda label, payload, **k: emits.append(payload) or {})
+    return puts, emits
+
+
+def merge(model, name):
+    return merge_op.run(Context(result_base="you/lab/results/j_1"), {},
+                        {"model": model, "to": {"bench": {"name": name}}})
+
+
+class TestMergingAChosenSet:
+    def test_the_checkpoint_is_the_base_plus_those_layers_deltas(self, tiny, tmp_path):
+        base = write_snapshot(tiny, tmp_path / "snap")
+        payload = build_payload(tiny, tmp_path, "die", alpha=3)
+        checkpoint.export_merged(tmp_path / "snap", [payload], tmp_path / "chosen", layers=[(1, 3)])
+        checkpoint.export_merged(tmp_path / "snap", [payload], tmp_path / "full")
+        chosen = dict(mx.load(str(tmp_path / "chosen" / SHARD)))
+        full = dict(mx.load(str(tmp_path / "full" / SHARD)))
+        assert_same(chosen, merge_by_hand(base, build_weights(tiny), {1, 3}, 1.5))
+        assert_same(full, merge_by_hand(base, build_weights(tiny), set(range(tiny.arch.n_layers)), 1.5))
+        moved = [name for name in base if not np.array_equal(np.array(chosen[name]), np.array(full[name]))]
+        assert sorted({int(name.split(".")[2]) for name in moved}) == [
+            i for i in range(tiny.arch.n_layers) if i not in (1, 3)]
+
+    def test_the_checkpoint_holds_the_weights_the_restricted_fuse_runs_on(self, tiny, tmp_path):
+        write_snapshot(tiny, tmp_path / "snap")
+        payload = build_payload(tiny, tmp_path, "die", alpha=3)
+        checkpoint.export_merged(tmp_path / "snap", [payload], tmp_path / "out", layers=[(1, 3)])
+        handles = lora.fuse_adapter_stack(tiny.lm, [payload], keys=tiny.architecture.adapter_keys,
+                                          layers=[(1, 3)])
+        try:
+            fused = dict(tree_flatten(tiny.lm.parameters()))
+        finally:
+            lora.restore_adapter_stack(tiny.lm, handles)
+        assert_same(dict(mx.load(str(tmp_path / "out" / SHARD))), fused)
+
+    def test_the_op_merges_those_layers_and_merged_from_records_them(self, tiny, tmp_path, monkeypatch):
+        base = write_snapshot(tiny, tmp_path / "snap")
+        payload = build_payload(tiny, tmp_path, "die", alpha=3)
+        puts, emits = stub_bench(monkeypatch, tmp_path / "snap")
+        merge(adapted(payload, [1, 3]), "die-1-3")
+        assert emits[0]["merged_from"] == {"base": {"hf": "tiny"},
+                                           "adapters": [{"bench": LABEL, "layers": [1, 3]}]}
+        (tmp_path / "put.safetensors").write_bytes(puts[SHARD])
+        assert_same(dict(mx.load(str(tmp_path / "put.safetensors"))),
+                    merge_by_hand(base, build_weights(tiny), {1, 3}, 1.5))
+
+    def test_an_adapter_without_layers_is_recorded_as_before(self, tiny, tmp_path, monkeypatch):
+        write_snapshot(tiny, tmp_path / "snap")
+        _, emits = stub_bench(monkeypatch, tmp_path / "snap")
+        merge(adapted(build_payload(tiny, tmp_path, "die")), "die")
+        assert json.dumps(emits[0]["merged_from"]) == (
+            '{"base": {"hf": "tiny"}, "adapters": [{"bench": "you/lab/die"}]}')
+
+    def test_a_layer_the_checkpoint_lacks_refuses_before_anything_is_written(self, tiny, tmp_path, monkeypatch):
+        write_snapshot(tiny, tmp_path / "snap")
+        payload = build_payload(tiny, tmp_path, "die")
+        n = tiny.arch.n_layers
+        refusal = (rf"^LAYER_OUT_OF_RANGE: an adapter's `layers` names {n}, "
+                   rf"and this model's layers are 0 through {n - 1}$")
+        with pytest.raises(ValueError, match=refusal):
+            checkpoint.export_merged(tmp_path / "snap", [payload], tmp_path / "out", layers=[(1, n)])
+        assert not (tmp_path / "out").exists()
+        puts, emits = stub_bench(monkeypatch, tmp_path / "snap")
+        with pytest.raises(ValueError, match=refusal):
+            merge(adapted(payload, [1, n]), "die")
+        assert puts == {} and emits == []
+
+    def test_layers_on_a_checkpoint_of_no_architecture_compute_loads_refuse(self, tiny, tmp_path):
+        write_snapshot(tiny, tmp_path / "snap")
+        (tmp_path / "snap" / "config.json").write_text('{"model_type": "test"}')
+        payload = build_payload(tiny, tmp_path, "die")
+        with pytest.raises(ValueError, match="names model_type 'test', which compute does not load"):
+            checkpoint.export_merged(tmp_path / "snap", [payload], tmp_path / "out", layers=[(1,)])
+        assert not (tmp_path / "out").exists()
+        assert SHARD in checkpoint.export_merged(tmp_path / "snap", [payload], tmp_path / "out")
+
+
+def read_twice(ctx, inputs, params):
+    ctx.model(params["model"])
+    ctx.model(params["other"])
+    return {}
+
+
+class TestTheDescription:
+    @pytest.mark.parametrize("adapters,said", [
+        ([LABEL], "hf:org/m (+1 adapter)"),
+        ([{"bench": LABEL, "layers": [14, 15, 16]}], "hf:org/m (+1 adapter; you/lab/die in layers 14–16)"),
+        (["you/lab/coin", {"bench": LABEL, "layers": [0, 1, 2, 5, 6]}],
+         "hf:org/m (+2 adapters; you/lab/die in layers 0–2, 5, 6)"),
+        ([{"bench": "you/lab/coin", "layers": [1, 3]}, {"bench": LABEL, "layers": [20]}],
+         "hf:org/m (+2 adapters; you/lab/coin in layers 1, 3; you/lab/die in layer 20)"),
+        ([{"bench": LABEL, "layers": []}], "hf:org/m (+1 adapter; you/lab/die in no layer)"),
+    ])
+    def test_an_adapter_in_chosen_layers_is_named_with_them(self, adapters, said):
+        assert model_ref.parse({"base": "org/m", "adapters": adapters}).describe() == said
+
+    def test_two_sets_of_layers_in_one_node_refuse_naming_both(self, executor, tiny, payload):
+        declared = Op(name="probe/twice", summary="Loads the model twice.",
+                      description="Loads the model twice.", params=(), inputs=(),
+                      needs=frozenset({"model.forward"}))
+        op = SimpleNamespace(op=declared, module=SimpleNamespace(run=read_twice), scope=None)
+        with pytest.raises(ValueError) as refused:
+            executor._run_op(op, {}, {"model": adapted(payload, [1, 3]), "other": adapted(payload, [2])})
+        assert str(refused.value) == (
+            "probe/twice: the model already carries the adapters of hf:tiny (+1 adapter; you/lab/die "
+            "in layers 1, 3), and the operation asked for hf:tiny (+1 adapter; you/lab/die in layer 2); "
+            "one node runs one adapted model")
+        assert tiny.fused_reference is None
