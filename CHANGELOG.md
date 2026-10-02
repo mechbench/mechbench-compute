@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.186.0 — 2026-10-02
+
+### Changes that raise
+
 - A spec item that names `mask` or `constants` without `f` is refused
   with `OPERATOR_FIELDS`. Both were unknown fields before, ignored, and
   the item ran as its `op`.
