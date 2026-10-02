@@ -21,6 +21,20 @@ _None._
 
 ### Changes that alter results without raising
 
+_None._
+
+### Other
+
+_None._
+
+## 0.185.0 — 2026-10-02
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
 - When fusing a model's adapters is refused at one adapter of the stack
   (a module the architecture does not have, a payload without bytes, a
   layer the model does not have), the adapters fused before it are
