@@ -469,7 +469,7 @@ On a Linux machine with an NVIDIA GPU:
 
 ```
 pip install -e '.[torch,dev]'
-MECHBENCH_KIT_DEVICE=cuda python -m pytest tests/test_architecture_kit.py tests/test_torch_backend.py tests/test_backends.py -q
+MECHBENCH_KIT_DEVICE=cuda python -m pytest tests/test_architecture_kit.py tests/test_torch_backend.py tests/test_backends.py tests/test_backend_jobs.py -q
 ```
 The checks read arrays through `mechbench_compute.arrays`, so they
 hold for any backend's arrays:
