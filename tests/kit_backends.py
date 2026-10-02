@@ -16,6 +16,7 @@ WINDOW = 3
 KIT_MODULES: dict[str, str] = {
     "mlx": "tests.tiny_models",
     "fake": "tests.fake_backend",
+    "torch": "tests.tiny_torch_models",
 }
 
 

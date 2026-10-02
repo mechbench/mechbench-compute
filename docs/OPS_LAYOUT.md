@@ -368,6 +368,36 @@ finds one, `for_model(model)` finds a loaded model's. `support.refusal`,
 `support.local_architectures` and `_arch.family_supports` read the
 walked set; nothing else lists architectures.
 
+Those are the `mlx` backend's. An architecture is implemented per
+backend (docs/CAPABILITY.md §2.6 in the meta repo), and the `torch`
+backend's live under its own package, walked the same way:
+
+```
+mechbench_compute/torch_backend/architectures/gemma3.py   ARCH = Architecture(model_type="gemma3", backend="torch", loader="transformers", ...)
+mechbench_compute/torch_backend/architectures/llama.py
+```
+
+What an architecture declares apart from any backend lives where both
+read it without importing either: its tool dialect in
+`tool_dialects/<model_type>.py` (`DIALECT`, walked by
+`dialects.list_dialects`), its adapter key map in `adapter_keys.py`.
+`Architecture.backend` names the backend an implementation is for; the
+torch package imports MLX nowhere, and nothing outside it imports torch.
+
+The torch backend runs a `transformers` model under an nnsight trace
+(`torch_backend/forward.py`): a run with no hook and no capture is the
+model's own forward, and a run with any is one trace that reads and
+writes only the points named, in the order the forward reaches them,
+through the modules (`layers[i].input`/`.output`, the post-attention and
+post-feedforward norms, `lm_head`) and through nnsight's source
+operations inside the attention (`transpose_2` for `attn.v`,
+`apply_rotary_pos_emb_0` for `attn.q` and `attn.k`,
+`attention_interface_0` for `attn.per_head_out`, and the eager
+attention's `nn_functional_dropout_0` for `attn.weights`). Attention
+runs as SDPA unless `attn.weights` is named, when that run is eager.
+`torch_backend/tracing.py` loads nnsight with its `.save` mount turned
+off, since an MLX imported after that mount aborts.
+
 `support.Architecture` is the interface. Its declarative fields:
 `model_type`, `name`, `loader`, `generate`/`score`/`train`,
 `layer_points`, `global_points`, `refused_when` (config keys that refuse
@@ -409,10 +439,19 @@ architecture the backend implements, with a tiny random model of it
 (an architecture without one fails the kit), and over each variant
 whose config changes which points exist (`VARIANTS`: `gemma4-31b`).
 A backend's tiny models are a `KitBackend` (`tests/kit_backends.py`):
-MLX's in `tests/tiny_models.py`, and a fake second backend's in
+MLX's in `tests/tiny_models.py`, torch's in `tests/tiny_torch_models.py`
+(`transformers` models with random weights: Gemma 3 text, Gemma 3 with
+its vision tower, Llama; on the CPU, or the GPU when
+`MECHBENCH_KIT_DEVICE=cuda`), and a fake second backend's in
 `tests/fake_backend.py` (numpy arrays over MLX's forward). Each is
 selected by what a runner that has it advertises
 (`backends.select`), and skipped by name on a machine that lacks it.
+On a Linux machine with an NVIDIA GPU:
+
+```
+pip install -e '.[torch,dev]'
+MECHBENCH_KIT_DEVICE=cuda python -m pytest tests/test_architecture_kit.py tests/test_torch_backend.py tests/test_backends.py -q
+```
 The checks read arrays through `mechbench_compute.arrays`, so they
 hold for any backend's arrays:
 

@@ -34,6 +34,15 @@ BACKENDS: tuple[Backend, ...] = (
         platform_label="macOS on Apple Silicon",
         accelerators=("metal",),
     ),
+    Backend(
+        name="torch",
+        module="torch",
+        label="PyTorch with nnsight (NVIDIA GPU)",
+        platform_label="Linux with an NVIDIA GPU (CUDA)",
+        accelerators=("cuda",),
+        requires=("nnsight", "transformers"),
+        extra="torch",
+    ),
 )
 
 
@@ -75,7 +84,8 @@ def read_absence(backend: Backend, accelerator: str | None = None) -> str | None
     if missing:
         how = (f": pip install 'mechbench-compute[{backend.extra}]'"
                if backend.extra else "")
-        return f"{' and '.join(missing)} {'is' if len(missing) == 1 else 'are'} not installed{how}"
+        named = missing[0] if len(missing) == 1 else f"{', '.join(missing[:-1])} and {missing[-1]}"
+        return f"{named} {'is' if len(missing) == 1 else 'are'} not installed{how}"
     on = accelerator or detect_accelerator()
     if on not in backend.accelerators:
         return (f"it runs on {' or '.join(backend.accelerators)}, and this machine's "

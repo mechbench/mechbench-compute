@@ -34,7 +34,56 @@ _None._
 
 ### Other
 
-_None._
+- **A second backend, `torch`**: `transformers` models run under an
+  nnsight trace, declared in `backends` (offered on `cuda`, installed
+  with `pip install 'mechbench-compute[torch]'`: torch, nnsight 0.7 or
+  0.8, transformers 5, safetensors) and implemented in
+  `mechbench_compute.torch_backend`. `TorchModel` is the model surface
+  (`run` with hooks, captures and interventions; `tokenize`,
+  `make_ids`, `head_logits`, `project_to_logits`,
+  `decoded_distribution`, `prefill_decision`, `load`), and Gemma 3 (text
+  and with its vision tower) and Llama are its architectures, at the
+  `core` level: `resid_pre`, `attn_out`, `mlp_out`, `resid_post`,
+  `attn.q`, `attn.k`, `attn.v`, `attn.weights`, `attn.per_head_out`,
+  `embed`, `final_norm`, `final_norm.scale` and `logits`, each read and
+  written at the module or the source operation the forward reaches it
+  through. A run that names no point is the model's own forward; one that
+  names `attn.weights` runs its attention eager, and every other run
+  SDPA. `logits/read` (without `rollout` and `complete`, which are
+  refused by name off MLX), `logits/attribute` (by layer and by
+  sublayer, heads through the post-attention norm) and
+  `activations/capture` run on it, and `torch_backend.lora` fuses a
+  stored adapter (the same safetensors keys MLX trains) in the layers it
+  names and restores the weights bit for bit. What it lacks: generation,
+  scoring, rollouts, training, dictionaries, gradients, Gemma 4 and
+  Qwen 2, and the executor's choice of it (`Context.model` loads MLX).
+- The architecture kit runs on the torch backend with tiny `transformers`
+  models (`tests/tiny_torch_models.py`), on the CPU, or the GPU with
+  `MECHBENCH_KIT_DEVICE=cuda`, and every check holds there, bit-identical
+  double runs included; `tests/test_torch_backend.py` checks the
+  interventions, the two operations against the model's own logits, the
+  adapter in chosen layers, the same adapter moving the same weights on
+  MLX and on torch, loading a checkpoint from disk, and the refusals.
+- Loading nnsight turns off its `.save` mount and takes back one already
+  made (`torch_backend.tracing.load_nnsight`): an MLX imported after
+  that mount aborts the process, and a test shows it does.
+- What an architecture declares apart from any backend moved where both
+  backends read it without importing either: the tool dialects to
+  `tool_dialects/` (`gemma4`, `llama`, `qwen2`; `dialects.list_dialects`
+  walks it), the adapter key map to `adapter_keys.py`,
+  `walk_architectures` and `refuse_head_weights` to `support`, `dispatch`
+  to `hooks`, and `RunResult` to `run_result.py`. `interventions`,
+  `cache`, `hooks`, `distill`, `attribution` and the interp helpers import
+  without MLX, and the intervention hooks act on MLX arrays and torch
+  tensors alike (`arrays.zeros_like`, `make_head_mask`,
+  `make_position_mask`, `match_framework`, `read_logprobs`,
+  `read_softmax`). `support.refusal` takes the architectures to refuse
+  against, and `support.LOADERS` names `transformers`.
+- On MLX every changed path computes what it did, op for op: on every
+  tiny architecture, ten interventions with their captures,
+  `logits/read` with `tracked`, `rollout` and `complete`, and
+  `logits/attribute` by layer and by sublayer are bit for bit what they
+  were.
 
 ## 0.186.0 — 2026-10-02
 

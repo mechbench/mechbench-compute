@@ -8,6 +8,8 @@ import pytest
 from mechbench_compute import backends
 
 
+@pytest.mark.skipif(backends.detect_accelerator() != "metal",
+                    reason="the MLX test machine is Apple silicon; this one is not")
 def test_this_machine_reports_its_backend():
     active = backends.active()
     assert active is not None, "the test machine should have MLX"
@@ -47,6 +49,9 @@ def test_a_backend_whose_package_is_missing_is_absent_not_an_error():
                             platform_label="nowhere", accelerators=("cpu",), extra="gone")
     assert backends.read_absence(gone, "cpu") == (
         "no_such_package_anywhere.core is not installed: pip install 'mechbench-compute[gone]'")
+    three = backends.Backend(name="three", module="no_such_a", label="three", platform_label="nowhere",
+                             accelerators=("cpu",), requires=("no_such_b", "no_such_c"))
+    assert backends.read_absence(three, "cpu") == "no_such_a, no_such_b and no_such_c are not installed"
     assert backends.available("cpu", declared=(gone,)) == []
 
 
@@ -84,15 +89,31 @@ def test_the_accelerator_is_the_hardware(monkeypatch, platform_name, machine, to
 
 
 def test_a_backend_installed_for_another_accelerator_is_absent_but_named():
-    assert backends.available("cuda") == []
+    assert "mlx" not in [b.name for b in backends.available("cuda")]
     described = backends.describe("cuda")
-    assert [d["name"] for d in described] == [b.name for b in backends.BACKENDS]
+    assert [d["name"] for d in described] == [b.name for b in backends.BACKENDS] == ["mlx", "torch"]
     mlx = next(d for d in described if d["name"] == "mlx")
     assert mlx["present"] is False
     assert mlx["absent"] == "it runs on metal, and this machine's accelerator is cuda"
-    assert backends.describe("metal")[0] == {
+    on_metal = backends.describe("metal")
+    assert on_metal[0] == {
         "name": "mlx", "label": backends.BACKENDS[0].label, "accelerators": ["metal"],
         "present": True}
+    assert on_metal[1]["present"] is False
+    absent = on_metal[1]["absent"]
+    assert (absent == "it runs on cuda, and this machine's accelerator is metal"
+            or absent.endswith(" not installed: pip install 'mechbench-compute[torch]'")), absent
+
+
+def test_the_torch_backend_is_offered_on_cuda_and_installed_with_its_extra():
+    torch = next(b for b in backends.BACKENDS if b.name == "torch")
+    assert torch.accelerators == ("cuda",)
+    assert torch.modules == ("torch", "nnsight", "transformers")
+    assert torch.extra == "torch"
+    installed = backends.is_installed(torch)
+    assert backends.is_available("torch", "cuda") is installed
+    assert backends.is_available("torch", "metal") is False
+    assert backends.advertise("cuda")["backends"] == (["torch"] if installed else [])
 
 
 class TestSelectionByCapability:
@@ -106,7 +127,7 @@ class TestSelectionByCapability:
     def test_a_job_naming_a_backend_this_laptop_lacks_is_refused_by_name(self):
         from tests.fake_backend import DECLARED
 
-        laptop = backends.advertise()
+        laptop = {"accelerator": "metal", "backends": ["mlx"]}
         with pytest.raises(backends.BackendRefused,
                            match=r"^it needs the fake backend, and this runner has mlx$"):
             backends.select(laptop, backend="fake", declared=DECLARED)
@@ -119,7 +140,7 @@ class TestSelectionByCapability:
                            match=r"^it needs a cuda accelerator, and this runner has metal$"):
             backends.select(laptop, accelerator="cuda")
         with pytest.raises(backends.BackendRefused,
-                           match=r"^'jax' is not a backend compute declares; it declares mlx$"):
+                           match=r"^'jax' is not a backend compute declares; it declares mlx, torch$"):
             backends.select(laptop, backend="jax")
         with pytest.raises(backends.BackendRefused, match=r"advertises none on metal"):
             backends.select({"accelerator": "metal", "backends": []})
