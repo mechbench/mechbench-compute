@@ -67,7 +67,7 @@ export interface LexiconOp {
   path: string;
   title: string;
   family: string;
-  requires: "pure" | "mlx-local" | "remote" | "by-model";
+  requires: "pure" | "local" | "mlx-local" | "remote" | "by-model";
   summary: string;
   inputs: LexiconPort[];
   /** Its one output, and — under `otherwise` — what it produces instead

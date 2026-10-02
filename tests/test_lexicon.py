@@ -210,7 +210,7 @@ class TestWhatAnOperationNeeds:
         from mechbench_compute import ops
 
         before = {name for name, mod in ops.load_modules().items()
-                  if mod.OP.requires == "mlx-local" and mod.OP.port("adapter") is not None}
+                  if mod.OP.requires == "local" and mod.OP.port("adapter") is not None}
         assert {name for name in ops.load_modules() if ops.fuses_adapter(name)} == before
         assert {name for name in ops.load_modules() if ops.fuses_adapter_locally(name)} == {"text/chat"}
 
@@ -220,7 +220,9 @@ class TestWhatAnOperationNeeds:
 
         fixture = pathlib.Path(__file__).parent / "fixtures" / "declarations_before_needs.json"
         before = json.loads(fixture.read_text())
-        assert {op.name: op.requires for op in lexicon.OPS} == before["requires"]
+        renamed = {"mlx-local": "local"}
+        assert {op.name: op.requires for op in lexicon.OPS} == {
+            name: renamed.get(was, was) for name, was in before["requires"].items()}
 
     def test_resume_is_declared_as_it_was_tabled(self) -> None:
         import json
@@ -283,7 +285,7 @@ class TestWhatAnOperationNeeds:
 
     def test_every_operation_declares_one_of_the_four(self) -> None:
         for op in lexicon.OPS:
-            assert op.requires in ("pure", "mlx-local", "remote", "by-model"), op.name
+            assert op.requires in ("pure", "local", "remote", "by-model"), op.name
 
     def test_the_operations_that_run_either_side_are_the_ones_that_chat_with_a_provider(self) -> None:
         either = {op.name for op in lexicon.OPS if op.requires == "by-model"}

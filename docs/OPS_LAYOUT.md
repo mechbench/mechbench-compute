@@ -158,7 +158,8 @@ operation's `run` touches is named by a need it declares.
   under `ops/` and `lexicon/kinds/`. There is no table of operations to
   keep in step with the files. How it is built is the last section.
 - **Where it runs** — `OP.requires`, derived from `OP.needs`: a
-  `model.*` or `runtime.mlx` need is `mlx-local`; otherwise a
+  `model.*` or `runtime.mlx` need is `local` (`mlx-local` before the
+  backend was named apart); otherwise a
   `provider.*` or `network:*` need is `remote`; a `model.*` need with a
   `provider.*` or `network:*` one is `by-model`; none is `pure`. It is
   still in the wire form, for placement; it is no longer written.

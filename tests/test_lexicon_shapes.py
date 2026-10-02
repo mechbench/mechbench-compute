@@ -104,8 +104,8 @@ def test_a_need_outside_the_vocabulary_is_refused() -> None:
 @pytest.mark.parametrize(("needs", "requires"), [
     (set(), "pure"),
     ({"secrets", "executor.sub"}, "pure"),
-    ({"model.forward"}, "mlx-local"),
-    ({"model.backward"}, "mlx-local"),
+    ({"model.forward"}, "local"),
+    ({"model.backward"}, "local"),
     ({"provider.embed"}, "remote"),
     ({"network:huggingface.co"}, "remote"),
     ({"model.sample", "provider.chat"}, "by-model"),
@@ -123,7 +123,7 @@ def test_the_manifest_fields_reach_the_published_dict() -> None:
             deterministic=False, min_compute="0.170.0")
     d = op.to_dict()
     assert d["needs"] == ["model.forward", "secrets"]
-    assert d["requires"] == "mlx-local"
+    assert d["requires"] == "local"
     assert d["resume"] == {"level": "restart", "items": True}
     assert d["deterministic"] is False
     assert d["min_compute"] == "0.170.0"

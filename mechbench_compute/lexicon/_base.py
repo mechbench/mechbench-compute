@@ -404,7 +404,7 @@ class Op:
         remote = any(n.startswith(("provider.", NETWORK)) for n in self.needs)
         if model and remote:
             return "by-model"
-        return "mlx-local" if local else "remote" if remote else "pure"
+        return "local" if local else "remote" if remote else "pure"
 
     @property
     def path(self) -> str:

@@ -21,7 +21,16 @@ _None._
 
 ### Changes that alter results without raising
 
-_None._
+- An operation's derived class is `local`, which was `mlx-local`
+  (`Op.requires`, in every operation's wire form and the lexicon
+  `scripts/dump_lexicon_ts.py` writes): it runs a model on the runner,
+  on whichever backend the job names (docs/CAPABILITY.md §2.6 in the meta
+  repo). Placement reads the legacy spelling as `local` for one release
+  (mechbench-models 0.103.32 and later), and an extension's manifest keeps the
+  `requires` it was compiled with, since it is inside the version's pin:
+  a version pushed from an older compute keeps its pin, and one this
+  compute compiles is pinned with `local`. The lexicon's `requires` type
+  takes both spellings.
 
 ### Other
 
