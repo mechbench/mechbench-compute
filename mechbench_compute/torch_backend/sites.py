@@ -4,14 +4,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-Read = Callable[[Any], Any]
-Write = Callable[[Any, Any], None]
+Read = Callable[[], Any]
+Write = Callable[[Any], None]
 
 
 @dataclass(frozen=True)
 class Site:
     read: Read
     write: Write
+    settle: Callable[[], None] | None = None
 
 
 def read_child_output(child: str, layer: Any) -> Site:

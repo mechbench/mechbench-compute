@@ -124,6 +124,18 @@ def test_captures_leave_the_fast_path_s_logits_alone_bit_for_bit(tiny):
     assert torch.equal(tiny.run(ids, capture=every).logits, plain)
 
 
+@pytest.mark.parametrize("name", MODELS)
+def test_reading_attention_weights_leaves_the_next_forward_alone_bit_for_bit(name):
+    model = build_tiny_model(name)
+    ids = model.make_ids(IDS)
+    plain = model.run(ids).logits
+    weights = [f"blocks.{i}.attn.weights" for i in range(model.arch.n_layers)]
+    model.run(model.make_ids(IDS[:3]), capture=weights)
+    assert torch.equal(model.run(ids).logits, plain)
+    model.run(ids, capture=weights)
+    assert torch.equal(model.run(ids, capture=["blocks.0.resid_post"]).logits, plain)
+
+
 def test_logits_attribute_adds_up_on_torch_by_layer_by_sublayer_and_by_head(tiny):
     records = [{"id": "a", "prompt": "the cat sat on a", "template": "raw"},
                {"id": "b", "user": "the dog ran on the mat"}]

@@ -66,7 +66,12 @@ _None._
   MLX and on torch, loading a checkpoint from disk, and the refusals.
 - Loading nnsight turns off its `.save` mount and takes back one already
   made (`torch_backend.tracing.load_nnsight`): an MLX imported after
-  that mount aborts the process, and a test shows it does.
+  that mount aborts the process, and a test shows it does. A run that
+  reads `attn.weights` disarms, when it ends, the replacement nnsight 0.7
+  leaves armed after an operation's first recursive `.source`
+  (`tracing.disarm`): the model's next forward ran that eager attention
+  under its own SDPA mask, and its logits were wrong on every tiny
+  architecture. A test shows the next forward is bit for bit what it was.
 - What an architecture declares apart from any backend moved where both
   backends read it without importing either: the tool dialects to
   `tool_dialects/` (`gemma4`, `llama`, `qwen2`; `dialects.list_dialects`

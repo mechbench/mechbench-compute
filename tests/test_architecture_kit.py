@@ -277,6 +277,7 @@ def test_capturing_attention_internals_at_every_layer_leaves_the_logits_alone(ti
                                     for i in range(tiny.arch.n_layers)])
     assert np.abs(plain).max() > 1.0
     assert np.allclose(read_f64(probed.logits), plain, atol=1e-4, rtol=1e-4)
+    assert np.array_equal(read_f64(tiny.run(ids).logits), plain)
     for i in range(tiny.arch.n_layers):
         weights = read_f64(probed.cache[f"blocks.{i}.attn.weights"])[0]
         assert np.allclose(np.triu(weights, k=1), 0.0)

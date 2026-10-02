@@ -9,7 +9,7 @@ from mechbench_compute._arch import Arch
 from mechbench_compute.cache import ActivationCache
 from mechbench_compute.hooks import HookFn, dispatch, parse_hook_name
 from mechbench_compute.torch_backend.sites import Site, Sites
-from mechbench_compute.torch_backend.tracing import use_attention, wrap_model
+from mechbench_compute.torch_backend.tracing import disarm, use_attention, wrap_model
 
 EAGER_POINTS = frozenset({"attn.weights"})
 
@@ -148,7 +148,8 @@ def plan_layer(layer: Any, i: int, points: set[str], sites: Sites) -> list[Step]
 
         steps.append(make_step(named + "attn.weights", i, "attn.weights", Site(
             lambda: read_weights().output,
-            lambda value: setattr(read_weights(), "output", value))))
+            lambda value: setattr(read_weights(), "output", value),
+            lambda: disarm(find_interface_call(attn)))))
     if "attn.per_head_out" in points:
         inner = find_interface_call(attn)
         steps.append(Step((named + "attn.per_head_out",), i, ("attn.per_head_out",), Site(
@@ -191,7 +192,12 @@ def run_forward(model: Any, input_ids: Any, *, sites: Sites, hooks: dict[str, Ho
     steps = plan_steps(envoy, model, sites, wanted, arch)
     eager = any(p in EAGER_POINTS for s in steps for p in s.points)
     held: dict[str, Any] = {}
-    with use_attention(model, "eager" if eager else None), torch.no_grad(), \
-            envoy.trace(input_ids=input_ids):
-        run_steps(steps, hooks, capture_set, cache, held)
+    try:
+        with use_attention(model, "eager" if eager else None), torch.no_grad(), \
+                envoy.trace(input_ids=input_ids):
+            run_steps(steps, hooks, capture_set, cache, held)
+    finally:
+        for step in steps:
+            if step.site.settle is not None:
+                step.site.settle()
     return held["last"], cache

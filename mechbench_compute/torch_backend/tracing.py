@@ -26,6 +26,13 @@ def wrap_model(module: Any) -> Any:
     return envoy
 
 
+def disarm(operation: Any) -> None:
+    # external: nnsight 0.7 — an operation's first recursive `.source` stays armed for the next forward
+    accessor = getattr(operation, "accessor", None)
+    if getattr(accessor, "fn_replacement", None) is not None:
+        accessor.fn_replacement = None
+
+
 def set_attention(module: Any, name: str) -> None:
     setter = getattr(module, "set_attn_implementation", None)
     if setter is not None:
