@@ -30,14 +30,3 @@ def make_project_to_logits(read_unembed: Callable[[Any], Unembed]) -> Callable[[
         return cap_logits(u, u.project(u.norm(residual)))
 
     return project_to_logits
-
-
-def refuse_head_weights(model_type: str) -> Callable[[Any, int, int], Any]:
-    def head_weights(model, layer: int, head: int):
-        raise NotImplementedError(
-            f"head_weights is not written for the {model_type} architecture: the static "
-            f"per-head readout (HeadSpec: W_Q, W_K, W_V, W_O, layer type, KV sharing) is "
-            f"written for gemma4 only; write {model_type}'s in "
-            f"mechbench_compute/architectures/{model_type}.py")
-
-    return head_weights

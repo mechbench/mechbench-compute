@@ -1,22 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute.support import Architecture
-from mechbench_compute.walk_modules import walk_modules
-
-
-def walk_architectures(package: str) -> tuple[Architecture, ...]:
-    found = []
-    for mod in walk_modules(package):
-        arch = getattr(mod, "ARCH", None)
-        if arch is None:
-            raise ImportError(f"{mod.__name__} is under architectures/ and declares no ARCH")
-        if f"{package}.{arch.model_type}" != mod.__name__:
-            raise ImportError(
-                f"{mod.__name__} declares {arch.model_type!r}, which belongs at "
-                f"{package}.{arch.model_type}: an architecture's path is its model_type")
-        found.append(arch)
-    return tuple(sorted(found, key=lambda a: a.model_type))
-
+from mechbench_compute.support import Architecture, walk_architectures
 
 ARCHITECTURES: tuple[Architecture, ...] = walk_architectures(__name__)
 

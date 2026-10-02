@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
 import mlx.core as mx
@@ -10,10 +9,10 @@ from mlx_vlm.utils import get_model_path, load_config
 
 from . import _arch, architectures, support
 from .adapters.read_operator_hooks import read_operator_hooks
-from .cache import ActivationCache
 from .errors import InvalidHookName
 from .hooks import HookFn, parse_hook_name
 from .interventions import Intervention, compose
+from .run_result import RunResult
 from .spans import add_to_span
 
 
@@ -25,34 +24,6 @@ def _peek_config(model_id: str) -> dict:
         return dict(load_config(path))
     except Exception:
         return {}
-
-
-@dataclass(frozen=True)
-class RunResult:
-    logits: mx.array
-    cache: ActivationCache
-
-    @property
-    def last_logits(self) -> mx.array:
-        return self.logits[0, -1, :]
-
-    def top_k(self, tokenizer, k: int = 5) -> list[tuple[str, float]]:
-        probs_np = self.last_probs()
-        top_idx = np.argsort(-probs_np)[:k]
-        return [
-            (tokenizer.decode([int(i)]), float(probs_np[i])) for i in top_idx
-        ]
-
-    def top1(self, tokenizer) -> tuple[int, str, float]:
-        probs = self.last_probs()
-        top_id = int(np.argmax(probs))
-        return top_id, tokenizer.decode([top_id]), float(probs[top_id])
-
-    def last_probs(self) -> np.ndarray:
-        last = self.last_logits.astype(mx.float32)
-        probs = mx.softmax(last)
-        mx.eval(probs)
-        return np.array(probs)
 
 
 class Model:

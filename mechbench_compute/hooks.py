@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
-
-import mlx.core as mx
+from typing import Any, Callable, Optional
 
 from . import _arch
+from .cache import ActivationCache
 from .errors import InvalidHookName, LayerIndexOutOfRange
 
 
@@ -17,7 +16,7 @@ class HookInfo:
     offset: int = 0
 
 
-HookFn = Callable[[mx.array, HookInfo], Optional[mx.array]]
+HookFn = Callable[[Any, HookInfo], Optional[Any]]
 
 
 def parse_hook_name(name: str, arch: _arch.Arch | None = None) -> HookInfo:
@@ -63,3 +62,23 @@ def mlp_internal_layers(hook_names: set[str],
         if info.point in _arch.MLP_INTERNAL_POINTS and info.layer is not None:
             out.add(info.layer)
     return out
+
+
+def dispatch(
+    name: str,
+    layer: int | None,
+    point: str,
+    activation: Any,
+    hooks: dict[str, HookFn],
+    capture_set: set[str],
+    cache: ActivationCache,
+) -> Any:
+    fn = hooks.get(name)
+    if fn is not None:
+        info = HookInfo(name=name, layer=layer, point=point, offset=cache.offset)
+        new = fn(activation, info)
+        if new is not None:
+            activation = new
+    if name in capture_set:
+        cache[name] = activation
+    return activation

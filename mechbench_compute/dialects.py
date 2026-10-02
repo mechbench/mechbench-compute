@@ -104,13 +104,9 @@ class ToolDialect:
 
 
 def list_dialects() -> tuple[ToolDialect, ...]:
-    from mechbench_compute.architectures import ARCHITECTURES
+    from mechbench_compute.tool_dialects import DIALECTS
 
-    found: list[ToolDialect] = []
-    for a in ARCHITECTURES:
-        if a.dialect is not None and a.dialect not in found:
-            found.append(a.dialect)
-    return tuple(found)
+    return DIALECTS
 
 
 def identify(probe: TemplateProbe) -> ToolDialect | None:

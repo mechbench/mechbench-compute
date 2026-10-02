@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-import mlx.core as mx
-
+from ._mlx import mx
 from .errors import CacheKeyError
 
 

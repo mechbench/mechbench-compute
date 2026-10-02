@@ -5,27 +5,7 @@ from collections.abc import Callable
 import mlx.core as mx
 
 from mechbench_compute.cache import ActivationCache
-from mechbench_compute.hooks import HookFn, HookInfo
-
-
-def dispatch(
-    name: str,
-    layer: int | None,
-    point: str,
-    activation: mx.array,
-    hooks: dict[str, HookFn],
-    capture_set: set[str],
-    cache: ActivationCache,
-) -> mx.array:
-    fn = hooks.get(name)
-    if fn is not None:
-        info = HookInfo(name=name, layer=layer, point=point, offset=cache.offset)
-        new = fn(activation, info)
-        if new is not None:
-            activation = new
-    if name in capture_set:
-        cache[name] = activation
-    return activation
+from mechbench_compute.hooks import HookFn, dispatch
 
 
 def run_head(

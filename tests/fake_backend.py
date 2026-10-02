@@ -10,7 +10,7 @@ from mechbench_compute.architectures import BY_MODEL_TYPE
 from mechbench_compute.arrays import read_f32
 from mechbench_compute.backends import Backend
 from mechbench_compute.cache import ActivationCache
-from mechbench_compute.model import RunResult
+from mechbench_compute.run_result import RunResult
 from mechbench_compute.support import Unembed
 from tests import tiny_models
 from tests.kit_backends import KitBackend

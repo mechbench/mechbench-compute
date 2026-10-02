@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import re
-from collections.abc import Mapping, Sequence
 from functools import partial
 
 from mlx_lm.models.base import create_attention_mask
 
 from mechbench_compute._arch import Arch
+from mechbench_compute.adapter_keys import ADAPTER_KEYS
 from mechbench_compute.architectures._head import (
     make_head_logits,
     make_project_to_logits,
-    refuse_head_weights,
 )
 from mechbench_compute.architectures._mlx_lm import (
     load_lm,
@@ -21,41 +19,15 @@ from mechbench_compute.architectures._mlx_lm import (
     run_lm_forward,
     tokenize_lm,
 )
-from mechbench_compute.dialects import (
-    ParseResult,
-    ToolDialect,
-    make_call,
-    parse_json,
-    strip_calls,
-)
-from mechbench_compute.lora import ADAPTER_KEYS
 from mechbench_compute.support import (
     CORE_GLOBAL_POINTS,
     CORE_LAYER_POINTS,
     Architecture,
+    refuse_head_weights,
     refuse_logit_softcap,
 )
 from mechbench_compute.thinking import THINK_TAGS
-from mechbench_compute.tools import ToolDef
-
-CALL = re.compile(
-    r'\{[^{}]*"name"\s*:\s*"[^"]+"[^{}]*"parameters"\s*:\s*\{.*?\}\s*\}', re.DOTALL)
-
-
-def parse_calls(text: str, tools: Sequence[ToolDef]) -> ParseResult:
-    known = {t.name for t in tools}
-    out = []
-    spans: list[tuple[int, int]] = []
-    for m in CALL.finditer(text):
-        parsed = parse_json(m.group(0))
-        if (isinstance(parsed, Mapping) and parsed.get("name")
-                and not (known and parsed["name"] not in known)):
-            params = parsed.get("parameters")
-            out.append(make_call(str(parsed["name"]),
-                                 dict(params) if isinstance(params, Mapping) else {},
-                                 len(out)))
-            spans.append(m.span())
-    return strip_calls(text, spans), out
+from mechbench_compute.tool_dialects.llama import DIALECT
 
 
 def make_masks(tm, h, kv_cache) -> list:
@@ -85,8 +57,7 @@ ARCH = Architecture(
     tokenize=tokenize_lm,
     attribution_unembed=read_unembed,
     head_weights=refuse_head_weights("llama"),
-    dialect=ToolDialect("llama-3", "<|start_header_id|>ipython", parse_calls, "ipython",
-                        attempting=('"name"', '"parameters"')),
+    dialect=DIALECT,
     reasoning=(THINK_TAGS,),
     adapter_keys=ADAPTER_KEYS,
     refused_when=(refuse_logit_softcap("Llama"),),

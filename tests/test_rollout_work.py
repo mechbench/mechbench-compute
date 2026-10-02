@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import mlx.core as mx
 import numpy as np
 import pytest
@@ -23,6 +25,7 @@ class _Tok:
 
 class StubModel:
     tokenizer = _Tok()
+    architecture = SimpleNamespace(backend="mlx")
 
     def __init__(self):
         self.fed: list[list[int]] = []

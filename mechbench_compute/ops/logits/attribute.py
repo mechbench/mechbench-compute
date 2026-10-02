@@ -7,7 +7,7 @@ import numpy as np
 
 from mechbench_compute import lexicon
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32, read_f64
 from mechbench_compute.dictionaries.describe_dictionary import describe_dictionary
 from mechbench_compute.dictionaries.encode_feature import encode_feature
 from mechbench_compute.dictionaries.encode_features import encode_features
@@ -239,7 +239,7 @@ def attribute_logits(
     rows: list[dict[str, Any]] = []
     for record in records:
         r = render(model, record)
-        ids = r.array
+        ids = model.make_ids(r.ids)
         result = model.run(ids, interventions=interventions)
         lp = read_last_logp(result.logits)
         answer, tracked = resolve_target(model, record, params, lp, by_id=True)
@@ -251,18 +251,14 @@ def attribute_logits(
         ctok = canswer.preferred if canswer is not None else None
 
         _, pieces = attribution.decompose_logit(model, result.cache, sublayer=sublayer)
-        ln_scale = np.array(
-            mx.array(result.cache["final_norm.scale"]).astype(mx.float32)
-        ).reshape(-1)
+        ln_scale = read_f32(result.cache["final_norm.scale"]).reshape(-1)
         targets = [tok] if ctok is None else [tok, ctok]
         attrs = attribution.logit_attrs(
             model, pieces, targets,
             apply_ln=apply_ln, ln_scale=ln_scale)
         contrib = attrs[:, 0] if ctok is None else attrs[:, 0] - attrs[:, 1]
 
-        last = result.logits[0, -1, :].astype(mx.float32)
-        mx.eval(last)
-        last_np = np.array(last, dtype=np.float64)
+        last_np = read_f64(result.logits[0, -1, :])
         cap = model.architecture.attribution_unembed(model._model).softcap
         if cap:
             c = float(cap)
@@ -357,7 +353,7 @@ def attribute_features(model, basis: Mapping[str, Any], cache, targets: Sequence
                        apply_ln: bool, ln_scale: np.ndarray, top: int) -> dict[str, Any]:
     from mechbench_compute import attribution
 
-    x = np.array(mx.array(cache[basis["name"]]).astype(mx.float32))[0, -1:]
+    x = read_f32(cache[basis["name"]])[0, -1:]
 
     def dla(rows: np.ndarray) -> np.ndarray:
         attrs = attribution.logit_attrs(model, rows[:, None, :], targets,

@@ -5,9 +5,9 @@ import math
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple
 
-import mlx.core as mx
 import numpy as np
 
+from mechbench_compute._mlx import mx
 from mechbench_compute.spans import add_to_span
 
 __all__ = [
@@ -492,6 +492,8 @@ def first_token_metrics(lm, prompt_ids: list[int], tokenizer=None) -> dict:
 
 
 def prefill_decision(model, prompt_ids: list[int], *, interventions=None):
+    if model.architecture.backend != "mlx":
+        return model.prefill_decision(prompt_ids, interventions=interventions)
     add_to_span(tokens_in=len(prompt_ids))
     cache = model.prompt_cache()
     if interventions:

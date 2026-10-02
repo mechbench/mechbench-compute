@@ -6,11 +6,11 @@ from mlx_vlm.models.base import create_attention_mask
 
 from mechbench_compute._arch import Arch
 from mechbench_compute._attention_mask import apply_mask
+from mechbench_compute.adapter_keys import ADAPTER_KEYS
 from mechbench_compute.architectures._dispatch import dispatch, run_head
 from mechbench_compute.architectures._head import (
     make_head_logits,
     make_project_to_logits,
-    refuse_head_weights,
 )
 from mechbench_compute.architectures._vlm import (
     load_vlm,
@@ -21,12 +21,12 @@ from mechbench_compute.architectures._vlm import (
 )
 from mechbench_compute.cache import ActivationCache, kv_offset
 from mechbench_compute.hooks import HookFn, attn_internal_layers
-from mechbench_compute.lora import ADAPTER_KEYS
 from mechbench_compute.support import (
     CORE_GLOBAL_POINTS,
     CORE_LAYER_POINTS,
     Architecture,
     Unembed,
+    refuse_head_weights,
     refuse_logit_softcap,
 )
 

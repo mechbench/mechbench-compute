@@ -229,7 +229,7 @@ def capture_residual_vectors(
     n_weights = 0
     for record in records:
         r = render(model, record)
-        ids = r.array
+        ids = model.make_ids(r.ids)
         toks = r.tokens(model.tokenizer)
         sel = dict(tokens=toks, record=record, prompt_len=r.prompt_len)
         over = POS.resolve(pool["over"], len(r.ids), **sel) if pool else None
@@ -242,7 +242,7 @@ def capture_residual_vectors(
                     f"over records of {len(r.ids)} tokens exceed the "
                     f"{MAX_VECTOR_FLOATS} cap — fewer heads, layers, query "
                     "positions or records")
-        add_to_span(tokens_in=int(ids.size))
+        add_to_span(tokens_in=len(r.ids))
         result = model.run(ids, interventions=[cap])
         coords = read_record_coords(record, params)
         if point == WEIGHTS:

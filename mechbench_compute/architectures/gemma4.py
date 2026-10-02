@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import re
-from collections.abc import Sequence
-from typing import Any
-
 import mlx.core as mx
 import mlx.nn as nn
 from mlx_vlm.models import cache as cache_mod
 
 from mechbench_compute._arch import GLOBAL_HOOK_POINTS, LAYER_HOOK_POINTS, Arch
 from mechbench_compute._attention_mask import apply_mask
+from mechbench_compute.adapter_keys import ADAPTER_KEYS
 from mechbench_compute.architectures._dispatch import dispatch, run_head
 from mechbench_compute.architectures._head import (
     cap_logits,
@@ -24,42 +21,11 @@ from mechbench_compute.architectures._vlm import (
     tokenize_vlm,
 )
 from mechbench_compute.cache import ActivationCache, kv_offset
-from mechbench_compute.dialects import (
-    ParseResult,
-    ToolDialect,
-    make_call,
-    parse_scalar,
-    strip_calls,
-)
 from mechbench_compute.head_weights import HeadSpec, read_dense_weight
 from mechbench_compute.hooks import HookFn, attn_internal_layers, mlp_internal_layers
-from mechbench_compute.lora import ADAPTER_KEYS
 from mechbench_compute.support import Absence, Architecture, Refusal, Unembed
 from mechbench_compute.thinking import Delimiters
-from mechbench_compute.tools import ToolDef
-
-CALL = re.compile(
-    r"<\|tool_call\|?>\s*call:\s*([A-Za-z_][\w.]*)\s*\{(.*?)\}\s*<\/?tool_call\|?>",
-    re.DOTALL)
-QUOTED_ARG = re.compile(r'([A-Za-z_][\w.]*)\s*:\s*<\|"\|>(.*?)<\|"\|>', re.DOTALL)
-BARE_ARG = re.compile(r'([A-Za-z_][\w.]*)\s*:\s*([^,{}]+)')
-
-
-def parse_calls(text: str, tools: Sequence[ToolDef]) -> ParseResult:
-    known = {t.name for t in tools}
-    out = []
-    spans: list[tuple[int, int]] = []
-    for m in CALL.finditer(text):
-        if known and m.group(1) not in known:
-            continue
-        body = m.group(2) or ""
-        args: dict[str, Any] = {k: v for k, v in QUOTED_ARG.findall(body)}
-        for k, v in BARE_ARG.findall(body):
-            if k not in args and '<|"|>' not in v:
-                args[k] = parse_scalar(v.strip())
-        out.append(make_call(m.group(1), args, len(out)))
-        spans.append(m.span())
-    return strip_calls(text, spans), out
+from mechbench_compute.tool_dialects.gemma4 import DIALECT
 
 
 def read_unembed(model) -> Unembed:
@@ -382,8 +348,7 @@ ARCH = Architecture(
     tokenize=tokenize_vlm,
     attribution_unembed=read_unembed,
     head_weights=read_head_spec,
-    dialect=ToolDialect("gemma-4", "<|tool_call>", parse_calls,
-                        attempting=("<|tool_call", "call:")),
+    dialect=DIALECT,
     reasoning=(Delimiters("<|channel>", "<channel|>", "thought\n"),),
     adapter_keys=ADAPTER_KEYS,
     refused_when=(Refusal(

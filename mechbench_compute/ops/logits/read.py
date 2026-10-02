@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from mechbench_compute import lexicon
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_logprobs
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 OP = Op(
@@ -180,6 +180,11 @@ def run(ctx, inputs, params):
     rollout = params.get("rollout")
     complete = params.get("complete")
     top_k = int(params.get("top_k", 10))
+    backend = model.architecture.backend
+    if backend != "mlx" and (rollout or complete or any(c.get("complete") for c in conditions)):
+        raise ValueError(
+            f"logits/read: `rollout` and `complete` read through MLX's prompt cache and run on "
+            f"the mlx backend only; this model runs on {backend}")
     out = []
     for cond in conditions:
         key = str(cond["id"])
@@ -191,7 +196,7 @@ def run(ctx, inputs, params):
         r = render(model, cond)
         rendered, ids = r.text, r.ids
         prefill = prefill_decision(model, ids)
-        lp = np.array(prefill[1] - mx.logsumexp(prefill[1])).astype(np.float64)
+        lp = read_logprobs(prefill[1]).astype(np.float64)
         tracked: dict[str, Answer] = {}
         for o in (cond.get("outcomes") or []):
             tracked[str(o)] = encode_answer_in_context(tok, str(o), rendered, ids)

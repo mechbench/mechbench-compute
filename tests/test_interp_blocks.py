@@ -50,6 +50,7 @@ class StubTokenizer:
 class StubArchitecture:
     layer_scalars = None
     attn_out_norm = None
+    backend = "mlx"
 
     @staticmethod
     def attribution_unembed(model):
@@ -73,6 +74,9 @@ class StubModel:
     def tokenize(self, prompt: str, chat_template: bool = True):
         ids = [0] + [1 + (len(w) % 7) for w in prompt.split()]
         return mx.array([ids])
+
+    def make_ids(self, ids):
+        return mx.array([[int(t) for t in ids]], dtype=mx.int32)
 
     def run(self, ids, interventions=None):
         self.runs += 1

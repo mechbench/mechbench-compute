@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Protocol, runtime_checkable
 
-import mlx.core as mx
-
 from ._arch import E4B_DEFAULT
+from .arrays import make_head_mask, make_position_mask, match_framework, zeros_like
 from .cache import ActivationCache
 from .hooks import HookFn
 
@@ -16,8 +15,8 @@ class Intervention(Protocol):
     def as_captures(self) -> list[str]: ...
 
 
-def _zero(act: mx.array, info) -> mx.array:
-    return mx.zeros_like(act)
+def _zero(act, info):
+    return zeros_like(act)
 
 
 @dataclass(frozen=True)
@@ -49,7 +48,7 @@ class _LayerAblation:
         self.layer_idx = layer_idx
 
     def as_hooks(self) -> dict[str, HookFn]:
-        saved: dict[str, mx.array] = {}
+        saved: dict = {}
 
         def cap(act, info):
             saved["v"] = act
@@ -78,10 +77,7 @@ class _HeadAblation:
         h = self.head
 
         def hook(act, info):
-            n_heads = act.shape[1]
-            mask = mx.ones((1, n_heads, 1, 1))
-            mask = mask.at[:, h, :, :].add(-1.0)
-            return act * mask
+            return act * make_head_mask(act, h)
 
         return {f"blocks.{self.layer_idx}.attn.per_head_out": hook}
 
@@ -92,7 +88,7 @@ class _HeadAblation:
 class _PositionAdd:
     __slots__ = ("layer_idx", "position", "value", "alpha", "point")
 
-    def __init__(self, layer_idx: int, position: int, value: mx.array,
+    def __init__(self, layer_idx: int, position: int, value,
                  alpha: float, point: str):
         self.layer_idx = layer_idx
         self.position = position
@@ -106,10 +102,7 @@ class _PositionAdd:
         alpha = self.alpha
 
         def hook(act, info):
-            seq_len = act.shape[1]
-            mask = mx.zeros((1, seq_len, 1), dtype=act.dtype)
-            mask = mask.at[:, pos, :].add(1.0)
-            return act + (alpha * v * mask)
+            return act + (alpha * match_framework(v, act) * make_position_mask(act, pos))
 
         return {f"blocks.{self.layer_idx}.{self.point}": hook}
 
@@ -120,7 +113,7 @@ class _PositionAdd:
 class _PositionPatch:
     __slots__ = ("layer_idx", "position", "value", "point")
 
-    def __init__(self, layer_idx: int, position: int, value: mx.array, point: str):
+    def __init__(self, layer_idx: int, position: int, value, point: str):
         self.layer_idx = layer_idx
         self.position = position
         self.value = value
@@ -131,10 +124,8 @@ class _PositionPatch:
         pos = self.position
 
         def hook(act, info):
-            seq_len = act.shape[1]
-            mask = mx.zeros((1, seq_len, 1), dtype=act.dtype)
-            mask = mask.at[:, pos, :].add(1.0)
-            return act * (1 - mask) + v * mask
+            mask = make_position_mask(act, pos)
+            return act * (1 - mask) + match_framework(v, act) * mask
 
         return {f"blocks.{self.layer_idx}.{self.point}": hook}
 
@@ -261,7 +252,7 @@ class Patch:
     def activation(
         layer: int,
         position: int,
-        value: mx.array,
+        value,
         *,
         point: str = "resid_post",
     ) -> Intervention:
@@ -289,7 +280,7 @@ class Patch:
     def add(
         layer: int,
         position: int,
-        value: mx.array,
+        value,
         *,
         alpha: float = 1.0,
         point: str = "resid_post",

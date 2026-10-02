@@ -8,7 +8,7 @@ import pytest
 
 from mechbench_compute import dialects as dl
 from mechbench_compute import tools as T
-from mechbench_compute.architectures import gemma4, llama, qwen2
+from mechbench_compute.tool_dialects import gemma4, llama, qwen2
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "chat_templates.json"
 CAPTURED = json.loads(FIXTURES.read_text())

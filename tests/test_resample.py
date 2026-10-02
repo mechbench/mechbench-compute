@@ -11,7 +11,8 @@ from mechbench_compute.expr.engine import load_engine
 from mechbench_compute.lexicon import kinds as K
 from mechbench_compute.ops import Context
 from mechbench_compute.ops.text import resample as resample_op
-from tests.tiny_models import WORDS, build_tiny_model
+from tests.tiny_models import build_tiny_model
+from tests.tiny_tokenizer import WORDS
 
 OUTCOMES = ["cat", "dog", "mat"]
 

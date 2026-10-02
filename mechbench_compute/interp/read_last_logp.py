@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_logprobs
 
 
-def read_last_logp(logits: mx.array) -> np.ndarray:
-    last = logits[0, -1, :].astype(mx.float32)
-    lp = last - mx.logsumexp(last)
-    mx.eval(lp)
-    return np.array(lp)
+def read_last_logp(logits: Any) -> np.ndarray:
+    return read_logprobs(logits[0, -1, :])
