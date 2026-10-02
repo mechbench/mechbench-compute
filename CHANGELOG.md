@@ -20,6 +20,12 @@ nothing said so.
 - A spec item that names `mask` or `constants` without `f` is refused
   with `OPERATOR_FIELDS`. Both were unknown fields before, ignored, and
   the item ran as its `op`.
+- A Gemma 3, Llama or Qwen 2 checkpoint whose config sets
+  `final_logit_softcapping` is refused by name: those heads apply no
+  cap, so the model would have loaded and given logits that are not the
+  checkpoint's. Every published checkpoint of the three sets none
+  (Gemma 3's is `null`), so none is refused; Gemma 4 reads its cap of
+  30.0 from the config, as before.
 
 ### Changes that alter results without raising
 
@@ -126,6 +132,46 @@ nothing said so.
   cannot be merged into a checkpoint (`adapter/merge` refuses before
   writing anything), and a node's `adapter` port still takes a LoRA
   only.
+- A second backend has a seam to fit (docs/CAPABILITY.md §2.6 in the
+  meta repo): `backends` names the three layers, `ACCELERATORS`
+  (`metal`, `cuda`, `rocm`, `tpu`, `cpu`, the hardware) apart from
+  `BACKENDS` (the array framework and its model surface, `mlx` alone
+  today), and a `Backend` declares the accelerators it is offered on,
+  any further modules it needs and the pip extra that installs it.
+  `detect_accelerator()` reads the hardware; `available()` is the
+  backends installed and offered on it; `describe()` names every
+  declared backend, present or absent with the reason ("mlx.core is not
+  installed", "it runs on metal, and this machine's accelerator is
+  cuda"); `advertise()` is what a runner says (`{"accelerator",
+  "backends"}`); and `select(capabilities, backend=, accelerator=)`
+  chooses the backend a job runs on from what a runner advertised, the
+  rule placement applies, refusing with a `BackendRefused` that names
+  what is missing ("it needs the torch backend, and this runner has
+  mlx"). None of it imports a backend.
+- A machine without the `mlx` package imports compute. Looking for
+  `mlx.core` raised `ModuleNotFoundError` where `mlx` itself was
+  missing, so `import mechbench_compute` failed on such a machine
+  instead of reporting no backend. The package's MLX names load where
+  the `mlx` backend is available, not where any backend is.
+- `attribution` reads MLX arrays, torch tensors and numpy arrays alike
+  (`arrays.read_f32`, `read_f64`, `make_f32`), and the MLX path is the
+  same operations as before: on the tiny models, every decomposition,
+  attribution, head split and `logits/attribute` result is bit for bit
+  what it was. A norm that declares its `gain_offset` is read by it.
+  `Model.make_ids` makes an ids array; `Architecture.backend` names the
+  backend an architecture is implemented on (`mlx`).
+- The architecture kit runs per backend: each backend's tiny models are
+  a `KitBackend` (`tests/kit_backends.py`), selected by what a runner
+  that has it advertises, and the kit's checks read arrays through
+  `arrays`, never MLX. A fake second backend in the tests (numpy arrays
+  over MLX's forward, offered on `cpu`) is selected by capability and
+  passes the kit on every architecture; this laptop refuses it by name.
+- The kit reads each tiny checkpoint's `final_logit_softcapping` from
+  its config and holds the head to it: the cap the head declares is the
+  config's, a capped head's logits are `cap · tanh(raw / cap)` and
+  within the cap, an uncapped head is the bare projection and its
+  architecture refuses a checkpoint that sets one. A head that ignores
+  the config's cap fails by name.
 
 ## 0.185.0 — 2026-10-02
 

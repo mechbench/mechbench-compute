@@ -33,6 +33,7 @@ from mechbench_compute.support import (
     CORE_GLOBAL_POINTS,
     CORE_LAYER_POINTS,
     Architecture,
+    refuse_logit_softcap,
 )
 from mechbench_compute.thinking import THINK_TAGS
 from mechbench_compute.tools import ToolDef
@@ -88,4 +89,5 @@ ARCH = Architecture(
                         attempting=('"name"', '"parameters"')),
     reasoning=(THINK_TAGS,),
     adapter_keys=ADAPTER_KEYS,
+    refused_when=(refuse_logit_softcap("Llama"),),
 )

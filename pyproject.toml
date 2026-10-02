@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 # One package, every platform: `pip install mechbench-compute` resolves the
-# right substrate by itself rather than making someone choose a variant. The
+# right backend by itself rather than making someone choose a variant. The
 # Apple-Silicon backend is the only one implemented today, so its wheels are
 # marked accordingly — a Linux install brings the platform-independent half
 # and says plainly that no backend exists for it yet, instead of failing

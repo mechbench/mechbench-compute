@@ -31,6 +31,13 @@ class Refusal:
     reason: str
 
 
+def refuse_logit_softcap(name: str) -> Refusal:
+    return Refusal(
+        "final_logit_softcapping",
+        f"this checkpoint's config caps its final logits, and the {name} head "
+        f"applies no cap, so its logits would not be the checkpoint's")
+
+
 @dataclass(frozen=True)
 class Absence:
     point: str
@@ -74,6 +81,7 @@ class Architecture:
     config_defaults: Mapping[str, Any] = field(default_factory=dict)
     layer_scalars: Callable[[Any], tuple[float, ...]] | None = None
     attn_out_norm: Callable[[Any, int], Any] | None = None
+    backend: str = "mlx"
 
     @property
     def level(self) -> str:

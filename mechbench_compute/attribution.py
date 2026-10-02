@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Iterable, Optional, Sequence
 
-import mlx.core as mx
 import numpy as np
 
+from ._mlx import mx
+from .arrays import make_f32, read_f32, read_f64
 from .cache import ActivationCache
 from .errors import CacheKeyError
 
@@ -42,16 +43,14 @@ def _resolve_layers(
     return _layers_from_cache(cache, point=point)
 
 
-def _require(cache: ActivationCache, key: str) -> mx.array:
+def _require(cache: ActivationCache, key: str):
     if key not in cache:
         raise CacheKeyError(key, cache.keys())
     return cache[key]
 
 
-def _stack_and_squeeze(tensors: list[mx.array]) -> np.ndarray:
-    arr = mx.stack([t.astype(mx.float32) for t in tensors], axis=0)
-    mx.eval(arr)
-    out = np.array(arr)
+def _stack_and_squeeze(tensors: list) -> np.ndarray:
+    out = np.stack([read_f32(t) for t in tensors], axis=0)
     if out.ndim == 4 and out.shape[1] == 1:
         out = out[:, 0]
     return out
@@ -64,7 +63,7 @@ def accumulated_resid(
     include_pre: bool = False,
 ) -> np.ndarray:
     layer_list = _resolve_layers(layers, cache, point="resid_post")
-    tensors: list[mx.array] = []
+    tensors: list = []
     if include_pre:
         tensors.append(_require(cache, f"blocks.{layer_list[0]}.resid_pre"))
     for i in layer_list:
@@ -86,11 +85,7 @@ def decompose_resid(
 
 
 def head_results(model, cache: ActivationCache, layer: int) -> np.ndarray:
-    per_head = _require(cache, f"blocks.{layer}.attn.per_head_out").astype(
-        mx.float32
-    )
-    mx.eval(per_head)
-    per_head_np = np.array(per_head)
+    per_head_np = read_f32(_require(cache, f"blocks.{layer}.attn.per_head_out"))
     if per_head_np.ndim == 4 and per_head_np.shape[0] == 1:
         per_head_np = per_head_np[0]
 
@@ -102,7 +97,7 @@ def head_results(model, cache: ActivationCache, layer: int) -> np.ndarray:
             o_weight, o_proj.scales, o_proj.biases,
             group_size=o_proj.group_size, bits=o_proj.bits,
         )
-    W_O_full = np.array(o_weight.astype(mx.float32))
+    W_O_full = read_f32(o_weight)
     n_heads = per_head_np.shape[0]
     seq_len = per_head_np.shape[1]
     d_model = W_O_full.shape[0]
@@ -116,13 +111,12 @@ def head_results(model, cache: ActivationCache, layer: int) -> np.ndarray:
 
 def decompose_attn_out(model, cache: ActivationCache, layer: int) -> tuple[np.ndarray, np.ndarray | None]:
     heads = head_results(model, cache, layer).astype(np.float64)
-    o_proj = model.lm.model.layers[layer].self_attn.o_proj
-    bias = np.array(o_proj["bias"].astype(mx.float32), dtype=np.float64) if "bias" in o_proj else None
+    bias = read_bias(model.lm.model.layers[layer].self_attn.o_proj)
     whole = heads.sum(axis=0) + (0.0 if bias is None else bias)
     scale = np.ones_like(whole)
     if model.architecture.attn_out_norm is not None:
         norm = model.architecture.attn_out_norm(model._model, layer)
-        gain = np.array(mx.array(norm.weight).astype(mx.float32), dtype=np.float64) + _read_gain_offset(norm)
+        gain = read_f64(norm.weight) + _read_gain_offset(norm)
         scale = gain / np.sqrt(np.mean(whole * whole, axis=-1, keepdims=True) + float(norm.eps))
     return heads * scale, None if bias is None else np.broadcast_to(bias, whole.shape) * scale
 
@@ -147,9 +141,7 @@ def decompose_logit(model, cache: ActivationCache, *, sublayer: bool,
     onward = read_onward_scale(model)
 
     def read(key: str) -> np.ndarray:
-        x = _require(cache, key)[0, position].astype(mx.float32)
-        mx.eval(x)
-        return np.array(x, dtype=np.float64)
+        return read_f64(_require(cache, key)[0, position])
 
     rows = [read("blocks.0.resid_pre") * onward[0]]
     for i in range(n):
@@ -158,7 +150,17 @@ def decompose_logit(model, cache: ActivationCache, *, sublayer: bool,
     return name_pieces(writes, n, sublayer=sublayer), np.stack(rows)[:, None, :]
 
 
+def read_bias(proj) -> np.ndarray | None:
+    if isinstance(proj, dict):
+        return read_f64(proj["bias"]) if "bias" in proj else None
+    bias = getattr(proj, "bias", None)
+    return None if bias is None else read_f64(bias)
+
+
 def _read_gain_offset(norm) -> float:
+    declared = getattr(norm, "gain_offset", None)
+    if declared is not None:
+        return float(declared)
     from mlx import nn
     from mlx_vlm.models.gemma3.language import RMSNorm as Gemma3RMSNorm
 
@@ -173,8 +175,7 @@ def _read_gain_offset(norm) -> float:
 
 def _final_norm_gain(model) -> np.ndarray:
     norm = model.architecture.attribution_unembed(model._model).norm
-    arr = np.array(mx.array(norm.weight).astype(mx.float32))
-    return arr + _read_gain_offset(norm)
+    return read_f32(norm.weight) + _read_gain_offset(norm)
 
 
 def logit_attrs(
@@ -199,13 +200,8 @@ def logit_attrs(
             )
         scale = float(np.asarray(ln_scale, dtype=np.float64).reshape(-1)[position])
         flat = (flat / scale) * _final_norm_gain(model)
-    v = mx.array(flat, dtype=mx.float32)
-
-    logits = model.architecture.attribution_unembed(model._model).project(v)
-
-    logits = logits.astype(mx.float32)
-    mx.eval(logits)
-    logits_np = np.array(logits)
+    unembed = model.architecture.attribution_unembed(model._model)
+    logits_np = read_f32(unembed.project(make_f32(flat, like=unembed.norm.weight)))
 
     target_ids = np.asarray(target_token_ids, dtype=np.int64)
     attrs = logits_np[:, target_ids]

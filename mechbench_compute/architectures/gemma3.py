@@ -27,6 +27,7 @@ from mechbench_compute.support import (
     CORE_LAYER_POINTS,
     Architecture,
     Unembed,
+    refuse_logit_softcap,
 )
 
 
@@ -205,6 +206,7 @@ ARCH = Architecture(
     dialect=None,
     reasoning=(),
     adapter_keys=ADAPTER_KEYS,
+    refused_when=(refuse_logit_softcap("Gemma 3"),),
     config_defaults={
         "num_attention_heads": 8, "num_key_value_heads": 4, "head_dim": 256,
         "vocab_size": 262208, "sliding_window_pattern": 6,

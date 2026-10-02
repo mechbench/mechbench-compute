@@ -141,6 +141,9 @@ class Model:
         return self.architecture.tokenize(self._model, self._processor, prompt,
                                           chat_template=chat_template)
 
+    def make_ids(self, ids) -> mx.array:
+        return mx.array([[int(t) for t in ids]], dtype=mx.int32)
+
     def run(
         self,
         input_ids: mx.array,

@@ -6,8 +6,7 @@ import mlx.core as mx
 from mlx.utils import tree_map
 
 from mechbench_compute.model import Model
-
-WINDOW = 3
+from tests.kit_backends import WINDOW
 
 WORDS = ("<pad>", "<unk>", "<start>", "<end>", "user", "model", "assistant",
          "the", "cat", "sat", "on", "a", "mat", "and", "dog", "ran")
@@ -120,3 +119,40 @@ def build_tiny_model(name, architecture=None) -> Model:
                        lm.parameters()))
     mx.eval(lm.parameters())
     return Model(wrapped, build_tokenizer(), architecture=architecture)
+
+
+def read_parameter_names(model) -> set[str]:
+    from mlx.utils import tree_flatten
+
+    return set(dict(tree_flatten(model.lm.parameters())))
+
+
+def fit_adapter(model, keys) -> int:
+    from mechbench_compute.lora import apply_lora
+
+    return apply_lora(model.lm, rank=2, targets=tuple(keys.containers), keys=keys)
+
+
+def read_config(model) -> dict:
+    config = getattr(model._model, "config", None)
+    source = getattr(config, "text_config", None) or getattr(model._model, "args", None)
+    return dict(vars(source)) if source is not None else {}
+
+
+def make_kit():
+    from mechbench_compute import backends
+    from mechbench_compute.architectures import BY_MODEL_TYPE
+    from tests.kit_backends import KitBackend
+
+    return KitBackend(
+        backend=next(b for b in backends.BACKENDS if b.name == "mlx"),
+        capabilities=backends.advertise(),
+        architectures=BY_MODEL_TYPE,
+        models=KIT_MODELS,
+        build=build_tiny_model,
+        read_parameter_names=read_parameter_names,
+        fit_adapter=fit_adapter,
+        read_config=read_config)
+
+
+KIT = make_kit()

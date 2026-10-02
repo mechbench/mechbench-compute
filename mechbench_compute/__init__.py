@@ -4,10 +4,11 @@ from .backends import (
     active as active_backend,
     available as available_backends,
     describe_platform,
+    is_available as _is_backend_available,
     require as _require_backend,
 )
 
-if active_backend() is not None:
+if _is_backend_available("mlx"):
     from ._arch import (
         Arch,
         D_MODEL,

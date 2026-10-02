@@ -403,15 +403,26 @@ the two loaders' plumbing is `_vlm.py` and `_mlx_lm.py`.
 
 ### The kit
 
-`tests/test_architecture_kit.py` runs over every walked architecture
-with a tiny random model of it (`tests/tiny_models.py`; an
-architecture without one fails the kit), and over each variant there
-whose config changes which points exist (`VARIANTS`: `gemma4-31b`):
+`tests/test_architecture_kit.py` runs per backend, over every
+architecture the backend implements, with a tiny random model of it
+(an architecture without one fails the kit), and over each variant
+whose config changes which points exist (`VARIANTS`: `gemma4-31b`).
+A backend's tiny models are a `KitBackend` (`tests/kit_backends.py`):
+MLX's in `tests/tiny_models.py`, and a fake second backend's in
+`tests/fake_backend.py` (numpy arrays over MLX's forward). Each is
+selected by what a runner that has it advertises
+(`backends.select`), and skipped by name on a machine that lacks it.
+The checks read arrays through `mechbench_compute.arrays`, so they
+hold for any backend's arrays:
 
 - every declared point is captured, in the shape `points.LAYOUT` gives;
 - the global points agree with the stream (`embed` is `resid_pre` of
   layer 0, `final_norm` is the norm of the last `resid_post`, `logits`
   are `head_logits(final_norm)`);
+- the head applies the final logit softcap the checkpoint's config
+  sets, and declares it (`Unembed.softcap`); a head that applies none
+  is the bare projection, and its architecture refuses a config that
+  sets one;
 - the residual law holds at every layer, to 2^-6 of the largest
   magnitude (bf16 keeps 8 significant bits; the law is summed in
   float64 over values the forward added in bf16), its `layer_scalar`
