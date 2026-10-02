@@ -21,6 +21,16 @@ its own business.
   `Ablate`, `compose`, `plan_intervention`, `compile_intervention`,
   `edit_weights`, `sample_completion_cached`, `render`, `encode`,
   `prefill_decision`, `TokenReadout`, `points`.
+- **The reads**, for an operation that reads the model's decision as
+  core's do: `resolve_target`, `read_answer` (a token by its text or by
+  id), `resolve_outcomes`, `read_last_logp`, `read_metric` with
+  `METRICS`, `OUTCOME_METRICS` and `METRIC_DOC`, `report_own_top1`,
+  `read_record_coords`, `positions` (the position selector),
+  `resolve_layers`, `check_written` (refuses a write the checkpoint does
+  not make with a `PointRefused`, code `POINT_ABSENT`), `read_mask`
+  (dimensions, a direction or a frame, as an operator's `mask` is read),
+  `add_to_span` (what a node did, a backward pass among it, counted in its
+  span) and `MAX_VECTOR_FLOATS`.
 - **The lexicon helpers**: `collection`, `items_of`, `item_kind_of`,
   `read_header`, `arch_header`.
 - **The tensor store**: `ShardWriter(dir)` takes items one at a time —

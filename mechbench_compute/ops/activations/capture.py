@@ -12,6 +12,7 @@ from mechbench_compute import shapes as S
 from mechbench_compute.arrays import read_f32
 from mechbench_compute.attribution import decompose_attn_out
 from mechbench_compute.distill import render
+from mechbench_compute.interp.check_written import check_written
 from mechbench_compute.interp.constants import MAX_VECTOR_FLOATS
 from mechbench_compute.interp.read_record_coords import read_record_coords
 from mechbench_compute.interp.load_kinds import load_kinds
@@ -170,18 +171,6 @@ layers or records.
 )
 
 
-class PointRefused(ValueError):
-    def __init__(self, code: str, message: str, point: str) -> None:
-        super().__init__(f"{code}: {message}")
-        self.code = code
-        self.point = point
-
-    @property
-    def issue(self) -> dict[str, str]:
-        return {"code": self.code, "point": self.point,
-                "message": str(self).removeprefix(f"{self.code}: ")}
-
-
 def run(ctx, inputs, params):
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
@@ -317,15 +306,7 @@ def read_point(model, spec: Any, source: str) -> str:
             f"source {source!r} reads attention's {source}; `point` {point!r} "
             "is read with source 'resid'")
     if point in WRITES:
-        architecture = model.architecture
-        writes = architecture.writes_of(model.arch)
-        if point not in writes:
-            why = (architecture.absent_points(model.arch).get(point)
-                   or f"its layers write {' and '.join(writes)}")
-            raise PointRefused(
-                "POINT_ABSENT",
-                f"`{point}` is not written on this {architecture.name} checkpoint "
-                f"({architecture.model_type}): {why}", point)
+        check_written(model, point)
     return point
 
 

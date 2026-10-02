@@ -216,6 +216,48 @@ nothing said so.
 - `activations/capture` reads the forward's arrays through
   `mechbench_compute.arrays`, so its kit checks hold on the fake second
   backend as on MLX; on MLX every vector is what it was, bit for bit.
+- `activations/differentiate` takes the gradient of one number read at
+  the decision position (the prompt's last) with respect to the
+  activations at a point: the first-order sensitivity at the prompt's own
+  activations, not an ablation. `metric` is `logit` (the target's),
+  `margin` (the target's logit minus the contrast's: a record's
+  `contrast`, or the second tracked token, by text or by id as
+  `logits/attribute` takes them), `entropy_outcomes` or `mass_outcomes`
+  (over a record's `outcomes`, as the ablation operations read them).
+  `logit` and `margin` are read before a final softcap, the logits
+  `logits/attribute` decomposes; the outcome metrics after it, from the
+  distribution the model samples. `point` is `resid_pre`, `resid_post`,
+  `attn_out`, `mlp_out` or `gate_out`, over `layers` and `positions`; a
+  write the checkpoint does not make is refused with the `PointRefused`
+  (`POINT_ABSENT`) `activations/capture` raises. One forward and one
+  backward pass per record whatever the layers and positions, the
+  variable of differentiation a zero added at the point in each layer,
+  which leaves the forward the model's own; the weights are not changed,
+  and a double run is bit-identical. Where the backward pass crosses an MLP, MLX
+  computes the MLP's compiled activation by its separate operations: on
+  the float32 test models that moves the logits by a few units in the
+  last place, and on Gemma 3 4B in bf16 it left them bit for bit (two
+  prompts). With only the last layer named nothing is crossed and the
+  metric is a plain read's bit for bit.
+- Each layer and position is an `activations/vector` as a capture emits
+  it (`vector` the gradient, `norm`, `position`, `token`) with `value`
+  (the metric), `target` and `contrast`, to six significant figures,
+  since gradients on a large model are smaller than a fixed number of
+  places keeps. `top: k` lists the k largest coordinates of the gradient
+  (`top`) and of the gradient times the activation (`top_product`), each
+  `{dim, value, share}`, `share` of the squared norm. A `mask` of
+  dimensions, a direction or a frame (or the node's `direction` port), as
+  an operator's `mask` is read, adds `along`: the gradient's coordinates
+  at the dimensions, and along a direction the derivative with respect to
+  the coordinate an operator's `x` holds there. The header records
+  `metric`, `point`, `layers`, `positions`, `model`, `top`, `mask` and,
+  on Gemma 4, `softcap`. `differentiate` joins the verb list.
+- The api offers `positions`, `resolve_layers`, `read_record_coords`,
+  `read_answer`, `read_mask`, `add_to_span` and `MAX_VECTOR_FLOATS`, and
+  `check_written` with `PointRefused`, which moved out of
+  `activations/capture` (now `mechbench_compute.interp.point_refused` and
+  `.check_written`) so the two operations refuse an absent write as one;
+  capture's refusals are unchanged.
 
 ## 0.185.0 — 2026-10-02
 

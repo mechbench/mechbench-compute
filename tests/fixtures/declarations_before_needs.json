@@ -4,6 +4,7 @@
   "activations/capture-attention": "mlx-local",
   "activations/capture-tokens": "mlx-local",
   "activations/contrast": "mlx-local",
+  "activations/differentiate": "mlx-local",
   "activations/examples": "mlx-local",
   "adapter/measure": "pure",
   "adapter/merge": "mlx-local",
@@ -89,6 +90,10 @@
    "level": "restart"
   },
   "activations/contrast": {
+   "items": false,
+   "level": "restart"
+  },
+  "activations/differentiate": {
    "items": false,
    "level": "restart"
   },

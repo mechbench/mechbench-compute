@@ -14,11 +14,9 @@ from mechbench_compute._arch import Arch
 from mechbench_compute.arrays import make_f32, read_f32, read_f64
 from mechbench_compute.distill import render
 from mechbench_compute.errors import InvalidHookName
+from mechbench_compute.interp.point_refused import PointRefused
 from mechbench_compute.interventions import Ablate
-from mechbench_compute.ops.activations.capture import (
-    PointRefused,
-    capture_residual_vectors,
-)
+from mechbench_compute.ops.activations.capture import capture_residual_vectors
 from mechbench_compute.points import LAYOUT
 from mechbench_compute.tools import build_toolbox
 from tests.kit_backends import KIT_MODULES, WINDOW, list_kit_params, load_kit
