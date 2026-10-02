@@ -279,6 +279,20 @@ class TestResidualVectors:
             capture_residual_vectors(
                 StubModel(), [{"id": "c", "user": "a"}], {"layers": "all"})
 
+    @pytest.mark.parametrize("params,match", [
+        ({"heads": [0]}, "`resid_post` has no heads"),
+        ({"point": "attn.weights"}, "reads the heads `heads` names"),
+        ({"point": "attn_out", "heads": [2]}, "head indices from 0 to 1"),
+        ({"point": "attn_out", "heads": [0, 0]}, "names a head twice"),
+        ({"top": -1}, "`top` is a count"),
+        ({"point": "mlp.gate"}, "activations/capture reads resid_post"),
+        ({"point": "attn_out", "source": "queries"}, "is read with source 'resid'"),
+    ])
+    def test_a_read_it_cannot_make_is_refused_by_name(self, params, match):
+        with pytest.raises(ValueError, match=match):
+            capture_residual_vectors(
+                StubModel(), [{"id": "c", "user": "a"}], {"layers": [0], **params})
+
 
 class TestCaptureTokens:
     def test_a_row_per_position_per_layer(self):

@@ -72,7 +72,8 @@ SPACE_VALUE = Value(
         "model": F("string | null", "The model the vector was read from, in its reference form; null for a direction fit across models."),
         "layer": F("integer | null", "The layer, counting from 0; null at a whole-model point (`embed`, `final_norm`, `logits`)."),
         "point": F("string", "Where in the forward pass: one name from the point vocabulary."),
-        "head": F("integer | null", "The attention head, for a per-head point; null otherwise."),
+        "head": F("integer | null", "The attention head, for a per-head point or a head's part of `attn_out`; "
+                                    "null otherwise."),
         "d": F("integer", "The vector's width."),
     },
     required=("model", "layer", "point", "head", "d"),
@@ -360,8 +361,10 @@ points inside a block are read per head where the tensor has heads
 `attn.per_head_out`) and a `space` read there carries the head. The three
 whole-model points occur once per pass and take no `layers`.
 
-An op that reads a residual stream (`activations/capture`, `trajectory/
-capture`, `activations/contrast`) takes only the two residual points.
+`activations/capture` reads the two residual points, the sub-layer
+outputs (`attn_out` split by head when it names `heads`) and
+`attn.weights`; `trajectory/capture` and `activations/contrast` take
+only the two residual points.
 `intervene/ablate-layers` zeroes sub-layer outputs — `attn_out`, `mlp_out`,
 `gate_out`, both of the first two by default, which removes the whole
 layer's contribution. `intervene/apply` edits at any point.

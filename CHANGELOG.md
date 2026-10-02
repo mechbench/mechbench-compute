@@ -172,6 +172,50 @@ nothing said so.
   within the cap, an uncapped head is the bare projection and its
   architecture refuses a checkpoint that sets one. A head that ignores
   the config's cap fails by name.
+- `activations/capture` reads a layer's writes, not only its stream:
+  `point` takes `attn_out`, `mlp_out` and `gate_out` beside
+  `resid_post` and `resid_pre`, so the writes at one layer say which of
+  them moved a dimension of the stream. On every architecture's tiny
+  model the vectors add up by its residual law (`resid_post` is
+  `resid_pre` plus the writes, on Gemma 4 times the layer's scalar), at
+  the last position and pooled. A checkpoint whose layers write no gate
+  (Gemma 3, Qwen 2, Llama, Gemma 4 31B) refuses `gate_out` with a
+  `PointRefused` (a `ValueError`) whose message starts with
+  `POINT_ABSENT` and which carries `code`, `point` and an `issue`
+  (`{code, point, message}`) naming the architecture and why.
+- `heads` (a list, or `"all"`) splits `attn_out` by head: one vector per
+  head, its output through its slice of `o_proj` and the norm Gemma
+  applies after it with the divisor held from the run, as
+  `logits/attribute` splits a layer's attention piece. `space.head`
+  names the head; a layer's heads sum to its `attn_out`, and each is
+  what ablating the head removes, up to the post-attention norm's
+  divisor, on every architecture.
+- `point: "attn.weights"` reads the attention weights of the heads
+  `heads` names (it must name them) at every query position `position`
+  names, one vector per head and query position over the key positions,
+  `coords.position` the query position and `token` its token; pooled, the
+  reduction over the pooled queries. The weights sum to 1 over the keys.
+- Split heads, attention weights and queries or keys run the captured
+  layers' attention head by head, which in bf16 is not bit-identical to
+  the fused path: the header then says `attention_path: "per_head"`
+  (and `heads`). A capture that reads none of them is unchanged, its
+  header included.
+- `top: k` (default 0) adds to each vector `top: [{dim, value, share}]`,
+  its `k` largest coordinates by size, the largest first (a tie by the
+  lower index), `share` the coordinate's part of the squared norm, and
+  `rms_without_top`, the vector's root mean square with them set to zero
+  (the whole vector's is `norm / √d`); on attention weights `top` is
+  the `k` key positions with the most weight, `[{position, token,
+  weight}]`. The header records `top`. A partial sort per vector, so
+  which dimensions carry a vector's size is read without a loop over
+  its width in the expression language.
+- The `activations/vector` kind declares `top`, `rms_without_top` and
+  the header's `heads`, `attention_path` and `top`; the point
+  vocabulary says what `activations/capture` reads, and a space's
+  `head` may be a head's part of `attn_out`.
+- `activations/capture` reads the forward's arrays through
+  `mechbench_compute.arrays`, so its kit checks hold on the fake second
+  backend as on MLX; on MLX every vector is what it was, bit for bit.
 
 ## 0.185.0 — 2026-10-02
 

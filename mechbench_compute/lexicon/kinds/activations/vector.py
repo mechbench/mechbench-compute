@@ -10,12 +10,24 @@ KIND = Kind(
     fields={"space": SPACE, "vector": VEC,
             "norm": F("number", "The vector's magnitude."),
             "token": TOKEN,
-            "n_pooled": F("integer", "How many positions went into it, when pooled.")},
+            "n_pooled": F("integer", "How many positions went into it, when pooled."),
+            "top": F("array", "When asked for, the vector's largest coordinates by size, the largest first, "
+                     "each `{dim, value, share}`: its index, its value and its part of the squared norm. On "
+                     "attention weights, the key positions with the most weight, each `{position, token, weight}`.",
+                     items={"type": "object"}),
+            "rms_without_top": F("number", "With `top`, the root mean square of the vector with its `top` "
+                                 "coordinates set to zero, over all `d` of them; the whole vector's is `norm / √d`.")},
     required=("space", "vector"),
     key=("id", "space"),
     header={"point": "The hook point read.", "source": "`resid`, `queries` or `keys`.",
             "position": "Which position, or `pooled`.", "pool": "The pooling, when pooled.",
-            "layers": "The layers captured.", "d_model": "The vector width.",
+            "layers": "The layers captured.",
+            "d_model": "The vector width; absent on attention weights, whose width is the record's length.",
+            "heads": "The heads read, when `attn_out` was split by head or attention weights were read.",
+            "attention_path": "`per_head` when the captured layers computed attention head by head (split heads, "
+                              "attention weights, queries or keys), which in bf16 is not bit-identical to the "
+                              "fused path the other reads run.",
+            "top": "How many of each vector's largest coordinates its `top` holds, when asked for.",
             "model": "The model's wire form.",
             "skipped_empty": "Records dropped for having no text, when any.",
             "segments": "When made by `records/union`: the ports and how many each contributed."},

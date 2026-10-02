@@ -9,10 +9,16 @@ import numpy as np
 import pytest
 
 from mechbench_compute import attribution, backends, dialects, support
+from mechbench_compute import shapes as S
 from mechbench_compute._arch import Arch
 from mechbench_compute.arrays import make_f32, read_f32, read_f64
+from mechbench_compute.distill import render
 from mechbench_compute.errors import InvalidHookName
 from mechbench_compute.interventions import Ablate
+from mechbench_compute.ops.activations.capture import (
+    PointRefused,
+    capture_residual_vectors,
+)
 from mechbench_compute.points import LAYOUT
 from mechbench_compute.tools import build_toolbox
 from tests.kit_backends import KIT_MODULES, WINDOW, list_kit_params, load_kit
@@ -20,6 +26,10 @@ from tests.kit_backends import KIT_MODULES, WINDOW, list_kit_params, load_kit
 IDS = [1, 5, 9, 2, 7, 3, 11, 4]
 
 RESIDUAL_TOLERANCE = 2.0 ** -6
+
+PER_HEAD_TOLERANCE = 1e-4
+
+RECORD = {"id": "r", "user": "the cat sat on a mat"}
 
 TEMPLATES = pathlib.Path(__file__).parent / "fixtures" / "chat_templates.json"
 
@@ -53,19 +63,30 @@ def read_law_terms(law: str) -> list[str]:
     return sorted(set(re.findall(r"([a-z_]+)\[i(?:\+1)?\]", law)))
 
 
-def check_residual_law(model, ids=None) -> None:
-    ids = model.make_ids(IDS) if ids is None else ids
+def read_law_points(model) -> list[str]:
     architecture = model.architecture
     law = architecture.residual_law_of(model.arch)
-    n = model.arch.n_layers
-    terms = read_law_terms(law)
-    points = [t for t in terms if t != "layer_scalar"]
+    points = [t for t in read_law_terms(law) if t != "layer_scalar"]
     unknown = [p for p in points if not architecture.supports(p, layer_scoped=True)]
     assert not unknown, (
         f"{architecture.model_type}: residual law {law!r} names points it does not declare: {unknown}")
+    return points
+
+
+def check_residual_law(model, ids=None) -> None:
+    ids = model.make_ids(IDS) if ids is None else ids
+    n = model.arch.n_layers
+    points = read_law_points(model)
     result = model.run(ids, capture=[f"blocks.{i}.{p}" for i in range(n) for p in points])
-    names = {p: [read_f64(result.cache[f"blocks.{i}.{p}"]) for i in range(n)] for p in points}
-    if "layer_scalar" in terms:
+    check_law(model, {p: [read_f64(result.cache[f"blocks.{i}.{p}"]) for i in range(n)] for p in points})
+
+
+def check_law(model, names: dict[str, list]) -> None:
+    architecture = model.architecture
+    law = architecture.residual_law_of(model.arch)
+    n = model.arch.n_layers
+    names = dict(names)
+    if "layer_scalar" in read_law_terms(law):
         assert architecture.layer_scalars is not None, (
             f"{architecture.model_type}: residual law {law!r} names layer_scalar and the "
             f"architecture declares no layer_scalars to read it")
@@ -272,6 +293,116 @@ def test_ablating_every_head_equals_zeroing_attn_out(tiny):
         assert np.allclose(read_f64(heads.logits), read_f64(zeroed.logits),
                            atol=1e-4, rtol=1e-4), (
             f"{tiny.architecture.model_type}: layer {layer}")
+
+
+def capture(model, **params) -> dict:
+    return capture_residual_vectors(model, [RECORD], params)
+
+
+def read_vectors(out: dict, layer: int) -> np.ndarray:
+    return np.array([it["vector"] for it in out["items"] if it["space"]["layer"] == layer],
+                    dtype=np.float64)
+
+
+@pytest.mark.parametrize("read", [{}, {"pool": {"reduce": "mean", "over": "all"}}],
+                         ids=["last", "pooled"])
+def test_the_captured_writes_add_up_by_the_residual_law(tiny, read):
+    n = tiny.arch.n_layers
+    names = {}
+    for point in read_law_points(tiny):
+        out = capture(tiny, point=point, **read)
+        assert out["point"] == point and "attention_path" not in out and "heads" not in out
+        assert [it["space"]["point"] for it in out["items"]] == [point] * n
+        names[point] = [read_vectors(out, layer)[0] for layer in range(n)]
+    check_law(tiny, names)
+
+
+def test_capture_reads_gate_out_where_a_layer_writes_it_and_refuses_it_by_name_elsewhere(tiny):
+    a = tiny.architecture
+    if "gate_out" in a.writes_of(tiny.arch):
+        out = capture(tiny, point="gate_out")
+        assert out["point"] == "gate_out" and len(out["items"]) == tiny.arch.n_layers
+        return
+    with pytest.raises(PointRefused) as e:
+        capture(tiny, point="gate_out")
+    assert e.value.code == "POINT_ABSENT"
+    assert str(e.value).startswith("POINT_ABSENT: `gate_out` is not written on this ")
+    assert e.value.issue == {"code": "POINT_ABSENT", "point": "gate_out",
+                             "message": str(e.value).removeprefix("POINT_ABSENT: ")}
+    assert f"({a.model_type})" in e.value.issue["message"]
+
+
+def test_capture_s_heads_sum_to_attn_out_and_each_is_what_ablating_it_removes(tiny):
+    n, n_heads = tiny.arch.n_layers, tiny.arch.n_heads
+    whole = capture(tiny, point="attn_out")
+    split = capture(tiny, point="attn_out", heads="all", top=3)
+    assert "attention_path" not in whole and "heads" not in whole
+    assert (split["point"], split["heads"], split["attention_path"]) == (
+        "attn_out", list(range(n_heads)), "per_head")
+    assert [(it["space"]["layer"], it["space"]["head"]) for it in split["items"]] == [
+        (layer, head) for layer in range(n) for head in range(n_heads)]
+    assert all(len(it["top"]) == 3 for it in split["items"])
+    for layer in range(n):
+        heads, attn_out = read_vectors(split, layer), read_vectors(whole, layer)[0]
+        assert np.allclose(heads.sum(axis=0), attn_out,
+                           atol=PER_HEAD_TOLERANCE * max(1.0, np.abs(attn_out).max())), (
+            f"{tiny.architecture.model_type}: layer {layer}")
+    heads, ids = read_vectors(split, 1), tiny.make_ids(render(tiny, RECORD).ids)
+    for head in range(n_heads):
+        ablated = read_f64(tiny.run(ids, interventions=[Ablate.head(1, head)],
+                                    capture=["blocks.1.attn_out"]).cache["blocks.1.attn_out"])[0, -1]
+        removed = heads.sum(axis=0) - heads[head]
+        scale = float(ablated @ removed) / float(removed @ removed)
+        assert np.allclose(ablated, scale * removed,
+                           atol=PER_HEAD_TOLERANCE * max(1.0, np.abs(ablated).max())), (
+            f"{tiny.architecture.model_type}: head {head}")
+        if tiny.architecture.attn_out_norm is None:
+            assert scale == pytest.approx(1.0, abs=PER_HEAD_TOLERANCE)
+
+
+def test_capture_s_attention_weights_sum_to_one_over_the_keys(tiny):
+    n, n_heads = tiny.arch.n_layers, tiny.arch.n_heads
+    ids = render(tiny, RECORD).ids
+    out = capture(tiny, point="attn.weights", heads="all", position="all", top=2)
+    assert (out["point"], out["heads"], out["attention_path"], out["top"]) == (
+        "attn.weights", list(range(n_heads)), "per_head", 2)
+    assert "d_model" not in out and len(out["items"]) == n * n_heads * len(ids)
+    for it in out["items"]:
+        q, w = it["coords"]["position"], np.array(it["vector"], dtype=np.float64)
+        assert it["space"]["point"] == "attn.weights" and it["space"]["d"] == len(ids)
+        assert w.sum() == pytest.approx(1.0, abs=PER_HEAD_TOLERANCE)
+        assert not np.any(w[q + 1:])
+        assert it["token"] == S.token(tiny.tokenizer, ids[q])
+        top = it["top"]
+        assert 1 <= len(top) <= 2 and "rms_without_top" not in it
+        assert [t["weight"] for t in top] == sorted(w, reverse=True)[:len(top)]
+        assert all(t["weight"] == it["vector"][t["position"]] and t["position"] <= q
+                   and t["token"] == S.token(tiny.tokenizer, ids[t["position"]]) for t in top)
+    pooled = capture(tiny, point="attn.weights", heads=[n_heads - 1], layers=[0],
+                     pool={"reduce": "mean", "over": "all"})
+    [it] = pooled["items"]
+    assert it["n_pooled"] == len(ids) and "position" not in it["coords"] and "token" not in it
+    assert sum(it["vector"]) == pytest.approx(1.0, abs=PER_HEAD_TOLERANCE)
+
+
+def test_capture_s_top_names_a_vector_s_largest_coordinates_and_their_share(tiny):
+    plain = capture(tiny)
+    out = capture(tiny, top=3)
+    assert out["top"] == 3 and "top" not in plain and "attention_path" not in out
+    for it, before in zip(out["items"], plain["items"], strict=True):
+        assert "top" not in before and "rms_without_top" not in before
+        assert (it["vector"], it["norm"]) == (before["vector"], before["norm"])
+        v = np.array(it["vector"], dtype=np.float64)
+        top = it["top"]
+        assert len(top) == 3
+        assert [abs(t["value"]) for t in top] == sorted(np.abs(v), reverse=True)[:3]
+        assert all(t["value"] == it["vector"][t["dim"]] for t in top)
+        assert all(t["share"] == pytest.approx(t["value"] ** 2 / (v @ v), abs=1e-5) for t in top)
+        assert 0.0 < sum(t["share"] for t in top) <= 1.0
+        rest = v.copy()
+        rest[[t["dim"] for t in top]] = 0.0
+        assert it["rms_without_top"] == pytest.approx(np.sqrt(np.mean(rest * rest)), abs=1e-5)
+        assert it["rms_without_top"] < it["norm"] / np.sqrt(v.size) < it["norm"]
 
 
 def test_a_double_run_is_bit_identical(tiny):

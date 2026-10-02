@@ -434,6 +434,15 @@ hold for any backend's arrays:
   pieces, and without scalars the stream's step at that layer;
 - a layer's heads, through the declared `attn_out_norm`, sum to its
   `attn_out`;
+- `activations/capture` reads the residual law's points, and its
+  vectors at the last position and pooled over the sequence add up by
+  the law; it reads `gate_out` where a layer writes one and refuses it by
+  name (`POINT_ABSENT`) where none does; its `attn_out` split by head
+  sums to its `attn_out`, each head's part being what ablating the head
+  removes, up to the post-attention norm's divisor; its attention
+  weights sum to 1 over the keys and are causal; its `top` names each
+  vector's largest coordinates, their shares of the squared norm and
+  the rms without them;
 - capturing attention internals leaves the logits alone, and attention
   is causal;
 - ablating every head of a layer equals zeroing its `attn_out`;
