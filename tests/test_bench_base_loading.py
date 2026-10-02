@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from mechbench_compute import model_ref
-from mechbench_compute import protocol as protocol_mod
+from mechbench_compute.model import Model
 from mechbench_compute.protocol import ProtocolExecutor
 
 LABEL = "benjismith/training/checkpoints/spinner-fair-v1"
@@ -23,7 +23,7 @@ def harness(tmp_path, monkeypatch):
         loads.append(str(model_id))
         return FakeModel()
 
-    monkeypatch.setattr(protocol_mod.Model, "load", staticmethod(fake_load))
+    monkeypatch.setattr(Model, "load", staticmethod(fake_load))
     monkeypatch.setattr(
         ProtocolExecutor, "_materialize_checkpoint",
         lambda self, label: materialized.append(label) or snap,

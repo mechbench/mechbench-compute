@@ -79,6 +79,14 @@ _None._
   `make_position_mask`, `match_framework`, `read_logprobs`,
   `read_softmax`). `support.refusal` takes the architectures to refuse
   against, and `support.LOADERS` names `transformers`.
+- Every operation's module, and the executor's package
+  (`mechbench_compute.protocol`), import on a machine without MLX:
+  `protocol` loads the MLX `Model` only when it loads a model,
+  `legacy_kinds` reads its layer constants from `_arch` and `Ablate` from
+  `interventions`, and `intervene/ablate-circuit` and `text/resample`
+  reach `find_architecture` and `sample_completion_cached` when they run.
+  The kinds registry, and so every operation's output, builds on a
+  torch-only machine. Loading a model there still loads MLX's (below).
 - On MLX every changed path computes what it did, op for op: on every
   tiny architecture, ten interventions with their captures,
   `logits/read` with `tracked`, `rollout` and `complete`, and

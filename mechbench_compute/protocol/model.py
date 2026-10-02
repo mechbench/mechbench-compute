@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from mechbench_compute import Model
+from typing import Any
 
 
 class ModelLoading:
-    def _model_loaded(self, model_id) -> Model:
+    def _model_loaded(self, model_id) -> Any:
         if getattr(model_id, "is_endpoint", False):
             raise ValueError(
                 f"{model_id.describe()} is a remote endpoint: this operation "
@@ -22,6 +22,8 @@ class ModelLoading:
                 "which weights produced it."
             )
         if self._model is None or (model_id and model_id != self._model_id):
+            from mechbench_compute import Model
+
             self._model = Model.load(model_id, on_download=self._on_download,
                                      on_download_bytes=self._on_download_bytes)
             self._model_id = model_id
@@ -32,7 +34,7 @@ class ModelLoading:
         self._model_id = None
 
     @staticmethod
-    def model_ref(model: Model) -> str | None:
+    def model_ref(model: Any) -> str | None:
         if getattr(model, "repo_id", None) and getattr(model, "revision", None):
             return f"{model.repo_id}@{model.revision}"
         return None

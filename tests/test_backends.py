@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import sys
 
@@ -8,8 +9,8 @@ import pytest
 from mechbench_compute import backends
 
 
-@pytest.mark.skipif(backends.detect_accelerator() != "metal",
-                    reason="the MLX test machine is Apple silicon; this one is not")
+@pytest.mark.skipif(backends.detect_accelerator() != "metal" or not backends.is_importable("mlx.core"),
+                    reason="the MLX test machine is Apple silicon with MLX; this one is not")
 def test_this_machine_reports_its_backend():
     active = backends.active()
     assert active is not None, "the test machine should have MLX"
@@ -69,7 +70,8 @@ def test_backend_detection_does_not_import_the_backend(monkeypatch):
     backends.available()
     backends.describe()
     backends.advertise()
-    backends.select(backends.advertise())
+    with contextlib.suppress(backends.BackendRefused):
+        backends.select(backends.advertise())
     assert len(loaded) == before
 
 
@@ -94,6 +96,9 @@ def test_a_backend_installed_for_another_accelerator_is_absent_but_named():
     assert [d["name"] for d in described] == [b.name for b in backends.BACKENDS] == ["mlx", "torch"]
     mlx = next(d for d in described if d["name"] == "mlx")
     assert mlx["present"] is False
+    if not backends.is_importable("mlx.core"):
+        assert mlx["absent"] == "mlx.core is not installed"
+        return
     assert mlx["absent"] == "it runs on metal, and this machine's accelerator is cuda"
     on_metal = backends.describe("metal")
     assert on_metal[0] == {
@@ -116,7 +121,12 @@ def test_the_torch_backend_is_offered_on_cuda_and_installed_with_its_extra():
     assert backends.advertise("cuda")["backends"] == (["torch"] if installed else [])
 
 
+NEEDS_MLX = pytest.mark.skipif(not backends.is_importable("mlx.core"),
+                               reason="the fake backend runs over MLX's forward")
+
+
 class TestSelectionByCapability:
+    @NEEDS_MLX
     def test_the_fake_backend_is_selected_by_what_a_runner_advertises(self):
         from tests.fake_backend import DECLARED, FAKE, KIT
 
@@ -124,6 +134,7 @@ class TestSelectionByCapability:
         assert backends.select(KIT.capabilities, declared=DECLARED) is FAKE
         assert KIT.select() is FAKE
 
+    @NEEDS_MLX
     def test_a_job_naming_a_backend_this_laptop_lacks_is_refused_by_name(self):
         from tests.fake_backend import DECLARED
 
@@ -145,6 +156,7 @@ class TestSelectionByCapability:
         with pytest.raises(backends.BackendRefused, match=r"advertises none on metal"):
             backends.select({"accelerator": "metal", "backends": []})
 
+    @NEEDS_MLX
     def test_a_runner_with_two_backends_runs_a_job_that_names_neither_on_the_first_declared(self):
         from tests.fake_backend import DECLARED
 

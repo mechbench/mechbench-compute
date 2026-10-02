@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from mechbench_compute import Model
 from mechbench_compute.protocol.dispatch import Dispatch
 from mechbench_compute.protocol.is_remote import is_remote  # noqa: F401
 from mechbench_compute.protocol.legacy_kinds import LegacyKinds
@@ -25,7 +24,7 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
                  on_checkpoint=None, on_node_done=None, on_node_kept=None,
                  on_node_span=None,
                  limiter=None, budget=None, on_token=None) -> None:
-        self._model: Model | None = None
+        self._model: Any = None
         self._model_id: str | None = None
         self._on_download = on_download
         self._on_download_bytes = on_download_bytes

@@ -10,8 +10,10 @@ from mechbench_schema import (
     LayerAggregates,
 )
 
-from mechbench_compute import GLOBAL_LAYERS, N_LAYERS, Ablate, lexicon
+from mechbench_compute import lexicon
+from mechbench_compute._arch import GLOBAL_LAYERS, N_LAYERS
 from mechbench_compute.interp.read_last_logp import read_last_logp
+from mechbench_compute.interventions import Ablate
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 
 

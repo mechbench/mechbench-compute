@@ -22,7 +22,6 @@ from mechbench_compute.api import (
     read_metric,
     render,
     resolve_outcomes,
-    sample_completion_cached,
     serialize_model,
 )
 
@@ -262,6 +261,8 @@ class _Sampler:
               prefill: Any = None) -> tuple[list[int], str]:
         if budget <= 0:
             return [], "max_tokens"
+        from mechbench_compute.api import sample_completion_cached
+
         _, out = sample_completion_cached(
             self.model, list(ids), max_tokens=budget, temperature=self.temperature, top_p=self.top_p,
             rng=rng, return_ids=True, prefill=prefill)
