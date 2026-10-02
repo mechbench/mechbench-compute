@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import platform
 import shutil
@@ -9,6 +10,8 @@ from dataclasses import dataclass
 from typing import Any
 
 ACCELERATORS: tuple[str, ...] = ("metal", "cuda", "rocm", "tpu", "cpu")
+
+DEFAULT_BACKEND = "mlx"
 
 
 @dataclass(frozen=True)
@@ -20,6 +23,9 @@ class Backend:
     accelerators: tuple[str, ...]
     requires: tuple[str, ...] = ()
     extra: str | None = None
+    model: str | None = None
+    architectures: str | None = None
+    lora: str | None = None
 
     @property
     def modules(self) -> tuple[str, ...]:
@@ -33,6 +39,9 @@ BACKENDS: tuple[Backend, ...] = (
         label="MLX (Apple Silicon, unified memory)",
         platform_label="macOS on Apple Silicon",
         accelerators=("metal",),
+        model="mechbench_compute.model:Model",
+        architectures="mechbench_compute.architectures",
+        lora="mechbench_compute.lora",
     ),
     Backend(
         name="torch",
@@ -42,6 +51,9 @@ BACKENDS: tuple[Backend, ...] = (
         accelerators=("cuda",),
         requires=("nnsight", "transformers"),
         extra="torch",
+        model="mechbench_compute.torch_backend.model:TorchModel",
+        architectures="mechbench_compute.torch_backend.architectures",
+        lora="mechbench_compute.torch_backend.lora",
     ),
 )
 
@@ -119,7 +131,55 @@ def describe(accelerator: str | None = None,
 def advertise(accelerator: str | None = None,
               declared: Sequence[Backend] = BACKENDS) -> dict[str, Any]:
     on = accelerator or detect_accelerator()
-    return {"accelerator": on, "backends": [b.name for b in available(on, declared)]}
+    return {"accelerator": on,
+            "backends": [b.name for b in available(on, declared) if b.model is not None]}
+
+
+def find(name: str, declared: Sequence[Backend] = BACKENDS) -> Backend:
+    for b in declared:
+        if b.name == name:
+            return b
+    raise BackendRefused(
+        f"{name!r} is not a backend compute declares; it declares "
+        f"{', '.join(b.name for b in declared)}")
+
+
+def backend_of(model: Any) -> str:
+    return str(getattr(getattr(model, "architecture", None), "backend", DEFAULT_BACKEND))
+
+
+def read_required(requirements: Mapping[str, Any] | None,
+                  declared: Sequence[Backend] = BACKENDS) -> Backend:
+    name = (requirements or {}).get("backend") or DEFAULT_BACKEND
+    return find(str(name), declared)
+
+
+def import_attribute(path: str, backend: Backend) -> Any:
+    module, _, attribute = path.partition(":")
+    try:
+        found = importlib.import_module(module)
+    except ModuleNotFoundError as e:
+        absent = read_absence(backend, backend.accelerators[0]) or str(e)
+        raise BackendRefused(f"this job runs on the {backend.name} backend, and {absent}") from e
+    return getattr(found, attribute) if attribute else found
+
+
+def load_model_class(backend: Backend) -> Any:
+    if backend.model is None:
+        raise BackendRefused(f"the executor does not run jobs on the {backend.name} backend yet")
+    return import_attribute(backend.model, backend)
+
+
+def load_lora(backend: Backend) -> Any:
+    if backend.lora is None:
+        raise BackendRefused(f"the {backend.name} backend fuses no stored adapter yet")
+    return import_attribute(backend.lora, backend)
+
+
+def load_architectures(backend: Backend) -> tuple[Any, ...]:
+    if backend.architectures is None:
+        return ()
+    return tuple(import_attribute(backend.architectures, backend).ARCHITECTURES)
 
 
 def select(capabilities: Mapping[str, Any], *, backend: str | None = None,

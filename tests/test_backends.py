@@ -121,6 +121,54 @@ def test_the_torch_backend_is_offered_on_cuda_and_installed_with_its_extra():
     assert backends.advertise("cuda")["backends"] == (["torch"] if installed else [])
 
 
+def test_a_backend_the_executor_cannot_run_is_never_advertised():
+    import dataclasses
+
+    torch = backends.find("torch")
+    unrun = dataclasses.replace(torch, model=None)
+    installed = backends.is_installed(torch)
+    assert backends.available("cuda", (unrun,)) == ([unrun] if installed else [])
+    assert backends.advertise("cuda", (unrun,)) == {"accelerator": "cuda", "backends": []}
+    with pytest.raises(backends.BackendRefused, match="does not run jobs on the torch backend"):
+        backends.load_model_class(unrun)
+    for b in backends.BACKENDS:
+        assert b.model is not None and b.architectures is not None and b.lora is not None
+
+
+def test_a_job_s_requirements_name_its_backend_and_none_means_mlx():
+    assert backends.read_required(None).name == "mlx"
+    assert backends.read_required({"class": "local"}).name == "mlx"
+    assert backends.read_required({"class": "local", "backend": "torch"}).name == "torch"
+    with pytest.raises(backends.BackendRefused, match="'jax' is not a backend compute declares"):
+        backends.read_required({"backend": "jax"})
+
+
+def test_a_missing_backend_is_refused_with_its_install_line():
+    import dataclasses
+
+    gone = dataclasses.replace(backends.find("torch"), module="no_such_torch",
+                               model="no_such_torch.model:Model")
+    with pytest.raises(backends.BackendRefused) as exc:
+        backends.load_model_class(gone)
+    assert str(exc.value).startswith("this job runs on the torch backend, and no_such_torch")
+    assert str(exc.value).endswith("pip install 'mechbench-compute[torch]'")
+
+
+def test_the_architectures_a_runner_advertises_are_one_map_across_its_backends():
+    from mechbench_compute import support
+
+    torch = backends.find("torch")
+    if backends.is_installed(torch):
+        assert support.architecture_levels("cuda") == {"gemma3": "core", "llama": "core"}
+        assert {a["modelType"] for a in support.local_architectures("torch")} == {"gemma3", "llama"}
+    else:
+        assert support.architecture_levels("cuda") == {}
+    if backends.is_importable("mlx.core"):
+        mlx = {a["modelType"]: a["level"] for a in support.local_architectures()}
+        assert support.architecture_levels("metal") == mlx
+        assert support.local_architectures("mlx") == support.local_architectures()
+
+
 NEEDS_MLX = pytest.mark.skipif(not backends.is_importable("mlx.core"),
                                reason="the fake backend runs over MLX's forward")
 

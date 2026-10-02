@@ -56,7 +56,33 @@ _None._
   stored adapter (the same safetensors keys MLX trains) in the layers it
   names and restores the weights bit for bit. What it lacks: generation,
   scoring, rollouts, training, dictionaries, gradients, Gemma 4 and
-  Qwen 2, and the executor's choice of it (`Context.model` loads MLX).
+  Qwen 2.
+- **The executor runs a job on the backend its requirements name**
+  (`ProtocolSpec.extra["requirements"]`, passed by the runner from the
+  job it claimed; none named is `mlx`): `Context.model` loads that
+  backend's model class, and a model reference's adapters, or a port's,
+  are fused by that backend's `lora`. Each backend declares what the
+  executor uses there: `Backend.model`, `Backend.lora` and
+  `Backend.architectures`. An operation that ran a torch model carries
+  `backend` and `accelerator` in its result's header, and the run's
+  `resources.hardware` adds `backend`, `accelerator`, `gpu`, the `torch`,
+  `cuda`, `transformers` and `nnsight` versions, and `attention`, the
+  attention implementations its forwards ran (`eager` where a node read
+  `attn.weights`, otherwise the model's, `sdpa`): numerics declared. An
+  mlx job's result is byte for byte what it was, whether its
+  requirements name mlx, say only `local` or are absent (four tiny
+  architectures through `logits/read`, `logits/attribute` by layer and by
+  sublayer and `activations/capture`, against the result before this). A
+  job naming a backend compute does not declare is refused by name, and
+  one whose backend is not installed names its install line.
+- **A runner advertises a backend only where the executor runs it**:
+  `backends.advertise()` lists an available backend only when it declares
+  the `model` the executor loads, and `support.architecture_levels()` is
+  one map of model type to level across the advertised backends (the
+  first to declare a model type serves it), which a runner advertises in
+  place of MLX's alone. `support.local_architectures(backend)` lists one
+  backend's (`mlx` when none is named, which the support table reads).
+- The torch backend refuses an operator by name: it attaches on mlx only.
 - The architecture kit runs on the torch backend with tiny `transformers`
   models (`tests/tiny_torch_models.py`), on the CPU, or the GPU with
   `MECHBENCH_KIT_DEVICE=cuda`, and every check holds there, bit-identical

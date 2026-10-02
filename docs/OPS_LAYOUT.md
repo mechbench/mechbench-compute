@@ -398,6 +398,25 @@ runs as SDPA unless `attn.weights` is named, when that run is eager.
 `torch_backend/tracing.py` loads nnsight with its `.save` mount turned
 off, since an MLX imported after that mount aborts.
 
+The executor runs a job on the backend the job's requirements name
+(`ProtocolSpec.extra["requirements"]`, which the runner passes from the
+job it claimed; a job that names none runs on `mlx`). Each declared
+backend says what the executor uses there (`backends.Backend`): `model`,
+the class it loads (`Model`, `TorchModel`); `lora`, the module that
+fuses a model reference's adapters and a port's; `architectures`, the
+package its architectures are walked from. An operation that ran a
+torch model carries `backend` and `accelerator` in its result's header,
+and the run's `resources.hardware` adds `backend`, `accelerator`, `gpu`,
+the `torch`, `cuda`, `transformers` and `nnsight` versions, and
+`attention`: the attention implementations its forwards ran (`eager`
+where a node read `attn.weights`, otherwise the model's own, `sdpa`). An
+mlx job's result keeps every byte it had. A runner advertises a backend
+only where the executor runs it, one that declares a `model`
+(`backends.advertise`), and the architectures it loads as one map of
+model type to level across those backends
+(`support.architecture_levels`; the first backend to declare a model
+type serves it).
+
 `support.Architecture` is the interface. Its declarative fields:
 `model_type`, `name`, `loader`, `generate`/`score`/`train`,
 `layer_points`, `global_points`, `refused_when` (config keys that refuse

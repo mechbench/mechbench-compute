@@ -119,7 +119,7 @@ class Pipeline:
                 progress.bump()
 
         check_failures(state, resolver)
-        payload = build_manifest(state, resolver.resolved)
+        payload = build_manifest(state, resolver.resolved, self._read_hardware())
         prov = ms.Provenance(
             created_at=datetime.now(UTC).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"),

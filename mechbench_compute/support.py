@@ -157,8 +157,8 @@ def refusal(config: Mapping[str, Any],
     return None
 
 
-def local_architectures() -> list[dict[str, Any]]:
-    from .architectures import ARCHITECTURES
+def local_architectures(backend: str = "mlx") -> list[dict[str, Any]]:
+    from . import backends
 
     return [{
         "modelType": a.model_type,
@@ -175,7 +175,17 @@ def local_architectures() -> list[dict[str, Any]]:
         "absentWhen": [{"point": x.point, "configKey": x.config_key, "reason": x.reason}
                        for x in a.absent_when],
         "configDefaults": dict(a.config_defaults),
-    } for a in ARCHITECTURES]
+    } for a in backends.load_architectures(backends.find(backend))]
+
+
+def architecture_levels(accelerator: str | None = None) -> dict[str, str]:
+    from . import backends
+
+    levels: dict[str, str] = {}
+    for name in backends.advertise(accelerator)["backends"]:
+        for a in local_architectures(name):
+            levels.setdefault(a["modelType"], a["level"])
+    return levels
 
 
 def provider_models() -> list[dict[str, Any]]:

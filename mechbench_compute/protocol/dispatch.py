@@ -69,13 +69,31 @@ class Dispatch:
             fused = self._reference_restored(ctx.fused)
         if fused and isinstance(result, dict):
             result.setdefault("fused", fused)
-        return place_fused(resolved.op, result)
+        if isinstance(result, dict):
+            for key, value in read_backend_header(ctx.models).items():
+                result.setdefault(key, value)
+        return place_header(resolved.op, result)
 
 
-def place_fused(op, result):
+HEADER_KEYS = ("fused", "backend", "accelerator")
+
+
+def read_backend_header(models) -> dict[str, str]:
+    from mechbench_compute.backends import DEFAULT_BACKEND, backend_of
+
+    for model in models:
+        backend = backend_of(model)
+        if backend != DEFAULT_BACKEND:
+            return {"backend": backend, "accelerator": model.accelerator}
+    return {}
+
+
+def place_header(op, result):
     from mechbench_compute.lexicon._base import DEFAULT_OUTPUT
 
     out = result.get(DEFAULT_OUTPUT) if isinstance(result, dict) else None
-    if op.outputs and isinstance(out, dict) and "fused" in result:
-        out.setdefault("fused", result.pop("fused"))
+    if op.outputs and isinstance(out, dict):
+        for key in HEADER_KEYS:
+            if key in result:
+                out.setdefault(key, result.pop(key))
     return result

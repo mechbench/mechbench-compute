@@ -17,7 +17,12 @@ from mechbench_compute.torch_backend.architectures import (
     for_model,
     for_type,
 )
-from mechbench_compute.torch_backend.loading import read_device
+from mechbench_compute.torch_backend.forward import read_attention
+from mechbench_compute.torch_backend.loading import (
+    read_accelerator,
+    read_device,
+    read_stack,
+)
 
 
 class TorchModel:
@@ -32,6 +37,7 @@ class TorchModel:
         self.requested_ref: str | None = None
         self.node_adapter: dict | None = None
         self.fused_reference: Any = None
+        self.attention: set[str] = set()
 
     @classmethod
     def load(cls, model_id: str, *, device: str | None = None, dtype: Any = None,
@@ -77,6 +83,13 @@ class TorchModel:
     def device(self) -> Any:
         return read_device(self._model)
 
+    @property
+    def accelerator(self) -> str:
+        return read_accelerator(self.device)
+
+    def describe_hardware(self) -> dict[str, Any]:
+        return read_stack(self.device)
+
     def prompt_cache(self) -> Any:
         return self.architecture.prompt_cache(self._model)
 
@@ -99,10 +112,12 @@ class TorchModel:
             capture: list[str] | None = None, interventions: list[Intervention] | None = None,
             kv_cache: Any = None) -> RunResult:
         final_hooks, final_capture = compose(interventions, hooks=hooks, capture=capture)
-        self.check_hook_names(set(final_hooks) | set(final_capture))
+        names = set(final_hooks) | set(final_capture)
+        self.check_hook_names(names)
         logits, cache = self.architecture.forward(
             self._model, input_ids, hooks=final_hooks, capture=final_capture,
             arch=self.arch, kv_cache=kv_cache)
+        self.attention.add(read_attention(self._model, names, self.arch))
         add_to_span(forwards=1, tokens_in=int(input_ids.numel()), bytes_captured=sum(
             int(cache[n].numel() * cache[n].element_size()) for n in set(final_capture) if n in cache))
         return RunResult(logits=logits, cache=cache)

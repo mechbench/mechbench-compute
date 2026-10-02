@@ -75,9 +75,15 @@ def fuse_adapter_stack(lm: Any, payloads: Sequence[Any], override_scale: float |
                        skip_missing: bool = False, skipped: list[str] | None = None,
                        keys: AdapterKeys = ADAPTER_KEYS,
                        layers: Sequence[Sequence[int] | None] = ()) -> list[dict]:
+    from mechbench_compute.adapters.is_operator import is_operator
+
     handles: list[dict] = []
     try:
         for i, payload in enumerate(payloads):
+            if is_operator(payload):
+                raise ValueError(
+                    "an operator attaches on the mlx backend only, and this model runs on "
+                    "torch: fuse a LoRA here, or run the job on mlx")
             if not isinstance(payload, dict) or "data" not in payload:
                 raise ValueError("adapter payload without safetensors bytes under 'data'")
             cfg = payload.get("lora") or {}

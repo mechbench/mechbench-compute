@@ -35,6 +35,30 @@ def read_device(model: Any) -> Any:
     return next(model.parameters()).device
 
 
+def read_accelerator(device: Any) -> str:
+    import torch
+
+    kind = getattr(device, "type", str(device))
+    if kind == "cuda":
+        return "rocm" if getattr(torch.version, "hip", None) else "cuda"
+    return {"mps": "metal", "xla": "tpu"}.get(kind, "cpu")
+
+
+def read_stack(device: Any) -> dict[str, Any]:
+    from importlib import metadata
+
+    import torch
+
+    return {
+        "accelerator": read_accelerator(device),
+        "gpu": torch.cuda.get_device_name(device) if getattr(device, "type", None) == "cuda" else None,
+        "torch": metadata.version("torch"),
+        "cuda": torch.version.cuda,
+        "transformers": metadata.version("transformers"),
+        "nnsight": metadata.version("nnsight"),
+    }
+
+
 def pick_device() -> str:
     import torch
 

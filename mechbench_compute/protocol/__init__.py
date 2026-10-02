@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from mechbench_compute import backends
 from mechbench_compute.protocol.dispatch import Dispatch
 from mechbench_compute.protocol.is_remote import is_remote  # noqa: F401
 from mechbench_compute.protocol.legacy_kinds import LegacyKinds
@@ -11,9 +12,9 @@ from mechbench_compute.protocol.model import ModelLoading
 from mechbench_compute.protocol.pipeline import Pipeline
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 from mechbench_compute.protocol.remote import Remote
-from mechbench_compute.protocol.sub import Sub
 from mechbench_compute.protocol.serialize_params import serialize_params  # noqa: F401
 from mechbench_compute.protocol.sort_edges import sort_edges  # noqa: F401
+from mechbench_compute.protocol.sub import Sub
 from mechbench_compute.protocol.summarize_node import summarize_node  # noqa: F401
 
 
@@ -26,6 +27,8 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
                  limiter=None, budget=None, on_token=None) -> None:
         self._model: Any = None
         self._model_id: str | None = None
+        self._backend = backends.find(backends.DEFAULT_BACKEND)
+        self._attention: set[str] = set()
         self._on_download = on_download
         self._on_download_bytes = on_download_bytes
         self._on_node_start = on_node_start
@@ -40,6 +43,8 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
 
     def run(self, spec: ProtocolSpec, on_progress=None,
             secrets=None, resume=None, budget=None) -> Any:
+        self._backend = backends.read_required((spec.extra or {}).get("requirements"))
+        self._attention = set()
         if spec.kind == "layer_ablation":
             return self._run_layer_ablation(spec.prompt, spec.model_id)
         if spec.kind == "decision_distribution":

@@ -73,6 +73,7 @@ class Context:
     node: str | None = None
     name: str | None = None
     fused: list[Any] = field(default_factory=list)
+    models: list[Any] = field(default_factory=list)
 
     @classmethod
     def for_op(cls, op: Any, executor: Any = None, **lent: Any) -> Context:
@@ -105,10 +106,13 @@ class Context:
     def model(self, ref: Any) -> Any:
         self.check("model")
         if self.loaded is not None:
-            return self.loaded
-        host = self.find_host("model", "needs a model and none is loaded")
-        model = host._model_loaded(ref)
-        host._reference_fused(model, ref, self.fused, self.name)
+            model = self.loaded
+        else:
+            host = self.find_host("model", "needs a model and none is loaded")
+            model = host._model_loaded(ref)
+            host._reference_fused(model, ref, self.fused, self.name)
+        if not any(m is model for m in self.models):
+            self.models.append(model)
         return model
 
     def sub(self, target: str | Mapping[str, Any], inputs: Mapping[str, Any],

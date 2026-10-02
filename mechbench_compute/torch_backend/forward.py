@@ -31,6 +31,12 @@ def find_interface_call(attn: Any) -> Any:
     return getattr(attn.source, name)
 
 
+def read_attention(module: Any, names: Iterable[str], arch: Arch) -> str:
+    if any(parse_hook_name(n, arch=arch).point in EAGER_POINTS for n in names):
+        return "eager"
+    return str(getattr(module.config, "_attn_implementation", None) or "eager")
+
+
 @dataclass(frozen=True)
 class Step:
     names: tuple[str, ...]

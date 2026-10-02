@@ -21,17 +21,34 @@ class ModelLoading:
                 "runs one names it in its own params, so the result can say "
                 "which weights produced it."
             )
-        if self._model is None or (model_id and model_id != self._model_id):
-            from mechbench_compute import Model
+        from mechbench_compute.backends import backend_of, load_model_class
 
-            self._model = Model.load(model_id, on_download=self._on_download,
-                                     on_download_bytes=self._on_download_bytes)
+        backend = self._backend
+        if (self._model is None or (model_id and model_id != self._model_id)
+                or backend_of(self._model) != backend.name):
+            self._model = load_model_class(backend).load(
+                model_id, on_download=self._on_download,
+                on_download_bytes=self._on_download_bytes)
             self._model_id = model_id
+        if hasattr(self._model, "attention"):
+            self._model.attention = self._attention
         return self._model
 
     def evict_model(self) -> None:
         self._model = None
         self._model_id = None
+
+    def _read_hardware(self) -> dict[str, Any]:
+        from mechbench_compute.backends import DEFAULT_BACKEND, backend_of
+        from mechbench_compute.seeds import hardware_class
+
+        info = hardware_class()
+        if self._backend.name == DEFAULT_BACKEND:
+            return info
+        model = self._model if backend_of(self._model) == self._backend.name else None
+        describe = getattr(model, "describe_hardware", None)
+        return {**info, "backend": self._backend.name, **(describe() if describe else {}),
+                "attention": sorted(self._attention)}
 
     @staticmethod
     def model_ref(model: Any) -> str | None:
@@ -62,10 +79,6 @@ class ModelLoading:
         import contextlib
 
         from mechbench_compute.adapters.is_operator import is_operator
-        from mechbench_compute.lora import (
-            fuse_adapter_stack,
-            restore_adapter_stack,
-        )
 
         @contextlib.contextmanager
         def _cm():
@@ -87,7 +100,8 @@ class ModelLoading:
                 if node_level and "adapter_scale" in params
                 else None
             )
-            handles = fuse_adapter_stack(
+            lora = load_lora_of(model)
+            handles = lora.fuse_adapter_stack(
                 model.lm, payloads, override,
                 skip_missing=bool(params.get("adapter_skip_missing", False)),
                 skipped=skipped, keys=model.architecture.adapter_keys, layers=layers)
@@ -103,7 +117,7 @@ class ModelLoading:
             finally:
                 model.node_adapter = None
                 model.fused_reference = None
-                restore_adapter_stack(model.lm, handles)
+                lora.restore_adapter_stack(model.lm, handles)
         return _cm()
 
     def _reference_fused(self, model, ref, undo, name=None) -> None:
@@ -125,22 +139,18 @@ class ModelLoading:
                 f"{who}: the model already carries the adapters of {held.describe()}, "
                 f"and the operation asked for {ref.describe()}; one node runs one "
                 "adapted model")
-        from mechbench_compute.lora import fuse_adapter_stack
-
-        handles = fuse_adapter_stack(model.lm, list(ref.adapter_payloads),
-                                     keys=model.architecture.adapter_keys,
-                                     layers=ref.adapter_layers)
+        handles = load_lora_of(model).fuse_adapter_stack(
+            model.lm, list(ref.adapter_payloads), keys=model.architecture.adapter_keys,
+            layers=ref.adapter_layers)
         model.fused_reference = ref
         undo.append((model, ref, handles))
 
     def _reference_restored(self, undo) -> list[dict]:
-        from mechbench_compute.lora import restore_adapter_stack
-
         fused: list[dict] = []
         for model, ref, handles in reversed(undo):
             fused[:0] = read_fused(ref, None, None)
             if model is self._model:
-                restore_adapter_stack(model.lm, handles)
+                load_lora_of(model).restore_adapter_stack(model.lm, handles)
             model.fused_reference = None
         undo.clear()
         return fused
@@ -180,6 +190,12 @@ class ModelLoading:
         (target / ".label").write_text(label)
         memo[label] = target
         return target
+
+
+def load_lora_of(model) -> Any:
+    from mechbench_compute import backends
+
+    return backends.load_lora(backends.find(backends.backend_of(model)))
 
 
 def read_fused(ref, node_level, scale) -> list[dict]:

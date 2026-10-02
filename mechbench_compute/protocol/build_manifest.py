@@ -7,7 +7,7 @@ from mechbench_compute.protocol.summarize_node import summarize_node
 from mechbench_compute.protocol.total_spend import total_spend
 
 
-def build_manifest(state, resolved: dict) -> dict[str, Any]:
+def build_manifest(state, resolved: dict, hardware: dict[str, Any] | None = None) -> dict[str, Any]:
     from mechbench_compute.seeds import hardware_class
 
     def sanitize(v, at):
@@ -60,7 +60,7 @@ def build_manifest(state, resolved: dict) -> dict[str, Any]:
         **({"nodes_missing": {nid: state.missing[nid] for nid in state.order
                               if nid in state.missing}} if state.missing else {}),
         "resolved": resolved,
-        "resources": {"hardware": hardware_class(),
+        "resources": {"hardware": hardware if hardware is not None else hardware_class(),
                       **({"spend": total_spend(state.spend_by_node)}
                          if state.spend_by_node else {})},
     }
