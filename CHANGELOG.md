@@ -17,6 +17,22 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+---
+
+## 0.188.0 — 2026-10-03
+
+### Changes that raise
+
 - An expression over a collection whose first record spends more than
   twice its share of the call's fuel is refused before the other records
   run, with a `FuelRefused` (a `ValueError`) whose message starts with
