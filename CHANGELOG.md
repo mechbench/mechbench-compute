@@ -21,6 +21,20 @@ _None._
 
 ### Changes that alter results without raising
 
+_None._
+
+### Other
+
+_None._
+
+## 0.187.0 — 2026-10-03
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
 - An operation's derived class is `local`, which was `mlx-local`
   (`Op.requires`, in every operation's wire form and the lexicon
   `scripts/dump_lexicon_ts.py` writes): it runs a model on the runner,
