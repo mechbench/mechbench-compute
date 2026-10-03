@@ -395,14 +395,7 @@ def run(ctx, inputs, params):
     steps = int(params.get("steps", 250))
     lr = float(params.get("lr", 1e-4))
     seed = int(params.get("seed", 7))
-    base_ref = params.get("model")
-    trained_on = (
-        {"base": base_ref.base,
-         "adapters": [label if layers is None else {"bench": label, "layers": list(layers)}
-                      for label, layers in zip(base_ref.adapter_labels, base_ref.adapter_layers)]}
-        if hasattr(base_ref, "adapter_labels")
-        else {"base": base_ref, "adapters": []}
-    )
+    trained_on = read_trained_on(params.get("model"), model)
     if objective == "sft":
         from mechbench_compute.adapters.compute_sft_loss import compute_sft_loss
         from mechbench_compute.adapters.read_sft_items import read_sft_items
@@ -505,6 +498,15 @@ def run(ctx, inputs, params):
     return train_lora(ctx, model, params,
                       {"target": marginals, "anchor": anchors, "continuation": continuations},
                       batch, methods, trained_on=trained_on, factories=factories)
+
+
+def read_trained_on(ref, model) -> dict:
+    fingerprint = getattr(model, "fingerprint", None)
+    carried = hasattr(ref, "adapter_labels")
+    adapters = (fingerprint.read_adapters() if fingerprint is not None
+                else ref.read_adapters() if carried else [])
+    return {"base": ref.base if carried else ref,
+            "adapters": [a["bench"] if set(a) == {"bench"} else a for a in adapters]}
 
 
 def read_operator_batch(params, depth: int) -> dict[str, int]:

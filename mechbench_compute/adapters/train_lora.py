@@ -7,7 +7,7 @@ from mechbench_compute import lexicon
 from mechbench_compute.distill import soft_ce
 from mechbench_compute.finetune import train_soft_ce
 from mechbench_compute.lexicon._base import DEFAULT_OUTPUT
-from mechbench_compute.lora import apply_lora, read_adapter_bytes
+from mechbench_compute.lora import apply_lora, read_adapter_bytes, remove_lora
 
 
 def train_lora(ctx, model, params, groups: Mapping[str, list[Any]], batch: Mapping[str, int],
@@ -20,34 +20,12 @@ def train_lora(ctx, model, params, groups: Mapping[str, list[Any]], batch: Mappi
     target_modules = tuple(lora_cfg.get("target_modules")
                            or ("q_proj", "v_proj"))
     steps, lr, seed = int(methods["steps"]), float(methods["lr"]), int(methods["seed"])
-
-    n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules,
-                        seed=seed, keys=model.architecture.adapter_keys)
-    lora = {"rank": rank, "alpha": alpha, "scale": alpha / rank,
-            "target_modules": list(target_modules), "params": n_lora}
-    lineage = {"kind": "adapter/lora", "format": "safetensors",
-               "base_model": trained_on["base"], "trained_on": trained_on,
-               "lora": lora}
-
     checkpoint_every = int(params.get("checkpoint_every", 50))
     kept_steps = read_kept_steps(params, steps, checkpoint_every)
-    if kept_steps:
-        check_kept_size(len(read_adapter_bytes(model.lm)), len(kept_steps))
 
     def keep(step, loss, data):
         return {"id": f"step-{step}", "coords": {"step": step}, **lineage,
                 "train": methods, "loss": float(loss), "data": data}
-
-    if ctx.on_start:
-        ctx.on_start(steps)
-    resumed_from = int(ctx.resume_state["step"]) if ctx.resume_state else 0
-    kept = restore_kept(kept_steps, resumed_from, ctx.resume_items)
-    if resumed_from and ctx.on_item:
-        for step in range(1, resumed_from + 1):
-            if step in kept:
-                ctx.on_item(kept[step]["id"], kept[step], True)
-            else:
-                ctx.on_item(None, None, True)
 
     def on_step(step, loss):
         if step in kept_steps and step < steps:
@@ -57,17 +35,40 @@ def train_lora(ctx, model, params, groups: Mapping[str, list[Any]], batch: Mappi
         elif ctx.on_item:
             ctx.on_item()
 
-    final_loss = train_soft_ce(
-        model.lm, groups, batch, steps=steps, lr=lr, seed=seed,
-        factories=factories,
-        on_step=on_step if (ctx.on_item or kept_steps) else None,
-        checkpoint_every=checkpoint_every if ctx.on_checkpoint else 0,
-        on_checkpoint=ctx.on_checkpoint,
-        resume_state=ctx.resume_state,
-        loss_fn=loss_fn)
-
-    data = read_adapter_bytes(model.lm)
-    ctx.evict_model()
+    try:
+        n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules,
+                            seed=seed, keys=model.architecture.adapter_keys)
+        lora = {"rank": rank, "alpha": alpha, "scale": alpha / rank,
+                "target_modules": list(target_modules), "params": n_lora}
+        lineage = {"kind": "adapter/lora", "format": "safetensors",
+                   "base_model": trained_on["base"], "trained_on": trained_on,
+                   "lora": lora}
+        if kept_steps:
+            check_kept_size(len(read_adapter_bytes(model.lm)), len(kept_steps))
+        if ctx.on_start:
+            ctx.on_start(steps)
+        resumed_from = int(ctx.resume_state["step"]) if ctx.resume_state else 0
+        kept = restore_kept(kept_steps, resumed_from, ctx.resume_items)
+        if resumed_from and ctx.on_item:
+            for step in range(1, resumed_from + 1):
+                if step in kept:
+                    ctx.on_item(kept[step]["id"], kept[step], True)
+                else:
+                    ctx.on_item(None, None, True)
+        final_loss = train_soft_ce(
+            model.lm, groups, batch, steps=steps, lr=lr, seed=seed,
+            factories=factories,
+            on_step=on_step if (ctx.on_item or kept_steps) else None,
+            checkpoint_every=checkpoint_every if ctx.on_checkpoint else 0,
+            on_checkpoint=ctx.on_checkpoint,
+            resume_state=ctx.resume_state,
+            loss_fn=loss_fn)
+        data = read_adapter_bytes(model.lm)
+    finally:
+        try:
+            remove_lora(model.lm)
+        finally:
+            ctx.evict_model()
 
     adapter = {**lineage,
                "train": {**methods, "final_loss": round(final_loss, 4)},

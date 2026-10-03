@@ -37,6 +37,7 @@ class TorchModel:
         self.requested_ref: str | None = None
         self.node_adapter: dict | None = None
         self.fused_reference: Any = None
+        self.fingerprint: Any = None
         self.attention: set[str] = set()
 
     @classmethod

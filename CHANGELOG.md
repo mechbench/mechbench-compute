@@ -17,11 +17,45 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- A node refuses to run on a cached model that is not the one it asked
+  for, with a `ModelCacheStale` (a `ValueError` whose message starts with
+  `MODEL_CACHE_STALE` and which carries `code`, `loaded`, `asked` and an
+  `issue`), where it ran on whatever the cache held. The executor keeps
+  one model between nodes, and a runner keeps it between jobs; the model
+  now carries a fingerprint of what is loaded: the base, the adapters
+  fused into it by the nodes running on it, each with the sha256 of its
+  weights, its `layers` and a port adapter's `scale`, and its parameters
+  as they were loaded. A node's first hold of the model checks it. When
+  no other node holds it, nothing may be fused and no parameter may
+  differ from the load, so a LoRA left wrapped, a fused delta, an
+  operator or a weight edit that an earlier node left behind is refused,
+  naming the parameters it changed; inside a node that holds it, as a
+  sub-run is, the reference's adapters fused there must be the ones the
+  node names. The refusal says what is loaded and what was asked
+  ("logits/read asked for tiny, and the cached model is tiny with 32
+  weights changed since it was loaded (model.layers.0.self_attn.q_proj.base.weight,
+  …, and 29 more); it does not run on a model other than the one it asked
+  for. The cache is dropped: the next node that asks for the model loads
+  it afresh."), and the cache is dropped. With the paths below it is a
+  backstop, since none of them leaves the model changed. A node run
+  inside another that holds the model under a different reference is
+  refused too: a `text/chat` tool handler that names the bare base while
+  the chat runs an adapted reference ran on the chat's adapted model and
+  said nothing of it.
 
 ### Changes that alter results without raising
 
-_None._
+- A node run inside another that holds the same adapted reference no
+  longer fuses that reference a second time. `dictionary/encode`'s
+  `adapted` reading on a model reference carrying adapters ran on the
+  base with the reference's adapters fused twice and the `adapted`
+  adapter on top; it now runs on the reference with the adapter on top,
+  which is what it says, and its items are byte for byte those of a
+  `dictionary/encode` on that reference with the adapter on its `adapter`
+  port. On the tiny Llama the adapted reading's mse went from 19,581.8 to
+  6,127.8 and `fidelity_drop` from 0.192 to -0.047. On a bare base it
+  reads as it did, with or without the `adapter` port. Only that sub-run
+  moved; no node run on its own did (below).
 
 ### Other
 
@@ -77,6 +111,62 @@ _None._
   (Gemma 3; Gemma 4 and its 31B and small-cap variants; Llama; Qwen 2);
   and a try's result and hash do not depend on its baseline or its
   floor.
+- A training that dies leaves the model as it was loaded. `adapter/train`
+  takes its LoRA back off the model and drops the cached model on every
+  exit, a failed one included, where it dropped the model only after
+  training succeeded: a run that died mid-training (the macOS GPU
+  watchdog) left its partly trained LoRA in the runner's cached model, the
+  `text/chat` nodes of that job and the next ran on the adapted model with
+  `adapters: []` in their headers, and the next training failed at once
+  (`AttributeError: 'LoRALinear' object has no attribute 'weight'`). A
+  refusal after the LoRA is wrapped (kept checkpoints over the object
+  limit) takes it back too, and so does `lora.apply_lora` refusing a
+  target no layer has; `lora.remove_lora` takes every wrapper off. An
+  operator's training detaches its operators when it dies before its
+  first step as well as during the loop.
+- The executor drops its cached model when a node that held it fails,
+  whatever the operation, and takes back the adapters a reference fused
+  for a node on every exit whether or not the model was dropped, so a
+  model object still in hand comes back as it was.
+- A fuse, an attach and a weight edit that fail part way undo what they
+  did: `lora.fuse`, and the torch backend's, restore the projections they
+  had fused before a missing `lora_b` or a failed evaluation raised;
+  `attach_operators` detaches the operators it had attached; and
+  `weights.edit_parameters` restores the parameters it had edited.
+- Headers say what is fused. `fused`, the `model` named by a
+  `text/generate` item and its generation spans, by `text/resample`'s
+  header, by a local `text/chat` item and by `weights/capture` and
+  `weights/decompose`, and `adapter/train`'s `trained_on` are read from the
+  model's fingerprint, not from the request; `serialize_model(value,
+  loaded)` takes the model. A node that runs has passed the check, so
+  they are the request's, byte for byte.
+- No number moved for a node run on its own. Through the executor, on the
+  tiny Gemma 3, Gemma 4, Llama and Qwen 2 models, bare, under a reference
+  adapter, under one in chosen layers, under the `adapter` port and under
+  an operator: `logits/read` (tracked, rollout and complete),
+  `logits/attribute` by layer and by sublayer, `logits/read-layers`,
+  `logits/scan`, `intervene/apply` (activation edits, weight edits and a
+  capture readout), `activations/capture` (residual, heads and pooled),
+  `activations/capture-attention`, `activations/capture-tokens`,
+  `activations/contrast`, `intervene/ablate-heads`,
+  `intervene/ablate-layers`, `intervene/patch`, `activations/examples`,
+  `trajectory/capture`, `text/generate` (plain and intervened),
+  `text/chat`, `text/resample`, `weights/capture`, `weights/decompose` and
+  `dictionary/encode`, 580 results; and `adapter/train` under `sft`, the
+  decision objective with kept checkpoints and an operator, bare and on
+  references, 36 results: the same to the byte before and after. So is
+  0.189.0's list, run directly on all six kit models. After a LoRA
+  training the model's parameters are the ones it was loaded with, where
+  they kept the LoRA and the reference's adapters.
+- Tests: a training that dies mid-run, then a read of the same base, gives
+  the untrained read byte for byte, and the next training trains as on a
+  fresh runner, on the four tiny architectures through one executor held
+  across jobs as a runner holds it; the same for a fuse that fails part
+  way; each of the five ways a model can be left changed is refused by
+  name; a node inside another runs on the same reference fused once and
+  refuses the bare base; headers follow the fingerprint; and the
+  architecture kit's double run reads again after a training that ends
+  and after one that dies, on every tiny model whose architecture trains.
 
 ---
 

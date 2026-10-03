@@ -317,7 +317,7 @@ def run(ctx, inputs, params):
             for rec in records:
                 lead = str(rec.get("prefill") or "") if continue_prefill else ""
                 r = render(model, dict(rec, prefill=lead))
-                rendered, ids = r.text, r.ids
+                ids = r.ids
                 prompt_tokens = [tok.decode([int(t)]) for t in ids] if plan else []
                 first = plan.live(cell, prompt_tokens, rec) if plan else []
                 prefill = (prefill_decision(model, ids, interventions=first)
@@ -361,7 +361,7 @@ def run(ctx, inputs, params):
                                          "index": k, "ended": ended,
                                          **({"prefill": lead} if lead else {}),
                                          **({"stop": list(stop_strings)} if stop_strings else {})},
-                            "model": serialize_model(params.get("model")),
+                            "model": serialize_model(params.get("model"), model),
                         },
                     }
                     if first or live:
@@ -386,7 +386,7 @@ def run(ctx, inputs, params):
                             "generation_spans": [{
                                 "token_start": len(ids),
                                 "token_end": len(full_ids),
-                                "model": serialize_model(params.get("model")),
+                                "model": serialize_model(params.get("model"), model),
                                 "temperature": temperature,
                                 "top_p": top_p,
                                 "seed": k,

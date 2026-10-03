@@ -47,30 +47,54 @@ def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
     n = 0
     key = mx.random.key(seed) if seed is not None else None
     wrapped_per_target = dict.fromkeys(targets, 0)
-    for layer in lm.model.layers:
-        for name in targets:
-            container = keys.containers.get(name)
-            if container is None:
-                raise ValueError(f"unknown target module {name!r}; "
-                                 f"known: {sorted(keys.containers)}")
-            holder = getattr(layer, container)
-            base = getattr(holder, name, None)
-            if base is None:
-                continue
-            sub = None
-            if key is not None:
-                key, sub = mx.random.split(key)
-            wrapped = LoRALinear(base, rank, alpha, key=sub)
-            setattr(holder, name, wrapped)
-            wrapped_per_target[name] += 1
-            n += wrapped.lora_a.size + wrapped.lora_b.size
-    dead = [t for t, c in wrapped_per_target.items() if c == 0]
-    if dead:
-        raise ValueError(
-            f"target modules {dead!r} exist on no layer of this "
-            f"architecture — adapter would train nothing for them. "
-            f"Wrapped counts: {wrapped_per_target!r}")
+    try:
+        for layer in lm.model.layers:
+            for name in targets:
+                container = keys.containers.get(name)
+                if container is None:
+                    raise ValueError(f"unknown target module {name!r}; "
+                                     f"known: {sorted(keys.containers)}")
+                holder = getattr(layer, container)
+                base = getattr(holder, name, None)
+                if base is None:
+                    continue
+                sub = None
+                if key is not None:
+                    key, sub = mx.random.split(key)
+                wrapped = LoRALinear(base, rank, alpha, key=sub)
+                setattr(holder, name, wrapped)
+                wrapped_per_target[name] += 1
+                n += wrapped.lora_a.size + wrapped.lora_b.size
+        dead = [t for t, c in wrapped_per_target.items() if c == 0]
+        if dead:
+            raise ValueError(
+                f"target modules {dead!r} exist on no layer of this "
+                f"architecture — adapter would train nothing for them. "
+                f"Wrapped counts: {wrapped_per_target!r}")
+    except BaseException:
+        remove_lora(lm)
+        raise
     return n
+
+
+def remove_lora(lm) -> int:
+    removed = 0
+    for _, module in lm.named_modules():
+        for name, child in list(module.items()):
+            if isinstance(child, LoRALinear):
+                module[name] = child.base
+                removed += 1
+    return removed
+
+
+def mark_weights(lm) -> dict[str, mx.array]:
+    return dict(tree_flatten(lm.parameters()))
+
+
+def read_changed(lm, marks) -> list[str]:
+    now = mark_weights(lm)
+    return sorted(name for name in now.keys() | marks.keys()
+                  if now.get(name) is not marks.get(name))
 
 
 def save_adapter(lm, path: str) -> None:
@@ -119,21 +143,25 @@ def fuse(lm, weights: dict[str, mx.array],
             f"implementation. Pass adapter_skip_missing: true to fuse the "
             f"rest — the skipped modules are then reported on the result.")
     handle: dict[tuple[int, str, str], mx.array] = {}
-    for (i, container, proj), ab in sorted(pairs.items()):
-        if set(ab) != {"a", "b"}:
-            raise ValueError(
-                f"adapter is missing lora_a or lora_b for layer {i} "
-                f"{container}.{proj}")
-        if (i, container, proj) in missing:
-            if skipped is not None:
-                skipped.append(f"{i}.{container}.{proj}")
-            continue
-        mod = getattr(getattr(lm.model.layers[i], container), proj)
-        handle[(i, container, proj)] = mod.weight
-        mod.weight = mod.weight + (scale * (ab["b"] @ ab["a"])).astype(
-            mod.weight.dtype)
-    mx.eval([getattr(getattr(lm.model.layers[i], c), p).weight
-             for i, c, p in handle])
+    try:
+        for (i, container, proj), ab in sorted(pairs.items()):
+            if set(ab) != {"a", "b"}:
+                raise ValueError(
+                    f"adapter is missing lora_a or lora_b for layer {i} "
+                    f"{container}.{proj}")
+            if (i, container, proj) in missing:
+                if skipped is not None:
+                    skipped.append(f"{i}.{container}.{proj}")
+                continue
+            mod = getattr(getattr(lm.model.layers[i], container), proj)
+            handle[(i, container, proj)] = mod.weight
+            mod.weight = mod.weight + (scale * (ab["b"] @ ab["a"])).astype(
+                mod.weight.dtype)
+        mx.eval([getattr(getattr(lm.model.layers[i], c), p).weight
+                 for i, c, p in handle])
+    except BaseException:
+        restore(lm, handle)
+        raise
     return handle
 
 

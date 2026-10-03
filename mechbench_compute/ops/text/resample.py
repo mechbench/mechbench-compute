@@ -205,7 +205,7 @@ def resample(model, records: Sequence[Mapping[str, Any]], params: Mapping[str, A
         if moved:
             max(moved, key=lambda m: m["shift"])["largest"] = True
         points_out.extend(made)
-    header = {"model": serialize_model(params.get("model")), "where": where, "k": k,
+    header = {"model": serialize_model(params.get("model"), model), "where": where, "k": k,
               "seed": params.get("seed", 0), "temperature": run.temperature, "top_p": run.top_p,
               "max_tokens": max_tokens, "cue": cue, "generations": generations,
               **({"boundaries": list(boundaries)} if where == "sentence" else {})}

@@ -81,11 +81,13 @@ whole model by accident.
 
 
 def run(ctx, inputs, params):
+    from mechbench_compute.protocol.serialize_model import serialize_model
+
     model = ctx.model(params.get("model"))
     ref = params.get("model")
     return decompose_weights(
         model.lm, params,
-        model_wire=ref.to_wire() if hasattr(ref, "to_wire") else ref)
+        model_wire=serialize_model(ref, model))
 
 
 def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,

@@ -39,26 +39,41 @@ def fuse(lm: Any, weights: Mapping[str, Any], scale: float, *, skip_missing: boo
             f"implementation. Pass adapter_skip_missing: true to fuse the "
             f"rest — the skipped modules are then reported on the result.")
     handle: dict[tuple[int, str, str], Any] = {}
-    with torch.no_grad():
-        for (i, container, proj), ab in sorted(pairs.items()):
-            if set(ab) != {"a", "b"}:
-                raise ValueError(
-                    f"adapter is missing lora_a or lora_b for layer {i} {container}.{proj}")
-            if (i, container, proj) in missing:
-                if skipped is not None:
-                    skipped.append(f"{i}.{container}.{proj}")
-                continue
-            mod = getattr(getattr(lm.model.layers[i], container), proj)
-            held = mod.weight.data
-            a, b = (ab["a"].to(held.device), ab["b"].to(held.device))
-            handle[(i, container, proj)] = held
-            mod.weight.data = held + (scale * (b @ a)).to(held.dtype)
+    try:
+        with torch.no_grad():
+            for (i, container, proj), ab in sorted(pairs.items()):
+                if set(ab) != {"a", "b"}:
+                    raise ValueError(
+                        f"adapter is missing lora_a or lora_b for layer {i} {container}.{proj}")
+                if (i, container, proj) in missing:
+                    if skipped is not None:
+                        skipped.append(f"{i}.{container}.{proj}")
+                    continue
+                mod = getattr(getattr(lm.model.layers[i], container), proj)
+                held = mod.weight.data
+                a, b = (ab["a"].to(held.device), ab["b"].to(held.device))
+                handle[(i, container, proj)] = held
+                mod.weight.data = held + (scale * (b @ a)).to(held.dtype)
+    except BaseException:
+        restore(lm, handle)
+        raise
     return handle
 
 
 def restore(lm: Any, handle: Mapping[tuple[int, str, str], Any]) -> None:
     for (i, container, proj), held in handle.items():
         getattr(getattr(lm.model.layers[i], container), proj).weight.data = held
+
+
+def mark_weights(lm: Any) -> dict[str, Any]:
+    return {name: p.data for name, p in lm.named_parameters()}
+
+
+def read_changed(lm: Any, marks: Mapping[str, Any]) -> list[str]:
+    now = dict(lm.named_parameters())
+    return sorted(name for name in now.keys() | marks.keys()
+                  if name not in now or name not in marks
+                  or now[name].data_ptr() != marks[name].data_ptr())
 
 
 @contextlib.contextmanager

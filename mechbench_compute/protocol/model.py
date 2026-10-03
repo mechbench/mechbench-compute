@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from mechbench_compute.model_ref import describe_layers
+from mechbench_compute.protocol.model_cache_stale import ModelCacheStale
+from mechbench_compute.protocol.model_fingerprint import mark_loaded, read_applied
+
 
 class ModelLoading:
     def _model_loaded(self, model_id) -> Any:
@@ -32,11 +36,65 @@ class ModelLoading:
             self._model_id = model_id
         if hasattr(self._model, "attention"):
             self._model.attention = self._attention
+        mark_loaded(self._model, self._model_id)
         return self._model
 
     def evict_model(self) -> None:
         self._model = None
         self._model_id = None
+
+    def _check_cached(self, model, requested, ctx=None) -> None:
+        fingerprint = getattr(model, "fingerprint", None)
+        if fingerprint is None or (ctx is not None and fingerprint.is_held_by(ctx)):
+            return
+        held = [a for a in fingerprint.applied if a.label is not None]
+        loaded = fingerprint.to_wire()
+        if fingerprint.holders:
+            if held and held != read_applied(requested):
+                self._refuse_stale(model, requested, ctx, loaded, (
+                    f"the node it runs inside holds the model as "
+                    f"{describe_model(fingerprint.base, fingerprint.applied)}"))
+        elif fingerprint.applied:
+            self._refuse_stale(model, requested, ctx, loaded, (
+                f"the cached model is {describe_model(fingerprint.base, fingerprint.applied)}, "
+                f"though no running node fused it"))
+        else:
+            changed = fingerprint.read_changed(model)
+            if changed:
+                self._refuse_stale(model, requested, ctx, {**loaded, "changed": changed}, (
+                    f"the cached model is {fingerprint.base} with {len(changed)} "
+                    f"weight{'s' if len(changed) != 1 else ''} changed since it was loaded "
+                    f"({', '.join(changed[:3])}{f', and {len(changed) - 3} more' if len(changed) > 3 else ''})"))
+        if ctx is not None:
+            fingerprint.hold(ctx)
+
+    def _refuse_stale(self, model, requested, ctx, loaded, finding) -> None:
+        asked_applied = read_applied(requested)
+        base = getattr(requested, "base", requested)
+        asked = {"base": base, "adapters": [a.describe() for a in asked_applied]}
+        who = getattr(ctx, "name", None) or "a node"
+        if model is self._model:
+            self.evict_model()
+        raise ModelCacheStale(
+            f"{who} asked for {describe_model(base, asked_applied)}, and {finding}; it does not "
+            f"run on a model other than the one it asked for. The cache is dropped: the next "
+            f"node that asks for the model loads it afresh.",
+            loaded=loaded, asked=asked)
+
+    def _release_models(self, ctx, failed: bool) -> list[dict]:
+        try:
+            fused = self._reference_restored(ctx.fused)
+        except BaseException:
+            failed = True
+            raise
+        finally:
+            for model in ctx.models:
+                fingerprint = getattr(model, "fingerprint", None)
+                if fingerprint is not None:
+                    fingerprint.release(ctx)
+            if failed and ctx.models:
+                self.evict_model()
+        return fused
 
     def _read_hardware(self) -> dict[str, Any]:
         from mechbench_compute.backends import DEFAULT_BACKEND, backend_of
@@ -56,10 +114,14 @@ class ModelLoading:
             return f"{model.repo_id}@{model.revision}"
         return None
 
-    def _run_model_block(self, fn, inputs, params, *args, **kwargs):
+    def _run_model_block(self, fn, inputs, params, ctx=None, *args, **kwargs):
         mval = params.get("model")
         ref = mval if hasattr(mval, "adapter_payloads") else None
         model = self._model_loaded(mval)
+        if ctx is None or not any(m is model for m in ctx.models):
+            self._check_cached(model, mval, ctx)
+            if ctx is not None:
+                ctx.models.append(model)
         skipped: list[str] = []
         fused: list[dict] = []
         with self._adapter_fused(model, inputs, params, ref=ref, skipped=skipped, fused=fused):
@@ -82,42 +144,54 @@ class ModelLoading:
 
         @contextlib.contextmanager
         def _cm():
-            payloads = list(ref.adapter_payloads) if ref is not None else []
-            layers = list(ref.adapter_layers[:len(payloads)]) if ref is not None else []
             node_level = read_one_adapter(inputs.get("adapter"))
             if is_operator(node_level):
                 raise ValueError(
                     "an operator attaches through the model reference: list it among the "
                     "reference's adapters. The `adapter` port takes a LoRA.")
-            if node_level:
-                payloads.append(node_level)
-                layers.append(None)
-            if not payloads:
-                yield None
-                return
+            carried = ref is not None and bool(ref.adapter_payloads)
+            held = carried and getattr(model, "fused_reference", None) == ref
+            own = ref if carried and not held else None
+            payloads = list(own.adapter_payloads) if own is not None else []
+            layers = list(own.adapter_layers[:len(payloads)]) if own is not None else []
             override = (
                 float(params["adapter_scale"])
                 if node_level and "adapter_scale" in params
                 else None
             )
+            applied = read_applied(own, node_level, override)
+            fingerprint = getattr(model, "fingerprint", None)
+            if node_level:
+                payloads.append(node_level)
+                layers.append(None)
+            if not payloads:
+                if fused is not None and held:
+                    fused.extend(fingerprint.read_fused() if fingerprint is not None
+                                 else read_fused(ref, None, None))
+                yield None
+                return
             lora = load_lora_of(model)
             handles = lora.fuse_adapter_stack(
                 model.lm, payloads, override,
                 skip_missing=bool(params.get("adapter_skip_missing", False)),
                 skipped=skipped, keys=model.architecture.adapter_keys, layers=layers)
+            prior = (getattr(model, "node_adapter", None), getattr(model, "fused_reference", None))
             if node_level:
                 model.node_adapter = handles[-1]
-            if ref is not None and ref.adapter_payloads:
+            if carried:
                 model.fused_reference = ref
+            if fingerprint is not None:
+                fingerprint.push(applied)
             if fused is not None:
-                fused.extend(read_fused(ref if ref is not None and ref.adapter_payloads else None,
-                                        node_level, override))
+                fused.extend(fingerprint.read_fused() if fingerprint is not None
+                             else read_fused(ref if carried else None, node_level, override))
             try:
                 yield handles
             finally:
-                model.node_adapter = None
-                model.fused_reference = None
+                model.node_adapter, model.fused_reference = prior
                 lora.restore_adapter_stack(model.lm, handles)
+                if fingerprint is not None:
+                    fingerprint.drop(applied)
         return _cm()
 
     def _reference_fused(self, model, ref, undo, name=None) -> None:
@@ -139,18 +213,24 @@ class ModelLoading:
                 f"{who}: the model already carries the adapters of {held.describe()}, "
                 f"and the operation asked for {ref.describe()}; one node runs one "
                 "adapted model")
+        applied = read_applied(ref)
         handles = load_lora_of(model).fuse_adapter_stack(
             model.lm, list(ref.adapter_payloads), keys=model.architecture.adapter_keys,
             layers=ref.adapter_layers)
         model.fused_reference = ref
-        undo.append((model, ref, handles))
+        fingerprint = getattr(model, "fingerprint", None)
+        if fingerprint is not None:
+            fingerprint.push(applied)
+        undo.append((model, handles, applied))
 
     def _reference_restored(self, undo) -> list[dict]:
         fused: list[dict] = []
-        for model, ref, handles in reversed(undo):
-            fused[:0] = read_fused(ref, None, None)
-            if model is self._model:
-                load_lora_of(model).restore_adapter_stack(model.lm, handles)
+        for model, handles, applied in reversed(undo):
+            fused[:0] = [a.to_wire() for a in applied]
+            load_lora_of(model).restore_adapter_stack(model.lm, handles)
+            fingerprint = getattr(model, "fingerprint", None)
+            if fingerprint is not None:
+                fingerprint.drop(applied)
             model.fused_reference = None
         undo.clear()
         return fused
@@ -190,6 +270,19 @@ class ModelLoading:
         (target / ".label").write_text(label)
         memo[label] = target
         return target
+
+
+def describe_model(base, applied) -> str:
+    named = [describe_applied(a) for a in applied]
+    return f"{base} with {', '.join(named)} fused" if named else str(base)
+
+
+def describe_applied(applied) -> str:
+    if applied.label is None:
+        return "an `adapter` port's adapter"
+    if applied.layers is None:
+        return applied.label
+    return f"{applied.label} in {describe_layers(applied.layers)}"
 
 
 def load_lora_of(model) -> Any:

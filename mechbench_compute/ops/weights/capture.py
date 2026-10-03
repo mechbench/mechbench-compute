@@ -6,8 +6,8 @@ from typing import Any
 import numpy as np
 
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
-from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
 from mechbench_compute.weights.compute_effective_rank import compute_effective_rank
+from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
 from mechbench_compute.weights.read_parameters import read_parameters
 from mechbench_compute.weights.select_points import select_points
 
@@ -77,11 +77,13 @@ the adapter's own deltas and needs no model at all.
 
 
 def run(ctx, inputs, params):
+    from mechbench_compute.protocol.serialize_model import serialize_model
+
     model = ctx.model(params.get("model"))
     ref = params.get("model")
     return capture_weights(
         model.lm, params,
-        model_wire=ref.to_wire() if hasattr(ref, "to_wire") else ref)
+        model_wire=serialize_model(ref, model))
 
 
 MAX_VALUES = 2_000_000

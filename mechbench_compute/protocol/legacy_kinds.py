@@ -22,6 +22,7 @@ class LegacyKinds:
         self, prompt: str, model_id: str
     ) -> LayerAblationPayload:
         model = self._model_loaded(model_id)
+        self._check_cached(model, model_id)
 
         ids = model.tokenize(prompt)
         baseline = model.run(ids)

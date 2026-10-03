@@ -78,11 +78,15 @@ def tiny(request):
     return build_tiny_model(request.param)
 
 
+def hold(model):
+    ex = ProtocolExecutor()
+    ex._model, ex._model_id = model, "tiny"
+    return ex
+
+
 @pytest.fixture
 def executor(tiny):
-    ex = ProtocolExecutor()
-    ex._model, ex._model_id = tiny, "tiny"
-    return ex
+    return hold(tiny)
 
 
 @pytest.fixture
@@ -145,7 +149,8 @@ class TestALayerTheModelLacks:
         with pytest.raises(ValueError, match=rf"^LAYER_OUT_OF_RANGE: an adapter's `layers` names {n}, "
                                              rf"{n + 2}, and this model's layers are 0 through {n - 1}$"):
             read(executor, stack)
-        assert read(executor, "tiny") == bare
+        assert executor._model is None
+        assert read(hold(tiny), "tiny") == bare
         assert tiny.fused_reference is None
 
     def test_refuses_on_a_node_with_the_port_too(self, executor, tiny, payload, tmp_path):
@@ -153,7 +158,8 @@ class TestALayerTheModelLacks:
         bare = read(executor, "tiny")
         with pytest.raises(ValueError, match="^LAYER_OUT_OF_RANGE: "):
             read(executor, adapted(payload, [n]), port=build_payload(tiny, tmp_path, "extra"))
-        assert read(executor, "tiny") == bare
+        assert executor._model is None
+        assert read(hold(tiny), "tiny") == bare
         assert tiny.node_adapter is None
 
 

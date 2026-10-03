@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import ast
 import inspect
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, Mapping
-
+from typing import Any
 
 MODEL_NEEDS = frozenset({"model.forward", "model.sample", "model.backward"})
 
@@ -110,6 +110,9 @@ class Context:
         else:
             host = self.find_host("model", "needs a model and none is loaded")
             model = host._model_loaded(ref)
+            if not any(m is model for m in self.models):
+                host._check_cached(model, ref, self)
+                self.models.append(model)
             host._reference_fused(model, ref, self.fused, self.name)
         if not any(m is model for m in self.models):
             self.models.append(model)

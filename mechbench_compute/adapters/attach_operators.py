@@ -29,13 +29,17 @@ def _wrap_class(cls: type) -> type:
 def attach_operators(lm, modules: Mapping[int, Any]) -> OperatorHandle:
     layers = lm.model.layers
     done: list[tuple[int, Any]] = []
-    for i, module in sorted(modules.items()):
-        layer = layers[i]
-        if SLOT not in layer:
-            layer[SLOT] = []
-            layer.__class__ = _wrap_class(type(layer))
-        layer[SLOT].append(module)
-        done.append((i, module))
+    try:
+        for i, module in sorted(modules.items()):
+            layer = layers[i]
+            if SLOT not in layer:
+                layer[SLOT] = []
+                layer.__class__ = _wrap_class(type(layer))
+            layer[SLOT].append(module)
+            done.append((i, module))
+    except BaseException:
+        detach_operators(lm, OperatorHandle(tuple(done)))
+        raise
     return OperatorHandle(tuple(done))
 
 

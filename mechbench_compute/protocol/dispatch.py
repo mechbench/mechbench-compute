@@ -53,7 +53,7 @@ class Dispatch:
         resolved = ops.resolve_op(block)
         ctx = ops.Context.for_op(resolved.op, self, **lent)
 
-        def run(i, p):
+        def run(i, p, *_, **__):
             with REGISTRY.within(ctx.scope):
                 return resolved.module.run(ctx, i, p)
 
@@ -61,12 +61,14 @@ class Dispatch:
             if ops.fuses_adapter(resolved) or (ops.fuses_adapter_locally(resolved)
                                                and not is_remote(resolved, params)):
                 result = self._run_model_block(
-                    lambda i, p, on_item=None, on_start=None: run(i, p),
-                    inputs, params, on_item=lent.get("on_item"), on_start=lent.get("on_start"))
+                    run, inputs, params, ctx,
+                    on_item=lent.get("on_item"), on_start=lent.get("on_start"))
             else:
                 result = run(inputs, params)
-        finally:
-            fused = self._reference_restored(ctx.fused)
+        except BaseException:
+            self._release_models(ctx, failed=True)
+            raise
+        fused = self._release_models(ctx, failed=False)
         if fused and isinstance(result, dict):
             result.setdefault("fused", fused)
         if isinstance(result, dict):

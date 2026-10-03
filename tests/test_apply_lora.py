@@ -52,6 +52,21 @@ class TestConditionalProjections:
         with pytest.raises(ValueError, match="v_proj"):
             lora.apply_lora(lm, rank=2, alpha=4)
 
+    def test_a_refusal_takes_back_the_projections_it_wrapped(self):
+        lm = FakeLM([False, False])
+        bases = [layer.self_attn.q_proj for layer in lm.model.layers]
+        with pytest.raises(ValueError, match="v_proj"):
+            lora.apply_lora(lm, rank=2, alpha=4)
+        assert all(layer.self_attn.q_proj is base for layer, base in zip(lm.model.layers, bases))
+
+    def test_remove_lora_takes_back_every_wrapped_projection(self):
+        lm = FakeLM([True, False, True])
+        before = lora.mark_weights(lm)
+        lora.apply_lora(lm, rank=2, alpha=4, seed=7)
+        assert lora.read_changed(lm, before) != []
+        assert lora.remove_lora(lm) == 5
+        assert lora.read_changed(lm, before) == []
+
     def test_unknown_target_still_names_the_known_set(self):
         lm = FakeLM([True])
         with pytest.raises(ValueError, match="known"):

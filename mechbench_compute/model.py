@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 import mlx.core as mx
 import numpy as np
@@ -22,7 +23,7 @@ def _peek_config(model_id: str) -> dict:
         if isinstance(path, tuple):
             path = path[0]
         return dict(load_config(path))
-    except Exception:
+    except Exception:  # noqa: BLE001
         return {}
 
 
@@ -39,6 +40,7 @@ class Model:
         self.requested_ref: str | None = None
         self.node_adapter: dict | None = None
         self.fused_reference: Any = None
+        self.fingerprint: Any = None
 
     @classmethod
     def load(cls, model_id: str, *,

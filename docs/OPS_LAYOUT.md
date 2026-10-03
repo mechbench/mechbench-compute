@@ -126,13 +126,13 @@ resume state, paths, run params — is lent to every operation.
 
 | | |
 |---|---|
-| `ctx.model(ref)` | the model for a `model` param: `ctx.loaded` when one is lent, otherwise the executor loads it |
+| `ctx.model(ref)` | the model for a `model` param: `ctx.loaded` when one is lent, otherwise the executor's cached model, checked against what the node asked for (below), or loaded |
 | `ctx.loaded` | a model already in hand, which `ctx.model` returns whatever the ref |
 | `ctx.sub(target, inputs, params, *, budget, on_item, on_start)` | run one operation (`target` is its name) or a graph (`target` is a mapping in the protocol form) as a child run that shares the resident model and the rate limiter; `budget` is a cap in USD under the run's own budget. A graph answers with its outputs by node |
 | `ctx.provider(model_ref)` | a `ProviderClient` for a provider's endpoint, carrying the rate limiter, the run's budget and `ctx.secrets`: `chat(records, params, …)`, `embed(…)` |
 | `ctx.memo(key)` | the memo of remote calls a `cache` param names (`None` for none): its `tape`, and `close(out)` to store it and note the hits on `out` |
 | `ctx.materialize(label)` | a stored checkpoint, as a local directory |
-| `ctx.evict_model()` | drop the resident model, for an operation that changed its weights in place |
+| `ctx.evict_model()` | drop the resident model, for an operation that changed its weights in place, on every exit, a failed one included |
 | `ctx.on_start`, `ctx.on_item` | progress: one call when the count is known, one per item |
 | `ctx.on_token` | streaming: one call per generated token (`text/generate`, `text/chat`) |
 | `ctx.on_checkpoint` | for an operation that checkpoints (`adapter/train`) |
@@ -228,7 +228,7 @@ under `mechbench_compute/protocol/` named for its topic:
 ```
 pipeline.py       walking the graph, and nothing else
 dispatch.py       what answers for a node, and the one hop to it
-model.py          loading weights, fusing adapters
+model.py          loading weights, fusing adapters, checking the cached model
 remote.py         the nodes a provider answers, run in a wave
 memo.py           a node's memo of the remote calls it made
 sub.py            a child run that shares the resident model
@@ -249,6 +249,28 @@ values), `Progress` (what a watcher is told), and `sort_nodes`,
 `check_failures`, `build_manifest`. The loop passes the state to each,
 so the walk reads as what it is: order the nodes, and for each one
 resolve, dispatch, record.
+
+### The cached model
+
+The executor keeps one model between nodes, and a runner keeps it between
+jobs. The model carries a fingerprint (`protocol/model_fingerprint.py`):
+the base it was loaded as, the adapters fused into it by the nodes
+running on it, each with the sha256 of its weights, its `layers` and a
+port adapter's scale, the nodes holding it, and its parameters as they
+were loaded. A node's first hold of the model, through `ctx.model` or
+the fuse around an operation with an `adapter` port, checks it against
+what the node asked for: when no other node holds it, nothing may be
+fused and no parameter may differ from the load; inside a node that
+holds it, as a sub-run is, the reference's adapters fused there must be
+the ones this node names, and are not fused again. Anything else is
+refused with `ModelCacheStale` (`MODEL_CACHE_STALE`, carrying `loaded`
+and `asked`), and the cache is dropped. Every path that changes weights
+in place undoes what it did on every exit, a failed one included: a
+fuse, an operator's attach, a weight edit, `adapter/train`'s LoRA, which
+it also drops with `ctx.evict_model()`. A node that fails while holding
+the model drops it too. A result's `fused`, and the `adapters` of the
+model it names (`serialize_model(value, loaded)`), are read from the
+fingerprint.
 
 ## The registry, and where an operation comes from
 

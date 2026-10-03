@@ -17,7 +17,9 @@ from mechbench_compute.distill import render
 from mechbench_compute.errors import InvalidHookName
 from mechbench_compute.interp.point_refused import PointRefused
 from mechbench_compute.interventions import Ablate
+from mechbench_compute.ops import Context
 from mechbench_compute.ops.activations.capture import capture_residual_vectors
+from mechbench_compute.ops.adapter import train as train_op
 from mechbench_compute.points import LAYOUT
 from mechbench_compute.tools import build_toolbox
 from tests.kit_backends import KIT_MODULES, WINDOW, list_kit_params, load_kit
@@ -478,13 +480,34 @@ def test_capture_s_top_names_a_vector_s_largest_coordinates_and_their_share(tiny
         assert it["rms_without_top"] < it["norm"] / np.sqrt(v.size) < it["norm"]
 
 
-def test_a_double_run_is_bit_identical(tiny):
+def train_once(model, *, dies: bool) -> None:
+    def die(state):
+        raise RuntimeError(f"the training died at step {state['step']}")
+
+    ctx = Context(loaded=model, on_checkpoint=die if dies else None)
+    params = {"model": "tiny", "objective": "sft", "steps": 4, "lr": 0.05, "seed": 3,
+              "lora": {"rank": 2, "alpha": 4}, "batch": {"record": 1}, "checkpoint_every": 2}
+    try:
+        train_op.run(ctx, {"records": [{"id": "d", "text": "the cat sat on a mat and the dog ran"}]},
+                     params)
+    except RuntimeError as e:
+        assert dies and "died at step 2" in str(e)
+    else:
+        assert not dies
+
+
+def test_a_double_run_is_bit_identical_and_so_is_a_run_after_a_training(tiny):
     names = list_declared_names(tiny)
     first = tiny.run(tiny.make_ids(IDS), capture=names)
-    second = tiny.run(tiny.make_ids(IDS), capture=names)
-    assert np.array_equal(read_f64(first.logits), read_f64(second.logits))
-    for name in names:
-        assert np.array_equal(read_f64(first.cache[name]), read_f64(second.cache[name])), name
+    runs = [tiny.run(tiny.make_ids(IDS), capture=names)]
+    if tiny.architecture.train:
+        for dies in (False, True):
+            train_once(tiny, dies=dies)
+            runs.append(tiny.run(tiny.make_ids(IDS), capture=names))
+    for again in runs:
+        assert np.array_equal(read_f64(first.logits), read_f64(again.logits))
+        for name in names:
+            assert np.array_equal(read_f64(first.cache[name]), read_f64(again.cache[name])), name
 
 
 def test_tokenize_round_trips_through_the_tokenizer(tiny):

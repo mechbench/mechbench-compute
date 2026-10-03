@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from mechbench_compute.chat.build_item import build_item
 from mechbench_compute.chat.build_request import build_request
+from mechbench_compute.chat.constants import ITEM_KIND, LOCAL
 from mechbench_compute.chat.count_by_cause import count_by_cause
 from mechbench_compute.chat.count_endings import count_endings
-from mechbench_compute.chat.constants import ITEM_KIND, LOCAL
-from mechbench_compute.chat.build_item import build_item
 from mechbench_compute.chat.describe_reasoning_only import describe_reasoning_only
 from mechbench_compute.chat.open_toolbox import open_toolbox
 from mechbench_compute.chat.read_local_ending import read_local_ending
@@ -27,6 +27,7 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     from mechbench_compute import tools as tool_mod
     from mechbench_compute.distill import encode, prefill_decision
     from mechbench_compute.generate import sample_completion_cached
+    from mechbench_compute.protocol.serialize_model import serialize_model
     from mechbench_compute.seeds import item_seed
     from mechbench_compute.token_readout import TokenReadout, streaming
 
@@ -49,7 +50,7 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
     top_p = float(params.get("top_p") or 0.95)
     max_tokens = int(params.get("max_tokens", 1024))
     stop_strings = tuple(params.get("stop") or ())
-    model_wire = ref.to_wire() if hasattr(ref, "to_wire") else ref
+    model_wire = serialize_model(ref, model)
     plan = intervene_mod.plan(model, params, inputs)
     if plan:
         plan.refuse_steps_past(max_tokens)

@@ -21,15 +21,15 @@ def train_operator(ctx, model, operator: Any, groups, batch, *, trained_on, meth
     spec = read_operator_spec(operator, n_layers=len(lm.model.layers), d=d)
     steps, seed = int(methods["steps"]), int(methods["seed"])
     modules = build_operator_modules(spec, d, seed=seed)
+    l1 = (spec.get("penalty") or {}).get("l1")
     lm.freeze()
     handle = attach_operators(lm, modules)
-    l1 = (spec.get("penalty") or {}).get("l1")
-    if ctx.on_start:
-        ctx.on_start(steps)
-    resumed_from = int(ctx.resume_state["step"]) if ctx.resume_state else 0
-    for _ in range(resumed_from if ctx.on_item else 0):
-        ctx.on_item(None, None, True)
     try:
+        if ctx.on_start:
+            ctx.on_start(steps)
+        resumed_from = int(ctx.resume_state["step"]) if ctx.resume_state else 0
+        for _ in range(resumed_from if ctx.on_item else 0):
+            ctx.on_item(None, None, True)
         final_loss = train_soft_ce(
             lm, groups, batch, steps=steps, lr=float(methods["lr"]), seed=seed,
             on_step=(lambda step, loss: ctx.on_item()) if ctx.on_item else None,
