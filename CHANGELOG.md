@@ -63,6 +63,41 @@ _None._
   interior it does not declare refuses a hook by name; and a point a
   checkpoint lacks is refused by name and is no term of its residual
   law.
+- `adapter/train` takes `objective: "sft"`: the same LoRA, trained by
+  one loss, next-token cross-entropy on the records themselves. A record
+  with `messages` (`[{role, content}]`, its `system` joined to the first
+  user message as a local chat sends it) is a conversation, trained on
+  its assistant turns only, as the model's chat template segments them:
+  what the template adds after its generation prompt to render the turn,
+  which on the four architectures is the reply and its end marker
+  (`<end_of_turn>`, `<turn|>`, `<|eot_id|>`, `<|im_end|>`), with the
+  newline Gemma's and Qwen's templates write after it. Any other record's
+  `text` is a document, tokenized as written with nothing added (no BOS),
+  as a read renders it, every token after the first trained. `max_tokens`
+  (512) caps a record and `truncation` cuts it there (`cut`, counted in
+  `train.truncated`) or refuses it (`fail`); `batch: {"record": n}`
+  draws n records a step (4); the naturalism gate refuses an assistant
+  turn that does not begin and end on a token boundary of its
+  conversation. Seeds, checkpoints and `keep_checkpoints` are the
+  decision objective's, and the result is an `adapter/lora` whose
+  `train` records `objective`, `n_documents`, `n_conversations`,
+  `n_tokens`, `max_tokens`, `truncation`, `truncated` and `naturalism`. A
+  record it cannot train on is refused with a `RecordRefused` (a
+  `ValueError` carrying `code`, `record` and an `issue`) whose code says
+  why: `NO_TEXT`, `UNREADABLE_MESSAGE` (a transcript's participant-shaped
+  message, which `text/render` turns into a conversation, a `system` or
+  tool role, a part that is not text), `NO_ASSISTANT_TURN`,
+  `TEMPLATE_REFUSED`, `TEMPLATE_UNSEGMENTED`, `NATURALISM_VIOLATION`,
+  `TOO_LONG` or `NOTHING_TO_TRAIN`. The decision objective's `target`,
+  `closer`, `positions`, `marginal`, `operator` and `anchors` are refused
+  with `sft`, and `max_tokens` and `truncation` without it. `target` is no
+  longer required by the declaration, since `sft` has none; the decision
+  objective still refuses a node without one. The decision objective's
+  and the operator's results are byte for byte what they were, and
+  naming `objective: "decision"` changes nothing. The LoRA training both
+  objectives share moved out of the operation's file into
+  `adapters/train_lora.py`, and `finetune.train_soft_ce` takes the loss it
+  trains under (`loss_fn`, `soft_ce` by default).
 
 ---
 

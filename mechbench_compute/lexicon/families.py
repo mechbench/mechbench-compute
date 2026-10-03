@@ -196,14 +196,15 @@ trajectory is a collection of coordinates.
     ),
     Family(
         "adapter",
-        "Low-rank adapters: trained against a target distribution at a decision point, merged into a checkpoint, published.",
+        "Low-rank adapters: trained against a target distribution at a decision point or on documents and conversations, merged into a checkpoint, published.",
         """\
 `train` fits a LoRA adapter that moves what the model says at a decision
-point toward a target distribution over outcomes, and produces it as an
-object whose lineage is the training's methods section. `merge` collapses
-a model's adapter stack into one standalone checkpoint; `publish` puts an
-adapter on the Hugging Face hub with a model card that carries its bench
-provenance.
+point toward a target distribution over outcomes, or, with `objective:
+"sft"`, that learns the next token of documents and of conversations'
+assistant turns, and produces it as an object whose lineage is the
+training's methods section. `merge` collapses a model's adapter stack
+into one standalone checkpoint; `publish` puts an adapter on the Hugging
+Face hub with a model card that carries its bench provenance.
 
 An adapter reaches a model-running node on that node's `adapter` port,
 fused for that node only on top of whatever adapters the model reference

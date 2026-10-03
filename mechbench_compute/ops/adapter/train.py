@@ -17,15 +17,17 @@ OP = Op(
     resume=Resume("state-restorable", items=True),
     summary=(
         "Train a LoRA adapter that shapes what the model says at a decision "
-        "point toward a target distribution over outcomes — and emit the "
-        "adapter as an object whose lineage is the training's methods "
-        "section."
+        "point toward a target distribution over outcomes, or, with "
+        "`objective: \"sft\"`, on the next token of documents and "
+        "conversations — and emit the adapter as an object whose lineage is "
+        "the training's methods section."
     ),
     description="""\
-Training data are chat-shaped prompt records; at the point where the
-assistant's turn begins (after any `prefill`), the model is trained toward
-a **target distribution** over outcome strings rather than toward one
-answer — soft-target cross-entropy. `target` describes that distribution:
+Under the default `objective`, `decision`, training data are chat-shaped
+prompt records; at the point where the assistant's turn begins (after any
+`prefill`), the model is trained toward a **target distribution** over
+outcome strings rather than toward one answer — soft-target
+cross-entropy. `target` describes that distribution:
 `{"uniform": [outcomes]}`, or `{"weights": {outcome: weight}}` (raw corpus
 frequencies, say), optionally reshaped by a `transform` chain — `sqrt`,
 `pow`, `temper`, `temper_to_entropy`, `mix_uniform`, `top_k`, `normalize` —
@@ -86,6 +88,33 @@ sampling order, so two runs of the same node on the same machine produce
 a byte-identical adapter. Change the seed to see the spread a different
 draw gives.
 
+### Training on documents and conversations
+
+With `objective: "sft"` the same LoRA learns the next token of the
+records themselves: one loss, cross-entropy on every trained token,
+averaged over the tokens of the `batch.record` records drawn each step.
+A record with `messages` (`[{role, content}]`, `role` `user` or
+`assistant`, text content) is a conversation: its `system` joins the
+first user message as a local chat sends it, and only its assistant
+turns are trained, as the model's chat template segments them — what
+the template adds after its generation prompt to render the turn: the
+reply, its end marker and anything the template writes after that. A
+transcript is trained from one participant's side once `text/render`
+has written it as a conversation. A record without `messages` is a
+document: its `text`, tokenized as written with nothing added (no BOS),
+as a read renders it, every token after the first trained. `max_tokens`
+caps a record; `truncation: "cut"` trains its first `max_tokens` tokens
+and `"fail"` refuses it. The naturalism gate refuses an assistant turn
+that does not begin and end on a token boundary of its whole
+conversation. `train` records the objective, these settings and the
+counts; seeds and checkpoints are as above. A record that is neither, or
+leaves nothing to train, is refused with a code saying why (`NO_TEXT`,
+`UNREADABLE_MESSAGE`, `NO_ASSISTANT_TURN`, `TEMPLATE_REFUSED`,
+`TEMPLATE_UNSEGMENTED`, `NATURALISM_VIOLATION`, `TOO_LONG`,
+`NOTHING_TO_TRAIN`). The decision objective's `target`, `closer`,
+`positions`, `marginal`, `operator` and `anchors` are refused with
+`sft`, as `max_tokens` and `truncation` are without it.
+
 ### Training an operator instead
 
 With `operator` the node trains a function of what a mask selects on the
@@ -119,13 +148,15 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
 """,
     inputs=(
         In("records", "records/record",
-           "The training prompts: chat-shaped records with `user`, and "
-           "optionally `system` and `prefill`.", many=True),
+           "The training records. For the decision objective, chat-shaped "
+           "prompts with `user`, and optionally `system` and `prefill`; for "
+           "`sft`, conversations (`messages`, and optionally `system`) and "
+           "documents (`text`).", many=True),
         In("anchors", "records/record",
            "Prompt records with a known `answer`, mixed into each batch.",
            many=True, required=False),
     ),
-    output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts). Wire it into a later node's `adapter` port, or `adapter/publish`. With `operator`, an `adapter/operator` instead: `parameters` by layer, `operator` (the form, `d`, `params`, `effective`), `base_model`, `trained_on` and `train`; a model reference carries it.",
+    output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts; under `sft`, `objective`, `n_documents`, `n_conversations`, `n_tokens` (the tokens trained), `max_tokens`, `truncation`, `truncated` (the records cut) and `naturalism` in place of the target's). Wire it into a later node's `adapter` port, or `adapter/publish`. With `operator`, an `adapter/operator` instead: `parameters` by layer, `operator` (the form, `d`, `params`, `effective`), `base_model`, `trained_on` and `train`; a model reference carries it.",
                   otherwise=tuple(Otherwise("adapter/operator", param="operator.function", equals=f)
                                   for f in ("affine", "polynomial", "mlp"))),
     outputs={"checkpoints": Output(
@@ -137,10 +168,16 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
             "has them, and `checkpoint_every`. Read it with `{\"node\": …, \"output\": \"checkpoints\"}`; "
             "without `keep_checkpoints` there is none, and an edge from it fails.")},
     params=(
+        P("objective", "string",
+          "What the adapter is trained toward: `decision`, a target distribution "
+          "at the decision point, or `sft`, the next token of each document and "
+          "of each conversation's assistant turns.",
+          "decision", choices=("decision", "sft")),
         P("target", "object",
-          "The target distribution — `{\"uniform\": [...]}` or "
-          "`{\"weights\": {...}}`, with optional `transform` steps, "
-          "`depth`, `join`, `per_slot`. See above.", fields=(
+          "For the decision objective, which needs one: the target "
+          "distribution — `{\"uniform\": [...]}` or `{\"weights\": {...}}`, "
+          "with optional `transform` steps, `depth`, `join`, `per_slot`. See "
+          "above.", None, fields=(
               P("uniform", "list[string]",
                 "The outcomes, weighted equally. Wins over `weights` when both "
                 "are given.",
@@ -267,8 +304,9 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
           "Items per step by kind: depth 1 `{\"target\": 3, \"anchor\": 1, "
           "\"continuation\": 2}`, or `{\"path\": 3, \"anchor\": 1}` for the "
           "whole trie; token slots `{\"sequence\": 3, \"target\": 1, "
-          "\"anchor\": 1}`; item slots `{\"path\": 3, \"anchor\": 1}`. A kind "
-          "the target's shape does not build is refused.",
+          "\"anchor\": 1}`; item slots `{\"path\": 3, \"anchor\": 1}`; `sft` "
+          "`{\"record\": 4}`. A kind the target's shape does not build is "
+          "refused.",
           None, fields=(
               P("target", "int", "Target items per step: at depth > 1, the first slot's marginal rows.", None),
               P("anchor", "int", "Anchor items per step.", None),
@@ -277,6 +315,7 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
               P("path", "int",
                 "Outcomes (or, with item slots, whole lists) drawn per step and trained "
                 "as soft rows at every token.", None),
+              P("record", "int", "Records drawn per step (`sft`), each at most once.", None),
           )),
         P("closer", "string",
           "The text after the outcome that closes the decision — `\" }\"` "
@@ -294,10 +333,21 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
           True),
         P("naturalism", "bool | object",
           "Run the one-token-per-slot gate before training; `{\"samples\": "
-          "40}` sets how many sequences it checks.",
+          "40}` sets how many sequences it checks. Under `sft`, the gate "
+          "refuses an assistant turn that does not begin and end on a token "
+          "boundary of its conversation; off, its boundary is taken at the "
+          "token count of the text before it.",
           True, fields=(
               P("samples", "int", "How many sampled sequences the gate checks.", 40),
           )),
+        P("max_tokens", "int",
+          "For `sft`: the longest record trained, in tokens.",
+          512),
+        P("truncation", "string",
+          "For `sft`: what a record longer than `max_tokens` does — `cut` "
+          "trains its first `max_tokens` tokens and counts it in "
+          "`train.truncated`; `fail` refuses it.",
+          "cut", choices=("cut", "fail")),
         P("checkpoint_every", "int",
           "Save resumable training state every this many steps; with "
           "`keep_checkpoints`, also the cadence the adapters are kept at.",
@@ -321,6 +371,7 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
 
 
 def run(ctx, inputs, params):
+    from mechbench_compute.adapters.train_lora import train_lora
     from mechbench_compute.distill import encode, render
     from mechbench_compute.finetune import (
         batch_for,
@@ -334,23 +385,42 @@ def run(ctx, inputs, params):
         compile_tries,
         naturalism_gate,
         resolve_slot_targets,
-        train_soft_ce,
-    )
-    from mechbench_compute.lora import (
-        apply_lora,
-        read_adapter_bytes,
     )
 
+    objective = check_objective(params, inputs)
     model = ctx.model(params.get("model"))
     tok = model.tokenizer
 
     records = lexicon.items_of(inputs.get("records") or [])
+    steps = int(params.get("steps", 250))
+    lr = float(params.get("lr", 1e-4))
+    seed = int(params.get("seed", 7))
+    base_ref = params.get("model")
+    trained_on = (
+        {"base": base_ref.base,
+         "adapters": [label if layers is None else {"bench": label, "layers": list(layers)}
+                      for label, layers in zip(base_ref.adapter_labels, base_ref.adapter_layers)]}
+        if hasattr(base_ref, "adapter_labels")
+        else {"base": base_ref, "adapters": []}
+    )
+    if objective == "sft":
+        from mechbench_compute.adapters.compute_sft_loss import compute_sft_loss
+        from mechbench_compute.adapters.read_sft_items import read_sft_items
+
+        batch = read_sft_batch(params)
+        items, settings = read_sft_items(tok, records, params)
+        methods = {"objective": "sft", "steps": steps, "lr": lr, "seed": seed, "batch": batch,
+                   **settings}
+        return train_lora(ctx, model, params, {"record": items}, batch, methods,
+                          trained_on=trained_on, loss_fn=compute_sft_loss)
+
     def rendered_of(rec):
         return render(model, rec).text
 
     target_spec = params.get("target")
     if not target_spec:
-        raise ValueError("finetune/lora: params.target is required")
+        raise ValueError("adapter/train: the decision objective trains toward `target`; give one, "
+                         "or `objective: \"sft\"` trains on the records' own tokens")
     depth = int(target_spec.get("depth", 1))
     join = str(target_spec.get("join", ""))
     unit = str(target_spec.get("unit", "token"))
@@ -418,23 +488,6 @@ def run(ctx, inputs, params):
     anchors = build_anchor_items(
         tok, [(rendered_of(r), r["answer"]) for r in anchor_records])
 
-    lora_cfg = params.get("lora") or {}
-    rank = int(lora_cfg.get("rank", 8))
-    alpha = float(lora_cfg.get("alpha", 16))
-    target_modules = tuple(lora_cfg.get("target_modules")
-                           or ("q_proj", "v_proj"))
-    steps = int(params.get("steps", 250))
-    lr = float(params.get("lr", 1e-4))
-    seed = int(params.get("seed", 7))
-
-    base_ref = params.get("model")
-    trained_on = (
-        {"base": base_ref.base,
-         "adapters": [label if layers is None else {"bench": label, "layers": list(layers)}
-                      for label, layers in zip(base_ref.adapter_labels, base_ref.adapter_layers)]}
-        if hasattr(base_ref, "adapter_labels")
-        else {"base": base_ref, "adapters": []}
-    )
     methods = {"steps": steps, "lr": lr, "seed": seed, "batch": batch,
                "n_prompts": len(records), "n_anchors": len(anchor_records),
                "closer": closer, "target": target_spec, "depth": depth,
@@ -449,68 +502,9 @@ def run(ctx, inputs, params):
             trained_on=trained_on, methods=methods,
             checkpoint_every=int(params.get("checkpoint_every", 50)))}
 
-    n_lora = apply_lora(model.lm, rank, alpha, targets=target_modules,
-                        seed=seed, keys=model.architecture.adapter_keys)
-    lora = {"rank": rank, "alpha": alpha, "scale": alpha / rank,
-            "target_modules": list(target_modules), "params": n_lora}
-    lineage = {"kind": "adapter/lora", "format": "safetensors",
-               "base_model": trained_on["base"], "trained_on": trained_on,
-               "lora": lora}
-
-    checkpoint_every = int(params.get("checkpoint_every", 50))
-    kept_steps = read_kept_steps(params, steps, checkpoint_every)
-    if kept_steps:
-        check_kept_size(len(read_adapter_bytes(model.lm)), len(kept_steps))
-
-    def keep(step, loss, data):
-        return {"id": f"step-{step}", "coords": {"step": step}, **lineage,
-                "train": methods, "loss": float(loss), "data": data}
-
-    if ctx.on_start:
-        ctx.on_start(steps)
-    resumed_from = int(ctx.resume_state["step"]) if ctx.resume_state else 0
-    kept = restore_kept(kept_steps, resumed_from, ctx.resume_items)
-    if resumed_from and ctx.on_item:
-        for step in range(1, resumed_from + 1):
-            if step in kept:
-                ctx.on_item(kept[step]["id"], kept[step], True)
-            else:
-                ctx.on_item(None, None, True)
-
-    def on_step(step, loss):
-        if step in kept_steps and step < steps:
-            kept[step] = keep(step, loss, read_adapter_bytes(model.lm))
-            if ctx.on_item:
-                ctx.on_item(kept[step]["id"], kept[step], False)
-        elif ctx.on_item:
-            ctx.on_item()
-
-    final_loss = train_soft_ce(
-        model.lm,
-        {"target": marginals, "anchor": anchors,
-         "continuation": continuations},
-        batch, steps=steps, lr=lr, seed=seed,
-        factories=factories,
-        on_step=on_step if (ctx.on_item or kept_steps) else None,
-        checkpoint_every=checkpoint_every if ctx.on_checkpoint else 0,
-        on_checkpoint=ctx.on_checkpoint,
-        resume_state=ctx.resume_state)
-
-    data = read_adapter_bytes(model.lm)
-    ctx.evict_model()
-
-    adapter = {**lineage,
-               "train": {**methods, "final_loss": round(final_loss, 4)},
-               "data": data}
-    if not kept_steps:
-        return {DEFAULT_OUTPUT: adapter}
-    kept[steps] = keep(steps, final_loss, data)
-    return {DEFAULT_OUTPUT: adapter,
-            "checkpoints": lexicon.collection(
-                "adapter/lora", [kept[s] for s in kept_steps],
-                base_model=adapter["base_model"], trained_on=trained_on,
-                lora=lora, train=adapter["train"],
-                checkpoint_every=checkpoint_every)}
+    return train_lora(ctx, model, params,
+                      {"target": marginals, "anchor": anchors, "continuation": continuations},
+                      batch, methods, trained_on=trained_on, factories=factories)
 
 
 def read_operator_batch(params, depth: int) -> dict[str, int]:
@@ -528,36 +522,27 @@ def read_operator_batch(params, depth: int) -> dict[str, int]:
     return batch
 
 
-def read_kept_steps(params, steps: int, every: int) -> list[int]:
-    if not params.get("keep_checkpoints", False):
-        return []
-    if every <= 0:
-        raise ValueError(
-            "adapter/train: keep_checkpoints keeps an adapter every "
-            "`checkpoint_every` steps; set it above 0")
-    return [*range(every, steps, every), steps]
+def check_objective(params, inputs) -> str:
+    objective = params.get("objective", "decision")
+    if objective not in ("decision", "sft"):
+        raise ValueError(f"adapter/train: `objective` is 'decision' or 'sft', not {objective!r}")
+    other = "decision" if objective == "sft" else "sft"
+    stray = [name for name in (("target", "closer", "positions", "marginal", "operator")
+                               if objective == "sft" else ("max_tokens", "truncation"))
+             if params.get(name) is not None]
+    if objective == "sft" and lexicon.items_of(inputs.get("anchors") or []):
+        stray.append("anchors")
+    if stray:
+        raise ValueError(f"adapter/train: {', '.join(f'`{n}`' for n in stray)} "
+                         f"{'belongs' if len(stray) == 1 else 'belong'} to the `{other}` "
+                         f"objective, and this node trains `{objective}`")
+    return objective
 
 
-def check_kept_size(adapter_bytes: int, count: int) -> None:
-    from mechbench_compute.bench import MAX_OBJECT_BYTES
-
-    if adapter_bytes * count > MAX_OBJECT_BYTES:
-        raise ValueError(
-            f"adapter/train: {count} kept checkpoints of {adapter_bytes:,} bytes "
-            f"each are over the {MAX_OBJECT_BYTES:,}-byte object limit the "
-            f"collection is stored under; keep fewer with a larger "
-            f"`checkpoint_every` (at most {max(1, MAX_OBJECT_BYTES // adapter_bytes)} fit)")
-
-
-def restore_kept(kept_steps: list[int], resumed_from: int,
-                 resume_items) -> dict[int, dict]:
-    kept: dict[int, dict] = {}
-    for step in (s for s in kept_steps if s <= resumed_from):
-        item = (resume_items or {}).get(f"step-{step}")
-        if item is None:
-            raise ValueError(
-                f"adapter/train: resuming at step {resumed_from}, but the "
-                f"adapter kept at step {step} is not among the run's kept "
-                f"items; restart the node")
-        kept[step] = item
-    return kept
+def read_sft_batch(params) -> dict[str, int]:
+    batch = dict(params.get("batch") or {"record": 4})
+    other = sorted(k for k, n in batch.items() if int(n) > 0 and k != "record")
+    if other or int(batch.get("record", 0)) < 1:
+        raise ValueError(f"adapter/train: `objective: \"sft\"` draws `record` items, at least "
+                         f"one a step (`{{\"record\": 4}}`), not {batch}")
+    return batch

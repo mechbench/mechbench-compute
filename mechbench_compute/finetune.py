@@ -455,6 +455,7 @@ def train_soft_ce(
     on_checkpoint: Callable[[dict], None] | None = None,
     resume_state: Mapping | None = None,
     after_update: Callable[[optim.Optimizer], None] | None = None,
+    loss_fn: Callable[[Any, list[Any]], mx.array] = soft_ce,
 ) -> float:
     from mechbench_compute.resume import (
         capture_training_state,
@@ -463,7 +464,7 @@ def train_soft_ce(
 
     mx.random.seed(seed)
     rng = np.random.default_rng(seed)
-    loss_and_grad = nn.value_and_grad(lm, soft_ce)
+    loss_and_grad = nn.value_and_grad(lm, loss_fn)
     opt = optim.Adam(learning_rate=lr)
     start = 1
     if resume_state is not None:

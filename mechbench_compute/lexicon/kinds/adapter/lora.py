@@ -9,7 +9,8 @@ KIND = Kind(
     fields={"format": F("string", "`safetensors`."), "base_model": F("string", "The base it was trained on."),
             "trained_on": F("object", "`{base, adapters}` — the full stack."),
             "lora": F("object", "`{rank, alpha, scale, target_modules, params}`."),
-            "train": F("object", "Steps, lr, seed, batch, final loss, the target spec, and the counts."),
+            "train": F("object", "Steps, lr, seed, batch, final loss, the target spec (under `objective: \"sft\"`, "
+                                 "the objective and its settings), and the counts."),
             "data": F("string", "The safetensors bytes.", contentEncoding="binary"),
             "id": F("string", "In a collection of checkpoints: `step-<n>`."),
             "coords": COORDS,
@@ -23,9 +24,9 @@ KIND = Kind(
             "checkpoint_every": "The cadence the checkpoints were kept at, in steps."},
     doc="What `adapter/train` produces, and what a model-running node takes on its `adapter` port. `train` records "
         "the whole training — steps, learning rate, seed, batch, final loss, the target it was trained toward "
-        "and the counts — so the adapter's own object is the methods section of the experiment that made it, "
-        "and `trained_on` names the base and the adapters it was stacked on, which is what a later fusion must "
-        "match. With `keep_checkpoints` the training also emits a collection of these, one per kept step: each "
+        "(or the `sft` objective and its settings) and the counts — so the adapter's own object is the methods "
+        "section of the experiment that made it, and `trained_on` names the base and the adapters it was "
+        "stacked on, which is what a later fusion must match. With `keep_checkpoints` the training also emits a collection of these, one per kept step: each "
         "item a whole adapter, `coords.step` its step and `loss` the training loss there, so any operation "
         "mapped over the collection is a sweep over training time.",
 )
