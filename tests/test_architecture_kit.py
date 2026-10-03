@@ -225,13 +225,17 @@ def run_attribution(model, ids=None):
     writes = model.architecture.writes_of(model.arch)
     result = model.run(ids, capture=[
         *(f"blocks.{i}.{p}" for i in range(n) for p in (*writes, "resid_post")),
-        "blocks.0.resid_pre", "final_norm.scale",
+        "blocks.0.resid_pre", "final_norm.scale", "final_norm",
         *(f"blocks.{i}.attn.per_head_out" for i in range(n))])
-    last = read_f64(result.logits)[0, -1]
-    cap = model.architecture.attribution_unembed(model._model).softcap
-    if cap:
-        last = cap * np.arctanh(last / cap)
-    return result, last, read_f64(result.cache["final_norm.scale"]).reshape(-1)
+    return result, read_precap(model, result), read_f64(result.cache["final_norm.scale"]).reshape(-1)
+
+
+def read_precap(model, result) -> np.ndarray:
+    unembed = model.architecture.attribution_unembed(model._model)
+    if unembed.softcap is None:
+        return read_f64(result.logits)[0, -1]
+    normed = make_f32(read_f32(result.cache["final_norm"])[:, -1:], like=unembed.norm.weight)
+    return read_f64(unembed.project(normed)).reshape(-1)
 
 
 @pytest.mark.parametrize("sublayer", [False, True], ids=["layer", "sublayer"])
@@ -275,7 +279,7 @@ def test_capturing_attention_internals_at_every_layer_leaves_the_logits_alone(ti
     plain = read_f64(tiny.run(ids).logits)
     probed = tiny.run(ids, capture=[f"blocks.{i}.attn.weights"
                                     for i in range(tiny.arch.n_layers)])
-    assert np.abs(plain).max() > 1.0
+    assert np.abs(plain).max() > 0.25
     assert np.allclose(read_f64(probed.logits), plain, atol=1e-4, rtol=1e-4)
     assert np.array_equal(read_f64(tiny.run(ids).logits), plain)
     for i in range(tiny.arch.n_layers):

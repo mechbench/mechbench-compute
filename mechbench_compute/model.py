@@ -100,9 +100,9 @@ class Model:
     def prompt_cache(self):
         return self.architecture.prompt_cache(self._model)
 
-    def trunk_hidden(self, input_ids: mx.array) -> mx.array:
+    def trunk_hidden(self, input_ids: mx.array, *, cache=None) -> mx.array:
         add_to_span(forwards=1, tokens_in=int(input_ids.size))
-        h = self.lm.model(input_ids)
+        h = self.lm.model(input_ids, cache=cache)
         return h[0] if isinstance(h, tuple) else h
 
     def head_logits(self, hidden: mx.array) -> mx.array:

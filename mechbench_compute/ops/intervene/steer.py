@@ -10,6 +10,7 @@ from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
 from mechbench_compute._mlx import mx
 from mechbench_compute.distill import render
+from mechbench_compute.interp.capped import read_capped
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.collect_tracked_answers import collect_tracked_answers
@@ -54,7 +55,7 @@ For anything beyond one direction at one layer and position, use
            "scales this one.",
            required=False),
     ),
-    output=Output('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, rank, variants}`: `p` and `logp` of its spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling's own `{token, p, logp}`). The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas."),
+    output=Output('intervene/readout', collection=True, doc="One item per record per alpha: `id`, `coords`, `factor` (the alpha), `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, rank, variants}`: `p` and `logp` of its spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling's own `{token, p, logp}`; on a model with a final softcap also `logit`, `precap_logit` and `saturated`, as `logits/read` reports them). The header's `direction` reports the axis and the two values, the direction's norm and how many vectors went into each centroid; `sweep` lists the alphas; `softcap` names a model's final softcap."),
     params=(
         P("layer", "int",
           "The layer whose residual stream the direction is added to. Items "
@@ -165,6 +166,7 @@ def steer_inject(
 
     out_rows: list[dict[str, Any]] = []
     value = mx.array(dvec)
+    softcap = model.architecture.attribution_unembed(model._model).softcap
     for record in records:
         r = render(model, record)
         ids = r.array
@@ -178,12 +180,17 @@ def steer_inject(
                 [] if alpha == 0.0
                 else [Patch.add(layer, pos_idx, value, alpha=alpha)]
             )
-            lp = read_last_logp(model.run(ids, interventions=interventions).logits)
+            if softcap is None:
+                res, capped = model.run(ids, interventions=interventions), None
+            else:
+                res = model.run(ids, interventions=interventions, capture=["final_norm"])
+                capped = read_capped(model, res.logits[0, -1, :], res.cache["final_norm"])
+            lp = read_last_logp(res.logits)
             out_rows.append({
                 "id": record.get("id"),
                 "coords": dict(record.get("coords") or {}),
                 "factor": alpha,
-                **read_distribution(model.tokenizer, lp, top_k=top_k, tracked=tracked),
+                **read_distribution(model.tokenizer, lp, top_k=top_k, tracked=tracked, capped=capped),
             })
             if on_item:
                 on_item()
@@ -192,6 +199,7 @@ def steer_inject(
         layer=layer,
         sweep={"strength": alphas},
         readout="decision",
+        softcap=softcap,
         direction={
             "axis": axis,
             "positive": pos_label,

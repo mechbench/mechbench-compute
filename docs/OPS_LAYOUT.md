@@ -456,7 +456,9 @@ the two loaders' plumbing is `_vlm.py` and `_mlx_lm.py`.
 `tests/test_architecture_kit.py` runs per backend, over every
 architecture the backend implements, with a tiny random model of it
 (an architecture without one fails the kit), and over each variant
-whose config changes which points exist (`VARIANTS`: `gemma4-31b`).
+whose config changes which points exist or what the head does to them
+(`VARIANTS`: `gemma4-31b`, and `gemma4-small-cap`, whose final cap of
+0.5 saturates most of its logits).
 A backend's tiny models are a `KitBackend` (`tests/kit_backends.py`):
 MLX's in `tests/tiny_models.py`, torch's in `tests/tiny_torch_models.py`
 (`transformers` models with random weights: Gemma 3 text, Gemma 3 with
@@ -489,8 +491,9 @@ hold for any backend's arrays:
 - the writes and the scalar the attribution reads are the ones the
   residual law names;
 - direct logit attribution with the final norm sums to the true logit,
-  by layer and by sublayer; a layer's piece is the sum of its sublayer
-  pieces, and without scalars the stream's step at that layer;
+  by layer and by sublayer, on a capped head the logit before the cap,
+  read from the final norm's output; a layer's piece is the sum of its
+  sublayer pieces, and without scalars the stream's step at that layer;
 - a layer's heads, through the declared `attn_out_norm`, sum to its
   `attn_out`;
 - `activations/capture` reads the residual law's points, and its

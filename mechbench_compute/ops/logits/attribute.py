@@ -15,6 +15,7 @@ from mechbench_compute.dictionaries.read_dictionary_weights import read_dictiona
 from mechbench_compute.dictionaries.read_feature import read_feature
 from mechbench_compute.dictionaries.resolve_feature import resolve_feature
 from mechbench_compute.distill import render
+from mechbench_compute.interp.capped import read_capped
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.read_last_logp import read_last_logp
 from mechbench_compute.interp.report_own_top1 import report_own_top1
@@ -59,6 +60,14 @@ Every row also reports its **additivity residual**: the summed contributions
 minus the model's true final logit for the target. A reader never has to take
 the decomposition on faith — a residual far from zero says the decomposition
 does not describe this model.
+
+On a model whose final logits pass through a softcap, `c·tanh(x/c)` (Gemma
+4 caps them at 30), the pieces sum to the logit before the cap, the final
+norm's output through the unembedding, and that is the `true_logit` the
+residual is taken against: read there directly rather than recovered by
+inverting the cap, which loses the logit where the cap saturates.
+`capped_logit` beside it is the model's own logit after the cap, and the
+header's `softcap` names the cap.
 
 With two `tracked` tokens, the contributions are to the *difference* of
 their logits (the first minus the second), which is usually the more
@@ -127,7 +136,7 @@ dictionary by its content hash.
            "scales this one.",
            required=False),
     ),
-    output=Output('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, … by layer; `embed`, `L0.attn`, `L0.mlp`, … by sublayer, as the header's `split` says): `measures.contribution`, the `target` and `contrast` tokens (each the spelling the model prefers, or the token named by id, with `variants` and `contrast_variants` listing every spelling as `{token, p, logp}`), the `additivity` check (`summed`, `true_logit`, `residual`), `per_head` when `per_head_layers` was set — each listed layer's attention piece split by head, `{layer, contributions}`, with `bias` where `o_proj` has one — and, with a dictionary, `features` (each `{index, activation, dla, contribution}`) and `reconstruction` (`{stream, features, b_dec, error}`, over the whole dictionary only). The header then carries `dictionary`, or `feature` (`{dictionary, index}`), each dictionary as `{kind, hash, derivation, reads, width, source}`."),
+    output=Output('logits/attribution', collection=True, doc="One grid per record over the axis `[component]`, in the order the header's `components` names the pieces (`embed`, `L0`, `L1`, … by layer; `embed`, `L0.attn`, `L0.mlp`, … by sublayer, as the header's `split` says): `measures.contribution`, the `target` and `contrast` tokens (each the spelling the model prefers, or the token named by id, with `variants` and `contrast_variants` listing every spelling as `{token, p, logp}`), the `additivity` check (`summed`, `true_logit`, `residual`, and `capped_logit` on a model with a final softcap, whose `true_logit` is the logit before it), `per_head` when `per_head_layers` was set — each listed layer's attention piece split by head, `{layer, contributions}`, with `bias` where `o_proj` has one — and, with a dictionary, `features` (each `{index, activation, dla, contribution}`) and `reconstruction` (`{stream, features, b_dec, error}`, over the whole dictionary only). The header then carries `dictionary`, or `feature` (`{dictionary, index}`), each dictionary as `{kind, hash, derivation, reads, width, source}`. On a model with a final softcap the header carries `softcap`."),
     params=(
         P("split", "string",
           "What a component is: `\"layer\"`, each layer's whole write (`L3`), "
@@ -230,6 +239,9 @@ def attribute_logits(
         Cap.at([f"blocks.{i}.{w}" for i in layers for w in writes]),
         Cap.final_norm_scale(),
     ]
+    softcap = model.architecture.attribution_unembed(model._model).softcap
+    if softcap is not None:
+        interventions.append(Cap.at(["final_norm"]))
     if per_head_layers:
         interventions.append(Cap.per_head_out(per_head_layers))
     basis = read_basis(params, dictionary, model.arch.d_model)
@@ -258,11 +270,14 @@ def attribute_logits(
             apply_ln=apply_ln, ln_scale=ln_scale)
         contrib = attrs[:, 0] if ctok is None else attrs[:, 0] - attrs[:, 1]
 
-        last_np = read_f64(result.logits[0, -1, :])
-        cap = model.architecture.attribution_unembed(model._model).softcap
-        if cap:
-            c = float(cap)
-            last_np = c * np.arctanh(np.clip(last_np / c, -0.999999, 0.999999))
+        additivity: dict[str, Any] = {}
+        if softcap is None:
+            last_np = read_f64(result.logits[0, -1, :])
+        else:
+            capped = read_capped(model, result.logits[0, -1, :], result.cache["final_norm"])
+            last_np = capped.precap
+            additivity["capped_logit"] = round(float(capped.logits[tok]) - (
+                float(capped.logits[ctok]) if ctok is not None else 0.0), 3)
         true_logit = float(last_np[tok])
         if ctok is not None:
             true_logit -= float(last_np[ctok])
@@ -298,6 +313,7 @@ def attribute_logits(
                 "summed": round(summed, 3),
                 "true_logit": round(true_logit, 3),
                 "residual": round(summed - true_logit, 3),
+                **additivity,
             },
             **by_feature))
         if on_item:
@@ -309,6 +325,7 @@ def attribute_logits(
         layers=layers,
         n_off_top1=sum(1 for r in rows if "own_top1" in r),
         components=components,
+        softcap=softcap,
         **(basis["header"] if basis is not None else {}),
         description=(
             "Direct logit attribution: each component's contribution to "
@@ -317,6 +334,10 @@ def attribute_logits(
             "layer scalars from its layer on), norm-folded so the bars sum "
             "to the model's true final logit — each row carries its own "
             "additivity residual."
+            + ("" if softcap is None else
+               f" This model caps its final logits at {softcap:g} (c·tanh(x/c)), and the pieces sum to "
+               "the logit before the cap: `true_logit` is that logit, read from the final norm's output, "
+               "and `capped_logit` the model's own after it.")
         ),
     )
 

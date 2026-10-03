@@ -49,6 +49,17 @@ record's own `complete` is laid over the block's field by field: a probe
 midway through a list names its opener and closer and keeps the block's
 outcomes.
 
+On a model whose final logits pass through a softcap, `c·tanh(x/c)` (Gemma
+4 caps them at 30), each tracked answer also carries `logit`, its logit
+after the cap, `precap_logit`, its logit before it, and `saturated`: true
+when the pre-cap logit's size is past 0.8 of the cap, where the cap's slope
+has fallen below 0.56 and a difference between two answers reads smaller
+than it is. Answers deep in the saturation get nearly the same probability
+whatever their margin, so a flat read there is the cap, not indifference;
+their `precap_logit`s say how far apart they are. The entropy, `top`, `p`
+and `logp` stay after the cap, which is what the model samples from, and
+the header's `softcap` names the cap.
+
 Records keep their `coords`, so a grid of conditions comes out as a grid of
 readings.
 """,
@@ -66,7 +77,7 @@ readings.
            "scales this one.",
            required=False),
     ),
-    output=Output('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked answer by name, `{token, p, logp, rank, variants}` — its spellings with and without a leading space summed; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` and `complete_entropy_bits` with `complete`, and `rollout` when one was requested. The header carries `top_k`.'),
+    output=Output('logits/decision', collection=True, doc='One item per input record: `id`, `coords`, `entropy_bits`, `top` (the `top_k` most probable tokens, each `{token, p, logp}`), `tracked` (each tracked answer by name, `{token, p, logp, rank, variants}` — its spellings with and without a leading space summed — and on a model with a final softcap `logit`, `precap_logit` and `saturated`; each complete outcome by name, `{text, tokens, p, logp}`), `complete_mass` and `complete_entropy_bits` with `complete`, and `rollout` when one was requested. The header carries `top_k`, and `softcap` on a model with one.'),
     params=(
         P("tracked", "map[string, string]",
           "Tokens to follow by name, `{\"yes\": \" Yes\"}` — the candidate "
@@ -180,6 +191,7 @@ def run(ctx, inputs, params):
     rollout = params.get("rollout")
     complete = params.get("complete")
     top_k = int(params.get("top_k", 10))
+    softcap = model.architecture.attribution_unembed(model._model).softcap
     backend = model.architecture.backend
     if backend != "mlx" and (rollout or complete or any(c.get("complete") for c in conditions)):
         raise ValueError(
@@ -195,7 +207,10 @@ def run(ctx, inputs, params):
             continue
         r = render(model, cond)
         rendered, ids = r.text, r.ids
-        prefill = prefill_decision(model, ids)
+        if softcap is None:
+            prefill, capped = prefill_decision(model, ids), None
+        else:
+            prefill, capped = read_capped_prefill(model, ids)
         lp = read_logprobs(prefill[1]).astype(np.float64)
         tracked: dict[str, Answer] = {}
         for o in (cond.get("outcomes") or []):
@@ -206,7 +221,7 @@ def run(ctx, inputs, params):
         entry: dict[str, Any] = {
             "id": cond["id"],
             "coords": dict(cond.get("coords", {})),
-            **read_distribution(tok, lp, top_k=top_k, tracked=tracked),
+            **read_distribution(tok, lp, top_k=top_k, tracked=tracked, capped=capped),
         }
         if rollout:
             entry["rollout"] = expand_top_outcomes_cached(
@@ -220,4 +235,17 @@ def run(ctx, inputs, params):
         out.append(entry)
         if ctx.on_item:
             ctx.on_item(key, entry)
-    return lexicon.collection("logits/decision", out, top_k=top_k)
+    return lexicon.collection("logits/decision", out, top_k=top_k, softcap=softcap)
+
+
+def read_capped_prefill(model, prompt_ids: list[int]):
+    from mechbench_compute._mlx import mx
+    from mechbench_compute.interp.capped import read_capped
+
+    cache = model.prompt_cache()
+    hidden = model.trunk_hidden(mx.array([prompt_ids]), cache=cache)
+    row = model.head_logits(hidden)[0, -1, :].astype(mx.float32)
+    mx.eval(row)
+    for c in cache:
+        mx.eval([v for v in vars(c).values() if isinstance(v, mx.array)])
+    return (cache, row), read_capped(model, row, hidden)

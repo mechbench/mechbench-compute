@@ -254,7 +254,7 @@ one item can zero every layer's `o_proj`.
            required=False),
     ),
     output=Output('intervene/readout', collection=True,
-                  doc='For a decision readout, one item per record per factor: `id`, `coords`, `factor`, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp, rank, variants}` for the answers asked about: `p` and `logp` of each answer\'s spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling\'s own `{token, p, logp}`). A capture readout is a capture: an `activations/vector` collection with one item per record per factor per hook point — `id`, `coords`, `factor`, `position`, `token`, `space` (at most 4096 values) — the shape `activations/capture` emits, so `geometry/compare`, `direction/regress` and another intervention\'s `source` read it unchanged. Either way the header carries `spec` (the list as run, with directions, sources and a feature\'s dictionary replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf), `sweep` (the factors, including `0.0` when a control was added) and `readout`.',
+                  doc='For a decision readout, one item per record per factor: `id`, `coords`, `factor`, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp, rank, variants}` for the answers asked about: `p` and `logp` of each answer\'s spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling\'s own `{token, p, logp}`; on a model with a final softcap also `logit`, `precap_logit` and `saturated`, as `logits/read` reports them). A capture readout is a capture: an `activations/vector` collection with one item per record per factor per hook point — `id`, `coords`, `factor`, `position`, `token`, `space` (at most 4096 values) — the shape `activations/capture` emits, so `geometry/compare`, `direction/regress` and another intervention\'s `source` read it unchanged. Either way the header carries `spec` (the list as run, with directions, sources and a feature\'s dictionary replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf), `sweep` (the factors, including `0.0` when a control was added) and `readout`, and a decision readout on a model with a final softcap `softcap`.',
                   otherwise=(Otherwise("activations/vector", collection=True, param="readout.type", equals="capture"),)),
     params=(
         P("spec", "list[object]",
@@ -485,10 +485,12 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
     if on_start:
         on_start(len(records) * len(cells))
 
+    from mechbench_compute.interp.capped import read_capped
     from mechbench_compute.interp.collect_tracked_answers import collect_tracked_answers
     from mechbench_compute.interp.read_distribution import read_distribution
     from mechbench_compute.lexicon import kinds as K
 
+    softcap = model.architecture.attribution_unembed(model._model).softcap if rk == "decision" else None
     mid = S.model_id_of(model)
     rows: list[dict[str, Any]] = []
     for record, cell in _walk_cells(records, cells, weight_items, model):
@@ -505,12 +507,16 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
             else:
                 ivs = [SpecIntervention(compiled.at(cell), tokens, record)]
             if rk == "decision":
-                res = model.run(ids, interventions=ivs)
+                if softcap is None:
+                    res, capped = model.run(ids, interventions=ivs), None
+                else:
+                    res = model.run(ids, interventions=ivs, capture=["final_norm"])
+                    capped = read_capped(model, res.logits[0, -1, :], res.cache["final_norm"])
                 lp = read_last_logp(res.logits)
                 row: dict[str, Any] = {
                     "id": record.get("id"), "coords": dict(coords),
                     "factor": factor, **named,
-                    **read_distribution(model.tokenizer, lp, top_k=top_k, tracked=tracked),
+                    **read_distribution(model.tokenizer, lp, top_k=top_k, tracked=tracked, capped=capped),
                 }
             else:
                 points = [str(p) for p in readout.get("points", [])]
@@ -553,6 +559,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
         weights=weights_wire,
         sweep=sweep_as_run(params.get("sweep") or {}, cells),
         readout=rk,
+        softcap=softcap,
         **({"model": mid, "position": str(readout.get("position", "last")),
             "points": [str(p) for p in readout.get("points", [])]} if rk == "capture" else {}),
         description=(

@@ -11,6 +11,7 @@ from mechbench_compute import intervene as iv
 from mechbench_compute import shapes as S
 from mechbench_compute.lexicon import kinds as K
 from mechbench_compute.ops.intervene.apply import run_intervene as run
+from mechbench_compute.support import Unembed
 
 
 def _dir(vec, layer=2, point="resid_post"):
@@ -141,9 +142,17 @@ class _FakeArch:
     n_layers = 4
 
 
+class _FakeArchitecture:
+    @staticmethod
+    def attribution_unembed(model):
+        return Unembed(norm=None, project=None)
+
+
 class _FakeModel:
     tokenizer = _FakeTok()
     arch = _FakeArch()
+    architecture = _FakeArchitecture()
+    _model = None
 
     def tokenize(self, prompt, chat_template=False):
         return mx.array([[1, 2, 3]])

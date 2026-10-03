@@ -38,15 +38,15 @@ def build_gemma3():
     return wrapped, lm
 
 
-def build_gemma4():
+def build_gemma4(**overrides):
     from mlx_vlm.models.gemma4 import config
 
-    return wrap_gemma4(config.TextConfig(
-        hidden_size=32, num_hidden_layers=4, intermediate_size=64,
-        num_attention_heads=4, num_key_value_heads=2, head_dim=8,
-        global_head_dim=8, vocab_size=64, vocab_size_per_layer_input=64,
-        hidden_size_per_layer_input=8, num_kv_shared_layers=0,
-        sliding_window=WINDOW, sliding_window_pattern=2))
+    return wrap_gemma4(config.TextConfig(**{
+        "hidden_size": 32, "num_hidden_layers": 4, "intermediate_size": 64,
+        "num_attention_heads": 4, "num_key_value_heads": 2, "head_dim": 8,
+        "global_head_dim": 8, "vocab_size": 64, "vocab_size_per_layer_input": 64,
+        "hidden_size_per_layer_input": 8, "num_kv_shared_layers": 0,
+        "sliding_window": WINDOW, "sliding_window_pattern": 2, **overrides}))
 
 
 def build_gemma4_31b():
@@ -85,7 +85,10 @@ BUILDERS = {
 
 MODEL_TYPES = tuple(sorted(BUILDERS))
 
-VARIANTS = {"gemma4-31b": ("gemma4", build_gemma4_31b)}
+SMALL_CAP = 0.5
+
+VARIANTS = {"gemma4-31b": ("gemma4", build_gemma4_31b),
+            "gemma4-small-cap": ("gemma4", lambda: build_gemma4(final_logit_softcapping=SMALL_CAP))}
 
 KIT_MODELS = (*((t, t) for t in MODEL_TYPES), *((v, t) for v, (t, _) in VARIANTS.items()))
 

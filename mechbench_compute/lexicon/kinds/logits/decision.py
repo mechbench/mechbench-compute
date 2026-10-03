@@ -11,7 +11,8 @@ KIND = Kind(
             "rollout": F("object", "The expanded complete outcomes, when a rollout was asked for.")},
     required=("id", "entropy_bits", "top"),
     key=("id",),
-    header={"model": "The model read.", "top_k": "How many tokens `top` holds."},
+    header={"model": "The model read.", "top_k": "How many tokens `top` holds.",
+            "softcap": "On a model whose final logits pass through a softcap, `c·tanh(x/c)`, the cap `c`; each tracked answer then also carries `logit`, `precap_logit` and `saturated`."},
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
     doc="What `logits/read` produces, one per condition, and what `eval/expect` judges. `tracked` holds "
         "each named token by the name the protocol gave it — the op's `tracked` param, or the record's own, "

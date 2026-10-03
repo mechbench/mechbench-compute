@@ -28,7 +28,8 @@ SPACE = F("object", SPACE_DOC,
 TOP = F("array", "The most likely tokens, ranked by probability, each `{token, p, logp}`.",
         items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}},
                "additionalProperties": False})
-TRACKED = F("object", "Name → `{token, p, logp, rank, variants}` for the answers the caller asked about, by the names it gave.",
+TRACKED = F("object", "Name → `{token, p, logp, rank, variants}` for the answers the caller asked about, by the names it gave; "
+            "on a model with a final softcap also `logit`, `precap_logit` and `saturated`.",
             additionalProperties={"type": "object"})
 VARIANTS = F("array", "Each spelling of a tracked answer, with and without a leading space, as `{token, p, logp}`; one entry when both are the same token.",
              items={"type": "object", "properties": {"token": TOKEN, "p": {"type": "number"}, "logp": {"type": "number"}},
@@ -150,7 +151,8 @@ TRACKED_VALUE = Value(
     "tracked",
     "The tokens a read was asked to follow, by the names the protocol gave them, each with its probability.",
     fields={
-        "<name>": F("object", "`{token, p, logp, rank, variants}` for the answer the name resolved to."),
+        "<name>": F("object", "`{token, p, logp, rank, variants}` for the answer the name resolved to, and on a "
+                    "model with a final softcap `logit`, `precap_logit` and `saturated`."),
     },
     doc="""\
 A map from the caller's names to what the model said about them. The names
@@ -177,6 +179,16 @@ spelling's, and the op names it.
 A name whose token is nowhere in the model's ranking still appears, with
 whatever probability the model gave it; a read never drops an outcome
 because it was unlikely.
+
+On a model whose final logits pass through a softcap, `c·tanh(x/c)`
+(Gemma 4's is 30), an answer also carries `logit`, its preferred
+spelling's logit after the cap, `precap_logit`, the same logit before it,
+and `saturated`, true when the pre-cap logit's size is past 0.8 of the cap.
+There the cap's slope has fallen below 0.56, and deeper in, answers whose
+logits differ by several units get nearly the same probability: a flat
+distribution over saturated answers is the cap's doing, and the pre-cap
+logits say how far apart the model put them. `p` and `logp` stay after the
+cap, which is what the model samples from.
 """,
 )
 

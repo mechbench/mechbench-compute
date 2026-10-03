@@ -41,7 +41,7 @@ decides. A set of records renders as overlaid curves.
            "scales this one.",
            required=False),
     ),
-    output=Output('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, rank, variants}`: `p` and `logp` of its spellings with and without a leading space together, `rank` the better spelling's (0 is that layer's top-1), `token` the spelling that layer prefers, `variants` each spelling's own `{token, p, logp}`). The header carries `layers` and `top_k`."),
+    output=Output('logits/funnel', collection=True, doc="One item per record per layer: `id`, `coords`, `layer`, and the distribution read through the unembedding at that layer — `entropy_bits`, `top` (the `top_k` most likely tokens, each `{token, p, logp}`) and `tracked` (each answer by name as `{token, p, logp, rank, variants}`: `p` and `logp` of its spellings with and without a leading space together, `rank` the better spelling's (0 is that layer's top-1), `token` the spelling that layer prefers, `variants` each spelling's own `{token, p, logp}`; on a model with a final softcap also `logit`, `precap_logit` and `saturated`, read through the cap and before it at that layer). The header carries `layers` and `top_k`, and `softcap` on a model with one."),
     params=(
         P("top_k", "int", "How many of the most likely tokens to record per layer.", 5),
         P("tracked", "map[string, string]",
@@ -76,9 +76,11 @@ def run(ctx, inputs, params):
             "the `records` port")
     n_layers = len(model.lm.model.layers)
     top_k = int(params.get("top_k", 5))
+    from mechbench_compute.interp.capped import read_capped
     from mechbench_compute.interp.collect_tracked_answers import collect_tracked_answers
     from mechbench_compute.interp.read_distribution import read_distribution
 
+    unembed = model.architecture.attribution_unembed(model._model)
     if ctx.on_start:
         ctx.on_start(len(records))
     items = []
@@ -90,15 +92,16 @@ def run(ctx, inputs, params):
             interventions=[Capture.residual(layers=range(n_layers))])
         tracked = collect_tracked_answers(model, rec, tracked=params.get("tracked"))
         for i in range(n_layers):
-            row = model.project_to_logits(
-                r.cache[f"blocks.{i}.resid_post"])[0, -1, :]
+            resid = r.cache[f"blocks.{i}.resid_post"]
+            row = model.project_to_logits(resid)[0, -1, :]
             z = _np.array(row.astype(mx.float32)).astype(_np.float64)
             logp = z - z.max() - _np.log(_np.exp(z - z.max()).sum())
+            capped = None if unembed.softcap is None else read_capped(model, row, unembed.norm(resid))
             items.append({
                 "id": rec["id"],
                 "coords": dict(rec.get("coords", {})),
                 "layer": i,
-                **read_distribution(tok, logp, top_k=top_k, tracked=tracked),
+                **read_distribution(tok, logp, top_k=top_k, tracked=tracked, capped=capped),
             })
         if ctx.on_item:
             ctx.on_item()
@@ -107,4 +110,5 @@ def run(ctx, inputs, params):
         name=params.get("name", "lens-trajectories"),
         description=params.get("description", ""),
         layers=list(range(n_layers)),
-        top_k=top_k)
+        top_k=top_k,
+        softcap=unembed.softcap)

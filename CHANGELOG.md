@@ -21,11 +21,42 @@ _None._
 
 ### Changes that alter results without raising
 
-_None._
+- `logits/attribute` on a model with a final logit softcap (Gemma 4)
+  reads `additivity.true_logit`, and takes the residual against it, from
+  the logit before the cap read directly (the final norm's output through
+  the unembedding), where it inverted the capped logit (`c·artanh(y/c)`,
+  clipped at 0.999999), which loses the logit where the cap saturates: on
+  Gemma 4 E2B's saturated die faces the residual reached 4.1. On the tiny
+  Gemma 4 models, which do not saturate, the two agree to the third
+  decimal; under a cap of 0.5 the top token's logit inverted was 3.627
+  and read directly 4.287. Nothing changes on an architecture without a
+  cap.
 
 ### Other
 
-_None._
+- Reads behind a softcap. On a model whose final logits pass through a
+  softcap, `c·tanh(x/c)` (Gemma 4's is 30), `logits/read`,
+  `logits/read-layers` and the decision readouts of `intervene/apply`
+  and `intervene/steer` give each tracked answer `logit`, its logit after
+  the cap, `precap_logit`, before it (the final norm's output through the
+  unembedding at the decision position, or that layer's for the lens),
+  and `saturated`, whether the pre-cap logit's size is past 0.8 of the
+  cap, where the cap's slope is below 0.56; the header's `softcap` names
+  the cap. Entropy, `top`, `p` and `logp` stay after the cap, which is
+  what the model samples. `logits/attribute` puts `capped_logit` beside
+  `true_logit` in `additivity`, `softcap` in the header, and a sentence
+  in the header's `description` that the pieces sum to the logit before
+  the cap. Without a cap every result is byte for byte what it was, and
+  on Gemma 4 every field a read already had: `logits/read` there runs the
+  model's own forward as its trunk and then its head (`Model.trunk_hidden`
+  takes the prompt cache), so the logits before the cap come from the
+  same pass, and a rollout reuses the same cache. The `tracked` value and
+  the kinds `logits/decision`, `logits/funnel`, `intervene/readout` and
+  `logits/attribution` declare the fields and the header.
+- The architecture kit runs over `gemma4-small-cap`, a tiny Gemma 4 whose
+  final cap of 0.5 saturates most of its logits, and its attribution
+  check reads the logit before the cap from the final norm's output;
+  inverting the cap gave an infinity there.
 
 ## 0.187.0 — 2026-10-03
 
