@@ -19,6 +19,10 @@ K_FLOORS = 1.0
 WITHIN_FLOOR = "this difference is within the floor"
 MOST_PLACES = 6
 COUNT = "items"
+MOVED = "moved"
+WITHIN = "within"
+BELOW = "below"
+SAID_BEFORE = {MOVED: "", WITHIN: "within the floor: ", BELOW: "below the threshold: "}
 
 
 @dataclass(frozen=True)
@@ -47,19 +51,14 @@ def read_notable(result: Any, notable: Notable, *, kind: str, operation: str,
     if not readings:
         return {"line": f"{against}, nothing to compare: no item carries {notable.field} on both sides",
                 "moved": False, "baseline": baseline.to_dict(), "caveats": caveats}
-    best, moved = choose_reading(notable, readings, floor, k)
-    measured = say_measure(notable, best, floor, moved)
-    clause = say_clause(notable, best, header)
-    if moved:
-        line = f"{against}, {clause} ({measured})"
-    elif floor is not None:
-        line = f"{against}, within the floor: {clause} ({measured})"
-    else:
-        line = f"{against}, below the threshold: {clause} ({measured})"
+    best, state = choose_reading(notable, readings, floor, k)
+    measured = say_measure(notable, best, floor, state)
+    line = f"{against}, {SAID_BEFORE[state]}{say_clause(notable, best, header)} ({measured})"
+    moved = state == MOVED
     found: list[dict[str, str]] = []
     if floor is None and not pure:
         found.append({"code": "NO_FLOOR", "line": say_no_floor(noise, architecture, operation, notable)})
-    if floor is not None and not moved and any(r.after != r.before for r in readings):
+    if state == WITHIN and any(r.after != r.before for r in readings):
         found.append({"code": "WITHIN_FLOOR", "line": WITHIN_FLOOR})
     if not pure and baseline.machine and machine and baseline.machine != machine:
         found.append({"code": "OTHER_MACHINE", "line": (
@@ -184,16 +183,20 @@ def count_floors(x: float, y: float, floor: Mapping[str, Any] | None) -> float |
 
 
 def choose_reading(notable: Notable, readings: Sequence[Reading], floor: Mapping[str, Any] | None,
-                   k: float) -> tuple[Reading, bool]:
-    if floor is not None:
-        best = max(readings, key=lambda r: (r.units or 0.0, abs(r.after - r.before)))
-        return best, (best.units or 0.0) > k
-    if notable.metric == DIFFERENCE:
-        best = max(readings, key=lambda r: abs(r.after - r.before))
-        return best, abs(best.after - best.before) > notable.threshold
-    top = max(r.distance for r in readings)
-    best = max((r for r in readings if r.distance == top), key=lambda r: abs(r.after - r.before))
-    return best, top > notable.threshold
+                   k: float) -> tuple[Reading, str]:
+    def measure(r: Reading) -> float:
+        return abs(r.after - r.before) if notable.metric == DIFFERENCE else r.distance
+
+    def rank(r: Reading) -> tuple[float, float]:
+        return measure(r), abs(r.after - r.before)
+
+    past = [r for r in readings if floor is None or (r.units or 0.0) > k]
+    moved = [r for r in past if measure(r) > notable.threshold]
+    if moved:
+        return max(moved, key=rank), MOVED
+    if past:
+        return max(past, key=rank), BELOW
+    return max(readings, key=lambda r: (r.units or 0.0, abs(r.after - r.before))), WITHIN
 
 
 def say_clause(notable: Notable, best: Reading, header: Mapping[str, Any]) -> str:
@@ -237,14 +240,14 @@ def is_number(v: Any) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
-def say_measure(notable: Notable, best: Reading, floor: Mapping[str, Any] | None, moved: bool) -> str:
+def say_measure(notable: Notable, best: Reading, floor: Mapping[str, Any] | None, state: str) -> str:
     parts = []
     if notable.metric != DIFFERENCE:
         parts.append(f"{notable.metric.replace('-', ' ')} {say_number(best.distance)}")
     if floor is not None:
         parts.append(say_floors(best.units or 0.0))
-    else:
-        parts.append(f"{'past' if moved else 'under'} {say_number(notable.threshold)}")
+    if state != WITHIN:
+        parts.append(f"{'past' if state == MOVED else 'under'} {say_number(notable.threshold)}")
     return ", ".join(parts)
 
 

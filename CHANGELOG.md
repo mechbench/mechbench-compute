@@ -73,18 +73,22 @@ nothing said so.
   "first reading here; nothing to compare yet". Items are matched by the
   declaration's `key` and compared on its `field` number by number, `*`
   matching one name (`tracked.*.p` is every tracked answer's `p`).
-  `moved` is true past `k` noise floors (1), counted as `records/diff`
-  counts them, where `noise`, a `platform/noise` collection, holds a
-  record for the model's architecture, the operation and the field (the
-  widest such record), and otherwise when the `metric` (`difference`, or
-  one the kind declares) passes the kind's `threshold`. The line is one
-  plain sentence in the present tense, its numbers printed as a chart's
+  `moved` is true for a change past `k` noise floors (1) and past the
+  kind's `threshold`, both: the floors counted as `records/diff` counts
+  them, against the widest record `noise`, a `platform/noise`
+  collection, holds for the model's architecture, the operation and the
+  field, and the threshold on the `metric` (`difference`, or one the
+  kind declares). Without such a floor the threshold alone judges. A
+  line is in one of three states, said after the baseline: within the
+  floor (no change past `k` floors; "within the floor:", whatever the
+  change's size), past the floor but under the threshold ("below the
+  threshold:"), or past both, moved, with nothing said. It is one plain
+  sentence in the present tense, its numbers printed as a chart's
   reading prints them (an integer as is, anything else to three places):
   "against $base, on a 'c' falls from 0.013 to 0.005 (total variation
-  0.919, 75.2 floors)", with "within the floor:" or "below the
-  threshold:" after the baseline when nothing moved. The caveats are
-  margin lines from fields results already carry: `NO_FLOOR` (no floor
-  applied, so the threshold judged; not said of an operation that runs
+  0.919, 75.2 floors, past 0.1)". The caveats are margin lines from
+  fields results already carry: `NO_FLOOR` (no floor applied, so the
+  threshold alone judged; not said of an operation that runs
   no model), `WITHIN_FLOOR`, `OTHER_MACHINE` (the baseline's `machine`
   is not the try's), `SATURATED` (tracked answers the final softcap
   saturates), `CUT` (records cut at `max_tokens` or marked `truncated`),

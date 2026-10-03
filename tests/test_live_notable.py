@@ -70,7 +70,7 @@ def test_a_first_reading_has_nothing_to_compare_yet(warm):
     assert notable["moved"] is False and notable["baseline"] is None
 
 
-def test_a_try_that_moved_past_the_floor_says_so(warm):
+def test_a_try_past_the_floor_and_the_threshold_moves(warm):
     executor, model = warm()
     base = read(executor, model, A)
     got = read(executor, model, B, baseline={"name": "base", "result": base["result"]},
@@ -78,7 +78,7 @@ def test_a_try_that_moved_past_the_floor_says_so(warm):
     notable = got["notable"]
     assert notable["moved"] is True
     assert notable["line"].startswith("against $base, on ")
-    assert notable["line"].endswith(" floors)") and "total variation " in notable["line"]
+    assert notable["line"].endswith(" floors, past 0.1)") and "total variation " in notable["line"]
     assert notable["baseline"] == {"label": "$base", "origin": "declared", "seq": None, "param": None}
     assert "NO_FLOOR" not in codes(notable) and WITHIN_FLOOR not in [c["line"] for c in notable["caveats"]]
     many = read(executor, model, B, baseline={"name": "base", "result": base["result"]},
@@ -87,22 +87,70 @@ def test_a_try_that_moved_past_the_floor_says_so(warm):
     assert many["notable"]["line"].startswith("against $base, within the floor: ")
 
 
+def lens_against(executor, model, shift: float, spread: float | None):
+    lens = run_try(executor, op="logits/read-layers", inputs={"records": A}, params={"top_k": 3}, model=model)
+    earlier = copy.deepcopy(lens["result"])
+    item = next(it for it in earlier["items"] if it["id"] == "a" and it["layer"] == 2)
+    now = item["entropy_bits"]
+    item["entropy_bits"] = now + shift
+    noise = None if spread is None else floor_of("llama", "entropy_bits", spread, "logits/read-layers")
+    got = run_try(executor, op="logits/read-layers", inputs={"records": A}, params={"top_k": 3}, model=model,
+                  baseline={"name": "lens", "result": earlier}, noise=noise)
+    clause = f"at layer 2 of a the entropy falls from {say_number(now + shift)} to {say_number(now)} bits"
+    return got["notable"], clause
+
+
+@pytest.mark.parametrize(("shift", "spread", "said", "moved"), [
+    (0.1, 0.0, "below the threshold: {clause} (above a floor of 0, under 0.5)", False),
+    (1.0, 0.0, "{clause} (above a floor of 0, past 0.5)", True),
+    (0.1, 0.01, "below the threshold: {clause} (10 floors, under 0.5)", False),
+    (1.0, 0.01, "{clause} (100 floors, past 0.5)", True),
+    (3.0, 10.0, "within the floor: {clause} (0.3 floors)", False),
+    (0.4, 10.0, "within the floor: {clause} (0.04 floors)", False),
+])
+def test_moved_is_past_k_floors_and_past_the_threshold(warm, shift, spread, said, moved):
+    executor, model = warm()
+    notable, clause = lens_against(executor, model, shift, spread)
+    assert notable["line"] == "against $lens, " + said.format(clause=clause)
+    assert notable["moved"] is moved
+    assert "NO_FLOOR" not in codes(notable)
+    assert ("WITHIN_FLOOR" in codes(notable)) is said.startswith("within the floor")
+
+
 def test_a_try_within_the_floor_says_so_and_names_its_baseline(warm):
     executor, model = warm()
     base = read(executor, model, A)
-    again = read(executor, model, A, baseline={"name": "base", "result": base["result"]},
-                 noise=floor_of("llama", "tracked.c.p", 1e-4))
-    assert again["hash"] == base["hash"] and again["result"] == base["result"]
-    same = again["notable"]
+    same = read(executor, model, A, baseline={"name": "base", "result": base["result"]},
+                noise=floor_of("llama", "tracked.c.p", 1e-4))["notable"]
     assert same["moved"] is False
     assert same["line"].startswith("against $base, within the floor: on ")
     assert same["line"].endswith("(total variation 0, 0 floors)")
     assert "WITHIN_FLOOR" not in codes(same)
+    unfloored = read(executor, model, B, baseline={"name": "base", "result": base["result"]})["notable"]
+    assert unfloored["moved"] is True
     wide = read(executor, model, B, baseline={"name": "base", "result": base["result"]},
                 noise=floor_of("llama", "tracked.*.p", 1.0))["notable"]
     assert wide["moved"] is False
     assert wide["line"].startswith("against $base, within the floor: ")
     assert caveat(wide, "WITHIN_FLOOR") == "this difference is within the floor"
+
+
+def test_a_tries_result_and_hash_do_not_depend_on_its_baseline_or_floor(warm):
+    executor, model = warm()
+    alone = read(executor, model, A, seq=7)
+    other = read(executor, model, B, seq=7)
+    told = [
+        {"baseline": {"name": "base", "result": other["result"], "machine": "elsewhere"}, "machine": "here"},
+        {"baseline": {"name": "base", "result": other["result"]}, "noise": floor_of("llama", "tracked.*.p", 0.0)},
+        {"baseline": {"name": "base", "result": other["result"]}, "noise": floor_of("llama", "tracked.*.p", 9.0),
+         "k": 3.0},
+        {"tries": [{"seq": 1, "op": "logits/read", "inputs": {"conditions": A},
+                    "params": {"tracked": {"c": "cat"}}, "result": other["result"]}]},
+    ]
+    for given in told:
+        got = read(executor, model, A, seq=7, **given)
+        assert got["notable"]["baseline"] is not None
+        assert got["hash"] == alone["hash"] and got["result"] == alone["result"], given
 
 
 def test_with_no_floor_the_threshold_judges_and_a_caveat_says_so(warm):
@@ -168,7 +216,9 @@ def test_the_line_says_what_the_kind_declares(warm):
     assert got["notable"]["line"] == f"against $base, below the threshold: {clause} (total variation 0, under 0.1)"
     floored = read(executor, model, A, baseline={"name": "base", "result": earlier},
                    noise=floor_of("llama", "tracked.*.p", 0.01))
-    assert floored["notable"]["line"] == f"against $base, {clause} (total variation 0, 25 floors)"
+    assert floored["notable"]["line"] == (
+        f"against $base, below the threshold: {clause} (total variation 0, 25 floors, under 0.1)")
+    assert floored["notable"]["moved"] is False
 
 
 def test_an_attribution_names_the_piece_that_moved_and_what_the_pieces_build(warm):
