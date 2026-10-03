@@ -17,7 +17,25 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- An expression over a collection whose first record spends more than
+  twice its share of the call's fuel is refused before the other records
+  run, with a `FuelRefused` (a `ValueError`) whose message starts with
+  `EXPRESSION_FUEL` and which carries `code`, `expr`, `rows`, `estimate`
+  (the share times the records: what the collection needs at least, at
+  the first record's rate), `limit`, `remedy` and an `issue`
+  (`{code, expr, rows, estimate, limit, remedy, message}`). The engine
+  gives one call 1,000,000 steps for all its records together and reports
+  no steps spent, so the first record is run alone with that share as its
+  budget. It ran until the fuel was gone before, failing partway through
+  the collection (a norm by comprehension over 2560-wide vectors, 7,684
+  steps a record, ran out 130 records in); and a collection whose first
+  record costs more than twice the average, and which fits the limit, is
+  refused where it ran. Every expression call does it: `records/derive`
+  (the fields, and each template), `records/filter`, `records/sort`,
+  `records/group` (the keys, and the aggregates' arguments) and
+  `records/join` (each side); a call of one or two records runs as
+  before. Every call names its fuel, 1,000,000, the engine's default,
+  which is unchanged.
 
 ### Changes that alter results without raising
 

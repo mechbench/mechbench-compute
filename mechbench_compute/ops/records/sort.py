@@ -26,6 +26,13 @@ Each record's place, from 1, is written into the field `as` names
 (`rank`), and the output declares `order_by: ["rank"]`, so the order is
 part of the data: it survives storage (a stored collection is otherwise
 sorted by its key) and the operations downstream that keep the records.
+
+The keys share one fuel of 1,000,000 steps across the whole collection, not
+one per record: the first record is run alone first, with twice its share,
+and if it spends more the node is refused before the others run, with
+`EXPRESSION_FUEL`: the estimate, the limit, the records and what to read
+instead. A comprehension spends steps on every item of the list it walks,
+and a built-in over the list (`sum(xs)`, `max(xs)`, `len(xs)`) two in all.
 """,
     inputs=(In("records", "collection | records/table",
                "The records to order: any collection, or a table's rows.",

@@ -25,6 +25,14 @@ condition that silently read nothing shows itself.
 A condition that is not a boolean (a number, a string) is an error, not a
 guess: write `theme == 1`, not `theme`. The kept records keep their
 order: an `order_by` on the input (a sort's) is kept.
+
+The condition has one fuel of 1,000,000 steps across the whole collection,
+not one per record: the first record is run alone first, with twice its
+share, and if it spends more the node is refused before the others run,
+with `EXPRESSION_FUEL`: the estimate, the limit, the records and what to
+read instead. A comprehension spends steps on every item of the list it
+walks, and a built-in over the list (`sum(xs)`, `max(xs)`, `len(xs)`) two
+in all.
 """,
     inputs=(In("records", "collection | records/table",
                "The records to keep some of: any collection, or a table's rows.",

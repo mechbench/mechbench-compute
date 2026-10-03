@@ -18,6 +18,33 @@ ENGINE_URL = (
 )
 WASM_PATH = pathlib.Path(__file__).with_name("mbexpr.wasm")
 ROOTS = ("params", "header")
+FUEL = 1_000_000
+FUEL_MARGIN = 2
+FUEL_REMEDY = (
+    "Read less per record: a comprehension spends steps on every item of the list it walks, and a "
+    "built-in over the list (`sum(xs)`, `max(xs)`, `len(xs)`) two in all; a captured vector already "
+    "carries its `norm`, and `top: k` on `activations/capture` names its largest coordinates.")
+
+
+class FuelRefused(ValueError):
+    code = "EXPRESSION_FUEL"
+
+    def __init__(self, expr: str, rows: int, share: int) -> None:
+        self.expr = expr
+        self.rows = rows
+        self.estimate = share * rows
+        self.limit = FUEL
+        self.remedy = FUEL_REMEDY
+        super().__init__(
+            f"{self.code}: `{expr}` spends more than {share:,} steps on the first of {rows:,} records, "
+            f"so at that rate the records need more than {self.estimate:,}, and one call has "
+            f"{self.limit:,} for all of them. {self.remedy}")
+
+    @property
+    def issue(self) -> dict[str, Any]:
+        return {"code": self.code, "expr": self.expr, "rows": self.rows, "estimate": self.estimate,
+                "limit": self.limit, "remedy": self.remedy,
+                "message": str(self).removeprefix(f"{self.code}: ")}
 
 
 class ExprError(ValueError):
@@ -80,10 +107,21 @@ class Engine:
         return answer
 
     def _ask(self, expr: str, request: Mapping[str, Any]) -> dict[str, Any]:
+        request = {**request, "fuel": FUEL}
+        records = request.get("records")
+        if records is not None and len(records) > FUEL_MARGIN:
+            self._check_fuel(expr, request, len(records))
         answer = self.call(request)
         if not answer.get("ok"):
             raise ExprError(expr, answer.get("error") or {})
         return answer
+
+    def _check_fuel(self, expr: str, request: Mapping[str, Any], rows: int) -> None:
+        share = -(-FUEL * FUEL_MARGIN // rows)
+        first = self.call({**request, "records": request["records"][:1], "fuel": share})
+        error = first.get("error") or {}
+        if error.get("kind") == "limit" and error.get("record") is not None:
+            raise FuelRefused(expr, rows, share)
 
     def check(self, expr: str) -> dict[str, Any]:
         return self._ask(expr, {"op": "check", "expr": expr})

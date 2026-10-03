@@ -35,6 +35,14 @@ error naming the key, since which one to carry would be a guess. With
 header's `unmatched` counts them; with `how: left` it is kept with `None`
 under `as`. A key that is `None` matches nothing. The left side's
 `order_by` (a sort's) is kept.
+
+`on` has one fuel of 1,000,000 steps across each side's records, not one
+per record: on each side the first record is run alone first, with twice
+its share, and if it spends more the node is refused before the others run,
+with `EXPRESSION_FUEL`: the estimate, the limit, the records and what to
+read instead. A comprehension spends steps on every item of the list it
+walks, and a built-in over the list (`sum(xs)`, `max(xs)`, `len(xs)`) two
+in all.
 """,
     inputs=(
         In("left", "collection | records/table",

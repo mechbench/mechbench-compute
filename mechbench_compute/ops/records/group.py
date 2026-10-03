@@ -72,6 +72,14 @@ A group's id is its `by` values joined by `|` (`noir|flash`), or `all`
 when there is no `by`, so the stored groups are in the order of their
 keys; where two groups' values would join to one id, each id is its
 values as a JSON list instead.
+
+The `by` expressions share one fuel of 1,000,000 steps across the whole
+collection, not one per record, and the aggregates' arguments another: the
+first record is run alone first, with twice its share, and if it spends
+more the node is refused before the others run, with `EXPRESSION_FUEL`: the
+estimate, the limit, the records and what to read instead. A comprehension
+spends steps on every item of the list it walks, and a built-in over the
+list (`sum(xs)`, `max(xs)`, `len(xs)`) two in all.
 """,
     inputs=(In("records", "collection | records/table",
                "The records to group: any collection whose items are records, or a table's rows.",

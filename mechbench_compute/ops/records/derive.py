@@ -47,6 +47,14 @@ derives when one reads the other.
 A number with no value (a division by zero, the log of zero) is null, and
 the header's `undefined` counts them by reason. An `order_by` on the
 input (a sort's) is kept unless a field it names is dropped.
+
+The fields' expressions share one fuel of 1,000,000 steps across the whole
+collection, not one per record, and each template has one of its own: the
+first record is run alone first, with twice its share, and if it spends
+more the node is refused before the others run, with `EXPRESSION_FUEL`: the
+estimate, the limit, the records and what to read instead. A comprehension
+spends steps on every item of the list it walks, and a built-in over the
+list (`sum(xs)`, `max(xs)`, `len(xs)`) two in all.
 """,
     inputs=(In("records", "collection | records/table",
                "The records to compute on: any collection whose items are "
