@@ -146,8 +146,8 @@ class TestTraining:
         model = build_model(arch)
         items, _ = read_sft_items(model.tokenizer, [DOCUMENT], {})
         before = float(compute_sft_loss(model.lm, items))
-        out = train(model, [DOCUMENT], steps=20, batch={"record": 1})["out"]
-        assert out["train"]["final_loss"] < before * 2 / 3
+        out = train(model, [DOCUMENT], steps=30, lr=0.01, batch={"record": 1})["out"]
+        assert out["train"]["final_loss"] < before / 2
 
     def test_the_same_seed_gives_the_same_adapter(self):
         records = [DOCUMENT, CONVERSATION]
