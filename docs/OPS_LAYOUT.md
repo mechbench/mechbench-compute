@@ -508,6 +508,15 @@ hold for any backend's arrays:
 - capturing attention internals leaves the logits alone, and attention
   is causal;
 - ablating every head of a layer equals zeroing its `attn_out`;
+- where an architecture declares the MLP's interior, capturing it leaves
+  the logits alone, `mlp.down_in` is `mlp.act` times `mlp.up`, and
+  zeroing every neuron of a layer's `mlp.act` equals zeroing its
+  `mlp_out`; where it declares the attention's, `attn.weights` is the
+  softmax of `attn.scores` and `attn.o_in` is `attn.per_head_out` with
+  its heads side by side; a hook inside an interior it does not declare
+  is refused by name;
+- a point a checkpoint lacks (`absent_when`) is refused by name and is
+  no term of its residual law;
 - a double run is bit-identical;
 - `tokenize` round-trips through the tokenizer;
 - the dialect parses the tool call its own template rendered

@@ -282,8 +282,8 @@ class TestAblateCircuitRefuses:
             ablate_circuits(tiny, [hand_circuit("h", [(0, 1)])], RECORDS, {"ablation": "mean"})
 
     def test_a_point_the_architecture_does_not_declare(self, tiny):
-        universe = {"points": ["mlp.act"], "layers": [1], "positions": "all"}
-        with pytest.raises(ValueError, match="'mlp.act' is not one the 'gemma3' forward declares"):
+        universe = {"points": ["gate_out"], "layers": [1], "positions": "all"}
+        with pytest.raises(ValueError, match="'gate_out' is not one the 'gemma3' forward declares"):
             ablate_circuits(tiny, [hand_circuit("x", [], universe=universe)], RECORDS, {})
 
     def test_circuits_from_two_universes(self, tiny):

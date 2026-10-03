@@ -210,15 +210,26 @@ class TestEncode:
         kept = encode_records(tiny, RECORDS[:1], sae[0], {"skip_bos": False})
         assert kept["fidelity"]["positions"] == skipped["fidelity"]["positions"] + 1
 
-    def test_attention_dictionaries_read_the_heads_concatenated(self, tiny, tmp_path):
+    @pytest.mark.parametrize("name", ["gemma3", "llama"])
+    def test_attention_dictionaries_read_the_heads_concatenated(self, name, tmp_path):
+        model = build_tiny_model(name)
         write_dictionary(tmp_path, "o", hook=f"model.layers.{LAYER}.self_attn.o_proj.input",
                          weights=identity_weights(32))
-        out = encode_records(tiny, RECORDS[:1], load(tmp_path, "o"), {"skip_bos": False})
-        ids, heads = read_residuals(tiny, RECORDS[0], "attn.per_head_out")
+        out = encode_records(model, RECORDS[:1], load(tmp_path, "o"), {"skip_bos": False})
+        ids, heads = read_residuals(model, RECORDS[0], "attn.per_head_out")
         assert heads.ndim == 3
         z = heads.transpose(1, 0, 2).reshape(heads.shape[1], -1)
         got = {(it["position"], it["feature"]): it["value"] for it in lexicon.items_of(out)}
         assert all(got.get((p, j), 0.0) == float(z[p, j]) for p in range(len(ids)) for j in range(32))
+
+    def test_a_dictionary_at_the_mlp_input_reads_mlp_in_norm(self, tiny, tmp_path):
+        write_dictionary(tmp_path, "in", hook=f"model.layers.{LAYER}.pre_feedforward_layernorm.output",
+                         weights=identity_weights())
+        out = encode_records(tiny, RECORDS[:1], load(tmp_path, "in"), {"skip_bos": False})
+        ids, acts = read_residuals(tiny, RECORDS[0], "mlp.in_norm")
+        assert out["point"] == {"point": "mlp.in_norm", "layer": LAYER}
+        got = {(it["position"], it["feature"]): it["value"] for it in lexicon.items_of(out)}
+        assert all(got.get((p, j), 0.0) == float(acts[p, j]) for p in range(len(ids)) for j in range(D))
 
     def test_two_runs_are_identical(self, tiny, sae):
         first = encode_records(tiny, RECORDS, sae[0], {})
@@ -237,11 +248,11 @@ class TestEncodeRefuses:
         with pytest.raises(ValueError, match="reads 16-wide activations"):
             encode_records(tiny, RECORDS, load(tmp_path, "wide"), {})
 
-    def test_a_point_the_architecture_does_not_offer(self, tiny, tmp_path):
+    def test_a_point_the_architecture_does_not_offer(self, tmp_path):
         write_dictionary(tmp_path, "tc", hook=f"model.layers.{LAYER}.pre_feedforward_layernorm.output")
         dictionary = load(tmp_path, "tc")
-        with pytest.raises(ValueError, match="mlp.in_norm, which Gemma 3 does not offer"):
-            encode_records(tiny, RECORDS, dictionary, {})
+        with pytest.raises(ValueError, match="mlp.in_norm, which Llama does not offer"):
+            encode_records(build_tiny_model("llama"), RECORDS, dictionary, {})
 
     def test_a_derivation_it_does_not_read(self, tiny, sae):
         with pytest.raises(ValueError, match="the dictionary is a 'transcoder'"):

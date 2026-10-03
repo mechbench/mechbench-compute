@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import importlib
 import json
 from pathlib import Path
 
@@ -48,12 +47,14 @@ def test_the_stated_defaults_are_the_loader_s(arch):
 
 @pytest.mark.parametrize("stem,absent", [("gemma-4-31b-it-bf16", {"gate_out"}),
                                          ("gemma-4-e2b-it-bf16", set()),
-                                         ("gemma-4-e4b-it-bf16", set())])
-def test_a_gemma4_config_names_the_points_its_checkpoint_lacks(stem, absent):
+                                         ("gemma-4-e4b-it-bf16", set()),
+                                         ("gemma-3-4b-it-bf16", {"gate_out"}),
+                                         ("gemma-3-12b-it-bf16", {"gate_out"})])
+def test_a_gemma_config_names_the_points_its_checkpoint_lacks(stem, absent):
     from mechbench_compute.architectures import BY_MODEL_TYPE
     from mechbench_compute.support import refusal
 
     fixture = json.loads((Path(__file__).parent / "fixtures" / "configs" / f"{stem}.json").read_text())
     arch = read_arch_from_config(fixture["config"], fixture["repo"])
     assert refusal(fixture["config"]) is None
-    assert set(BY_MODEL_TYPE["gemma4"].absent_points(arch)) == absent
+    assert set(BY_MODEL_TYPE[arch.model_type].absent_points(arch)) == absent

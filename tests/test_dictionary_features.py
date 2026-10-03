@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 import mlx.core as mx
 import numpy as np
 import pytest
@@ -80,7 +82,7 @@ class TestExamplesOnAFeature:
                                 dictionary=dictionary)
         by_hand = {}
         for record in RECORDS:
-            r, acts = read_point(tiny, record)
+            _, acts = read_point(tiny, record)
             values = encode_by_hand(acts, w, 1)
             values[0] = 0.0
             by_hand[record["id"]] = values
@@ -188,7 +190,7 @@ class TestSteeringOnAFeature:
 
 
 class TestAttributingToFeatures:
-    PARAMS = {"tracked": {"answer": "mat", "other": "dog"}}
+    PARAMS: ClassVar[dict] = {"tracked": {"answer": "mat", "other": "dog"}}
 
     def by_hand(self, model, record, w):
         names = [f"blocks.{LAYER}.resid_post", "final_norm.scale"]
@@ -273,6 +275,24 @@ class TestTheNeuronFormsAgainstAComputationByHand:
                                                    abs=1e-4)
         assert out["over"]["n_tokens"] == sum(len(a) for a in acts.values())
         assert (out["layer"], out["neuron"], out["point"]) == (2, 5, "resid_post")
+
+    def test_examples_on_an_mlp_neuron_read_mlp_act_by_default(self, tiny):
+        index = int(tiny.lm.model.layers[LAYER].mlp.gate_proj.weight.shape[0]) - 1
+        assert index >= tiny.arch.d_model
+        out = examples_op.run(Context(loaded=tiny), {"records": RECORDS},
+                              {"k": 3, "window": 2, "neuron": {"layer": LAYER, "index": index}})
+        name = f"blocks.{LAYER}.mlp.act"
+        acts = {r["id"]: np.array(tiny.run(render(tiny, r).array, capture=[name]).cache[name][0, :, index]
+                                  .astype(mx.float32)) for r in RECORDS}
+        ranked = sorted((float(v), rid, p) for rid, a in acts.items() for p, v in enumerate(a) if p > 0)
+        assert [i["id"] for i in out["items"]] == [f"{rid}:{p}" for _v, rid, p in ranked[::-1][:3]]
+        assert (out["layer"], out["neuron"], out["point"], out["skip_bos"]) == (LAYER, index, "mlp.act", True)
+        assert out["over"]["n_tokens"] == sum(len(a) - 1 for a in acts.values())
+        for item in out["items"]:
+            assert set(item) == {"id", "coords", "value", "token", "text", "tokens", "values", "hit", "rank"}
+            a = acts[item["coords"]["record"]]
+            assert item["value"] == pytest.approx(float(a[item["coords"]["position"]]), abs=1e-4)
+            assert item["tokens"][item["hit"]] == item["token"] and len(item["values"]) == len(item["tokens"])
 
     def test_attribute_without_a_dictionary(self, tiny):
         out = attribute_logits(tiny, RECORDS, {"tracked": {"answer": "mat", "other": "dog"}})

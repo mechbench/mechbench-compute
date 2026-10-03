@@ -60,11 +60,12 @@ class TestRegistry:
 
 
 class TestFamilySupport:
-    def test_canonical_family_supports_everything(self):
+    @pytest.mark.parametrize("fam", ["gemma4", "gemma3"])
+    def test_a_full_family_supports_everything(self, fam):
         for p in NEW_LAYER:
-            assert _arch.family_supports("gemma4", p, layer_scoped=True)
+            assert _arch.family_supports(fam, p, layer_scoped=True)
         for p in NEW_GLOBAL:
-            assert _arch.family_supports("gemma4", p, layer_scoped=False)
+            assert _arch.family_supports(fam, p, layer_scoped=False)
 
     def test_an_unknown_family_supports_nothing(self):
         for p in (*_arch.LAYER_HOOK_POINTS, "resid_post"):
@@ -73,7 +74,7 @@ class TestFamilySupport:
             assert not _arch.family_supports("mamba", p, layer_scoped=False)
 
     def test_core_architectures_refuse_the_internals_and_carry_the_globals(self):
-        for fam in ("gemma3", "qwen2", "llama"):
+        for fam in ("qwen2", "llama"):
             assert _arch.family_supports(fam, "resid_post", layer_scoped=True)
             assert _arch.family_supports(fam, "attn.weights", layer_scoped=True)
             assert not _arch.family_supports(fam, "mlp.act", layer_scoped=True)
@@ -109,6 +110,15 @@ class TestValidation:
         with pytest.raises(InvalidHookName) as e:
             m._validate_hook_names({"blocks.3.mlp.act"})
         assert "not implemented" in str(e.value)
+
+    def test_gemma3_takes_every_point_but_the_per_layer_gate_it_lacks(self):
+        m = _FakeModelForValidation(_arch.Arch(
+            model_id="fake/gemma3", n_layers=34, d_model=2560, n_heads=8, n_kv_heads=4,
+            vocab_size=262208, hidden_size_per_layer_input=0,
+            global_layers=(5, 11, 17, 23, 29), first_kv_shared_layer=34, model_type="gemma3"))
+        m._validate_hook_names({f"blocks.33.{p}" for p in NEW_LAYER} | set(NEW_GLOBAL))
+        with pytest.raises(InvalidHookName, match=r"blocks\.3\.gate_out \(absent: Gemma 3 has no per-layer"):
+            m._validate_hook_names({"blocks.3.gate_out"})
 
 
 E2B = "mlx-community/gemma-4-e2b-it-bf16"

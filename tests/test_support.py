@@ -29,11 +29,21 @@ def test_the_hook_gate_reads_the_declaration(arch: support.Architecture) -> None
 
 
 def test_levels_follow_the_points() -> None:
-    assert BY_MODEL_TYPE["gemma4"].level == "full"
-    for mt in ("gemma3", "qwen2", "llama"):
+    for mt in ("gemma4", "gemma3"):
+        assert BY_MODEL_TYPE[mt].level == "full"
+    for mt in ("qwen2", "llama"):
         assert BY_MODEL_TYPE[mt].level == "core"
     assert {a.level for a in ARCHITECTURES} <= set(support.LEVELS)
     assert {a.loader for a in ARCHITECTURES} <= set(support.LOADERS)
+
+
+def test_a_level_is_per_backend_and_the_torch_gemma3_is_core() -> None:
+    from mechbench_compute.torch_backend.architectures import BY_MODEL_TYPE as TORCH
+
+    assert {mt: a.level for mt, a in TORCH.items()} == {"gemma3": "core", "llama": "core"}
+    [gemma3] = [a for a in support.local_architectures() if a["modelType"] == "gemma3"]
+    assert (gemma3["level"], gemma3["layerPoints"], [x["point"] for x in gemma3["absentWhen"]]) == (
+        "full", list(_arch.LAYER_HOOK_POINTS), ["gate_out"])
 
 
 def test_an_architecture_is_found_from_a_loaded_model_or_refused_by_name() -> None:

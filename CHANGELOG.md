@@ -25,7 +25,44 @@ _None._
 
 ### Other
 
-_None._
+- Gemma 3 at `full`. Its forward reaches every hook point Gemma 4's
+  does: inside the attention `attn.in_norm`, `attn.q_pre_norm`,
+  `attn.k_pre_norm`, `attn.q_pre_rope`, `attn.k_pre_rope`,
+  `attn.scores` and `attn.o_in`, and inside the MLP `mlp.in_norm`,
+  `mlp.gate`, `mlp.up`, `mlp.act` and `mlp.down_in` (the MLP's own
+  operations, run one by one at a layer whose interior a hook or capture
+  names), beside the core and global points it had. The one point it
+  lacks is declared absent rather than offered: `gate_out`, since no
+  Gemma 3 checkpoint has per-layer input embeddings. A hook there still
+  raises `InvalidHookName`, now "blocks.2.gate_out (absent: Gemma 3 has
+  no per-layer input embeddings …)" where it said "not implemented by
+  the 'gemma3' forward", and `activations/capture` and
+  `activations/differentiate` give that reason with `POINT_ABSENT`.
+  Models' `LocalArchitecture` for `gemma3` says `level: "full"`, the
+  22 layer points and the absence. So a neuron's
+  `activations/examples` (read at `mlp.act` unless `point` says
+  otherwise), `intervene/apply` at any point, and a dictionary that
+  reads `mlp.in_norm` run on Gemma 3; a dictionary that reads
+  `attn.o_in` reads it there directly, byte for byte what the per-head
+  reconstruction gave. No number moved: `logits/read` (tracked, rollout
+  and complete), `logits/attribute` by layer and by sublayer with heads,
+  `logits/read-layers`, `logits/scan`, `activations/capture` at every
+  core point, `activations/capture-attention`,
+  `activations/capture-tokens`, `activations/contrast`,
+  `activations/examples`, `dictionary/encode`, `intervene/apply`,
+  `intervene/steer`, `intervene/ablate-heads`, `intervene/ablate-layers`,
+  `intervene/patch`, `trajectory/capture` and `text/generate`, and a
+  capture of every core point at every layer, are the same to the byte
+  before and after on the tiny Gemma 3, Gemma 4, Llama and Qwen 2
+  models. The torch backend's Gemma 3 stays at `core`. The architecture
+  kit adds, for every architecture that declares them: capturing the
+  MLP's interior leaves the logits alone, `mlp.down_in` is `mlp.act`
+  times `mlp.up`, zeroing every neuron of a layer equals zeroing its
+  `mlp_out`, `attn.weights` is the softmax of `attn.scores`, and
+  `attn.o_in` is `attn.per_head_out` with its heads side by side; an
+  interior it does not declare refuses a hook by name; and a point a
+  checkpoint lacks is refused by name and is no term of its residual
+  law.
 
 ---
 
