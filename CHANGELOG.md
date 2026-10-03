@@ -17,6 +17,22 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+---
+
+## 0.190.0 — 2026-10-03
+
+### Changes that raise
+
 - A node refuses to run on a cached model that is not the one it asked
   for, with a `ModelCacheStale` (a `ValueError` whose message starts with
   `MODEL_CACHE_STALE` and which carries `code`, `loaded`, `asked` and an
