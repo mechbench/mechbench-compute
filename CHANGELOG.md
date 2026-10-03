@@ -25,6 +25,22 @@ _None._
 
 ### Other
 
+_None._
+
+---
+
+## 0.189.0 — 2026-10-03
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
 - Gemma 3 at `full`. Its forward reaches every hook point Gemma 4's
   does: inside the attention `attn.in_norm`, `attn.q_pre_norm`,
   `attn.k_pre_norm`, `attn.q_pre_rope`, `attn.k_pre_rope`,
