@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Kind
+from mechbench_compute.lexicon._base import Kind, Notable
 from mechbench_compute.lexicon.values import COORDS, F, ID
 
 KIND = Kind(
@@ -18,4 +18,5 @@ KIND = Kind(
         "each named token by the name the protocol gave it — the op's `tracked` param, or the record's own, "
         "which takes precedence — and the first is the target. `rollout`, when asked for, expands the most "
         "likely complete outcomes past the first token.",
+    notable=Notable("tracked.*.p", ("id",), "total-variation", 0.1, "on {id} '{name}' {change}"),
 )

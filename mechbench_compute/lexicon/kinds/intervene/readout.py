@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Kind
+from mechbench_compute.lexicon._base import Kind, Notable
 from mechbench_compute.lexicon.values import COORDS, F, ID
 
 KIND = Kind(
@@ -23,4 +23,6 @@ KIND = Kind(
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
     doc="A decision readout carries `entropy_bits`, `top` and `tracked`; a capture readout carries `position` and `captures`, "
         "and a capture readout wires into another intervention's `source`.",
+    notable=Notable("tracked.*.p", ("id", "factor", "cell"), "total-variation", 0.1,
+                    "at factor {factor} on {id} '{name}' {change}", control={"factor": 0}),
 )

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
+
+from mechbench_compute.live.read_notable import K_FLOORS
 
 GRAPH_NODES_MAX = 16
 SPEAK_ITEMS = 5
@@ -25,7 +27,9 @@ def run_try(executor: Any, *, op: str | None = None, graph: Mapping[str, Any] | 
             inputs: Mapping[str, Any] | None = None, params: Mapping[str, Any] | None = None,
             model: str, on_token: Callable[..., None] | None = None,
             live_run_id: str = "", seq: int = 0, wall_seconds: float = WALL_SECONDS,
-            clock: Callable[[], float] = time.monotonic) -> dict[str, Any]:
+            clock: Callable[[], float] = time.monotonic, baseline: Mapping[str, Any] | None = None,
+            tries: Sequence[Mapping[str, Any]] = (), noise: Any = None, k: float = K_FLOORS,
+            machine: str | None = None) -> dict[str, Any]:
     from mechbench_compute import __version__ as compute_version
     from mechbench_compute.protocol.summarize_node import summarize_node
     from mechbench_compute.resume import content_hash
@@ -33,6 +37,7 @@ def run_try(executor: Any, *, op: str | None = None, graph: Mapping[str, Any] | 
 
     if (op is None) == (graph is None):
         raise TryRefused("a try names one operation or gives one graph")
+    given = {"op": op, "inputs": dict(inputs or {}), "params": dict(params or {})} if op is not None else {}
     seed = derive(live_run_id, seq)
     if op is not None:
         nodes = [{"id": "try", "block": op, "params": dict(params or {}), "inputs": dict(inputs or {})}]
@@ -81,6 +86,8 @@ def run_try(executor: Any, *, op: str | None = None, graph: Mapping[str, Any] | 
         "kind": summary.get("kind"),
         "summary": summary,
         "lines": speak_lines(result, summary),
+        "notable": read_try_notable(result, summary, end_block, executor, given, baseline=baseline,
+                                    tries=tries, noise=noise, k=k, machine=machine),
         "seconds": seconds,
         "provenance": {
             "op": end_block.name if op is not None else [b.name for b in blocks],
@@ -138,6 +145,26 @@ def _model_ref(executor: Any, model: str) -> str:
     loaded = getattr(executor, "_model", None)
     ref = executor.model_ref(loaded) if loaded is not None and hasattr(executor, "model_ref") else None
     return ref or model
+
+
+def read_try_notable(result: Any, summary: Mapping[str, Any], block: Any, executor: Any,
+                     given: Mapping[str, Any], *, baseline: Mapping[str, Any] | None,
+                     tries: Sequence[Mapping[str, Any]], noise: Any, k: float,
+                     machine: str | None) -> dict[str, Any] | None:
+    from mechbench_compute.lexicon import kinds as K
+    from mechbench_compute.live.choose_baseline import choose_baseline
+    from mechbench_compute.live.read_notable import read_items_and_header, read_notable
+
+    kind = K.BY_KIND.get(str(summary.get("kind")))
+    if kind is None or kind.notable is None:
+        return None
+    items, _ = read_items_and_header(result)
+    chosen = choose_baseline(kind.notable, items, declared=baseline, tries=tries, op=given.get("op"),
+                             inputs=given.get("inputs"), params=given.get("params"))
+    architecture = getattr(getattr(getattr(executor, "_model", None), "architecture", None), "model_type", None)
+    return read_notable(result, kind.notable, kind=kind.name, operation=block.name,
+                        architecture=architecture, baseline=chosen, noise=noise, k=k, machine=machine,
+                        pure=block.op.requires == "pure")
 
 
 def speak_lines(result: Any, summary: Mapping[str, Any]) -> list[str]:

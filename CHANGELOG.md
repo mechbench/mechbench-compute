@@ -25,7 +25,58 @@ _None._
 
 ### Other
 
-_None._
+- A try says whether its result moved. `run_try` answers `notable`,
+  `{line, moved, baseline, caveats: [{code, line}]}`, from the result's
+  kind's new declaration, `Kind.notable = Notable(field, key, metric,
+  threshold, line)` (with `control` for a kind whose results carry their
+  own control). The baseline is the first of: the one the try names
+  (`baseline`, `{name, result, machine?}`, read "against $name"); the
+  control the result carries (an intervention readout's `factor` 0,
+  "against factor 0"); the first earlier try (`tries`, each `{seq, op,
+  inputs, params, result, name?, machine?}`) of the same operation with
+  the same input names and exactly one param changed ("against $name"
+  when it was bound, else "against t<seq>"); else none, and the line is
+  "first reading here; nothing to compare yet". Items are matched by the
+  declaration's `key` and compared on its `field` number by number, `*`
+  matching one name (`tracked.*.p` is every tracked answer's `p`).
+  `moved` is true past `k` noise floors (1), counted as `records/diff`
+  counts them, where `noise`, a `platform/noise` collection, holds a
+  record for the model's architecture, the operation and the field (the
+  widest such record), and otherwise when the `metric` (`difference`, or
+  one the kind declares) passes the kind's `threshold`. The line is one
+  plain sentence in the present tense, its numbers printed as a chart's
+  reading prints them (an integer as is, anything else to three places):
+  "against $base, on a 'c' falls from 0.013 to 0.005 (total variation
+  0.919, 75.2 floors)", with "within the floor:" or "below the
+  threshold:" after the baseline when nothing moved. The caveats are
+  margin lines from fields results already carry: `NO_FLOOR` (no floor
+  applied, so the threshold judged; not said of an operation that runs
+  no model), `WITHIN_FLOOR`, `OTHER_MACHINE` (the baseline's `machine`
+  is not the try's), `SATURATED` (tracked answers the final softcap
+  saturates), `CUT` (records cut at `max_tokens` or marked `truncated`),
+  `OFF_TOP1` (`n_off_top1`, or items carrying `own_top1`),
+  `UNDER_MAJORITY` (a probe under its majority baseline) and `FEW_ITEMS`
+  (fewer than 8 records, or a probe's `n_items`). Five kinds declare one:
+  `logits/decision` (each tracked answer's `p`, by total variation past
+  0.1), `intervene/readout` (the same, against its own `factor` 0),
+  `logits/funnel` (`entropy_bits` by layer, past 0.5 bits),
+  `logits/attribution` (its pieces, `measures.contribution`, past 0.5,
+  the line naming the component and whether the pieces build a margin
+  or a logit) and `records/record` (how many records, any change). A
+  kind without one answers `notable: null`, and `NO_NOTABLE` in
+  `test_kinds.py` lists the 30 other kinds a try can return; it only
+  shrinks. `Notable` is in `mechbench_compute.api`; `Kind.to_dict()`
+  carries `notable` only for a kind that declares one, so no
+  extension's digest moves, and `scripts/dump_kinds_ts.py` writes it
+  into the kinds table. Every read is byte for byte what it was:
+  `logits/read` (tracked, rollout and complete), `logits/attribute`,
+  `logits/read-layers`, `logits/scan`, the captures,
+  `activations/contrast`, `activations/examples`, `dictionary/encode`,
+  `intervene/apply`, `intervene/steer`, the ablations, `intervene/patch`,
+  `trajectory/capture` and `text/generate` on every tiny kit model
+  (Gemma 3; Gemma 4 and its 31B and small-cap variants; Llama; Qwen 2);
+  and a try's result and hash do not depend on its baseline or its
+  floor.
 
 ---
 

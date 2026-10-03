@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Kind, Metric
+from mechbench_compute.lexicon._base import Kind, Metric, Notable
 from mechbench_compute.lexicon.values import COORDS, ID
 
 KIND = Kind(
@@ -25,4 +25,5 @@ KIND = Kind(
         Metric("hamming", "distance", True,
                "How many coordinate axes two records differ on; an axis one of them lacks counts as a difference. The design's own factor structure, as a distance."),
     ),
+    notable=Notable("items", (), "difference", 0, "the number of records {change}"),
 )

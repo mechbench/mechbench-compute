@@ -215,6 +215,76 @@ class TestEveryKindSpeaks:
         assert Kind("x/y", "s").to_dict()["draw"] is None
 
 
+NO_NOTABLE = frozenset({
+    "activations/attention", "activations/coordinate", "activations/divergence", "activations/feature",
+    "activations/vector", "adapter/delta", "direction/vector", "direction/vocab", "eval/verdict",
+    "geometry/alignment", "geometry/mst", "geometry/similarity", "intervene/ablation", "intervene/circuit",
+    "intervene/faithfulness", "intervene/heads", "intervene/trace", "logits/lens", "platform/noise",
+    "records/chart", "records/table", "text/annotation", "text/branch-point", "text/document",
+    "text/tokenization", "text/transcript", "trajectory/comparison", "trajectory/point",
+    "trajectory/summary", "weights/parameter",
+})
+
+
+def read_try_kinds() -> set[str]:
+    from mechbench_compute.live.run_try import TRAINING
+    from mechbench_compute.registry import CORE
+
+    out: set[str] = set()
+    for mod in CORE.modules().values():
+        op = mod.OP
+        if op.name in TRAINING or op.requires == "remote":
+            continue
+        for o in ([op.output] if op.output else []) + list((op.outputs or {}).values()):
+            out.add(o.kind)
+            out.update(x.kind for x in o.otherwise)
+    return out
+
+
+class TestEveryKindATryReturnsHasANotableLine:
+    def test_every_kind_a_try_returns_declares_a_notable_line(self):
+        unnoted = {k for k in read_try_kinds() if K.BY_KIND[k].notable is None}
+        assert unnoted <= NO_NOTABLE, (
+            f"NO_NOTABLE: {sorted(unnoted - NO_NOTABLE)} can be a try's result and declare no "
+            "`notable`: give each a `Notable(field, key, metric, threshold, line)`")
+
+    def test_the_exemptions_only_shrink(self):
+        noted = {k for k in NO_NOTABLE if K.BY_KIND[k].notable is not None}
+        assert not noted, f"{sorted(noted)} declare a notable line now: take them off NO_NOTABLE"
+        assert NO_NOTABLE <= read_try_kinds(), sorted(NO_NOTABLE - read_try_kinds())
+
+    def test_a_notable_line_reaches_the_published_dict_only_when_declared(self):
+        from mechbench_compute.lexicon._base import Notable
+
+        k = Kind("x/y", "s", notable=Notable("p", ("id",), "difference", 0.5, "on {id} p {change}",
+                                             control={"factor": 0}))
+        assert k.to_dict()["notable"] == {"field": "p", "key": ["id"], "metric": "difference",
+                                          "threshold": 0.5, "line": "on {id} p {change}",
+                                          "control": {"factor": 0}}
+        assert "notable" not in Kind("x/y", "s").to_dict()
+
+    def test_the_generated_kind_table_carries_the_notable_line(self):
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        script = Path(__file__).resolve().parents[1] / "scripts" / "dump_kinds_ts.py"
+        out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, check=True).stdout
+        rows = {line.split(":", 1)[0].strip().strip('"'): line for line in out.splitlines()
+                if line.startswith('  "')}
+        assert ('notable: {"field": "entropy_bits", "key": ["id", "layer"], "metric": "difference", '
+                '"threshold": 0.5, "line": "at layer {layer} of {id} the entropy {change} bits"}') in rows["logits/funnel"]
+        assert "notable" not in rows["records/table"]
+
+    def test_a_declared_line_names_a_metric_its_kind_compares_by(self):
+        from mechbench_compute import metrics
+        from mechbench_compute.lexicon._base import DIFFERENCE
+
+        for k in K.KINDS:
+            if k.notable is not None and k.notable.metric != DIFFERENCE:
+                assert k.notable.metric in metrics.declared(k.name), k.name
+
+
 class TestOneKindPerFile:
     def test_a_kinds_path_is_a_function_of_its_name(self):
         import importlib

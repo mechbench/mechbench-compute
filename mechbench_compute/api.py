@@ -58,6 +58,7 @@ SOURCES: dict[str, tuple[str, str | None]] = {
     "Kind": ("mechbench_compute.lexicon._base", "Kind"),
     "Draw": ("mechbench_compute.lexicon._base", "Draw"),
     "Metric": ("mechbench_compute.lexicon._base", "Metric"),
+    "Notable": ("mechbench_compute.lexicon._base", "Notable"),
     "Extension": ("mechbench_compute.lexicon.extension", "Extension"),
     "Package": ("mechbench_compute.lexicon.extension", "Package"),
     "F": ("mechbench_compute.lexicon.values", "F"),

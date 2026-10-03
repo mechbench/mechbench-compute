@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Kind
+from mechbench_compute.lexicon._base import Kind, Notable
 from mechbench_compute.lexicon.values import CELLS, F, TOKEN, VARIANTS
 
 KIND = Kind(
@@ -33,4 +33,7 @@ KIND = Kind(
             "softcap": "On a model whose final logits pass through a softcap, `c·tanh(x/c)`, the cap `c`: "
                        "the pieces sum to the logit before it."},
     doc="Axis `[component]`, in the header's `components` order; measure `contribution`. `records/unnest field: cells` makes one record per component, `{address, point, layer, position, component, contribution}` at position -1: `embed` is the residual entering the first layer, `L{first}.resid_pre@-1`; `L3` is layer 3's whole write to the stream, point `block`, `L3.block@-1`; and `L3.attn`, `L3.mlp` and `L3.gate` are its writes at `attn_out`, `mlp_out` and `gate_out`, `L3.attn_out@-1` and so on.",
+    notable=Notable("measures.contribution", ("id",), "difference", 0.5,
+                    "on {id} the {header.components[index]} piece of the "
+                    "{'margin' if contrast is not None else 'logit'} {change}"),
 )

@@ -96,6 +96,26 @@ class Draw:
         return {"mark": self.mark, "encoding": dict(self.encoding)}
 
 
+DIFFERENCE = "difference"
+
+
+@dataclass(frozen=True)
+class Notable:
+    field: str
+    key: tuple[str, ...]
+    metric: str
+    threshold: float
+    line: str
+    control: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"field": self.field, "key": list(self.key), "metric": self.metric,
+                             "threshold": self.threshold, "line": self.line}
+        if self.control:
+            d["control"] = dict(self.control)
+        return d
+
+
 @dataclass(frozen=True)
 class Kind:
     name: str
@@ -113,6 +133,7 @@ class Kind:
     speak: str | None = None
     draw: Draw | None = None
     version: int = 1
+    notable: Notable | None = None
 
     @property
     def path(self) -> str:
@@ -141,7 +162,7 @@ class Kind:
         return out
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "name": self.name, "path": self.path, "title": self.title,
             "family": self.family,
             "summary": self.summary, "doc": self.doc,
@@ -154,6 +175,9 @@ class Kind:
             "draw": self.draw.to_dict() if self.draw else None,
             "version": self.version,
         }
+        if self.notable is not None:
+            d["notable"] = self.notable.to_dict()
+        return d
 
 
 @dataclass(frozen=True)

@@ -55,9 +55,16 @@ its own business.
   on every run), `read_numbers` (a number or a nested list of numbers as
   one flat list, None otherwise), and `compute_version`.
 - **The declaration**: `Op`, `P`, `In`, `Output`, `Otherwise`,
-  `Resume`, `Kind`, `Draw`, `Metric`, `F`, and `read_body_level` /
-  `read_model_level` for an operation whose resume level depends on its
-  params.
+  `Resume`, `Kind`, `Draw`, `Metric`, `Notable`, `F`, and
+  `read_body_level` / `read_model_level` for an operation whose resume
+  level depends on its params. A kind's `notable`, `Notable(field, key,
+  metric, threshold, line)`, says how a try's result of that kind reads
+  against its baseline: the field compared, the item fields that match
+  an item to its counterpart, the metric (`difference`, or one the kind
+  declares), the threshold it must pass when no noise floor applies,
+  and the sentence, a template like `speak` over the item that moved
+  most and `{change}`, `{before}`, `{after}`, `{name}` and `{index}`; a
+  kind without one has no notable line.
 - **The extension**: `Extension` and `Package`, the `MANIFEST` an
   extension package's entry point (`mechbench.extensions`) names; its
   `ops/` and `kinds/` are walked as core's are (docs/OPS_LAYOUT.md).
