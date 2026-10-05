@@ -9,14 +9,16 @@ from mechbench_compute.providers import messages as pm
 
 
 def tokenize_conversation(tokenizer, record: Mapping[str, Any], *,
-                          naturalism: bool = True) -> tuple[list[int], list[bool]]:
+                          naturalism: bool = True,
+                          date_string: str | None = None) -> tuple[list[int], list[bool]]:
     rid = record.get("id")
     turns = read_turns(record)
+    pinned = {} if date_string is None else {"date_string": date_string}
 
     def render(upto: int, opening: bool) -> str:
         try:
             return tokenizer.apply_chat_template(turns[:upto], tokenize=False,
-                                                 add_generation_prompt=opening)
+                                                 add_generation_prompt=opening, **pinned)
         except Exception as e:  # noqa: BLE001
             raise RecordRefused("TEMPLATE_REFUSED", rid,
                                 f"is refused by the model's chat template: {e}") from None

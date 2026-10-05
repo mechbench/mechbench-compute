@@ -7,6 +7,8 @@ from mechbench_compute.adapters.record_refused import RecordRefused
 from mechbench_compute.adapters.tokenize_conversation import tokenize_conversation
 from mechbench_compute.distill import encode
 
+TEMPLATE_DATE = "26 Jul 2024"
+
 
 class SftItem(NamedTuple):
     ids: list[int]
@@ -25,6 +27,8 @@ def read_sft_items(tokenizer, records: Sequence[Mapping[str, Any]],
     naturalism = bool(params.get("naturalism", True))
     if not records:
         raise ValueError("adapter/train: `objective: \"sft\"` trains on records, and none arrived")
+    bos = getattr(tokenizer, "bos_token_id", None)
+    date = TEMPLATE_DATE if reads_date(tokenizer) else None
     items: list[SftItem] = []
     counts = {"n_documents": 0, "n_conversations": 0, "n_tokens": 0}
     truncated = 0
@@ -32,10 +36,13 @@ def read_sft_items(tokenizer, records: Sequence[Mapping[str, Any]],
         rid = record.get("id")
         text = record.get("text")
         if record.get("messages") is not None:
-            ids, trained = tokenize_conversation(tokenizer, record, naturalism=naturalism)
+            ids, trained = tokenize_conversation(tokenizer, record, naturalism=naturalism,
+                                                 date_string=date)
             counts["n_conversations"] += 1
         elif isinstance(text, str) and text:
             ids = encode(tokenizer, text)
+            if bos is not None and ids[:1] != [bos]:
+                ids = [bos, *ids]
             trained = [False] + [True] * (len(ids) - 1)
             counts["n_documents"] += 1
         else:
@@ -54,9 +61,18 @@ def read_sft_items(tokenizer, records: Sequence[Mapping[str, Any]],
             raise RecordRefused(
                 "NOTHING_TO_TRAIN", rid,
                 f"has no token to train within its first {max_tokens}: a document needs two "
-                f"tokens, a conversation an assistant token before the cut")
+                f"tokens, its BOS one of them, a conversation an assistant token before the cut")
         last = max(i for i, t in enumerate(trained) if t)
         items.append(SftItem(ids[:last + 1], trained[:last + 1]))
         counts["n_tokens"] += sum(trained)
-    return items, {**counts, "max_tokens": max_tokens, "truncation": truncation,
-                   "truncated": truncated, "naturalism": naturalism}
+    settings = {**counts, "max_tokens": max_tokens, "truncation": truncation,
+                "truncated": truncated, "naturalism": naturalism, "bos": bos is not None}
+    if date is not None and counts["n_conversations"]:
+        settings["template_date"] = date
+    return items, settings
+
+
+def reads_date(tokenizer) -> bool:
+    template = getattr(tokenizer, "chat_template", None)
+    templates = template.values() if isinstance(template, Mapping) else [template]
+    return any(isinstance(t, str) and "date_string" in t for t in templates)

@@ -21,7 +21,22 @@ _None._
 
 ### Changes that alter results without raising
 
-_None._
+- `adapter/train` with `objective: "sft"` begins each document with the
+  model's BOS token when its tokenizer defines one (Gemma 3, Gemma 4 and
+  Llama do; Qwen 2 has none, and its documents are as they were). The
+  BOS is not trained and the first text token now is, so a
+  document-trained adapter differs from 0.189.0's and `train.n_tokens`
+  counts one more token a document; a document that already begins with
+  the BOS is not given a second. `train` records `bos` (`true` or
+  `false`). Reads are unchanged, and a conversation trains as it did:
+  on a model whose template stamps no date, a run on conversations alone
+  is byte for byte 0.189.0's adapter, its `train` gaining only `bos`.
+- Llama conversation training no longer depends on the day: a chat
+  template that stamps a date (Llama 3's `date_string`) is rendered for
+  training with it fixed at "26 Jul 2024", the Llama 3.1 release
+  default, where it took today's date, and `train` records
+  `template_date` when a conversation was rendered by such a template.
+  A local chat and every read still render the template's own date.
 
 ### Other
 

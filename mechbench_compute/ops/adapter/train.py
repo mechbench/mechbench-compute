@@ -99,12 +99,15 @@ first user message as a local chat sends it, and only its assistant
 turns are trained, as the model's chat template segments them — what
 the template adds after its generation prompt to render the turn: the
 reply, its end marker and anything the template writes after that. A
-transcript is trained from one participant's side once `text/render`
-has written it as a conversation. A record without `messages` is a
-document: its `text`, tokenized as written with nothing added (no BOS),
-as a read renders it, every token after the first trained. `max_tokens`
-caps a record; `truncation: "cut"` trains its first `max_tokens` tokens
-and `"fail"` refuses it. The naturalism gate refuses an assistant turn
+template that stamps a date (Llama 3's) is rendered with its
+`date_string` fixed at "26 Jul 2024", so a conversation trains the same
+whatever the day. A transcript is trained from one participant's side
+once `text/render` has written it as a conversation. A record without
+`messages` is a document: its `text`, tokenized as written after the
+model's BOS token when its tokenizer defines one, every token after the
+first trained, so with a BOS every token of the text. `max_tokens` caps
+a record; `truncation: "cut"` trains its first `max_tokens` tokens and
+`"fail"` refuses it. The naturalism gate refuses an assistant turn
 that does not begin and end on a token boundary of its whole
 conversation. `train` records the objective, these settings and the
 counts; seeds and checkpoints are as above. A record that is neither, or
@@ -156,7 +159,7 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
            "Prompt records with a known `answer`, mixed into each batch.",
            many=True, required=False),
     ),
-    output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts; under `sft`, `objective`, `n_documents`, `n_conversations`, `n_tokens` (the tokens trained), `max_tokens`, `truncation`, `truncated` (the records cut) and `naturalism` in place of the target's). Wire it into a later node's `adapter` port, or `adapter/publish`. With `operator`, an `adapter/operator` instead: `parameters` by layer, `operator` (the form, `d`, `params`, `effective`), `base_model`, `trained_on` and `train`; a model reference carries it.",
+    output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts; under `sft`, `objective`, `n_documents`, `n_conversations`, `n_tokens` (the tokens trained), `max_tokens`, `truncation`, `truncated` (the records cut), `naturalism`, `bos` (whether documents began with the BOS token) and, when a conversation was rendered by a template that stamps a date, `template_date`, in place of the target's). Wire it into a later node's `adapter` port, or `adapter/publish`. With `operator`, an `adapter/operator` instead: `parameters` by layer, `operator` (the form, `d`, `params`, `effective`), `base_model`, `trained_on` and `train`; a model reference carries it.",
                   otherwise=tuple(Otherwise("adapter/operator", param="operator.function", equals=f)
                                   for f in ("affine", "polynomial", "mlp"))),
     outputs={"checkpoints": Output(

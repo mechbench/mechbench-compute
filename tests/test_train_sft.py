@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 
 import mlx.core as mx
 import numpy as np
@@ -29,6 +30,10 @@ GLUED = (
 
 REFUSING = "{{ raise_exception('Conversation roles must alternate user/assistant') }}"
 
+DATED = (
+    "{% if not date_string is defined %}{% set date_string = strftime_now('%d %b %Y') %}"
+    "{% endif %}<start>system {{ date_string }}<end>" + TEMPLATE)
+
 DOCUMENT = {"id": "d", "text": "the cat sat on a mat and the dog ran"}
 
 CONVERSATION = {"id": "c", "messages": [
@@ -41,6 +46,8 @@ CONVERSATION = {"id": "c", "messages": [
 def build_model(arch: str = "llama", template: str = TEMPLATE):
     model = build_tiny_model(arch, BY_MODEL_TYPE[arch])
     model.tokenizer.chat_template = template
+    if arch == "qwen2":
+        model.tokenizer.bos_token = None
     return model
 
 
@@ -81,14 +88,44 @@ class TestDeclaration:
 
 
 class TestWhatIsTrained:
-    def test_a_document_is_its_text_as_written_and_every_token_after_the_first(self):
+    def test_a_document_is_its_bos_and_its_text_as_written_and_every_text_token_trained(self):
         model = build_model()
         (item,), counts = read_sft_items(model.tokenizer, [DOCUMENT], {})
-        assert item.ids == encode(model.tokenizer, DOCUMENT["text"])
-        assert item.trained == [False] + [True] * (len(item.ids) - 1)
-        assert counts == {"n_documents": 1, "n_conversations": 0, "n_tokens": len(item.ids) - 1,
+        text = encode(model.tokenizer, DOCUMENT["text"])
+        assert item.ids == [model.tokenizer.bos_token_id, *text]
+        assert item.trained == [False] + [True] * len(text)
+        assert counts == {"n_documents": 1, "n_conversations": 0, "n_tokens": len(text),
                           "max_tokens": 512, "truncation": "cut", "truncated": 0,
-                          "naturalism": True}
+                          "naturalism": True, "bos": True}
+
+    @pytest.mark.parametrize("arch", MODEL_TYPES)
+    def test_a_document_begins_with_bos_where_the_tokenizer_has_one(self, arch):
+        tok = build_model(arch).tokenizer
+        (item,), counts = read_sft_items(tok, [DOCUMENT], {})
+        text = encode(tok, DOCUMENT["text"])
+        if arch == "qwen2":
+            assert tok.bos_token_id is None and not counts["bos"]
+            assert item.ids == text and item.trained == [False] + [True] * (len(text) - 1)
+        else:
+            assert counts["bos"] and item.ids == [tok.bos_token_id, *text]
+            assert item.trained == [False] + [True] * len(text)
+
+    def test_a_document_written_with_its_bos_is_not_given_a_second(self):
+        tok = build_model().tokenizer
+        (item,), _ = read_sft_items(tok, [{"id": "b", "text": "<start> the cat"}], {})
+        assert tok.convert_ids_to_tokens(item.ids) == ["<start>", "the", "cat"]
+
+    @pytest.mark.parametrize("arch", MODEL_TYPES)
+    def test_a_conversation_is_the_same_whether_the_tokenizer_has_a_bos(self, arch):
+        with_bos = build_tiny_model(arch, BY_MODEL_TYPE[arch])
+        with_bos.tokenizer.chat_template = TEMPLATE
+        without = build_tiny_model(arch, BY_MODEL_TYPE[arch])
+        without.tokenizer.chat_template = TEMPLATE
+        without.tokenizer.bos_token = None
+        one, settings = read_sft_items(with_bos.tokenizer, [CONVERSATION], {})
+        two, plain = read_sft_items(without.tokenizer, [CONVERSATION], {})
+        assert one == two and {**settings, "bos": False} == plain
+        assert "template_date" not in settings
 
     @pytest.mark.parametrize("arch", MODEL_TYPES)
     def test_a_conversation_trains_its_assistant_turns_only(self, arch):
@@ -133,11 +170,82 @@ class TestWhatIsTrained:
                                        {"max_tokens": 10})
         assert [len(i.ids) for i in items] == [10, 10]
         assert items[1].trained == [False] * 8 + [True, True]
-        assert counts["truncated"] == 1 and counts["n_tokens"] == 9 + 2
+        assert counts["truncated"] == 2 and counts["n_tokens"] == 9 + 2
 
     def test_without_the_gate_a_boundary_inside_a_token_is_taken_where_the_text_before_ends(self):
         trained, _ = read_trained(build_model(template=GLUED), CONVERSATION, naturalism=False)
         assert trained == ["dog", "ran", "<end>", "the", "cat", "sat", "<end>"]
+
+
+class TestTheTemplateDate:
+    @staticmethod
+    def on(monkeypatch, day: int):
+        from transformers.utils import chat_template_utils
+
+        class Clock(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime.datetime(2026, 10, day, 12, 0, tzinfo=tz)
+
+        monkeypatch.setattr(chat_template_utils, "datetime", Clock)
+
+    @staticmethod
+    def rendered(monkeypatch, tok) -> list[str]:
+        renders: list[str] = []
+        apply = tok.apply_chat_template
+
+        def spy(*args, **kw):
+            out = apply(*args, **kw)
+            renders.append(out)
+            return out
+
+        monkeypatch.setattr(tok, "apply_chat_template", spy)
+        return renders
+
+    def read_on(self, monkeypatch, day: int):
+        self.on(monkeypatch, day)
+        tok = build_model(template=DATED).tokenizer
+        renders = self.rendered(monkeypatch, tok)
+        items, settings = read_sft_items(tok, [CONVERSATION], {})
+        return renders, items, settings
+
+    def test_the_clock_is_what_the_template_would_stamp(self, monkeypatch):
+        tok = build_model(template=DATED).tokenizer
+        stamped = []
+        for day in (4, 5):
+            self.on(monkeypatch, day)
+            stamped.append(tok.apply_chat_template(CONVERSATION["messages"], tokenize=False))
+        assert "04 Oct 2026" in stamped[0] and "05 Oct 2026" in stamped[1]
+
+    def test_a_dated_template_renders_the_same_bytes_whatever_the_day(self, monkeypatch):
+        one, items, settings = self.read_on(monkeypatch, 4)
+        two, again, _ = self.read_on(monkeypatch, 5)
+        assert one == two and items == again and len(one) == 5
+        assert all("<start>system 26 Jul 2024<end>" in r for r in one)
+        assert settings["template_date"] == "26 Jul 2024"
+        trained = [n for n, t in zip(build_model().tokenizer.convert_ids_to_tokens(items[0].ids),
+                                     items[0].trained) if t]
+        assert trained == ["a", "dog", "ran", "<end>", "and", "the", "cat", "sat", "<end>"]
+
+    def test_the_date_is_named_only_when_a_conversation_was_rendered(self):
+        _, settings = read_sft_items(build_model(template=DATED).tokenizer, [DOCUMENT], {})
+        assert "template_date" not in settings
+
+    def test_a_template_without_a_date_is_given_none(self, monkeypatch):
+        tok = build_model().tokenizer
+        calls: list[dict] = []
+        apply = tok.apply_chat_template
+        monkeypatch.setattr(tok, "apply_chat_template",
+                            lambda *a, **kw: calls.append(kw) or apply(*a, **kw))
+        _, settings = read_sft_items(tok, [CONVERSATION], {})
+        assert calls and not any("date_string" in kw for kw in calls)
+        assert "template_date" not in settings
+
+    def test_the_result_names_the_date(self, monkeypatch):
+        self.on(monkeypatch, 4)
+        model = build_model(template=DATED)
+        out = train(model, [CONVERSATION])["out"]
+        assert out["train"]["template_date"] == "26 Jul 2024" and out["train"]["bos"]
 
 
 class TestTraining:
@@ -163,8 +271,8 @@ class TestTraining:
         assert out["lora"]["rank"] == 2 and out["lora"]["target_modules"] == ["q_proj", "v_proj"]
         assert {k: v for k, v in out["train"].items() if k != "final_loss"} == {
             "objective": "sft", "steps": 6, "lr": 0.05, "seed": 3, "batch": {"record": 2},
-            "n_documents": 1, "n_conversations": 1, "n_tokens": 18, "max_tokens": 512,
-            "truncation": "cut", "truncated": 0, "naturalism": True}
+            "n_documents": 1, "n_conversations": 1, "n_tokens": 19, "max_tokens": 512,
+            "truncation": "cut", "truncated": 0, "naturalism": True, "bos": True}
 
     def test_keep_checkpoints_keeps_the_adapter_by_step(self):
         out = train(build_model(), [DOCUMENT, CONVERSATION], keep_checkpoints=True,
@@ -211,9 +319,9 @@ class TestTraining:
 
 
 class TestRefusals:
-    def refuse(self, record, code, *, template=TEMPLATE, **params) -> RecordRefused:
+    def refuse(self, record, code, *, template=TEMPLATE, arch="llama", **params) -> RecordRefused:
         with pytest.raises(RecordRefused, match=code) as caught:
-            read_sft_items(build_model(template=template).tokenizer, [record], params)
+            read_sft_items(build_model(arch, template=template).tokenizer, [record], params)
         assert caught.value.code == code and caught.value.record == record["id"]
         assert caught.value.issue == {"code": code, "record": record["id"],
                                       "message": str(caught.value).removeprefix(f"{code}: ")}
@@ -258,8 +366,12 @@ class TestRefusals:
                                                truncation="fail"))
 
     def test_a_record_with_nothing_left_to_train(self):
-        self.refuse({"id": "one", "text": "cat"}, "NOTHING_TO_TRAIN")
+        self.refuse({"id": "one", "text": "cat"}, "NOTHING_TO_TRAIN", arch="qwen2")
         self.refuse(CONVERSATION, "NOTHING_TO_TRAIN", max_tokens=8)
+
+    def test_a_one_token_document_trains_its_token_after_the_bos(self):
+        (item,), _ = read_sft_items(build_model().tokenizer, [{"id": "one", "text": "cat"}], {})
+        assert item.trained == [False, True]
 
     @pytest.mark.parametrize("params, inputs, says", [
         ({"objective": "dpo"}, {}, "'decision' or 'sft'"),
