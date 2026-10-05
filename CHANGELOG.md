@@ -17,6 +17,22 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+---
+
+## 0.191.0 — 2026-10-04
+
+### Changes that raise
+
 - A try's `notable` carries raw measurements and one categorical
   judgment, never a sentence (Benji, 2026-10-04): `{state, baseline,
   compared, changes, caveats}`. `state` is `"noise"` (within `k` noise
