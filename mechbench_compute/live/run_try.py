@@ -37,6 +37,8 @@ def run_try(executor: Any, *, op: str | None = None, graph: Mapping[str, Any] | 
 
     if (op is None) == (graph is None):
         raise TryRefused("a try names one operation or gives one graph")
+    if not k >= 1:
+        raise TryRefused(f"k is how many floors a change must pass, at least 1, not {k:g}")
     given = {"op": op, "inputs": dict(inputs or {}), "params": dict(params or {})} if op is not None else {}
     seed = derive(live_run_id, seq)
     if op is not None:

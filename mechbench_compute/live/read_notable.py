@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import fnmatch
 import json
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -55,7 +54,8 @@ def read_notable(result: Any, notable: Notable, *, kind: str, operation: str,
                       "operation": operation, "field": notable.field})
     if not pure and baseline.machine and machine and baseline.machine != machine:
         found.append({"code": "OTHER_MACHINE", "baseline_machine": baseline.machine, "machine": machine})
-    return {"state": judge(notable, ranked[0], floor, k), "baseline": baseline.to_dict(),
+    unchanged = all(r.after == r.before for r in readings)
+    return {"state": NOISE if unchanged else judge(notable, ranked[0], floor, k), "baseline": baseline.to_dict(),
             "compared": len(readings),
             "changes": [read_change(notable, r) for r in ranked[:MOST_CHANGES]],
             "caveats": found + caveats}
@@ -174,12 +174,9 @@ def allow(x: float, y: float, floor: Mapping[str, Any] | None) -> float | None:
 
 def count_floors(x: float, y: float, floor: Mapping[str, Any] | None) -> float | None:
     allowed = allow(x, y, floor)
-    if allowed is None:
+    if not allowed:
         return None
-    gap = abs(y - x)
-    if gap == 0:
-        return 0.0
-    return gap / allowed if allowed > 0 else math.inf
+    return abs(y - x) / allowed
 
 
 def measure(notable: Notable, r: Reading) -> float:
@@ -187,7 +184,11 @@ def measure(notable: Notable, r: Reading) -> float:
 
 
 def is_past(r: Reading, floor: Mapping[str, Any] | None, k: float) -> bool:
-    return floor is None or (r.units or 0.0) > k
+    if floor is None:
+        return True
+    if not r.floor:
+        return r.after != r.before
+    return (r.units or 0.0) > k
 
 
 def rank(notable: Notable, r: Reading, floor: Mapping[str, Any] | None,
@@ -213,7 +214,7 @@ def read_change(notable: Notable, r: Reading) -> dict[str, Any]:
         "difference": r.after - r.before,
         "metric": notable.metric,
         "distance": measure(notable, r),
-        "floors": None if r.units is None or math.isinf(r.units) else r.units,
+        "floors": r.units,
         "floor": r.floor,
         "threshold": notable.threshold,
     }

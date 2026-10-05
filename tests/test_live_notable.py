@@ -7,7 +7,7 @@ import pytest
 
 from mechbench_compute import architectures
 from mechbench_compute import model as model_mod
-from mechbench_compute.api import run_try
+from mechbench_compute.api import TryRefused, run_try
 from mechbench_compute.lexicon import kinds as K
 from mechbench_compute.live.choose_baseline import choose_baseline
 from mechbench_compute.live.read_caveats import read_caveats
@@ -187,8 +187,40 @@ def test_with_no_floor_the_threshold_judges_and_a_caveat_says_so(warm):
     assert caveat(elsewhere, "NO_FLOOR") == {"code": "NO_FLOOR", "noise": True, "architecture": "llama",
                                              "operation": "logits/read", "field": "tracked.*.p"}
     still = read(executor, model, A, baseline={"name": "base", "result": base["result"]})["notable"]
-    assert still["state"] == "small"
+    assert still["state"] == "noise"
     assert still["changes"][0]["distance"] == 0 and still["changes"][0]["threshold"] == 0.1
+
+
+def test_a_change_of_zero_is_noise_with_or_without_a_floor(warm):
+    executor, model = warm()
+    lens = run_try(executor, op="logits/read-layers", inputs={"records": A}, params={"top_k": 3}, model=model)
+    for noise in (None, floor_of("llama", "entropy_bits", 0.0, "logits/read-layers"),
+                  floor_of("llama", "entropy_bits", 0.01, "logits/read-layers")):
+        again = run_try(executor, op="logits/read-layers", inputs={"records": A}, params={"top_k": 5}, model=model,
+                        baseline={"name": "lens", "result": lens["result"]}, noise=noise)["notable"]
+        assert again["state"] == "noise" and again["compared"] == 8
+        assert {c["difference"] for c in again["changes"]} == {0}
+
+
+def test_floors_is_null_over_a_floor_of_zero_whatever_the_difference(warm):
+    executor, model = warm()
+    base = read(executor, model, A)
+    zero = floor_of("llama", "tracked.*.p", 0.0)
+    same = read(executor, model, A, baseline={"name": "base", "result": base["result"]}, noise=zero)["notable"]
+    assert same["state"] == "noise"
+    assert {(c["floors"], c["floor"]) for c in same["changes"]} == {(None, 0.0)}
+    moved = read(executor, model, B, baseline={"name": "base", "result": base["result"]}, noise=zero)["notable"]
+    assert moved["state"] == "moved"
+    assert {(c["floors"], c["floor"]) for c in moved["changes"]} == {(None, 0.0)}
+
+
+@pytest.mark.parametrize("k", [0, 0.5, -1])
+def test_k_is_at_least_one(warm, k):
+    executor, model = warm()
+    base = read(executor, model, A)
+    with pytest.raises(TryRefused, match="at least 1"):
+        read(executor, model, A, baseline={"name": "base", "result": base["result"]}, k=k)
+    assert read(executor, model, A, baseline={"name": "base", "result": base["result"]}, k=1)["notable"]
 
 
 def test_a_saturated_softcap_read_is_a_caveat_with_its_count(warm):

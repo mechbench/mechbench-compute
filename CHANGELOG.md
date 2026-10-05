@@ -17,11 +17,23 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- `run_try` refuses a `k` under 1 (`TryRefused`, "k is how many floors
+  a change must pass, at least 1"): `k` 0 called every change past the
+  floors, so a floor said nothing.
 
 ### Changes that alter results without raising
 
-_None._
+- A try's notable `state` is `"noise"` when every compared difference is
+  exactly zero, floor or not: without a floor a change of 0 read
+  `"small"` (054's `logits/read-layers` tries, 34 differences of 0).
+  Without a floor a nonzero difference under the kind's threshold is
+  `"small"` and past it `"moved"`; with one, within `k` floors is
+  `"noise"`, past them and under the threshold `"small"`, past both
+  `"moved"`, as before.
+- A change's `floors` is null over a floor of 0 whatever the
+  difference, as 0.191.0's entry says; with no difference it was 0.
+  `floor` stays 0. Over a floor of 0 any nonzero difference is past it.
+  Results and hashes are unchanged; only the notable is.
 
 ### Other
 
