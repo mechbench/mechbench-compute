@@ -17,6 +17,22 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+---
+
+## 0.192.0 — 2026-10-05
+
+### Changes that raise
+
 - `run_try` refuses a `k` under 1 (`TryRefused`, "k is how many floors
   a change must pass, at least 1"): `k` 0 called every change past the
   floors, so a floor said nothing.
