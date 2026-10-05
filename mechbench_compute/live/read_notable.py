@@ -12,26 +12,23 @@ from mechbench_compute.calibration.read_numbers import read_numbers
 from mechbench_compute.lexicon._base import DIFFERENCE, Notable
 from mechbench_compute.live.choose_baseline import CONTROL, Baseline, is_control
 from mechbench_compute.live.read_caveats import read_caveats
-from mechbench_compute.live.say_number import PLACES, say_number
 
-NONE_YET = "first reading here; nothing to compare yet"
 K_FLOORS = 1.0
-WITHIN_FLOOR = "this difference is within the floor"
-MOST_PLACES = 6
+MOST_CHANGES = 10
 COUNT = "items"
+NOISE = "noise"
+SMALL = "small"
 MOVED = "moved"
-WITHIN = "within"
-BELOW = "below"
-SAID_BEFORE = {MOVED: "", WITHIN: "within the floor: ", BELOW: "below the threshold: "}
 
 
 @dataclass(frozen=True)
 class Reading:
     item: Mapping[str, Any]
-    name: str | None
+    field: str
     index: int | None
     before: float
     after: float
+    floor: float | None
     units: float | None
     distance: float
 
@@ -43,28 +40,25 @@ def read_notable(result: Any, notable: Notable, *, kind: str, operation: str,
     items, header = read_items_and_header(result)
     caveats = read_caveats(items, header)
     if baseline is None:
-        return {"line": NONE_YET, "moved": False, "baseline": None, "caveats": caveats}
+        return {"state": None, "baseline": None, "compared": 0, "changes": [], "caveats": caveats}
     floor = find_floor(noise, architecture, operation, notable.field)
     readings = [r for before, after in pair_items(notable, items, header, baseline)
                 for r in read_pair(notable, kind, before, after, floor)]
-    against = f"against {baseline.label}"
+    found: list[dict[str, Any]] = []
     if not readings:
-        return {"line": f"{against}, nothing to compare: no item carries {notable.field} on both sides",
-                "moved": False, "baseline": baseline.to_dict(), "caveats": caveats}
-    best, state = choose_reading(notable, readings, floor, k)
-    measured = say_measure(notable, best, floor, state)
-    line = f"{against}, {SAID_BEFORE[state]}{say_clause(notable, best, header)} ({measured})"
-    moved = state == MOVED
-    found: list[dict[str, str]] = []
+        found.append({"code": "NOTHING_TO_COMPARE", "field": notable.field})
+        return {"state": None, "baseline": baseline.to_dict(), "compared": 0, "changes": [],
+                "caveats": found + caveats}
+    ranked = sorted(readings, key=lambda r: rank(notable, r, floor, k), reverse=True)
     if floor is None and not pure:
-        found.append({"code": "NO_FLOOR", "line": say_no_floor(noise, architecture, operation, notable)})
-    if state == WITHIN and any(r.after != r.before for r in readings):
-        found.append({"code": "WITHIN_FLOOR", "line": WITHIN_FLOOR})
+        found.append({"code": "NO_FLOOR", "noise": noise is not None, "architecture": architecture,
+                      "operation": operation, "field": notable.field})
     if not pure and baseline.machine and machine and baseline.machine != machine:
-        found.append({"code": "OTHER_MACHINE", "line": (
-            f"the baseline was read on {baseline.machine} and this on {machine}: "
-            "part of any difference may be the machines'")})
-    return {"line": line, "moved": moved, "baseline": baseline.to_dict(), "caveats": found + caveats}
+        found.append({"code": "OTHER_MACHINE", "baseline_machine": baseline.machine, "machine": machine})
+    return {"state": judge(notable, ranked[0], floor, k), "baseline": baseline.to_dict(),
+            "compared": len(readings),
+            "changes": [read_change(notable, r) for r in ranked[:MOST_CHANGES]],
+            "caveats": found + caveats}
 
 
 def read_items_and_header(result: Any) -> tuple[list[Mapping[str, Any]], dict[str, Any]]:
@@ -131,20 +125,20 @@ def read_paths(item: Mapping[str, Any], field: str) -> list[tuple[str, str | Non
 def read_pair(notable: Notable, kind: str, before: Mapping[str, Any], after: Mapping[str, Any],
               floor: Mapping[str, Any] | None) -> list[Reading]:
     earlier = {path: value for path, _, value in read_paths(before, notable.field)}
-    compared: list[tuple[str | None, int | None, float, float]] = []
-    for path, name, value in read_paths(after, notable.field):
+    compared: list[tuple[str, int | None, float, float]] = []
+    for path, _, value in read_paths(after, notable.field):
         xs = read_numbers(earlier.get(path)) if path in earlier else None
         ys = read_numbers(value)
         if xs is None or ys is None or len(xs) != len(ys):
             continue
         listed = isinstance(value, (list, tuple))
-        compared += [(name, i if listed else None, x, y) for i, (x, y) in enumerate(zip(xs, ys))]
+        compared += [(path, i if listed else None, x, y) for i, (x, y) in enumerate(zip(xs, ys))]
     if not compared:
         return []
     distance = (max(abs(y - x) for *_, x, y in compared) if notable.metric == DIFFERENCE
                 else measure_distance(kind, notable.metric, before, after))
-    return [Reading(after, name, index, x, y, count_floors(x, y, floor), distance)
-            for name, index, x, y in compared]
+    return [Reading(after, path, index, x, y, allow(x, y, floor), count_floors(x, y, floor), distance)
+            for path, index, x, y in compared]
 
 
 def measure_distance(kind: str, name: str, before: Mapping[str, Any], after: Mapping[str, Any]) -> float:
@@ -171,95 +165,55 @@ def is_same_field(declared: str, recorded: str) -> bool:
                                     for x, y in zip(a, b))
 
 
-def count_floors(x: float, y: float, floor: Mapping[str, Any] | None) -> float | None:
+def allow(x: float, y: float, floor: Mapping[str, Any] | None) -> float | None:
     if floor is None:
+        return None
+    return max(float(floor.get("spread") or 0),
+               float(floor.get("relative_spread") or 0) * max(abs(x), abs(y)))
+
+
+def count_floors(x: float, y: float, floor: Mapping[str, Any] | None) -> float | None:
+    allowed = allow(x, y, floor)
+    if allowed is None:
         return None
     gap = abs(y - x)
     if gap == 0:
         return 0.0
-    allowed = max(float(floor.get("spread") or 0),
-                  float(floor.get("relative_spread") or 0) * max(abs(x), abs(y)))
     return gap / allowed if allowed > 0 else math.inf
 
 
-def choose_reading(notable: Notable, readings: Sequence[Reading], floor: Mapping[str, Any] | None,
-                   k: float) -> tuple[Reading, str]:
-    def measure(r: Reading) -> float:
-        return abs(r.after - r.before) if notable.metric == DIFFERENCE else r.distance
-
-    def rank(r: Reading) -> tuple[float, float]:
-        return measure(r), abs(r.after - r.before)
-
-    past = [r for r in readings if floor is None or (r.units or 0.0) > k]
-    moved = [r for r in past if measure(r) > notable.threshold]
-    if moved:
-        return max(moved, key=rank), MOVED
-    if past:
-        return max(past, key=rank), BELOW
-    return max(readings, key=lambda r: (r.units or 0.0, abs(r.after - r.before))), WITHIN
+def measure(notable: Notable, r: Reading) -> float:
+    return abs(r.after - r.before) if notable.metric == DIFFERENCE else r.distance
 
 
-def say_clause(notable: Notable, best: Reading, header: Mapping[str, Any]) -> str:
-    from mechbench_compute.expr.engine import ExprError, load_engine
-
-    change = say_change(best.before, best.after)
-    record = {f: read_rounded(v) if is_number(v) else v for f, v in best.item.items()}
-    record.update(name=best.name, index=best.index, before=read_rounded(best.before),
-                  after=read_rounded(best.after), delta=read_rounded(best.after - best.before), change=change)
-    try:
-        said = load_engine().render(notable.line, [record], {}, dict(header)).values
-    except ExprError:
-        said = []
-    return str(said[0]) if said and said[0] is not None else f"{notable.field} {change}"
+def is_past(r: Reading, floor: Mapping[str, Any] | None, k: float) -> bool:
+    return floor is None or (r.units or 0.0) > k
 
 
-def say_change(before: float, after: float) -> str:
-    if before == after:
-        return f"stays at {say_number(after)}"
-    a, b = say_apart(before, after)
-    return f"{'rises' if after > before else 'falls'} from {a} to {b}"
+def rank(notable: Notable, r: Reading, floor: Mapping[str, Any] | None,
+         k: float) -> tuple[bool, bool, float, float]:
+    past = is_past(r, floor, k)
+    return (past and measure(notable, r) > notable.threshold, past,
+            measure(notable, r) if past else (r.units or 0.0), abs(r.after - r.before))
 
 
-def say_apart(x: float, y: float) -> tuple[str, str]:
-    for places in range(PLACES, MOST_PLACES + 1):
-        a, b = say_number(x, places), say_number(y, places)
-        if a != b:
-            return a, b
-    return repr(float(x)), repr(float(y))
+def judge(notable: Notable, r: Reading, floor: Mapping[str, Any] | None, k: float) -> str:
+    if not is_past(r, floor, k):
+        return NOISE
+    return MOVED if measure(notable, r) > notable.threshold else SMALL
 
 
-def read_rounded(x: float) -> float | int:
-    said = say_number(x)
-    try:
-        return int(said)
-    except ValueError:
-        return float(said)
-
-
-def is_number(v: Any) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
-
-
-def say_measure(notable: Notable, best: Reading, floor: Mapping[str, Any] | None, state: str) -> str:
-    parts = []
-    if notable.metric != DIFFERENCE:
-        parts.append(f"{notable.metric.replace('-', ' ')} {say_number(best.distance)}")
-    if floor is not None:
-        parts.append(say_floors(best.units or 0.0))
-    if state != WITHIN:
-        parts.append(f"{'past' if state == MOVED else 'under'} {say_number(notable.threshold)}")
-    return ", ".join(parts)
-
-
-def say_floors(units: float) -> str:
-    if math.isinf(units):
-        return "above a floor of 0"
-    said = say_number(units)
-    return f"{said} floor{'' if said == '1' else 's'}"
-
-
-def say_no_floor(noise: Any, architecture: str | None, operation: str, notable: Notable) -> str:
-    judged = f"moved is judged against the threshold, {say_number(notable.threshold)}"
-    if noise is None:
-        return f"no noise floor: {judged}"
-    return f"the noise floor has no record for {architecture} {operation} {notable.field}: {judged}"
+def read_change(notable: Notable, r: Reading) -> dict[str, Any]:
+    return {
+        "key": {f: read_record_key(r.item, f) for f in notable.key},
+        "field": r.field,
+        "index": r.index,
+        "before": r.before,
+        "after": r.after,
+        "difference": r.after - r.before,
+        "metric": notable.metric,
+        "distance": measure(notable, r),
+        "floors": None if r.units is None or math.isinf(r.units) else r.units,
+        "floor": r.floor,
+        "threshold": notable.threshold,
+    }

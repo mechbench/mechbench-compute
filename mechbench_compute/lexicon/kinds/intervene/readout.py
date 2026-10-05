@@ -23,6 +23,5 @@ KIND = Kind(
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
     doc="A decision readout carries `entropy_bits`, `top` and `tracked`; a capture readout carries `position` and `captures`, "
         "and a capture readout wires into another intervention's `source`.",
-    notable=Notable("tracked.*.p", ("id", "factor", "cell"), "total-variation", 0.1,
-                    "at factor {factor} on {id} '{name}' {change}", control={"factor": 0}),
+    notable=Notable("tracked.*.p", ("id", "factor", "cell"), "total-variation", 0.1, control={"factor": 0}),
 )

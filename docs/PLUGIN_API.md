@@ -58,14 +58,15 @@ its own business.
   `Resume`, `Kind`, `Draw`, `Metric`, `Notable`, `F`, and
   `read_body_level` / `read_model_level` for an operation whose resume
   level depends on its params. A kind's `notable`, `Notable(field, key,
-  metric, threshold, line)`, says how a try's result of that kind reads
+  metric, threshold)`, says how a try's result of that kind reads
   against its baseline: the field compared, the item fields that match
   an item to its counterpart, the metric (`difference`, or one the kind
-  declares), the threshold the metric must pass, and the sentence, a
-  template like `speak` over the item that moved most and `{change}`,
-  `{before}`, `{after}`, `{name}` and `{index}`. A change has moved when
-  it is past `k` noise floors and past the threshold; without a floor
-  the threshold alone judges. A kind without one has no notable line.
+  declares) and the threshold the metric must pass. A try's `notable`
+  carries the raw changes (before, after, difference, the metric's
+  distance, the floors and the floor, the threshold) and one categorical
+  `state`: `noise` within `k` floors, `small` past them but under the
+  threshold, `moved` past both; without a floor the threshold alone
+  judges. A kind without one has no notable.
 - **The extension**: `Extension` and `Package`, the `MANIFEST` an
   extension package's entry point (`mechbench.extensions`) names; its
   `ops/` and `kinds/` are walked as core's are (docs/OPS_LAYOUT.md).

@@ -6,30 +6,24 @@ from typing import Any
 FEW = 8
 
 
-def read_caveats(items: Sequence[Mapping[str, Any]], header: Mapping[str, Any]) -> list[dict[str, str]]:
-    out: list[dict[str, str]] = []
+def read_caveats(items: Sequence[Mapping[str, Any]], header: Mapping[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     saturated = sum(1 for it in items if isinstance(it.get("tracked"), Mapping)
                     for t in it["tracked"].values() if isinstance(t, Mapping) and t.get("saturated") is True)
     if saturated:
-        out.append({"code": "SATURATED", "line": (
-            f"{saturated} tracked answer{'s are' if saturated != 1 else ' is'} saturated by the final "
-            f"softcap: the cap, not the model's margin, sets {'their probabilities' if saturated != 1 else 'its probability'}")})
+        out.append({"code": "SATURATED", "count": saturated})
     cut = sum(1 for it in items if is_cut(it))
     if cut:
-        out.append({"code": "CUT", "line": f"{cut} record{'s were' if cut != 1 else ' was'} cut short of "
-                                          f"{'their' if cut != 1 else 'its'} end"})
+        out.append({"code": "CUT", "count": cut})
     off = count_off_top1(items, header)
     if off:
-        out.append({"code": "OFF_TOP1", "line": (
-            f"{off} record{'s track' if off != 1 else ' tracks'} a target the model would not say itself "
-            f"(`own_top1`)")})
+        out.append({"code": "OFF_TOP1", "count": off})
     under = sum(1 for it in items if is_under_majority(it))
     if under:
-        out.append({"code": "UNDER_MAJORITY", "line": (
-            f"{under} probe{'s score' if under != 1 else ' scores'} under the majority baseline")})
-    n, noun = count_items(items)
+        out.append({"code": "UNDER_MAJORITY", "count": under})
+    n, unit = count_items(items)
     if 0 < n < FEW:
-        out.append({"code": "FEW_ITEMS", "line": f"{n} {noun}{'s' if n != 1 else ''}, fewer than {FEW}"})
+        out.append({"code": "FEW_ITEMS", "count": n, "unit": unit, "fewest": FEW})
     return out
 
 

@@ -105,12 +105,11 @@ class Notable:
     key: tuple[str, ...]
     metric: str
     threshold: float
-    line: str
     control: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"field": self.field, "key": list(self.key), "metric": self.metric,
-                             "threshold": self.threshold, "line": self.line}
+                             "threshold": self.threshold}
         if self.control:
             d["control"] = dict(self.control)
         return d

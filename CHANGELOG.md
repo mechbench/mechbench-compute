@@ -17,7 +17,32 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- A try's `notable` carries raw measurements and one categorical
+  judgment, never a sentence (Benji, 2026-10-04): `{state, baseline,
+  compared, changes, caveats}`. `state` is `"noise"` (within `k` noise
+  floors), `"small"` (past the floors, under the kind's threshold) or
+  `"moved"` (past both), and null with no baseline or nothing to
+  compare. `changes` holds up to ten compared values, the one that
+  decided `state` first, each `{key, field, index, before, after,
+  difference, metric, distance, floors, floor, threshold}`: the item's
+  key fields, the field's path (`tracked.c.p`) and list index, the raw
+  numbers, the metric and its distance, the difference in floors and
+  the floor used (null without a floor; `floors` null too over a floor
+  of 0), and the kind's threshold. `compared` counts every compared
+  value. `line` and `moved` are gone. Each caveat is `{code, ...}` with
+  its numbers in place of a `line`: `SATURATED`, `CUT`, `OFF_TOP1` and
+  `UNDER_MAJORITY` carry `count`; `FEW_ITEMS` `count`, `unit`
+  (`item` or `record`) and `fewest`; `NO_FLOOR` `noise` (whether a floor
+  collection was given), `architecture`, `operation` and `field`;
+  `OTHER_MACHINE` `baseline_machine` and `machine`; the new
+  `NOTHING_TO_COMPARE` `field`. `WITHIN_FLOOR` is gone: `state:
+  "noise"` says it.
+- `Notable` drops `line`: `Notable(field, key, metric, threshold,
+  control)`. A sentence is each surface's to render from the fields, so
+  a template in the declaration would be a second, unchecked source of
+  prose; an extension kind passing `line` raises `TypeError`, and the
+  published kind dict and `KINDS` table no longer carry it. Every
+  result and hash is byte for byte 0.190.0's.
 
 ### Changes that alter results without raising
 

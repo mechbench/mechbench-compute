@@ -21,7 +21,7 @@ def main() -> None:
     print("/** Every declared kind, by bare name: its key, whether a collection of it exists, and the kind it")
     print(" * extends — which is what lets an object fill a port declared as its ancestor — and the fields it")
     print(" * declares itself (an ancestor's are its ancestor's); its sentence (`speak`, a template over an")
-    print(" * item's fields and `header.*`), its chart (`draw`) and its notable line (`notable`, how a try's")
+    print(" * item's fields and `header.*`), its chart (`draw`) and its notable (`notable`, how a try's")
     print(" * result is read against its baseline) when it has them. `subfields` holds the")
     print(" * fields a read may name one level down, by the prefix the expression engine spells (`space` for")
     print(" * `space.layer`, `top[]` for `top[0].token`), where the kind closes them; a prefix it does not")
@@ -29,7 +29,7 @@ def main() -> None:
     print("export const KINDS: Record<string, { key: string[]; collectable: boolean; platform: boolean; "
           "extends: string | null; fields: string[]; subfields?: Record<string, string[]>; summary: string; speak?: string; "
           "draw?: { mark: string; encoding: Record<string, string> }; notable?: { field: string; key: string[]; "
-          "metric: string; threshold: number; line: string; control?: Record<string, unknown> }; version: number }> = {")
+          "metric: string; threshold: number; control?: Record<string, unknown> }; version: number }> = {")
     for k in CORE.kinds():
         said = f", speak: {json.dumps(k.speak)}" if k.speak else ""
         drawn = f", draw: {json.dumps(k.draw.to_dict())}" if k.draw else ""

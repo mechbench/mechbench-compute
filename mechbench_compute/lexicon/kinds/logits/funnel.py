@@ -16,6 +16,5 @@ KIND = Kind(
     renderer={"primitive": "table", "field_map": {"rows": "top"}},
     collection_renderer={"primitive": "series", "field_map": {"rows": "items", "x": "layer", "y": "entropy_bits", "label": "id"}},
     doc="Read a record's items in layer order and you see the funnel: entropy falling, one token taking over.",
-    notable=Notable("entropy_bits", ("id", "layer"), "difference", 0.5,
-                    "at layer {layer} of {id} the entropy {change} bits"),
+    notable=Notable("entropy_bits", ("id", "layer"), "difference", 0.5),
 )

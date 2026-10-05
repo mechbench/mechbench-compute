@@ -241,29 +241,27 @@ def read_try_kinds() -> set[str]:
     return out
 
 
-class TestEveryKindATryReturnsHasANotableLine:
-    def test_every_kind_a_try_returns_declares_a_notable_line(self):
+class TestEveryKindATryReturnsHasANotable:
+    def test_every_kind_a_try_returns_declares_a_notable(self):
         unnoted = {k for k in read_try_kinds() if K.BY_KIND[k].notable is None}
         assert unnoted <= NO_NOTABLE, (
             f"NO_NOTABLE: {sorted(unnoted - NO_NOTABLE)} can be a try's result and declare no "
-            "`notable`: give each a `Notable(field, key, metric, threshold, line)`")
+            "`notable`: give each a `Notable(field, key, metric, threshold)`")
 
     def test_the_exemptions_only_shrink(self):
         noted = {k for k in NO_NOTABLE if K.BY_KIND[k].notable is not None}
-        assert not noted, f"{sorted(noted)} declare a notable line now: take them off NO_NOTABLE"
+        assert not noted, f"{sorted(noted)} declare a notable now: take them off NO_NOTABLE"
         assert NO_NOTABLE <= read_try_kinds(), sorted(NO_NOTABLE - read_try_kinds())
 
-    def test_a_notable_line_reaches_the_published_dict_only_when_declared(self):
+    def test_a_notable_reaches_the_published_dict_only_when_declared(self):
         from mechbench_compute.lexicon._base import Notable
 
-        k = Kind("x/y", "s", notable=Notable("p", ("id",), "difference", 0.5, "on {id} p {change}",
-                                             control={"factor": 0}))
+        k = Kind("x/y", "s", notable=Notable("p", ("id",), "difference", 0.5, control={"factor": 0}))
         assert k.to_dict()["notable"] == {"field": "p", "key": ["id"], "metric": "difference",
-                                          "threshold": 0.5, "line": "on {id} p {change}",
-                                          "control": {"factor": 0}}
+                                          "threshold": 0.5, "control": {"factor": 0}}
         assert "notable" not in Kind("x/y", "s").to_dict()
 
-    def test_the_generated_kind_table_carries_the_notable_line(self):
+    def test_the_generated_kind_table_carries_the_notable(self):
         import subprocess
         import sys
         from pathlib import Path
@@ -273,10 +271,10 @@ class TestEveryKindATryReturnsHasANotableLine:
         rows = {line.split(":", 1)[0].strip().strip('"'): line for line in out.splitlines()
                 if line.startswith('  "')}
         assert ('notable: {"field": "entropy_bits", "key": ["id", "layer"], "metric": "difference", '
-                '"threshold": 0.5, "line": "at layer {layer} of {id} the entropy {change} bits"}') in rows["logits/funnel"]
+                '"threshold": 0.5}') in rows["logits/funnel"]
         assert "notable" not in rows["records/table"]
 
-    def test_a_declared_line_names_a_metric_its_kind_compares_by(self):
+    def test_a_declared_notable_names_a_metric_its_kind_compares_by(self):
         from mechbench_compute import metrics
         from mechbench_compute.lexicon._base import DIFFERENCE
 

@@ -25,5 +25,5 @@ KIND = Kind(
         Metric("hamming", "distance", True,
                "How many coordinate axes two records differ on; an axis one of them lacks counts as a difference. The design's own factor structure, as a distance."),
     ),
-    notable=Notable("items", (), "difference", 0, "the number of records {change}"),
+    notable=Notable("items", (), "difference", 0),
 )
