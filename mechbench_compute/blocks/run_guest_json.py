@@ -9,6 +9,7 @@ LIMIT_WORDS = {
     "memory_mb": "ran out of memory",
     "wall_seconds": "ran past its time",
     "output_bytes": "wrote more output than the cap",
+    "disk_bytes": "wrote more to its disk than the runner allows",
 }
 
 
@@ -16,6 +17,7 @@ def run_guest_json(op: str, guest: str, argv: Sequence[str], request: Any, *,
                    memory_mb: int, seconds: float, output_mb: int) -> list[Any]:
     from mechbench_compute import sandbox
     from mechbench_compute import snapshots as fs
+    from mechbench_compute.sandbox_ceilings import read_ceilings
 
     limits = sandbox.Limits(memory_mb=int(memory_mb), wall_seconds=float(seconds),
                             output_bytes=int(output_mb) * 1024 * 1024)
@@ -28,7 +30,11 @@ def run_guest_json(op: str, guest: str, argv: Sequence[str], request: Any, *,
     except sandbox.SandboxError as e:
         raise ValueError(f"{op}: the sandbox could not run: {e}") from None
     if got.limit:
-        raise ValueError(f"{op}: the code {LIMIT_WORDS.get(got.limit, got.limit)} ({got.limit})")
+        ceiling = getattr(read_ceilings(), got.limit, None)
+        asked = getattr(limits, got.limit, None)
+        capped = (f"; this runner caps {got.limit} at {ceiling}"
+                  if ceiling is not None and asked is not None and asked > ceiling else "")
+        raise ValueError(f"{op}: the code {LIMIT_WORDS.get(got.limit, got.limit)} ({got.limit}){capped}")
     if got.truncated:
         raise ValueError(f"{op}: the code wrote more output than the cap ({', '.join(got.truncated)})")
     if got.exit_code != 0:

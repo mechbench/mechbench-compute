@@ -7,15 +7,20 @@ import tempfile
 import threading
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from mechbench_compute import guests
 from mechbench_compute import snapshots as fs
+from mechbench_compute.sandbox_ceilings import Ceilings, check_limit, read_ceilings
+from mechbench_compute.sandbox_io import CappedOutput, DiskQuota
 
 TRUNCATED = "\n[output truncated at {n} bytes]"
 
 EXIT_DIR = "/.mechbench"
+
+
+LIMIT_NAMES = ("memory_mb", "fuel", "wall_seconds", "output_bytes", "max_files", "max_bytes")
 
 
 @dataclass(frozen=True)
@@ -26,6 +31,10 @@ class Limits:
     output_bytes: int = 256 * 1024
     max_files: int = fs.MAX_FILES
     max_bytes: int = fs.MAX_BYTES
+
+    def __post_init__(self) -> None:
+        for name in LIMIT_NAMES:
+            check_limit(name, getattr(self, name))
 
     def to_wire(self) -> dict[str, Any]:
         return {"memory_mb": self.memory_mb, "fuel": self.fuel,
@@ -108,8 +117,6 @@ def _engine():
 
 
 def _module(engine, path: pathlib.Path):
-    import importlib.metadata
-
     import wasmtime
 
     st = path.stat()
@@ -118,25 +125,10 @@ def _module(engine, path: pathlib.Path):
         cached = _MODULES.get(key)
     if cached is not None:
         return cached
-    version = importlib.metadata.version("wasmtime")
-    cwasm = guests.cache_dir() / f"{path.stem}-{st.st_size}-wasmtime{version}.cwasm"
-    module = None
-    if cwasm.is_file():
-        try:
-            module = wasmtime.Module.deserialize(engine, cwasm.read_bytes())
-        except Exception:  # noqa: BLE001
-            module = None
-    if module is None:
-        try:
-            module = wasmtime.Module.from_file(engine, str(path))
-        except Exception as e:  # noqa: BLE001
-            raise SandboxError(f"guest {path.name} will not load: {e}") from e
-        try:
-            tmp = cwasm.with_suffix(f".{os.getpid()}.part")
-            tmp.write_bytes(module.serialize())
-            os.replace(tmp, cwasm)
-        except OSError:
-            pass
+    try:
+        module = wasmtime.Module.from_file(engine, str(path))
+    except Exception as e:
+        raise SandboxError(f"guest {path.name} will not load: {e}") from e
     with _ENGINE_LOCK:
         _MODULES[key] = module
     return module
@@ -161,6 +153,15 @@ def _cap(text: bytes, limit: int, name: str,
             + TRUNCATED.format(n=limit))
 
 
+def clamp_limits(limits: Limits, ceilings: Ceilings) -> tuple[Limits, dict[str, Any]]:
+    capped = {name: getattr(ceilings, name) for name in LIMIT_NAMES
+              if getattr(limits, name) > getattr(ceilings, name)}
+    return (replace(limits, **capped) if capped else limits), capped
+
+
+_OUTPUT_LOCK = threading.Lock()
+
+
 def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         guest: str | os.PathLike[str], limits: Limits | None = None,
         strict: bool = False, env: Mapping[str, str] | None = None,
@@ -169,7 +170,8 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         mount_blobs: Mapping[str, Mapping[str, bytes]] | None = None) -> Result:
     import wasmtime
 
-    limits = limits or Limits()
+    ceilings = read_ceilings()
+    limits, capped = clamp_limits(limits or Limits(), ceilings)
     try:
         guest_path, guest_mounts, guest_env = guests.resolve(guest)
     except guests.GuestUnavailable as e:
@@ -184,17 +186,13 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         fs.materialize(snapshot, root, blobs=blobs)
         meta = pathlib.Path(td) / "meta"
         meta.mkdir()
-        stdout_path = pathlib.Path(td) / "stdout"
-        stderr_path = pathlib.Path(td) / "stderr"
         stdin_path = pathlib.Path(td) / "stdin"
         stdin_path.write_bytes(stdin.encode() if isinstance(stdin, str) else bytes(stdin))
+        stdout = CappedOutput(limits.output_bytes)
+        stderr = CappedOutput(limits.output_bytes)
 
         engine = _engine()
         module = _module(engine, guest_path)
-
-        store = wasmtime.Store(engine)
-        store.set_fuel(limits.fuel)
-        store.set_limits(memory_size=limits.memory_mb * 1024 * 1024)
 
         wasi = wasmtime.WasiConfig()
         wasi.argv = list(argv)
@@ -218,21 +216,45 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
                 tree, blobs=mblobs if mblobs is not None else tree.blobs)
             wasi.preopen_dir(str(mdir), at, fs_mutable=False)
         wasi.stdin_file = str(stdin_path)
-        wasi.stdout_file = str(stdout_path)
-        wasi.stderr_file = str(stderr_path)
-        store.set_wasi(wasi)
 
-        linker = wasmtime.Linker(engine)
-        linker.define_wasi()
-        virtual = _Virtual(snapshot, argv, strict)
-        virtual.install(linker, store, module)
+        store = wasmtime.Store(engine)
+        try:
+            with _OUTPUT_LOCK:
+                # external: wasmtime-py — the custom-output slab is shared and unlocked
+                wasi.stdout_custom = stdout
+                wasi.stderr_custom = stderr
+                store.set_wasi(wasi)
+            return _run_in(store, engine, module, snapshot, argv, root, meta,
+                           guest_path=guest_path, limits=limits, capped=capped,
+                           ceilings=ceilings, strict=strict, stdout=stdout, stderr=stderr)
+        finally:
+            with _OUTPUT_LOCK:
+                store.close()
 
-        store.set_epoch_deadline(max(1, int(limits.wall_seconds / EPOCH_TICK_S)))
 
-        started = time.monotonic()
-        exit_code = 0
-        limit: str | None = None
-        instance_holder: list = []
+def _run_in(store, engine, module, snapshot: fs.Snapshot, argv: Sequence[str],
+            root: pathlib.Path, meta: pathlib.Path, *, guest_path: pathlib.Path,
+            limits: Limits, capped: Mapping[str, Any], ceilings: Ceilings,
+            strict: bool, stdout: CappedOutput, stderr: CappedOutput) -> Result:
+    import wasmtime
+
+    store.set_fuel(limits.fuel)
+    store.set_limits(memory_size=limits.memory_mb * 1024 * 1024)
+    quota = DiskQuota(root, max_bytes=ceilings.disk_bytes,
+                      max_entries=2 * ceilings.max_files)
+
+    linker = wasmtime.Linker(engine)
+    linker.define_wasi()
+    virtual = _Virtual(snapshot, argv, strict, quota=quota)
+    virtual.install(linker, store, module)
+
+    store.set_epoch_deadline(max(1, int(limits.wall_seconds / EPOCH_TICK_S)))
+
+    started = time.monotonic()
+    exit_code = 0
+    limit: str | None = None
+    instance_holder: list = []
+    with quota:
         try:
             instance = linker.instantiate(store, module)
             instance_holder.append(instance)
@@ -248,7 +270,9 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
             text = str(e)
             low = text.lower()
             exit_code = -1
-            if "fuel" in low:
+            if quota.tripped:
+                limit = "disk_bytes"
+            elif "fuel" in low:
                 limit = "fuel"
             elif "epoch" in low or "interrupt" in low:
                 limit = "wall_seconds"
@@ -257,48 +281,54 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
             elif _out_of_memory(instance_holder, store, limits, text):
                 limit = "memory_mb"
             else:
-                stderr_path.write_bytes(stderr_path.read_bytes() + f"\n[trap] {text}".encode())
+                stderr(f"\n[trap] {text}".encode())
         except wasmtime.WasmtimeError as e:
             text = str(e)
             if "invalid exit status" in text:
                 exit_code = _reported_exit(meta, 126)
             elif "memory minimum size" in text and "exceeds" in text:
                 exit_code, limit = -1, "memory_mb"
-                stderr_path.write_bytes(
-                    stderr_path.read_bytes()
-                    + f"\n[limit] memory_mb={limits.memory_mb} is below the guest's "
-                      f"minimum: {text}".encode())
+                stderr(f"\n[limit] memory_mb={limits.memory_mb} is below the guest's "
+                       f"minimum: {text}".encode())
             else:
                 raise SandboxError(
                     f"guest {guest_path.name} could not be run: {text}") from e
-        duration_ms = int((time.monotonic() - started) * 1000)
-        fuel_left = None
-        try:
-            fuel_left = store.get_fuel()
-        except Exception:  # noqa: BLE001
-            pass
+    duration_ms = int((time.monotonic() - started) * 1000)
+    fuel_left = None
+    try:
+        fuel_left = store.get_fuel()
+    except Exception:  # noqa: BLE001
+        pass
+    fuel_used = (limits.fuel - fuel_left) if fuel_left is not None else None
 
-        truncated: list[str] = []
-        out = _cap(stdout_path.read_bytes(), limits.output_bytes, "stdout", truncated)
-        err = _cap(stderr_path.read_bytes(), limits.output_bytes, "stderr", truncated)
-        if limit is None and exit_code != 0 and _oom_exit(instance_holder, store, limits, err):
-            limit = "memory_mb"
-        try:
-            after = fs.capture(root, max_files=limits.max_files,
-                               max_bytes=limits.max_bytes,
-                               mounts=snapshot.mounts)
-        except fs.SnapshotLimit as e:
-            return Result(snapshot=snapshot, stdout=out, stderr=err + f"\n[limit] {e}",
-                          exit_code=-1, changed=fs.Diff(), duration_ms=duration_ms,
-                          fuel_used=(limits.fuel - fuel_left) if fuel_left is not None else None,
-                          limit="max_bytes" if "bytes" in str(e) else "max_files",
-                          truncated=tuple(truncated))
-        return Result(
-            snapshot=after, stdout=out, stderr=err, exit_code=exit_code,
-            changed=fs.diff(snapshot, after), duration_ms=duration_ms,
-            fuel_used=(limits.fuel - fuel_left) if fuel_left is not None else None,
-            limit=limit, truncated=tuple(truncated),
-        )
+    truncated: list[str] = []
+    out = _cap(stdout.read(), limits.output_bytes, "stdout", truncated)
+    err = _cap(stderr.read(), limits.output_bytes, "stderr", truncated)
+    if limit is None and exit_code != 0 and _oom_exit(instance_holder, store, limits, err):
+        limit = "memory_mb"
+    if quota.tripped:
+        return Result(snapshot=snapshot, stdout=out,
+                      stderr=err + f"\n[limit] the guest wrote more than this runner's "
+                                   f"{ceilings.disk_bytes} bytes of disk",
+                      exit_code=-1, changed=fs.Diff(), duration_ms=duration_ms,
+                      fuel_used=fuel_used, limit="disk_bytes", truncated=tuple(truncated))
+    if limit in capped:
+        err += f"\n[limit] this runner caps {limit} at {capped[limit]}"
+    try:
+        after = fs.capture(root, max_files=limits.max_files,
+                           max_bytes=limits.max_bytes,
+                           mounts=snapshot.mounts)
+    except fs.SnapshotLimit as e:
+        return Result(snapshot=snapshot, stdout=out, stderr=err + f"\n[limit] {e}",
+                      exit_code=-1, changed=fs.Diff(), duration_ms=duration_ms,
+                      fuel_used=fuel_used,
+                      limit="max_bytes" if "bytes" in str(e) else "max_files",
+                      truncated=tuple(truncated))
+    return Result(
+        snapshot=after, stdout=out, stderr=err, exit_code=exit_code,
+        changed=fs.diff(snapshot, after), duration_ms=duration_ms,
+        fuel_used=fuel_used, limit=limit, truncated=tuple(truncated),
+    )
 
 
 def _reported_exit(meta: pathlib.Path, fallback: int) -> int:
@@ -377,9 +407,16 @@ class _Virtual:
     # external: WASI preview1 — a poll_oneoff subscription is 48 bytes, an event 32
     SUB, EV = 48, 32
 
-    def __init__(self, snapshot: fs.Snapshot, argv: Sequence[str], strict: bool):
+    # external: WASI preview1 — errno 21 is EFAULT, a pointer outside the guest's memory
+    EFAULT = 21
+    # external: wasmtime-py — an i32 reaches Python signed, while a WASI pointer or size is unsigned
+    U32 = 0xFFFF_FFFF
+
+    def __init__(self, snapshot: fs.Snapshot, argv: Sequence[str], strict: bool,
+                 quota: DiskQuota | None = None):
         import hashlib
         self.strict = strict
+        self.quota = quota
         self.clock = STRICT_EPOCH_NS
         self.skipped = 0
         self.seed = hashlib.sha256(
@@ -414,18 +451,32 @@ class _Virtual:
         else:
             self.skipped += ns
 
+    def _check_quota(self) -> None:
+        if self.quota is not None and self.quota.tripped:
+            import wasmtime
+            raise wasmtime.Trap("the guest wrote more disk than this runner allows")
+
+    @staticmethod
+    def _inside(caller, *spans: tuple[int, int]) -> bool:
+        size = caller.get("memory").data_len(caller)
+        return all(at + n <= size for at, n in spans)
+
     def clock_time_get(self, caller, clock_id, _precision, out):
         import struct
-        caller.get("memory").write(caller, struct.pack("<Q", self._now(clock_id)), out)
+        self._check_quota()
+        caller.get("memory").write(caller, struct.pack("<Q", self._now(clock_id)), out & self.U32)
         return 0
 
     def clock_res_get(self, caller, _id, out):
         import struct
-        caller.get("memory").write(caller, struct.pack("<Q", STRICT_TICK_NS), out)
+        caller.get("memory").write(caller, struct.pack("<Q", STRICT_TICK_NS), out & self.U32)
         return 0
 
     def random_get(self, caller, buf, length):
         import hashlib
+        buf, length = buf & self.U32, length & self.U32
+        if not self._inside(caller, (buf, length)):
+            return self.EFAULT
         chunks, need = [], length
         while need > 0:
             block = hashlib.sha256(self.seed + self.counter.to_bytes(8, "little")).digest()
@@ -436,6 +487,10 @@ class _Virtual:
         return 0
 
     def poll_oneoff(self, caller, subs, events, n, nevents_out):
+        self._check_quota()
+        subs, events, n, nevents_out = (v & self.U32 for v in (subs, events, n, nevents_out))
+        if not self._inside(caller, (subs, self.SUB * n), (events, self.EV * n), (nevents_out, 4)):
+            return self.EFAULT
         mem = caller.get("memory")
         for i in range(n):
             raw = bytes(mem.read(caller, subs + self.SUB * i, subs + self.SUB * (i + 1)))

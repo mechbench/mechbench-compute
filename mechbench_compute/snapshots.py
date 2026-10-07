@@ -180,8 +180,7 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
                 f"must describe the sandbox and nothing outside it")
         if not real.is_file():
             continue
-        data = real.read_bytes()
-        total += len(data)
+        total += real.stat().st_size
         if len(entries) + 1 > max_files:
             raise SnapshotLimit(
                 f"more than {max_files} files under {base}")
@@ -189,6 +188,7 @@ def capture(root: str | os.PathLike[str], *, inline_max: int = INLINE_MAX,
             raise SnapshotLimit(
                 f"more than {max_bytes} bytes under {base} "
                 f"(reached {total} at {path.relative_to(base)})")
+        data = real.read_bytes()
         digest = blob_hash(data)
         if blobs is not None:
             blobs[digest] = data
