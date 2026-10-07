@@ -37,7 +37,7 @@ def read_arch(model: Any, model_id: str | None = None) -> Any:
 
 ARCH = Architecture(
     model_type="qwen2", name="Qwen 2", loader="transformers",
-    generate=True, score=True, train=False,
+    generate=True, score=True, train=True,
     layer_points=CORE_LAYER_POINTS, global_points=CORE_GLOBAL_POINTS,
     residual_law="resid_post[i] == resid_pre[i] + attn_out[i] + mlp_out[i] == resid_pre[i+1]",
     load=partial(load_transformers, classes={}),

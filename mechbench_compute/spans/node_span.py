@@ -18,6 +18,7 @@ class NodeSpan:
         self.download_seconds = 0.0
         self.peak_memory_bytes: int | None = None
         self.compute_seconds: float | None = None
+        self.training: dict[str, Any] | None = None
         self.lock = threading.Lock()
 
     def add(self, *, model_load_seconds: float | None = None,

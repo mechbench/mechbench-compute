@@ -44,6 +44,7 @@ class TorchModel:
         self.fused_reference: Any = None
         self.fingerprint: Any = None
         self.attention: set[str] = set()
+        self.frozen: dict[str, bool] | None = None
         make_deterministic(self.device)
 
     @classmethod

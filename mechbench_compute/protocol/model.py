@@ -44,6 +44,9 @@ class ModelLoading:
         return self._model
 
     def evict_model(self) -> None:
+        describe = getattr(self._model, "describe_hardware", None)
+        if describe is not None:
+            self._described = describe()
         self._model = None
         self._model_id = None
 
@@ -109,7 +112,8 @@ class ModelLoading:
             return info
         model = self._model if backend_of(self._model) == self._backend.name else None
         describe = getattr(model, "describe_hardware", None)
-        return {**info, "backend": self._backend.name, **(describe() if describe else {}),
+        described = describe() if describe else self._described or {}
+        return {**info, "backend": self._backend.name, **described,
                 "attention": sorted(self._attention)}
 
     @staticmethod

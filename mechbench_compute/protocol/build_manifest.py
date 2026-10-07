@@ -62,5 +62,7 @@ def build_manifest(state, resolved: dict, hardware: dict[str, Any] | None = None
         "resolved": resolved,
         "resources": {"hardware": hardware if hardware is not None else hardware_class(),
                       **({"spend": total_spend(state.spend_by_node)}
-                         if state.spend_by_node else {})},
+                         if state.spend_by_node else {}),
+                      **({"training": dict(state.training_by_node)}
+                         if state.training_by_node else {})},
     }

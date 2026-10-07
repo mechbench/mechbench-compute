@@ -55,6 +55,7 @@ class RunState:
         self.tolerated: set[str] = set()
         self.ahead: dict[str, Any] = {}
         self.spend_by_node: dict[str, dict[str, Any]] = {}
+        self.training_by_node: dict[str, dict[str, Any]] = {}
         self.named_results: dict[str, dict[str, Any]] = {}
         self.named_hashes: dict[str, dict[str, str]] = {}
         self.named_paths: dict[str, dict[str, str]] = {}

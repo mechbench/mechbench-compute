@@ -29,6 +29,7 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
         self._model_id: str | None = None
         self._backend = backends.find(backends.DEFAULT_BACKEND)
         self._attention: set[str] = set()
+        self._described: dict[str, Any] | None = None
         self._on_download = on_download
         self._on_download_bytes = on_download_bytes
         self._on_node_start = on_node_start
@@ -45,6 +46,7 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
             secrets=None, resume=None, budget=None) -> Any:
         self._backend = backends.read_required((spec.extra or {}).get("requirements"))
         self._attention = set()
+        self._described = None
         if spec.kind == "layer_ablation":
             return self._run_layer_ablation(spec.prompt, spec.model_id)
         if spec.kind == "decision_distribution":

@@ -91,7 +91,7 @@ read_unembed = make_unembed(read_text, 0.0)
 
 ARCH = Architecture(
     model_type="gemma4", name="Gemma 4", loader="transformers",
-    generate=True, score=True, train=False,
+    generate=True, score=True, train=True,
     layer_points=(*CORE_LAYER_POINTS, "gate_out"), global_points=CORE_GLOBAL_POINTS,
     residual_law=("resid_post[i] == (resid_pre[i] + attn_out[i] + mlp_out[i] + gate_out[i])"
                   " * layer_scalar[i] == resid_pre[i+1]"),

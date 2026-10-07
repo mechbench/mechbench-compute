@@ -111,6 +111,8 @@ class Pipeline:
                 progress.bump()
                 continue
             self._report_span(nid, span)
+            if span.training is not None:
+                state.training_by_node[nid] = span.training
             store_result(state, nid, node, block, params, in_edges,
                          inputs, resolver, fingerprint, self._on_node_kept)
             if self._on_node_done is not None and nid not in state.held:

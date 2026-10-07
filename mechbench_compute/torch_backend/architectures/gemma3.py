@@ -50,7 +50,7 @@ read_unembed = make_unembed(read_text, 1.0)
 
 ARCH = Architecture(
     model_type="gemma3", name="Gemma 3", loader="transformers",
-    generate=True, score=True, train=False,
+    generate=True, score=True, train=True,
     layer_points=CORE_LAYER_POINTS, global_points=CORE_GLOBAL_POINTS,
     residual_law="resid_post[i] == resid_pre[i] + attn_out[i] + mlp_out[i] == resid_pre[i+1]",
     load=partial(load_transformers, classes={"gemma3": "Gemma3ForConditionalGeneration"}),
