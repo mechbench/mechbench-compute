@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute._mlx import mx
 from mechbench_compute.api import (
     DEFAULT_OUTPUT,
     In,
@@ -269,7 +268,7 @@ class _Sampler:
         return [int(t) for t in out], "max_tokens" if len(out) >= budget else "end"
 
     def read(self, ids: Sequence[int], answers: Sequence[Any], names: Sequence[str]) -> dict[str, Any]:
-        logits = self.model.run(mx.array([list(ids) + self.cue_ids])).logits
+        logits = self.model.run(self.model.make_ids(list(ids) + self.cue_ids)).logits
         lp = read_last_logp(logits)
         if not answers:
             top = int(np.argmax(lp))

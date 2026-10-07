@@ -192,11 +192,6 @@ def run(ctx, inputs, params):
     complete = params.get("complete")
     top_k = int(params.get("top_k", 10))
     softcap = model.architecture.attribution_unembed(model._model).softcap
-    backend = model.architecture.backend
-    if backend != "mlx" and (rollout or complete or any(c.get("complete") for c in conditions)):
-        raise ValueError(
-            f"logits/read: `rollout` and `complete` read through MLX's prompt cache and run on "
-            f"the mlx backend only; this model runs on {backend}")
     out = []
     for cond in conditions:
         key = str(cond["id"])
@@ -242,9 +237,10 @@ def read_capped_prefill(model, prompt_ids: list[int]):
     from mechbench_compute.interp.capped import read_capped
 
     if model.architecture.backend != "mlx":
-        result = model.run(model.make_ids(prompt_ids), capture=["final_norm"])
+        cache = model.prompt_cache()
+        result = model.run(model.make_ids(prompt_ids), capture=["final_norm"], kv_cache=cache)
         row = result.logits[0, -1, :].float()
-        return (None, row), read_capped(model, row, result.cache["final_norm"])
+        return (cache, row), read_capped(model, row, result.cache["final_norm"])
     from mechbench_compute._mlx import mx
 
     cache = model.prompt_cache()

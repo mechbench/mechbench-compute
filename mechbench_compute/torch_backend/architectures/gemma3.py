@@ -16,12 +16,12 @@ from mechbench_compute.torch_backend.architectures._decoder import (
     read_text,
     read_text_path,
 )
+from mechbench_compute.torch_backend.decoding import make_prompt_cache
 from mechbench_compute.torch_backend.forward import run_forward
 from mechbench_compute.torch_backend.heads import (
     make_head_logits,
     make_project_to_logits,
     make_unembed,
-    refuse_prompt_cache,
 )
 from mechbench_compute.torch_backend.loading import (
     load_transformers,
@@ -50,14 +50,14 @@ read_unembed = make_unembed(read_text, 1.0)
 
 ARCH = Architecture(
     model_type="gemma3", name="Gemma 3", loader="transformers",
-    generate=False, score=False, train=False,
+    generate=True, score=True, train=False,
     layer_points=CORE_LAYER_POINTS, global_points=CORE_GLOBAL_POINTS,
     residual_law="resid_post[i] == resid_pre[i] + attn_out[i] + mlp_out[i] == resid_pre[i+1]",
     load=partial(load_transformers, classes={"gemma3": "Gemma3ForConditionalGeneration"}),
     arch_of=read_arch,
     forward=partial(run_forward, sites=SITES),
     lm=read_language_model,
-    prompt_cache=refuse_prompt_cache,
+    prompt_cache=make_prompt_cache,
     head_logits=make_head_logits(read_unembed),
     project_to_logits=make_project_to_logits(read_unembed),
     tokenize=tokenize_chat,

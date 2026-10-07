@@ -33,8 +33,8 @@ class _Model:
 @pytest.fixture
 def counting(monkeypatch):
     seq = iter([1, 2, 3, 4, 5, 0])
-    monkeypatch.setattr(gen, "_sample_next", lambda *_a, **_k: next(seq))
-    monkeypatch.setattr(gen, "_stop_ids", lambda _tok: {0})
+    monkeypatch.setattr(gen, "sample_next", lambda *_a, **_k: next(seq))
+    monkeypatch.setattr(gen, "read_stop_ids", lambda _tok: {0})
     monkeypatch.setattr(distill, "_copy_prefix_cache", lambda _c: None)
     return _Model()
 

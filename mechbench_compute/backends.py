@@ -26,6 +26,7 @@ class Backend:
     model: str | None = None
     architectures: str | None = None
     lora: str | None = None
+    ops: tuple[str, ...] | None = None
 
     @property
     def modules(self) -> tuple[str, ...]:
@@ -54,6 +55,8 @@ BACKENDS: tuple[Backend, ...] = (
         model="mechbench_compute.torch_backend.model:TorchModel",
         architectures="mechbench_compute.torch_backend.architectures",
         lora="mechbench_compute.torch_backend.lora",
+        ops=("activations/capture", "eval/judge", "logits/attribute", "logits/read",
+             "text/chat", "text/generate", "text/resample", "text/score"),
     ),
 )
 
@@ -142,6 +145,15 @@ def find(name: str, declared: Sequence[Backend] = BACKENDS) -> Backend:
     raise BackendRefused(
         f"{name!r} is not a backend compute declares; it declares "
         f"{', '.join(b.name for b in declared)}")
+
+
+def check_op(backend: Backend, name: str, needs: frozenset[str] | set[str], tier: str = "core") -> None:
+    if backend.ops is None or tier != "core" or not any(n.startswith("model.") for n in needs):
+        return
+    if name not in backend.ops:
+        raise BackendRefused(
+            f"{name} does not run on the {backend.name} backend yet; there it runs "
+            f"{', '.join(backend.ops)}")
 
 
 def backend_of(model: Any) -> str:

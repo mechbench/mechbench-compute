@@ -175,7 +175,7 @@ class TestPositionsAreHonoured:
         assert np.array_equal(np.delete(out, 2, axis=0), np.delete(clean, 2, axis=0))
 
     def test_a_decoding_step_is_the_one_acted_at(self, tiny, monkeypatch):
-        monkeypatch.setattr(generate_mod, "_stop_ids", lambda tokenizer: set())
+        monkeypatch.setattr(generate_mod, "read_stop_ids", lambda tokenizer: set())
 
         def generate(item):
             spec = {"spec": [item], "control": False} if item else {}
@@ -276,7 +276,7 @@ class TestTheRecord:
         assert mx.array_equal(port.logits, inline.logits)
 
     def test_f_is_compiled_once_per_node_not_per_token(self, tiny, monkeypatch):
-        monkeypatch.setattr(generate_mod, "_stop_ids", lambda tokenizer: set())
+        monkeypatch.setattr(generate_mod, "read_stop_ids", lambda tokenizer: set())
         compile_operator.cache_clear()
         seen = []
         check = expr_engine.Engine.check

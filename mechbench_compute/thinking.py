@@ -14,10 +14,12 @@ THINK_TAGS = Delimiters("<think>", "</think>")
 
 
 def list_delimiters() -> tuple[Delimiters, ...]:
-    from mechbench_compute.architectures import ARCHITECTURES
+    from mechbench_compute import backends
 
     found: list[Delimiters] = []
-    for a in ARCHITECTURES:
+    architectures = [a for b in backends.BACKENDS if backends.is_installed(b)
+                     for a in backends.load_architectures(b)]
+    for a in architectures:
         for d in a.reasoning:
             if d not in found:
                 found.append(d)

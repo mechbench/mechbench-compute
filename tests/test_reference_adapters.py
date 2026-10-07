@@ -102,7 +102,7 @@ class TestTheReferenceFusesForEveryModelOp:
 class TestResampleTakesTheAdapterPort:
     @pytest.fixture(autouse=True)
     def no_stop(self, monkeypatch):
-        monkeypatch.setattr(generate_mod, "_stop_ids", lambda tokenizer: set())
+        monkeypatch.setattr(generate_mod, "read_stop_ids", lambda tokenizer: set())
 
     PARAMS = {"k": 2, "max_tokens": 3, "seed": 5, "cue": " the", "where": "position"}
 

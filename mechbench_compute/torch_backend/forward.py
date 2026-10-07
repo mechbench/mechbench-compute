@@ -8,6 +8,10 @@ from typing import Any
 from mechbench_compute._arch import Arch
 from mechbench_compute.cache import ActivationCache
 from mechbench_compute.hooks import HookFn, dispatch, parse_hook_name
+from mechbench_compute.torch_backend.decoding import (
+    read_cache_offset,
+    read_cached_kwargs,
+)
 from mechbench_compute.torch_backend.sites import Site, Sites
 from mechbench_compute.torch_backend.tracing import disarm, use_attention, wrap_model
 
@@ -193,17 +197,14 @@ def run_forward(model: Any, input_ids: Any, *, sites: Sites, hooks: dict[str, Ho
                 kv_cache: Any = None) -> tuple[Any, ActivationCache]:
     import torch
 
-    if kv_cache is not None:
-        raise NotImplementedError(
-            "the torch backend runs a whole prompt in one forward; continuing from a "
-            "cache is not on it yet")
     hooks = dict(hooks or {})
     capture_set = set(capture or [])
-    cache = ActivationCache()
+    cache = ActivationCache(offset=read_cache_offset(kv_cache))
+    cached = read_cached_kwargs(kv_cache)
     wanted = set(hooks) | capture_set
     if not wanted - {"logits"}:
         with torch.no_grad():
-            logits = model(input_ids=input_ids).logits
+            logits = model(input_ids=input_ids, **cached).logits
         return dispatch("logits", None, "logits", logits, hooks, capture_set, cache), cache
     envoy = wrap_model(model)
     steps = plan_steps(envoy, model, sites, wanted, arch)
@@ -211,7 +212,7 @@ def run_forward(model: Any, input_ids: Any, *, sites: Sites, hooks: dict[str, Ho
     held: dict[str, Any] = {}
     try:
         with use_attention(model, "eager" if eager else None), torch.no_grad(), \
-                envoy.trace(input_ids=input_ids):
+                envoy.trace(input_ids=input_ids, **cached):
             run_steps(steps, hooks, capture_set, cache, held)
     finally:
         for step in steps:

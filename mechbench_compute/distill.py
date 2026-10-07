@@ -8,6 +8,8 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple
 import numpy as np
 
 from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_logprobs
+from mechbench_compute.backends import backend_of
 from mechbench_compute.spans import add_to_span
 
 __all__ = [
@@ -353,6 +355,8 @@ def score_items_batched(lm, prompt_ids: list[int],
 def score_items_fast(model, prompt_ids: list[int],
                      sequences: Mapping[str, list[int]],
                      chunk: int = 16) -> dict[str, float]:
+    if backend_of(model) != "mlx":
+        return model.score_items(prompt_ids, dict(sequences), batch_size=chunk)
     L = len(prompt_ids)
     groups: dict[int, list[str]] = {}
     for item, seq in sequences.items():
@@ -492,7 +496,7 @@ def first_token_metrics(lm, prompt_ids: list[int], tokenizer=None) -> dict:
 
 
 def prefill_decision(model, prompt_ids: list[int], *, interventions=None):
-    if model.architecture.backend != "mlx":
+    if backend_of(model) != "mlx":
         return model.prefill_decision(prompt_ids, interventions=interventions)
     add_to_span(tokens_in=len(prompt_ids))
     cache = model.prompt_cache()
@@ -525,9 +529,8 @@ def expand_top_outcomes_cached(model, tokenizer, prompt_ids: list[int],
         else prefill_decision(model, prompt_ids)
     forwards = 1
 
-    def _dist(row: mx.array) -> np.ndarray:
-        lp = np.array(row - mx.logsumexp(row))
-        return np.exp(lp.astype(np.float64))
+    def _dist(row) -> np.ndarray:
+        return np.exp(read_logprobs(row).astype(np.float64))
 
     heap: list[tuple[float, list[int]]] = [(0.0, [])]
     completed: list[tuple[float, str]] = []
@@ -538,7 +541,10 @@ def expand_top_outcomes_cached(model, tokenizer, prompt_ids: list[int],
                 and -neg_lp <= completed[top_k - 1][0]):
             heapq.heappush(heap, (neg_lp, partial))
             break
-        if partial:
+        if partial and backend_of(model) != "mlx":
+            row = model.extend_row(cache, partial)
+            forwards += 1
+        elif partial:
             cc = _copy_prefix_cache(cache)
             o = model.lm(mx.array([partial]), cache=cc)
             add_to_span(forwards=1)

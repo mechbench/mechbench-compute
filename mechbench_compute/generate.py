@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from typing import TYPE_CHECKING, Iterable, Sequence
 
-import mlx.core as mx
 import numpy as np
 
-from .model import Model
+from ._mlx import mx
+from .arrays import read_f32, read_framework
+from .backends import backend_of
 from .prompts import Prompt, PromptSet
 from .spans import add_to_span
+
+if TYPE_CHECKING:
+    from .model import Model
 
 _GEMMA4_END_OF_TURN_ID = 106
 
 
-def _sample_next(
+def sample_next(
     logits: mx.array,
     *,
     temperature: float,
@@ -20,11 +24,8 @@ def _sample_next(
     rng: np.random.Generator,
 ) -> int:
     if temperature <= 0:
-        return int(np.argmax(np.array(logits.astype(mx.float32))))
-    scaled = logits.astype(mx.float32) / float(temperature)
-    probs = mx.softmax(scaled)
-    mx.eval(probs)
-    p = np.array(probs).astype(np.float64)
+        return int(np.argmax(read_f32(logits)))
+    p = read_tempered_probs(logits, temperature)
     order = np.argsort(-p)
     sorted_p = p[order]
     cum = np.cumsum(sorted_p)
@@ -34,6 +35,18 @@ def _sample_next(
     kept = kept / kept.sum()
     choice = rng.choice(cutoff, p=kept)
     return int(order[choice])
+
+
+def read_tempered_probs(logits, temperature: float) -> np.ndarray:
+    if read_framework(logits) == "torch":
+        import torch
+
+        probs = torch.softmax(logits.detach().float() / float(temperature), dim=-1)
+        return probs.cpu().numpy().astype(np.float64)
+    scaled = logits.astype(mx.float32) / float(temperature)
+    probs = mx.softmax(scaled)
+    mx.eval(probs)
+    return np.array(probs).astype(np.float64)
 
 
 def generate_text(
@@ -59,7 +72,7 @@ def generate_text(
     generated: list[int] = []
     for _ in range(max_tokens):
         result = model.run(ids)
-        next_id = _sample_next(
+        next_id = sample_next(
             result.last_logits, temperature=temperature, top_p=top_p, rng=rng,
         )
         if next_id in stop:
@@ -124,7 +137,7 @@ _TURN_MARKERS = {"<end_of_turn>", "<turn|>", "<|im_end|>", "<|eot_id|>",
                  "<|endoftext|>"}
 
 
-def _stop_ids(tokenizer) -> set[int]:
+def read_stop_ids(tokenizer) -> set[int]:
     stop: set[int] = set()
     eos = getattr(tokenizer, "eos_token_id", None)
     if eos is not None:
@@ -166,6 +179,18 @@ def cut_at_stop(text: str, stop_strings: Sequence[str]) -> str:
     return text[:cut]
 
 
+def read_stop_hit(tokenizer, out_ids: list[int], stops: Sequence[str], window: int) -> bool:
+    tail = tokenizer.decode(out_ids[-window:])
+    return any(s in tail for s in stops)
+
+
+def step_on_torch(model, next_id: int, cache, ivs, readout):
+    res = model.run(model.make_ids([int(next_id)]), interventions=ivs or None, kv_cache=cache,
+                    capture=[readout.hook] if readout is not None else None)
+    row = res.logits[0, -1, :].float()
+    return row, (readout.read(res.cache) if readout is not None else None)
+
+
 def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
                              temperature=0.9, top_p=0.95, rng=None,
                              prefill=None, return_ids=False,
@@ -178,14 +203,15 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
     from .distill import prefill_decision as _prefill
 
     rng = rng or _np.random.default_rng()
-    stop = _stop_ids(model.tokenizer)
+    stop = read_stop_ids(model.tokenizer)
     stops = tuple(s for s in (stop_strings or ()) if s)
     window = (max(len(s) for s in stops) + 8) if stops else 0
 
     ivs = list(interventions or [])
     if prefill is None:
         prefill = _prefill(model, list(prompt_ids), interventions=ivs)
-    cache = _copy_prefix_cache(prefill[0])
+    on_mlx = backend_of(model) == "mlx"
+    cache = _copy_prefix_cache(prefill[0]) if on_mlx else model.copy_cache(prefill[0])
     row = prefill[1]
 
     lm = model.lm
@@ -194,16 +220,14 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
     tracking = on_token is not None or pieces_out is not None
     said = ""
     for index in range(int(max_tokens)):
-        next_id = _sample_next(row, temperature=temperature,
+        next_id = sample_next(row, temperature=temperature,
                                top_p=top_p, rng=rng)
         if next_id in stop:
             break
         out_ids.append(int(next_id))
-        if stops:
-            tail = model.tokenizer.decode(out_ids[-window:])
-            if any(s in tail for s in stops):
-                hit_stop = True
-                break
+        if stops and read_stop_hit(model.tokenizer, out_ids, stops, window):
+            hit_stop = True
+            break
         piece = None
         if tracking:
             now = model.tokenizer.decode(out_ids)
@@ -211,12 +235,15 @@ def sample_completion_cached(model, prompt_ids, *, max_tokens=256,
             if pieces_out is not None:
                 pieces_out.append(piece)
         coord = None
-        if ivs or readout is not None:
+        if ivs:
             grew = model.tokenizer.decode([int(next_id)])
             for iv in ivs:
                 grow = getattr(iv, "on_token", None)
                 if grow is not None:
                     grow(grew)
+        if not on_mlx:
+            row, coord = step_on_torch(model, next_id, cache, ivs, readout)
+        elif ivs or readout is not None:
             res = model.run(mx.array([[int(next_id)]]), interventions=ivs or None,
                             kv_cache=cache,
                             capture=[readout.hook] if readout is not None else None)

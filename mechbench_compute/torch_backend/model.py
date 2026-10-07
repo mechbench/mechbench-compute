@@ -17,6 +17,11 @@ from mechbench_compute.torch_backend.architectures import (
     for_model,
     for_type,
 )
+from mechbench_compute.torch_backend.decoding import copy_cache, read_cached_kwargs
+from mechbench_compute.torch_backend.determinism import (
+    make_deterministic,
+    read_numerics,
+)
 from mechbench_compute.torch_backend.forward import read_attention
 from mechbench_compute.torch_backend.loading import (
     read_accelerator,
@@ -39,6 +44,7 @@ class TorchModel:
         self.fused_reference: Any = None
         self.fingerprint: Any = None
         self.attention: set[str] = set()
+        make_deterministic(self.device)
 
     @classmethod
     def load(cls, model_id: str, *, device: str | None = None, dtype: Any = None,
@@ -90,7 +96,7 @@ class TorchModel:
         return read_accelerator(self.device)
 
     def describe_hardware(self) -> dict[str, Any]:
-        return read_stack(self.device)
+        return {**read_stack(self.device), "numerics": read_numerics(self.device)}
 
     def prompt_cache(self) -> Any:
         return self.architecture.prompt_cache(self._model)
@@ -140,9 +146,55 @@ class TorchModel:
                 raise InvalidHookName(f"{n} (absent: {absent[info.point]})", valid)
 
     def prefill_decision(self, prompt_ids: list[int], *, interventions: Any = None) -> tuple[Any, Any]:
-        ids = self.make_ids(prompt_ids)
-        result = self.run(ids, interventions=list(interventions or []))
-        return None, result.logits[0, -1, :].float()
+        cache = self.prompt_cache()
+        result = self.run(self.make_ids(prompt_ids), interventions=list(interventions or []),
+                          kv_cache=cache)
+        return cache, result.logits[0, -1, :].float()
+
+    def copy_cache(self, cache: Any) -> Any:
+        return copy_cache(cache)
+
+    def extend_row(self, cache: Any, ids: list[int]) -> Any:
+        result = self.run(self.make_ids(ids), kv_cache=copy_cache(cache))
+        return result.logits[0, -1, :].float()
+
+    def trunk_hidden(self, input_ids: Any, *, cache: Any = None, attention_mask: Any = None) -> Any:
+        import torch
+
+        add_to_span(forwards=1, tokens_in=int(input_ids.numel()))
+        masked = {} if attention_mask is None else {"attention_mask": attention_mask}
+        with torch.no_grad():
+            out = self.lm.model(input_ids=input_ids, **read_cached_kwargs(cache), **masked)
+        return out.last_hidden_state
+
+    def score_items(self, prompt_ids: list[int], sequences: dict[str, list[int]], *,
+                    batch_size: int | None = None) -> dict[str, float]:
+        from mechbench_compute.torch_backend.scoring import score_items
+
+        return score_items(self, prompt_ids, sequences, batch_size=batch_size)
+
+    def generate_batch(self, prompts: list[list[int]], rngs: list[Any], *, max_tokens: int,
+                       temperature: float, top_p: float, stop_strings: Any = (),
+                       on_tokens: list[Any] | None = None,
+                       batch_size: int | None = None) -> tuple[list[tuple[str, list[int]]], int]:
+        from mechbench_compute.generate import cut_at_stop
+        from mechbench_compute.torch_backend.batched import Draw, write_draws
+
+        draws = [Draw(list(p), rng, (on_tokens or [None] * len(prompts))[i])
+                 for i, (p, rng) in enumerate(zip(prompts, rngs, strict=True))]
+        used = write_draws(self, draws, max_tokens=max_tokens, temperature=temperature,
+                           top_p=top_p, stop_strings=stop_strings, batch_size=batch_size)
+        stops = tuple(s for s in (stop_strings or ()) if s)
+        out = []
+        for d in draws:
+            text = self.tokenizer.decode(d.out_ids)
+            out.append((cut_at_stop(text, stops) if d.hit_stop else text, list(d.out_ids)))
+        return out, used
+
+    def score_tokens(self, sequences: list[list[int]], *, batch_size: int | None = None) -> list[np.ndarray]:
+        from mechbench_compute.torch_backend.scoring import score_tokens
+
+        return score_tokens(self, sequences, batch_size=batch_size)
 
     def decoded_distribution(self, vector: Any) -> np.ndarray:
         import torch

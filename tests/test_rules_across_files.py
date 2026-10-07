@@ -176,7 +176,7 @@ class _UnkTokenizer:
 def test_turn_end_ids_come_from_the_added_tokens_and_never_the_unk_id():
     from mechbench_compute import generate
 
-    assert generate._stop_ids(_UnkTokenizer()) == {1, 106}
+    assert generate.read_stop_ids(_UnkTokenizer()) == {1, 106}
 
 
 def test_a_head_ablation_keeps_the_float32_mask_promotion():

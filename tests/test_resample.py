@@ -26,7 +26,7 @@ BASE = {"model": "tiny", "k": 3, "max_tokens": 4, "seed": 5, "cue": " the"}
 
 @pytest.fixture(autouse=True)
 def no_stop(monkeypatch):
-    monkeypatch.setattr(generate_mod, "_stop_ids", lambda tokenizer: set())
+    monkeypatch.setattr(generate_mod, "read_stop_ids", lambda tokenizer: set())
 
 
 @pytest.fixture(scope="module")

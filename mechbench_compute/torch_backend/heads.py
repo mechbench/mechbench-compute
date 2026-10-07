@@ -49,8 +49,3 @@ def make_project_to_logits(read_unembed: Callable[[Any], Unembed]) -> Callable[[
 
     return project_to_logits
 
-
-def refuse_prompt_cache(model: Any) -> Any:
-    raise NotImplementedError(
-        "the torch backend runs a whole prompt in one forward: a prompt cache, and the "
-        "generation, rollouts and scoring that reuse one, are on the mlx backend only")

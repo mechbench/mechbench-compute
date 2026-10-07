@@ -258,6 +258,13 @@ a step the generation never reached is not.
           "ids, offsets and spans, so the collection can be scored token by "
           "token.",
           "text", choices=("text", "trace")),
+        P("batch", "int",
+          "On the torch backend, how many samples are written together, one forward "
+          "per step for all of them; fewer when the GPU's free memory cannot hold that "
+          "many, and the header's `batch` says how many were. Each sample still draws "
+          "from its own seeded stream. The mlx backend, and a node with a `spec` or a "
+          "`project` port, writes one sample at a time.",
+          8),
     ),
     example={
         "model": {"$param": "model"},
@@ -273,6 +280,7 @@ a step the generation never reached is not.
 def run(ctx, inputs, params):
     import numpy as _np
 
+    from mechbench_compute.backends import backend_of
     from mechbench_compute.distill import prefill_decision, render
     from mechbench_compute.generate import sample_completion_cached
     from mechbench_compute.seeds import item_seed
@@ -301,7 +309,6 @@ def run(ctx, inputs, params):
     model_name = str(getattr(params.get("model"), "base", params.get("model")))
 
     from mechbench_compute import intervene as intervene_mod
-    from mechbench_compute.generate import offsets_by_cumulative_decode
 
     plan = intervene_mod.plan(model, params, inputs)
     if plan:
@@ -310,7 +317,13 @@ def run(ctx, inputs, params):
 
     if ctx.on_start:
         ctx.on_start(len(records) * n * len(cells))
+    batch = int(params.get("batch", 8))
+    shared = {"model": model, "params": params, "plan": plan, "fidelity": fidelity,
+              "stop_strings": stop_strings, "max_tokens": max_tokens, "delimiters": delimiters,
+              "model_name": model_name, "temperature": temperature, "top_p": top_p, "seed": seed}
+    batched = backend_of(model) != "mlx" and plan is None and project is None
     items = []
+    pending: list[dict] = []
     for cell in cells:
         with intervene_mod.edit_weights(model, plan.weight_items if plan else (),
                                         cell.factor if plan else 0.0):
@@ -320,8 +333,9 @@ def run(ctx, inputs, params):
                 ids = r.ids
                 prompt_tokens = [tok.decode([int(t)]) for t in ids] if plan else []
                 first = plan.live(cell, prompt_tokens, rec) if plan else []
-                prefill = (prefill_decision(model, ids, interventions=first)
-                           if plan else prefill_decision(model, ids))
+                prefill = None if batched else (
+                    prefill_decision(model, ids, interventions=first)
+                    if plan else prefill_decision(model, ids))
                 for k in range(start, start + n):
                     key = f"{rec['id']}:{k}" + (f":{cell.slug}" if plan else "")
                     if ctx.resume_items and key in ctx.resume_items:
@@ -330,90 +344,121 @@ def run(ctx, inputs, params):
                             ctx.on_item(key, ctx.resume_items[key], True)
                         continue
                     rng = _np.random.default_rng(item_seed(seed, rec["id"], k))
+                    on_token = ctx.on_token and (lambda e, key=key: ctx.on_token(key, e))
+                    job = {"key": key, "rec": rec, "k": k, "cell": cell, "ids": ids, "lead": lead,
+                           "first": first, "live": [], "readout": None, "pieces": [],
+                           "at": len(items)}
+                    if batched:
+                        pending.append({**job, "rng": rng, "on_token": on_token})
+                        items.append(None)
+                        continue
                     readout = TokenReadout(model, project) if project is not None else None
-                    pieces: list[str] = []
                     live = plan.live(cell, prompt_tokens, rec) if plan else []
+                    job.update(live=live, readout=readout)
                     text, out_ids = sample_completion_cached(
                         model, ids, max_tokens=max_tokens,
                         temperature=temperature, top_p=top_p, rng=rng,
                         prefill=prefill, return_ids=True,
                         stop_strings=stop_strings,
-                        **streaming(ctx.on_token and (lambda e, key=key: ctx.on_token(key, e)),
-                                    readout, pieces),
+                        **streaming(on_token, readout, job["pieces"]),
                         **({"interventions": live} if plan else {}))
-                    ended = read_local_ending(tok, out_ids, stop_strings=stop_strings,
-                                              max_tokens=max_tokens)
-                    thought, text = split_reasoning(text, delimiters)
-                    if thought and not text:
-                        ended = "empty"
-                    coords = {**rec.get("coords", {}), "sample": k}
-                    if plan:
-                        coords.update(cell.axes)
-                    item = {
-                        "id": f"{rec['id']}-s{k}" + (f"-{cell.slug}" if plan else ""),
-                        "kind": "text/document",
-                        "text": lead + text,
-                        "coords": coords,
-                        "metadata": {
-                            "coords": dict(coords),
-                            "sampling": {"temperature": temperature,
-                                         "top_p": top_p, "seed": seed,
-                                         "index": k, "ended": ended,
-                                         **({"prefill": lead} if lead else {}),
-                                         **({"stop": list(stop_strings)} if stop_strings else {})},
-                            "model": serialize_model(params.get("model"), model),
-                        },
-                    }
-                    if first or live:
-                        item["metadata"]["intervention"] = {
-                            "steps": intervene_mod.read_steps([first, live], max_tokens)}
-                    if thought:
-                        item["reasoning"] = pm.read_reasoning(
-                            pm.ReasoningPart(text=t, provider=LOCAL, model=model_name)
-                            for t in thought)
-                        if not text:
-                            item["metadata"]["empty"] = describe_reasoning_only(
-                                model_name, max_tokens)
-                    if fidelity == "trace":
-                        full_ids = list(ids) + list(out_ids)
-                        offs, full_text = offsets_by_cumulative_decode(
-                            tok, full_ids)
-                        item["trace"] = {
-                            "token_ids": [int(t) for t in full_ids],
-                            "tokenizer": read_tokenizer_id(params.get("model")),
-                            "text": full_text,
-                            "offsets": [[int(a), int(b)] for a, b in offs],
-                            "generation_spans": [{
-                                "token_start": len(ids),
-                                "token_end": len(full_ids),
-                                "model": serialize_model(params.get("model"), model),
-                                "temperature": temperature,
-                                "top_p": top_p,
-                                "seed": k,
-                            }],
-                        }
-                        item["segmentations"] = [{
-                            "schema_name": "envelope",
-                            "segments": [
-                                {"role": "prompt", "token_start": 0,
-                                 "token_end": len(ids)},
-                                {"role": "body", "token_start": len(ids),
-                                 "token_end": len(full_ids)},
-                            ],
-                        }]
-                        reasoning = THINK.segmentation(
-                            full_ids, start=len(ids), pair=THINK.delimiter_ids(tok))
-                        if reasoning is not None:
-                            item["segmentations"].append(reasoning)
-                    if readout is not None:
-                        item["projection"] = readout.record(pieces)
-                    items.append(item)
+                    items.append(make_item(job, text, out_ids, **shared))
                     if ctx.on_item:
-                        ctx.on_item(key, item)
+                        ctx.on_item(key, items[-1])
+    header = {}
+    if pending:
+        written, used = model.generate_batch(
+            [j["ids"] for j in pending], [j["rng"] for j in pending],
+            max_tokens=max_tokens, temperature=temperature, top_p=top_p,
+            stop_strings=stop_strings, on_tokens=[j["on_token"] for j in pending],
+            batch_size=batch)
+        header["batch"] = used
+        for job, (text, out_ids) in zip(pending, written, strict=True):
+            items[job["at"]] = make_item(job, text, out_ids, **shared)
+            if ctx.on_item:
+                ctx.on_item(job["key"], items[job["at"]])
     return lexicon.collection(
         "text/document", items,
         name=params.get("name", "generated"),
         description=params.get("description", ""),
         fidelity=fidelity,
         ended=count_endings(items),
+        **header,
         **(plan.header() if plan else {}))
+
+
+def make_item(job, text, out_ids, *, model, params, plan, fidelity, stop_strings, max_tokens,
+              delimiters, model_name, temperature, top_p, seed):
+    from mechbench_compute import intervene as intervene_mod
+    from mechbench_compute.generate import offsets_by_cumulative_decode
+
+    tok = model.tokenizer
+    rec, k, cell, ids, lead = job["rec"], job["k"], job["cell"], job["ids"], job["lead"]
+    first, live, readout = job["first"], job["live"], job["readout"]
+    ended = read_local_ending(tok, out_ids, stop_strings=stop_strings,
+                              max_tokens=max_tokens)
+    thought, text = split_reasoning(text, delimiters)
+    if thought and not text:
+        ended = "empty"
+    coords = {**rec.get("coords", {}), "sample": k}
+    if plan:
+        coords.update(cell.axes)
+    item = {
+        "id": f"{rec['id']}-s{k}" + (f"-{cell.slug}" if plan else ""),
+        "kind": "text/document",
+        "text": lead + text,
+        "coords": coords,
+        "metadata": {
+            "coords": dict(coords),
+            "sampling": {"temperature": temperature,
+                         "top_p": top_p, "seed": seed,
+                         "index": k, "ended": ended,
+                         **({"prefill": lead} if lead else {}),
+                         **({"stop": list(stop_strings)} if stop_strings else {})},
+            "model": serialize_model(params.get("model"), model),
+        },
+    }
+    if first or live:
+        item["metadata"]["intervention"] = {
+            "steps": intervene_mod.read_steps([first, live], max_tokens)}
+    if thought:
+        item["reasoning"] = pm.read_reasoning(
+            pm.ReasoningPart(text=t, provider=LOCAL, model=model_name)
+            for t in thought)
+        if not text:
+            item["metadata"]["empty"] = describe_reasoning_only(
+                model_name, max_tokens)
+    if fidelity == "trace":
+        full_ids = list(ids) + list(out_ids)
+        offs, full_text = offsets_by_cumulative_decode(
+            tok, full_ids)
+        item["trace"] = {
+            "token_ids": [int(t) for t in full_ids],
+            "tokenizer": read_tokenizer_id(params.get("model")),
+            "text": full_text,
+            "offsets": [[int(a), int(b)] for a, b in offs],
+            "generation_spans": [{
+                "token_start": len(ids),
+                "token_end": len(full_ids),
+                "model": serialize_model(params.get("model"), model),
+                "temperature": temperature,
+                "top_p": top_p,
+                "seed": k,
+            }],
+        }
+        item["segmentations"] = [{
+            "schema_name": "envelope",
+            "segments": [
+                {"role": "prompt", "token_start": 0,
+                 "token_end": len(ids)},
+                {"role": "body", "token_start": len(ids),
+                 "token_end": len(full_ids)},
+            ],
+        }]
+        reasoning = THINK.segmentation(
+            full_ids, start=len(ids), pair=THINK.delimiter_ids(tok))
+        if reasoning is not None:
+            item["segmentations"].append(reasoning)
+    if readout is not None:
+        item["projection"] = readout.record(job["pieces"])
+    return item

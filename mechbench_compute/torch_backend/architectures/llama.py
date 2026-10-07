@@ -18,11 +18,11 @@ from mechbench_compute.torch_backend.architectures._decoder import (
     read_language_model,
     read_unembed,
 )
+from mechbench_compute.torch_backend.decoding import make_prompt_cache
 from mechbench_compute.torch_backend.forward import run_forward
 from mechbench_compute.torch_backend.heads import (
     make_head_logits,
     make_project_to_logits,
-    refuse_prompt_cache,
 )
 from mechbench_compute.torch_backend.loading import (
     load_transformers,
@@ -37,14 +37,14 @@ def read_arch(model: Any, model_id: str | None = None) -> Any:
 
 ARCH = Architecture(
     model_type="llama", name="Llama", loader="transformers",
-    generate=False, score=False, train=False,
+    generate=True, score=True, train=False,
     layer_points=CORE_LAYER_POINTS, global_points=CORE_GLOBAL_POINTS,
     residual_law="resid_post[i] == resid_pre[i] + attn_out[i] + mlp_out[i] == resid_pre[i+1]",
     load=partial(load_transformers, classes={}),
     arch_of=read_arch,
     forward=partial(run_forward, sites=SITES),
     lm=read_language_model,
-    prompt_cache=refuse_prompt_cache,
+    prompt_cache=make_prompt_cache,
     head_logits=make_head_logits(read_unembed),
     project_to_logits=make_project_to_logits(read_unembed),
     tokenize=partial(tokenize_chat, special=True),

@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
-import mlx.core as mx
 import numpy as np
+
+from ._mlx import mx
 
 
 @dataclass(frozen=True)

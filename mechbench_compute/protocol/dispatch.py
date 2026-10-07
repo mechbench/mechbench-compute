@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute import ops
+from mechbench_compute import backends, ops
 from mechbench_compute.protocol.is_remote import is_remote
 from mechbench_compute.registry import REGISTRY
 
@@ -32,6 +32,7 @@ class Dispatch:
                 node_view=progress.node_view, report=progress.report,
                 resume=state.resume, resume_kwargs=resume_kwargs))
             return read_ahead(state, nid)
+        backends.check_op(self._backend, resolved.name, resolved.op.needs, resolved.tier)
         return self._run_op(
             resolved, inputs, params,
             on_item=on_item, on_start=progress.expand, secrets=secrets,

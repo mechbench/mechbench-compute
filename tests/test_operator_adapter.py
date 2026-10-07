@@ -208,7 +208,7 @@ class TestAttaching:
         assert mx.array_equal(tiny.run(IDS).logits, bare)
 
     def test_generation_under_an_operator_is_the_same_function_as_an_intervention(self, tiny, monkeypatch):
-        monkeypatch.setattr(generate_mod, "_stop_ids", lambda tokenizer: set())
+        monkeypatch.setattr(generate_mod, "read_stop_ids", lambda tokenizer: set())
 
         def generate(spec=None):
             params = {"model": "tiny", "temperature": 0.0, "max_tokens": 6, "fidelity": "trace"}

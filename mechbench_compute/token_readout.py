@@ -7,6 +7,7 @@ import numpy as np
 
 from mechbench_compute import points as P
 from mechbench_compute import shapes as S
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.directions.coerce_array import coerce_array
 
 
@@ -34,12 +35,7 @@ class TokenReadout:
         self.coords: list[float] = []
 
     def read(self, cache: Mapping[str, Any]) -> float:
-        row = cache[self.hook][0, -1]
-        if not isinstance(row, np.ndarray):
-            import mlx.core as mx
-
-            row = row.astype(mx.float32)
-        row = np.asarray(row, dtype=np.float32)
+        row = read_f32(cache[self.hook][0, -1])
         coord = round(float(row @ self.vector), 6)
         self.coords.append(coord)
         return coord

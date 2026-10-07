@@ -194,14 +194,6 @@ def test_logits_read_is_the_model_s_own_distribution(tiny):
     assert item["tracked"]["m"]["precap_logit"] == pytest.approx(precap, abs=1e-3)
 
 
-def test_logits_read_refuses_rollout_and_complete_by_name_on_torch(tiny):
-    ctx = SimpleNamespace(model=lambda _ref: tiny, on_start=None, on_item=None, resume_items=None)
-    record = {"id": "a", "user": "the cat sat on a"}
-    for params in ({"rollout": {"top_k": 2}}, {"complete": {"items": ["mat"]}}):
-        with pytest.raises(ValueError, match=r"run on the mlx backend only; this model runs on torch"):
-            read_op.run(ctx, {"conditions": [record]}, params)
-
-
 def test_a_stored_adapter_fuses_in_its_layers_and_restores_bit_for_bit(tiny):
     before = read_weights(tiny)
     plain = tiny.run(tiny.make_ids(IDS)).logits
@@ -297,11 +289,7 @@ def test_a_checkpoint_the_torch_backend_cannot_serve_is_refused_before_loading(t
         TorchModel.load(str(tmp_path), device="cpu", dtype=torch.float32)
 
 
-def test_a_point_or_a_continuation_the_backend_lacks_is_refused_by_name(tiny):
+def test_a_point_the_backend_lacks_is_refused_by_name(tiny):
     with pytest.raises(InvalidHookName, match=r"blocks\.0\.mlp\.act \(not implemented by the '\w+' "
                                               r"forward on the torch backend\)"):
         tiny.run(tiny.make_ids(IDS), capture=["blocks.0.mlp.act"])
-    with pytest.raises(NotImplementedError, match="continuing from a cache is not on it yet"):
-        tiny.run(tiny.make_ids(IDS), capture=["blocks.0.resid_post"], kv_cache=object())
-    with pytest.raises(NotImplementedError, match="on the mlx backend only"):
-        tiny.prompt_cache()

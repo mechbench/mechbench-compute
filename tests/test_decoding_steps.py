@@ -18,7 +18,7 @@ FLIP = {"point": "logits", "op": "scale", "strength": -1.0}
 
 @pytest.fixture(autouse=True)
 def no_stop(monkeypatch):
-    monkeypatch.setattr(generate_mod, "_stop_ids", lambda tokenizer: set())
+    monkeypatch.setattr(generate_mod, "read_stop_ids", lambda tokenizer: set())
 
 
 @pytest.fixture(scope="module")

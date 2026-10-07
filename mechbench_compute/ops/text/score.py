@@ -52,20 +52,25 @@ def run(ctx, inputs, params):
     items = items_of(coll)
     if ctx.on_start:
         ctx.on_start(len(items))
-    values = []
     for it in items:
-        trace = it.get("trace")
-        if not trace:
+        if not it.get("trace"):
             raise ValueError(
                 f"score: item {it.get('id')!r} has no trace — Score "
                 "requires a trace-fidelity collection (set the "
                 "Generate block's fidelity to 'trace')")
-        ids = trace["token_ids"]
-        h = model.trunk_hidden(mx.array([ids]))
-        rows = model.head_logits(h[:, :-1, :]).astype(mx.float32)
-        tgt = mx.array(ids[1:])
-        lp = (mx.take_along_axis(rows[0], tgt[:, None], axis=-1)[:, 0]
-              - mx.logsumexp(rows[0], axis=-1))
+    batched = (model.score_tokens([list(it["trace"]["token_ids"]) for it in items])
+               if getattr(getattr(model, "architecture", None), "backend", "mlx") != "mlx" else None)
+    values = []
+    for index, it in enumerate(items):
+        ids = it["trace"]["token_ids"]
+        if batched is not None:
+            lp = batched[index]
+        else:
+            h = model.trunk_hidden(mx.array([ids]))
+            rows = model.head_logits(h[:, :-1, :]).astype(mx.float32)
+            tgt = mx.array(ids[1:])
+            lp = (mx.take_along_axis(rows[0], tgt[:, None], axis=-1)[:, 0]
+                  - mx.logsumexp(rows[0], axis=-1))
         surp = -_np.array(lp) / _np.log(2.0)
         for j, sv in enumerate(surp.tolist()):
             values.append({
