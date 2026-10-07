@@ -127,7 +127,7 @@ def _request(method: str, url: str, key: str, body: bytes | None = None,
     last: Exception | None = None
     for attempt in range(1, max(1, attempts) + 1):
         req = urllib.request.Request(url, data=body, method=method)
-        req.add_header("Authorization", f"Bearer {key}")
+        req.add_unredirected_header("Authorization", f"Bearer {key}")
         for h, v in (headers or {}).items():
             req.add_header(h, v)
         try:

@@ -48,9 +48,10 @@ def request_json(method: str, url: str, *, headers: Mapping[str, str],
                  payload: Any = None, timeout: float = DEFAULT_TIMEOUT,
                  secrets: tuple[str, ...] = ()) -> HttpResponse:
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, method=method,
-                                 headers={"content-type": "application/json",
-                                          **dict(headers)})
+    req = urllib.request.Request(url, data=data, method=method)
+    # external: urllib — a redirect re-sends every header but the unredirected ones, to any host
+    for name, value in {"content-type": "application/json", **dict(headers)}.items():
+        req.add_unredirected_header(name, value)
     try:
         with urllib.request.urlopen(req, timeout=timeout,
                                     context=_ssl_context()) as resp:
