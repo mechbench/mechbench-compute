@@ -17,15 +17,77 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- A sandbox limit must be a positive number: `memory_mb`, `fuel`,
+  `output_bytes`, `max_files` and `max_bytes` a whole number of at least
+  1, `wall_seconds` a finite number above 0. A `records/python` or
+  `records/jq` node, or a chat `sandbox.limits`, with anything else is
+  refused ("sandbox limit memory_mb must be …"). A negative `memory_mb`
+  used to switch the memory limit off.
+- A sandbox guest that writes more to its disk than the runner's
+  `disk_bytes` ceiling (1 GiB unless the runner sets it) is stopped: its
+  files are emptied, the call ends with `limit: "disk_bytes"` and no
+  change to the workspace, and `records/python` and `records/jq` refuse
+  ("wrote more to its disk than the runner allows").
+- An `$expr` evaluation that outgrows the runner's memory (2048 MB,
+  `MECHBENCH_EXPR_CEILING_MEMORY_MB`) or time (120 s,
+  `MECHBENCH_EXPR_CEILING_SECONDS`) is refused as an `ExprError` of kind
+  `limit`, naming which.
+- `tools/calc` walks the expression instead of `eval`ing it, and refuses
+  (`CalcRefused`) a non-numeric literal, arithmetic on a tuple, an
+  expression over 10,000 characters, and an integer power or product past
+  4300 digits, before computing it.
+- `tools/lookup` (`bench.lookup`): a model's call reads only under the
+  run's own project and under the tool's new `prefixes`; any other path,
+  or a path with a `.`, `..`, `~…`, empty or non-plain segment, is refused
+  (`LookupRefused`) before anything is fetched. Without a project (a run
+  with nowhere to store) and without `prefixes`, every model call is
+  refused. A `path` the protocol itself gives is not limited to a prefix
+  but must be plain.
+- A protocol's model reference that is not a hub id (`org/name` or
+  `org/name@revision`, of letters, digits, `_`, `.` and `-`) is refused
+  before loading ("not a hub id"), and a hub id is never loaded from a
+  local directory of the same name (`Model.load(…, hub_only=True)`).
+  A bench checkpoint still loads from its materialized directory.
+- `eval/benchmark` refuses a task that is not a name of letters, digits,
+  `_` and `-` ("never a path to a task file").
+- A sandbox tool handler that names a session attribute other than the
+  sandbox tools is refused ("the session has no method …").
 
 ### Changes that alter results without raising
 
-_None._
+- Sandbox limits above the runner's ceilings are lowered to them. The
+  ceilings are `memory_mb` 4096, `fuel` 100 billion, `wall_seconds` 900,
+  `output_bytes` 256 MiB, `max_files` 10,000, `max_bytes` 256 MiB and
+  `disk_bytes` 1 GiB, set by the runner with
+  `MECHBENCH_SANDBOX_CEILING_<NAME>` or
+  `sandbox_ceilings.set_ceilings(Ceilings(…))`, never by a protocol. A
+  protocol within them runs byte for byte as before; one above them runs
+  under the ceiling, and a limit that trips at a lowered value says so
+  ("this runner caps wall_seconds at 900"). A `memory_mb` above 4096 was
+  already 4096 in effect, the most a 32-bit guest can address.
+- The strict-mode clock, random and poll host functions read a WASI
+  pointer as unsigned: a guest past 2 GiB of memory had its clock and
+  random bytes written at the wrong address.
 
 ### Other
 
-_None._
+- A guest's stdout and stderr are held in memory only up to the output
+  cap, never on disk; a workspace capture checks a file's size before
+  reading it.
+- The strict-mode `random_get` and `poll_oneoff` check their buffers
+  against the guest's memory before doing any work, and answer `EFAULT`
+  past it.
+- The compiled-guest cache on disk (`.cwasm`) is no longer read or
+  written: each process compiles a guest once, about one to two seconds,
+  so nothing native is loaded from a file a run could have written.
+- A redirect never carries the bench key or a provider's credentials:
+  both are sent as unredirected headers.
+- A hub download fetches only what a loader reads (`*.json`,
+  `*.safetensors`, `*.model`, `*.tiktoken`, `*.txt`, `*.jsonl`,
+  `*.jinja`), never code or pickles.
+- `text/chat`'s `sandbox.base` no longer promises a `.wasm` path.
+- CI audits the installed dependencies with `pip-audit` and fails on a
+  known vulnerability.
 
 ---
 

@@ -14,7 +14,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e . pytest jsonschema
+      - run: python -m pip install --upgrade pip setuptools
+      - run: pip install -e . pytest jsonschema pip-audit
+      # Fails on any known vulnerability in what the install resolved,
+      # compute's own dependencies and the tools beside them. Accepted
+      # exceptions: none. An accepted one goes here as `--ignore-vuln <id>`
+      # with the reason it cannot reach compute.
+      - run: python -m pip_audit --skip-editable
       # The sandbox guest is built from pinned sources and must hash to
       # the pin in mechbench_compute/guests.py — the tests refuse a
       # build that differs, so this is also the reproducibility check.
