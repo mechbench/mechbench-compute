@@ -1,0 +1,1218 @@
+{
+ "name": "calibration",
+ "description": "Calibration v3: v2's nodes under v2's ids and shapes, plus what the torch backend's batch axis and the instrumentation ladder allow. forward-n{N}-b{B} is still logits/read over B records, one prefill each (logits/read has no batch axis); prefill-n{N}-b{B} is the true batch: text/generate of one greedy token over the same B records with batch B, one forward for all B on torch, B in turn on mlx. decode-t{T}-n{n} decodes n samples at batch n (torch; mlx writes them in turn). The ladder reads one record of 8192 tokens: forward-n8192-b1 plain, capture-pooled-k1/k8-n8192 (activations/capture at 1 or 8 layers, mean over every position), capture-heads-k1-n8192 (the per-head path), capture-weights-k1-n8192 (attention weights at one layer), prefill-n8192-b1 and intervene-n8192-b1 (the same greedy token with layer 12's MLP zeroed at every position). attribute-{split}-n512-b4 is logits/attribute by layer and by sublayer. capture-k{K}-n{N} (activations/capture-tokens) is refused by name on a backend that does not run it yet. warmup-n1 runs first and absorbs model load. Inputs are fixed bench objects under benjismith/calibration; N is exact in the Gemma 4 tokenizer and approximate in others. Layers are at most 21, so any model with 22 layers or more runs it. Bind only the model; results union by node id across machines and backends.",
+ "params": [
+  {
+   "name": "model",
+   "type": "model",
+   "default": "mlx-community/gemma-4-e2b-it-bf16",
+   "doc": "The model to calibrate."
+  }
+ ],
+ "inputs": [],
+ "outputs": [
+  {
+   "name": "forward-n1-b1",
+   "from": {
+    "node": "forward-n1-b1"
+   }
+  },
+  {
+   "name": "forward-n1-b4",
+   "from": {
+    "node": "forward-n1-b4"
+   }
+  },
+  {
+   "name": "forward-n1-b16",
+   "from": {
+    "node": "forward-n1-b16"
+   }
+  },
+  {
+   "name": "forward-n128-b1",
+   "from": {
+    "node": "forward-n128-b1"
+   }
+  },
+  {
+   "name": "forward-n128-b4",
+   "from": {
+    "node": "forward-n128-b4"
+   }
+  },
+  {
+   "name": "forward-n128-b16",
+   "from": {
+    "node": "forward-n128-b16"
+   }
+  },
+  {
+   "name": "forward-n512-b1",
+   "from": {
+    "node": "forward-n512-b1"
+   }
+  },
+  {
+   "name": "forward-n512-b4",
+   "from": {
+    "node": "forward-n512-b4"
+   }
+  },
+  {
+   "name": "forward-n512-b16",
+   "from": {
+    "node": "forward-n512-b16"
+   }
+  },
+  {
+   "name": "forward-n2048-b1",
+   "from": {
+    "node": "forward-n2048-b1"
+   }
+  },
+  {
+   "name": "forward-n2048-b4",
+   "from": {
+    "node": "forward-n2048-b4"
+   }
+  },
+  {
+   "name": "forward-n2048-b16",
+   "from": {
+    "node": "forward-n2048-b16"
+   }
+  },
+  {
+   "name": "forward-n8192-b1",
+   "from": {
+    "node": "forward-n8192-b1"
+   }
+  },
+  {
+   "name": "prefill-n128-b1",
+   "from": {
+    "node": "prefill-n128-b1"
+   }
+  },
+  {
+   "name": "prefill-n128-b4",
+   "from": {
+    "node": "prefill-n128-b4"
+   }
+  },
+  {
+   "name": "prefill-n128-b16",
+   "from": {
+    "node": "prefill-n128-b16"
+   }
+  },
+  {
+   "name": "prefill-n512-b1",
+   "from": {
+    "node": "prefill-n512-b1"
+   }
+  },
+  {
+   "name": "prefill-n512-b4",
+   "from": {
+    "node": "prefill-n512-b4"
+   }
+  },
+  {
+   "name": "prefill-n512-b16",
+   "from": {
+    "node": "prefill-n512-b16"
+   }
+  },
+  {
+   "name": "prefill-n2048-b1",
+   "from": {
+    "node": "prefill-n2048-b1"
+   }
+  },
+  {
+   "name": "prefill-n2048-b4",
+   "from": {
+    "node": "prefill-n2048-b4"
+   }
+  },
+  {
+   "name": "prefill-n2048-b16",
+   "from": {
+    "node": "prefill-n2048-b16"
+   }
+  },
+  {
+   "name": "decode-t128-n1",
+   "from": {
+    "node": "decode-t128-n1"
+   }
+  },
+  {
+   "name": "decode-t512-n1",
+   "from": {
+    "node": "decode-t512-n1"
+   }
+  },
+  {
+   "name": "decode-t128-n4",
+   "from": {
+    "node": "decode-t128-n4"
+   }
+  },
+  {
+   "name": "decode-t128-n8",
+   "from": {
+    "node": "decode-t128-n8"
+   }
+  },
+  {
+   "name": "decode-t128-n32",
+   "from": {
+    "node": "decode-t128-n32"
+   }
+  },
+  {
+   "name": "capture-k1-n128",
+   "from": {
+    "node": "capture-k1-n128"
+   }
+  },
+  {
+   "name": "capture-k1-n2048",
+   "from": {
+    "node": "capture-k1-n2048"
+   }
+  },
+  {
+   "name": "capture-k8-n128",
+   "from": {
+    "node": "capture-k8-n128"
+   }
+  },
+  {
+   "name": "capture-k8-n2048",
+   "from": {
+    "node": "capture-k8-n2048"
+   }
+  },
+  {
+   "name": "capture-pooled-k1-n8192",
+   "from": {
+    "node": "capture-pooled-k1-n8192"
+   }
+  },
+  {
+   "name": "capture-pooled-k8-n8192",
+   "from": {
+    "node": "capture-pooled-k8-n8192"
+   }
+  },
+  {
+   "name": "capture-heads-k1-n8192",
+   "from": {
+    "node": "capture-heads-k1-n8192"
+   }
+  },
+  {
+   "name": "capture-weights-k1-n8192",
+   "from": {
+    "node": "capture-weights-k1-n8192"
+   }
+  },
+  {
+   "name": "prefill-n8192-b1",
+   "from": {
+    "node": "prefill-n8192-b1"
+   }
+  },
+  {
+   "name": "intervene-n8192-b1",
+   "from": {
+    "node": "intervene-n8192-b1"
+   }
+  },
+  {
+   "name": "attribute-layer-n512-b4",
+   "from": {
+    "node": "attribute-layer-n512-b4"
+   }
+  },
+  {
+   "name": "attribute-sublayer-n512-b4",
+   "from": {
+    "node": "attribute-sublayer-n512-b4"
+   }
+  },
+  {
+   "name": "numeric-capture-k8-b128",
+   "from": {
+    "node": "numeric-capture-k8-b128"
+   }
+  },
+  {
+   "name": "lora-s20",
+   "from": {
+    "node": "lora-s20"
+   }
+  },
+  {
+   "name": "numeric-classify-k8-b128",
+   "from": {
+    "node": "numeric-classify-k8-b128"
+   }
+  },
+  {
+   "name": "numeric-compare-k8-b128",
+   "from": {
+    "node": "numeric-compare-k8-b128"
+   }
+  }
+ ],
+ "graph": {
+  "dataflow": 2,
+  "nodes": [
+   {
+    "id": "warmup-n1",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n1-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n1-b1",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n1-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n1-b4",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n1-b4"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n1-b16",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n1-b16"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n128-b1",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n128-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n128-b4",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n128-b4"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n128-b16",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n128-b16"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n512-b1",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n512-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n512-b4",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n512-b4"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n512-b16",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n512-b16"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n2048-b1",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n2048-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n2048-b4",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n2048-b4"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n2048-b16",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n2048-b16"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "forward-n8192-b1",
+    "block": "logits/read",
+    "inputs": {
+     "conditions": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n8192-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     }
+    }
+   },
+   {
+    "id": "prefill-n128-b1",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n128-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 1
+    }
+   },
+   {
+    "id": "prefill-n128-b4",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n128-b4"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 4
+    }
+   },
+   {
+    "id": "prefill-n128-b16",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n128-b16"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 16
+    }
+   },
+   {
+    "id": "prefill-n512-b1",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n512-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 1
+    }
+   },
+   {
+    "id": "prefill-n512-b4",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n512-b4"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 4
+    }
+   },
+   {
+    "id": "prefill-n512-b16",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n512-b16"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 16
+    }
+   },
+   {
+    "id": "prefill-n2048-b1",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n2048-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 1
+    }
+   },
+   {
+    "id": "prefill-n2048-b4",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n2048-b4"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 4
+    }
+   },
+   {
+    "id": "prefill-n2048-b16",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n2048-b16"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 16
+    }
+   },
+   {
+    "id": "decode-t128-n1",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/decode/story-chat"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 128,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0.9,
+     "top_p": 0.95,
+     "fidelity": "trace",
+     "batch": 1
+    }
+   },
+   {
+    "id": "decode-t512-n1",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/decode/story-chat"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 512,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0.9,
+     "top_p": 0.95,
+     "fidelity": "trace",
+     "batch": 1
+    }
+   },
+   {
+    "id": "decode-t128-n4",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/decode/story-chat"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 128,
+     "n": 4,
+     "seed": 0,
+     "temperature": 0.9,
+     "top_p": 0.95,
+     "fidelity": "trace",
+     "batch": 4
+    }
+   },
+   {
+    "id": "decode-t128-n8",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/decode/story-chat"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 128,
+     "n": 8,
+     "seed": 0,
+     "temperature": 0.9,
+     "top_p": 0.95,
+     "fidelity": "trace",
+     "batch": 8
+    }
+   },
+   {
+    "id": "decode-t128-n32",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/decode/story-chat"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 128,
+     "n": 32,
+     "seed": 0,
+     "temperature": 0.9,
+     "top_p": 0.95,
+     "fidelity": "trace",
+     "batch": 32
+    }
+   },
+   {
+    "id": "capture-k1-n128",
+    "block": "activations/capture-tokens",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n128-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "layers": [
+      12
+     ],
+     "positions": "all",
+     "storage": "tensor"
+    }
+   },
+   {
+    "id": "capture-k1-n2048",
+    "block": "activations/capture-tokens",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n2048-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "layers": [
+      12
+     ],
+     "positions": "all",
+     "storage": "tensor"
+    }
+   },
+   {
+    "id": "capture-k8-n128",
+    "block": "activations/capture-tokens",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n128-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "layers": [
+      0,
+      3,
+      6,
+      9,
+      12,
+      15,
+      18,
+      21
+     ],
+     "positions": "all",
+     "storage": "tensor"
+    }
+   },
+   {
+    "id": "capture-k8-n2048",
+    "block": "activations/capture-tokens",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n2048-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "layers": [
+      0,
+      3,
+      6,
+      9,
+      12,
+      15,
+      18,
+      21
+     ],
+     "positions": "all",
+     "storage": "tensor"
+    }
+   },
+   {
+    "id": "capture-pooled-k1-n8192",
+    "block": "activations/capture",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n8192-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "layers": [
+      12
+     ],
+     "pool": {
+      "over": "all",
+      "reduce": "mean"
+     }
+    }
+   },
+   {
+    "id": "capture-pooled-k8-n8192",
+    "block": "activations/capture",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n8192-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "layers": [
+      0,
+      3,
+      6,
+      9,
+      12,
+      15,
+      18,
+      21
+     ],
+     "pool": {
+      "over": "all",
+      "reduce": "mean"
+     }
+    }
+   },
+   {
+    "id": "capture-heads-k1-n8192",
+    "block": "activations/capture",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n8192-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "layers": [
+      12
+     ],
+     "point": "attn_out",
+     "heads": "all",
+     "pool": {
+      "over": "all",
+      "reduce": "mean"
+     }
+    }
+   },
+   {
+    "id": "capture-weights-k1-n8192",
+    "block": "activations/capture",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n8192-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "layers": [
+      12
+     ],
+     "point": "attn.weights",
+     "heads": "all",
+     "position": "last"
+    }
+   },
+   {
+    "id": "prefill-n8192-b1",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n8192-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 1
+    }
+   },
+   {
+    "id": "intervene-n8192-b1",
+    "block": "text/generate",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n8192-b1"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "max_tokens": 1,
+     "n": 1,
+     "seed": 0,
+     "temperature": 0,
+     "fidelity": "text",
+     "batch": 1,
+     "spec": [
+      {
+       "point": "mlp_out",
+       "layers": [
+        12
+       ],
+       "positions": "all",
+       "op": "zero"
+      }
+     ],
+     "control": false
+    }
+   },
+   {
+    "id": "attribute-layer-n512-b4",
+    "block": "logits/attribute",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n512-b4"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "split": "layer",
+     "layers": "all"
+    }
+   },
+   {
+    "id": "attribute-sublayer-n512-b4",
+    "block": "logits/attribute",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/forward/n512-b4"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "split": "sublayer",
+     "layers": "all"
+    }
+   },
+   {
+    "id": "numeric-capture-k8-b128",
+    "block": "activations/capture",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/numeric/topics-b128"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "layers": [
+      0,
+      3,
+      6,
+      9,
+      12,
+      15,
+      18,
+      21
+     ],
+     "pool": {
+      "over": "all",
+      "reduce": "mean"
+     }
+    }
+   },
+   {
+    "id": "lora-s20",
+    "block": "adapter/train",
+    "inputs": {
+     "records": {
+      "$ref": {
+       "bench": "benjismith/calibration/lora/prompts-b8"
+      }
+     }
+    },
+    "params": {
+     "model": {
+      "$param": "model"
+     },
+     "steps": 20,
+     "seed": 7,
+     "lr": 0.0001,
+     "lora": {
+      "rank": 8,
+      "alpha": 16,
+      "target_modules": [
+       "q_proj",
+       "v_proj"
+      ]
+     },
+     "batch": {
+      "target": 4
+     },
+     "closer": "\" }",
+     "target": {
+      "uniform": [
+       "red",
+       "green",
+       "blue",
+       "yellow"
+      ]
+     }
+    }
+   },
+   {
+    "id": "numeric-classify-k8-b128",
+    "block": "direction/classify",
+    "inputs": {},
+    "params": {
+     "axis": "topic",
+     "holdout": 0.25,
+     "source": "calibration-topics",
+     "seed": 0
+    }
+   },
+   {
+    "id": "numeric-compare-k8-b128",
+    "block": "geometry/compare",
+    "inputs": {},
+    "params": {
+     "axis": "topic",
+     "metric": "cosine",
+     "options": {
+      "center": true
+     }
+    }
+   }
+  ],
+  "edges": [
+   {
+    "from": {
+     "node": "numeric-capture-k8-b128"
+    },
+    "kind": "activations/vector",
+    "to": {
+     "node": "numeric-classify-k8-b128",
+     "port": "vectors"
+    }
+   },
+   {
+    "from": {
+     "node": "numeric-capture-k8-b128"
+    },
+    "kind": "activations/vector",
+    "to": {
+     "node": "numeric-compare-k8-b128",
+     "port": "items"
+    }
+   }
+  ]
+ }
+}
