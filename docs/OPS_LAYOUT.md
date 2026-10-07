@@ -432,7 +432,16 @@ runs on a `TorchModel` with hooks, captures and interventions at every
 step. `TorchModel.generate_batch` (`torch_backend/batched.py`) writes
 many samples together, left-padded, one forward per step; scoring
 batches the same way (`torch_backend/scoring.py`), and each batch is
-bounded by the GPU's free memory (`torch_backend/batching.py`). The core
+bounded by the GPU's free memory (`torch_backend/batching.py`).
+`adapter/train` trains a LoRA on torch through `adapters/read_trainer.py`,
+which hands `adapters/train_lora.py` the backend's four steps: wrap and
+seed (`torch_backend/lora_layers.py`, its seeded draw MLX's own,
+`torch_backend/mlx_random.py`), train (`torch_backend/training.py`, MLX's
+Adam and losses, `torch_backend/training_losses.py`; one numpy generator
+orders the items on both backends, `adapters/sample_batch.py`), write the
+adapter under MLX's keys, unwrap. Gradient checkpointing is
+`torch_backend/checkpointing.py`. What a training cost lands in the
+run's `resources.training`, by node. The core
 operations that run a model on torch are listed in
 `backends.Backend.ops`; any other is refused by name before its node
 runs.

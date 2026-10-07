@@ -21,7 +21,7 @@ nothing said so.
   runs a model and that the backend does not run yet is refused before
   the node runs: `BackendRefused` ("intervene/patch does not run on the
   torch backend yet; there it runs …"). `backends.Backend.ops` lists
-  what torch runs: `activations/capture`, `eval/judge`,
+  what torch runs: `activations/capture`, `adapter/train`, `eval/judge`,
   `logits/attribute`, `logits/read`, `text/chat`, `text/generate`,
   `text/resample` and `text/score`. Such a job used to fail inside the
   operation on an MLX call. An installed extension's operations are not
@@ -29,6 +29,9 @@ nothing said so.
 - On torch, an intervention `spec` item that gives an operator `f`, or a
   weight edit, is refused by name ("an item's `f` runs on the mlx backend
   only, and this model runs on torch").
+- `adapter/train` with `operator` on a torch model is refused before
+  training ("an operator trains on the mlx backend only, and this model
+  runs on torch").
 
 ### Changes that alter results without raising
 
@@ -36,7 +39,10 @@ _None._ Every MLX result is byte for byte what it was: `text/generate`
 (sampled, greedy with `stop`, with a `spec` sweep, with a `project`
 port), `text/score`, `logits/read` with `rollout` and `complete`,
 `text/resample` and `text/chat` on the four tiny MLX architectures
-digest the same before and after.
+digest the same before and after, and so does `adapter/train` (the
+decision objective with target and path items, and `sft`, with kept
+checkpoints) on Gemma 3, Gemma 4, Llama and Qwen 2. An mlx job's
+`resources` has no `training`.
 
 ### Other
 
@@ -114,6 +120,54 @@ digest the same before and after.
   weights load as before. This needs `accelerate`, now in the `torch`
   extra and one of the modules the torch backend requires, so a machine
   without it is told so by name.
+- **LoRA training on the `torch` backend.** `adapter/train` runs on
+  torch with the decision objective (target, continuation, path, sequence
+  and anchor items) and `sft`, on every torch architecture (each now
+  declares `train`), with MLX's recipe: the same LoRA (`lora_a` drawn
+  from a normal over `rank × in` scaled by 1/√in, `lora_b` zero, the
+  update `scale · (x·Aᵀ)·Bᵀ` computed in float32 and added in the base's
+  dtype), the same seeded initialisation (MLX's threefry draw reproduced
+  in numpy, `torch_backend/mlx_random.py`, so no MLX is needed: the keys
+  are MLX's exactly and the normals within 5e-7), the same data order
+  (one numpy generator per seed through the shared
+  `adapters/sample_batch.py`), the same soft-target and `sft` losses,
+  and MLX's Adam (β 0.9/0.999, ε 1e-8, no bias correction). The base
+  weights stay in their dtype (bf16 on a checkpoint) with gradients
+  off; the LoRA parameters and the optimizer's state are float32, as on
+  MLX. Each item is its own forward and backward, its gradient
+  accumulated before the step, and a decision item's forward computes
+  only the rows it trains (`logits_to_keep`). The adapter is written
+  with MLX's safetensors keys (`model.layers.<i>.<self_attn|mlp>.<proj>.lora_<a|b>`,
+  float32), so either backend fuses it. Checkpoints, `keep_checkpoints`
+  and resume work as on MLX; a resumed run ends on the bytes of an
+  uninterrupted one. Gradient checkpointing (each decoder layer
+  recomputed in the backward) is chosen automatically: on when an
+  estimate of one item's saved activations exceeds a quarter of the
+  GPU's free memory, never on the CPU, and
+  `MECHBENCH_GRADIENT_CHECKPOINTING=on|off` overrides it; it changes no
+  bytes of the adapter. The base model comes back bit for bit. On the
+  CPU tiny models two seeded runs write identical bytes, and MLX and
+  torch trained from the same float32 weights for 16 steps at lr 1e-3
+  keep their loss curves within 2e-4 of the loss and the trained
+  `lora_b` within 2e-3 of its norm, for both objectives (measured: the
+  loss within 9e-5 on Gemma 3, whose embedding scale MLX rounds to bf16,
+  and 1e-5 on the others; `lora_b` within 8e-4); at lr 1e-2 the gap
+  grows to 6e-4 and 3e-3.
+- A torch job's `resources.training` carries, by node, what each
+  training cost: `backend`, `accelerator`, `steps` (run in this
+  attempt), `from_step`, `seconds`, `seconds_per_step`, `tokens` (fed
+  forward), `tokens_per_s`, `peak_memory_bytes` (CUDA's peak allocation,
+  weights included; null on the CPU) and `gradient_checkpointing`. A
+  torch job's `resources.hardware` keeps the torch stack it ran on when
+  the node evicted the model, as training does.
+- `torch_backend.train_timing.time_training(model, steps=5, items=6,
+  prompt_tokens=128, rank=8, targets=("q_proj", "v_proj"), …)` times
+  LoRA steps on synthetic decision items after a warm-up step and reports
+  seconds per step, tokens per second, peak memory, whether it
+  checkpointed, and the time projected for 60, 240 and 720 steps; the
+  model is left as it was, and it asserts nothing.
+- `finetune.py` imports MLX inside `train_soft_ce`, so the target and
+  item builders import on a machine without MLX.
 - `torch_backend.throughput.measure_throughput(model, batch_sizes=…,
   prompt_tokens=…, new_tokens=…)` reports prefill and decode tokens per
   second and peak GPU memory at each batch size; it asserts nothing.
