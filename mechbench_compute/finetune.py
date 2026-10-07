@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import mlx.core as mx
-import mlx.optimizers as optim
 import numpy as np
-from mlx import nn
 
+from .adapters.sample_batch import read_draws, sample_batch
 from .distill import Example, TargetMap, TargetTrie, encode, soft_ce, suffix_tokens
 from .spans import add_to_span
+
+if TYPE_CHECKING:
+    import mlx.core as mx
+    import mlx.optimizers as optim
 
 
 def entropy_bits(target: TargetMap) -> float:
@@ -457,6 +459,10 @@ def train_soft_ce(
     after_update: Callable[[optim.Optimizer], None] | None = None,
     loss_fn: Callable[[Any, list[Any]], mx.array] = soft_ce,
 ) -> float:
+    import mlx.core as mx
+    import mlx.optimizers as optim
+    from mlx import nn
+
     from mechbench_compute.resume import (
         capture_training_state,
         restore_training_state,
@@ -470,25 +476,11 @@ def train_soft_ce(
     if resume_state is not None:
         start = restore_training_state(lm, opt, rng, resume_state) + 1
 
-    active = [(g, items, int(batch_sizes.get(g, 0)))
-              for g, items in groups.items()
-              if items and int(batch_sizes.get(g, 0)) > 0]
-    active_factories = [(g, f, int(batch_sizes.get(g, 0)))
-                        for g, f in (factories or {}).items()
-                        if int(batch_sizes.get(g, 0)) > 0]
-    if not active and not active_factories:
-        raise ValueError("no non-empty training groups with batch size > 0")
+    active, active_factories = read_draws(groups, batch_sizes, factories)
 
     loss_val = 0.0
     for step in range(start, int(steps) + 1):
-        batch: list[Example] = []
-        for _, items, k in active:
-            take = min(k, len(items))
-            for i in rng.choice(len(items), take, replace=False):
-                batch.append(items[int(i)])
-        for _, factory, k in active_factories:
-            for _ in range(k):
-                batch.extend(factory(rng))
+        batch = sample_batch(rng, active, active_factories)
         loss, grads = loss_and_grad(lm, batch)
         add_to_span(backwards=1)
         opt.update(lm, grads)
