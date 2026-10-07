@@ -93,6 +93,12 @@ CASES = {
     "patch-logit": lambda m: ("intervene.patch", {"records": PAIRED}, {"metric": "logit", "point": "resid_pre"}),
     "patch-attribution": lambda m: ("intervene.patch", {"records": PAIRED},
                                     {"method": "attribution", "point": "attn_out"}),
+    "capture-tokens": lambda m: ("activations.capture_tokens", {"records": RECORDS}, {"layers": [0, 2]}),
+    "capture-tokens-every": lambda m: ("activations.capture_tokens", {"records": RECORDS},
+                                       {"layers": [1], "point": "resid_pre", "every": 2,
+                                        "positions": {"after": 1}}),
+    "capture-attention": lambda m: ("activations.capture_attention", {"records": RECORDS}, {"layers": [1, 2]}),
+    "read-layers": lambda m: ("logits.read_layers", {"records": RECORDS}, {"top_k": 3}),
 }
 
 
@@ -132,3 +138,19 @@ def test_an_intervention_reads_the_same_on_mlx_and_torch(twins, case):
     got = run(on_torch, *CASES[case](on_torch))
     assert got.get("items") or got.get("measures")
     check_agree(want, got, TOLERANCE_OF.get(on_torch.architecture.model_type, TOLERANCE), f"{name} {case}")
+
+
+def test_capture_tokens_writes_the_same_rows_as_shards_on_torch(twins):
+    from mechbench_compute import tensors
+
+    _, on_torch, on_mlx = twins
+    params = {"layers": [0, 2], "storage": "tensor"}
+    sharded = run(on_torch, "activations.capture_tokens", {"records": RECORDS}, params)
+    inline = run(on_mlx, "activations.capture_tokens", {"records": RECORDS}, {"layers": [0, 2]})
+    rows = list(tensors.items_of(sharded))
+    assert sharded["storage"] == "tensor" and sharded["n_items"] == len(inline["items"]) == len(rows)
+    tolerance = TOLERANCE_OF.get(on_torch.architecture.model_type, TOLERANCE)
+    for got, want in zip(rows, inline["items"], strict=True):
+        assert got["coords"]["position"] == want["coords"]["position"] and got["token"] == want["token"]
+        a, b = np.asarray(want["vector"]), np.asarray(got["vector"])
+        assert np.abs(a - b).max() <= tolerance * max(1.0, float(np.abs(a).max()))

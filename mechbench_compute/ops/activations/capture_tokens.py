@@ -8,10 +8,10 @@ from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32, read_token_logprobs
 from mechbench_compute.distill import render
-from mechbench_compute.interp.read_record_coords import read_record_coords
 from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.interp.read_record_coords import read_record_coords
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
@@ -157,25 +157,18 @@ def capture_tokens(
         writer = tensors.ShardWriter(tempfile.mkdtemp(prefix="mechbench-tensor-"))
     for record, r, idx in kept_per_record:
         ids = model.make_ids(r.ids)
-        add_to_span(tokens_in=int(ids.size))
+        add_to_span(tokens_in=len(r.ids))
         result = model.run(ids, interventions=[cap])
         seq = list(r.ids)
-        lg = result.logits[0, :-1, :].astype(mx.float32)
-        tgt = mx.array(seq[1:])
-        lp = (mx.take_along_axis(lg, tgt[:, None], axis=-1)[:, 0]
-              - mx.logsumexp(lg, axis=-1))
-        mx.eval(lp)
-        surp = -np.array(lp) / np.log(2.0)
+        surp = -read_token_logprobs(result.logits[0, :-1, :], seq[1:]) / np.log(2.0)
         coords = read_record_coords(record, params)
         for pos in idx:
             token = S.token(model.tokenizer, r.ids[pos])
             bits = None if pos == 0 else round(float(surp[pos - 1]), 4)
             for layer in layers:
                 t = result.cache[f"blocks.{layer}.{point}"]
-                v = t[0, pos, :].astype(mx.float32)
-                mx.eval(v)
                 row = S.vector(
-                    np.array(v),
+                    read_f32(t[0, pos, :]),
                     S.space(model=mid, layer=layer, point=point, d=width),
                     id=record.get("id"),
                     coords={**coords, "position": int(pos),

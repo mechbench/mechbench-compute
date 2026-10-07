@@ -56,6 +56,13 @@ architectures digest the same before and after.
   rounded digit) and within 5e-3 on Gemma 3, whose embedding scale MLX
   rounds to bf16, and every token, id and label the same
   (`tests/test_torch_interventions_match_mlx.py`).
+- **Per-token captures, attention and the layer lens on torch.**
+  `activations/capture-tokens` (with `storage: "tensor"` shards too),
+  `activations/capture-attention` and `logits/read-layers` run on torch
+  and are in `backends.Backend.ops`; MLX and torch agree on them as on the
+  interventions, and a capture's shards hold the rows its inline form
+  would. `arrays.read_token_logprobs(rows, targets)` reads each position's
+  log-probability of the next token on either backend.
 - The operations that read a record's tokens build their ids with
   `model.make_ids` (MLX's is the int32 array `Rendered.array` was), and
   `interp.render_text` returns the model's own ids.

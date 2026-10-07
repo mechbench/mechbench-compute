@@ -94,6 +94,8 @@ def test_v3_keeps_every_v2_node_under_its_id_and_shape():
         extra = {k: v for k, v in kept["params"].items() if node["params"].get(k) != v}
         assert set(extra) <= {"batch", "lora"}, (node["id"], extra)
     assert v3["graph"]["edges"] == v2["graph"]["edges"]
+    assert v3["outputs"] == v2["outputs"]
+    assert all(len(p[field]) <= 32 for p in (v2, v3) for field in ("params", "inputs", "outputs"))
 
 
 def test_every_layer_the_protocols_read_is_below_22():
@@ -154,12 +156,10 @@ def test_the_calibration_protocol_runs_on_torch_but_the_operations_torch_refuses
     protocol = read_protocol(version)
     refused = torch_refuses(protocol)
     assert {n["block"] for n in protocol["graph"]["nodes"] if n["id"] in refused} <= TOKENS_ON_TORCH_NOW
-    if not refused:
-        payload = run(protocol, "torch")
-        assert set(payload["node_summaries"]) == {n["id"] for n in protocol["graph"]["nodes"]}
-        return
-    with pytest.raises(backends.BackendRefused, match=r"activations/capture-tokens does not run on the torch backend yet"):
-        run(protocol, "torch")
+    if refused:
+        with pytest.raises(backends.BackendRefused,
+                           match=r"activations/capture-tokens does not run on the torch backend yet"):
+            run(protocol, "torch")
     kept = copy.deepcopy(protocol)
     kept["graph"]["nodes"] = [n for n in kept["graph"]["nodes"] if n["id"] not in refused]
     payload = run(kept, "torch")

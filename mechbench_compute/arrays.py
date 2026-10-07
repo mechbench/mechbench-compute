@@ -142,3 +142,24 @@ def read_softmax(x: Any) -> np.ndarray:
 
         return torch.softmax(x.detach().float(), dim=-1).cpu().numpy()
     return np.exp(read_logprobs(x))
+
+
+def read_token_logprobs(rows: Any, targets: list[int]) -> np.ndarray:
+    framework = read_framework(rows)
+    if framework == "mlx":
+        from mechbench_compute._mlx import mx
+
+        lg = rows.astype(mx.float32)
+        tgt = mx.array(targets)
+        lp = (mx.take_along_axis(lg, tgt[:, None], axis=-1)[:, 0]
+              - mx.logsumexp(lg, axis=-1))
+        mx.eval(lp)
+        return np.array(lp)
+    if framework == "torch":
+        import torch
+
+        lg = rows.detach().float()
+        tgt = torch.as_tensor(targets, dtype=torch.long, device=lg.device)
+        lp = lg.gather(-1, tgt[:, None])[:, 0] - torch.logsumexp(lg, dim=-1)
+        return lp.cpu().numpy()
+    return read_logprobs(rows)[np.arange(len(targets)), targets]

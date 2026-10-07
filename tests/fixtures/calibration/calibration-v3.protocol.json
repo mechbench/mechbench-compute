@@ -1,6 +1,6 @@
 {
  "name": "calibration",
- "description": "Calibration v3: v2's nodes under v2's ids and shapes, plus what the torch backend's batch axis and the instrumentation ladder allow. forward-n{N}-b{B} is still logits/read over B records, one prefill each (logits/read has no batch axis); prefill-n{N}-b{B} is the true batch: text/generate of one greedy token over the same B records with batch B, one forward for all B on torch, B in turn on mlx. decode-t{T}-n{n} decodes n samples at batch n (torch; mlx writes them in turn). The ladder reads one record of 8192 tokens: forward-n8192-b1 plain, capture-pooled-k1/k8-n8192 (activations/capture at 1 or 8 layers, mean over every position), capture-heads-k1-n8192 (the per-head path), capture-weights-k1-n8192 (attention weights at one layer), prefill-n8192-b1 and intervene-n8192-b1 (the same greedy token with layer 12's MLP zeroed at every position). attribute-{split}-n512-b4 is logits/attribute by layer and by sublayer. capture-k{K}-n{N} (activations/capture-tokens) is refused by name on a backend that does not run it yet. warmup-n1 runs first and absorbs model load. Inputs are fixed bench objects under benjismith/calibration; N is exact in the Gemma 4 tokenizer and approximate in others. Layers are at most 21, so any model with 22 layers or more runs it. Bind only the model; results union by node id across machines and backends.",
+ "description": "Calibration v3: v2's nodes under v2's ids and shapes, plus what the torch backend's batch axis and the instrumentation ladder allow. forward-n{N}-b{B} is still logits/read over B records, one prefill each (logits/read has no batch axis); prefill-n{N}-b{B} is the true batch: text/generate of one greedy token over the same B records with batch B, one forward for all B on torch, B in turn on mlx. decode-t{T}-n{n} decodes n samples at batch n (torch; mlx writes them in turn). The ladder reads one record of 8192 tokens: forward-n8192-b1 plain, capture-pooled-k1/k8-n8192 (activations/capture at 1 or 8 layers, mean over every position), capture-heads-k1-n8192 (the per-head path), capture-weights-k1-n8192 (attention weights at one layer), prefill-n8192-b1 and intervene-n8192-b1 (the same greedy token with layer 12's MLP zeroed at every position). attribute-{split}-n512-b4 is logits/attribute by layer and by sublayer. capture-k{K}-n{N} (activations/capture-tokens) is refused by name on a backend that does not run it yet. warmup-n1 runs first and absorbs model load. Inputs are fixed bench objects under benjismith/calibration; N is exact in the Gemma 4 tokenizer and approximate in others. Layers are at most 21, so any model with 22 layers or more runs it. Bind only the model; results union by node id across machines and backends. The declared outputs are v2's, at v2's paths; the platform takes at most 32, so v3's new nodes are stored as intermediates at results/<job>/nodes/<id>, with their own spans.",
  "params": [
   {
    "name": "model",
@@ -84,66 +84,6 @@
    }
   },
   {
-   "name": "forward-n8192-b1",
-   "from": {
-    "node": "forward-n8192-b1"
-   }
-  },
-  {
-   "name": "prefill-n128-b1",
-   "from": {
-    "node": "prefill-n128-b1"
-   }
-  },
-  {
-   "name": "prefill-n128-b4",
-   "from": {
-    "node": "prefill-n128-b4"
-   }
-  },
-  {
-   "name": "prefill-n128-b16",
-   "from": {
-    "node": "prefill-n128-b16"
-   }
-  },
-  {
-   "name": "prefill-n512-b1",
-   "from": {
-    "node": "prefill-n512-b1"
-   }
-  },
-  {
-   "name": "prefill-n512-b4",
-   "from": {
-    "node": "prefill-n512-b4"
-   }
-  },
-  {
-   "name": "prefill-n512-b16",
-   "from": {
-    "node": "prefill-n512-b16"
-   }
-  },
-  {
-   "name": "prefill-n2048-b1",
-   "from": {
-    "node": "prefill-n2048-b1"
-   }
-  },
-  {
-   "name": "prefill-n2048-b4",
-   "from": {
-    "node": "prefill-n2048-b4"
-   }
-  },
-  {
-   "name": "prefill-n2048-b16",
-   "from": {
-    "node": "prefill-n2048-b16"
-   }
-  },
-  {
    "name": "decode-t128-n1",
    "from": {
     "node": "decode-t128-n1"
@@ -159,18 +99,6 @@
    "name": "decode-t128-n4",
    "from": {
     "node": "decode-t128-n4"
-   }
-  },
-  {
-   "name": "decode-t128-n8",
-   "from": {
-    "node": "decode-t128-n8"
-   }
-  },
-  {
-   "name": "decode-t128-n32",
-   "from": {
-    "node": "decode-t128-n32"
    }
   },
   {
@@ -195,54 +123,6 @@
    "name": "capture-k8-n2048",
    "from": {
     "node": "capture-k8-n2048"
-   }
-  },
-  {
-   "name": "capture-pooled-k1-n8192",
-   "from": {
-    "node": "capture-pooled-k1-n8192"
-   }
-  },
-  {
-   "name": "capture-pooled-k8-n8192",
-   "from": {
-    "node": "capture-pooled-k8-n8192"
-   }
-  },
-  {
-   "name": "capture-heads-k1-n8192",
-   "from": {
-    "node": "capture-heads-k1-n8192"
-   }
-  },
-  {
-   "name": "capture-weights-k1-n8192",
-   "from": {
-    "node": "capture-weights-k1-n8192"
-   }
-  },
-  {
-   "name": "prefill-n8192-b1",
-   "from": {
-    "node": "prefill-n8192-b1"
-   }
-  },
-  {
-   "name": "intervene-n8192-b1",
-   "from": {
-    "node": "intervene-n8192-b1"
-   }
-  },
-  {
-   "name": "attribute-layer-n512-b4",
-   "from": {
-    "node": "attribute-layer-n512-b4"
-   }
-  },
-  {
-   "name": "attribute-sublayer-n512-b4",
-   "from": {
-    "node": "attribute-sublayer-n512-b4"
    }
   },
   {

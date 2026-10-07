@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from mechbench_compute import lexicon
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
 _CHAT_RECORDS = In("records", "records/record",
@@ -88,13 +88,13 @@ def run(ctx, inputs, params):
         r0 = render(model, rec)
         rendered, ids = r0.text, r0.ids
         r = model.run(
-            mx.array([ids]),
+            model.make_ids(ids),
             interventions=[Capture.residual(layers=range(n_layers))])
         tracked = collect_tracked_answers(model, rec, tracked=params.get("tracked"))
         for i in range(n_layers):
             resid = r.cache[f"blocks.{i}.resid_post"]
             row = model.project_to_logits(resid)[0, -1, :]
-            z = _np.array(row.astype(mx.float32)).astype(_np.float64)
+            z = read_f32(row).astype(_np.float64)
             logp = z - z.max() - _np.log(_np.exp(z - z.max()).sum())
             capped = None if unembed.softcap is None else read_capped(model, row, unembed.norm(resid))
             items.append({

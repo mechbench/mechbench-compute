@@ -3,11 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-import numpy as np
-
 from mechbench_compute import lexicon
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.distill import render
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.resolve_layers import resolve_layers
@@ -95,11 +93,10 @@ def capture_attention_patterns(
     rows: list[dict[str, Any]] = []
     total_floats = 0
     for record in records:
-        ids = model.make_ids(render(model, record).ids)
-        add_to_span(tokens_in=int(ids.size))
-        result = model.run(ids, interventions=[cap])
-        tokens = [model.tokenizer.decode([int(t)])
-                  for t in np.array(ids).reshape(-1)]
+        flat = render(model, record).ids
+        add_to_span(tokens_in=len(flat))
+        result = model.run(model.make_ids(flat), interventions=[cap])
+        tokens = [model.tokenizer.decode([int(t)]) for t in flat]
         seq = len(tokens)
         total_floats += len(layers) * model.arch.n_heads * seq * seq
         if total_floats > MAX_ATTN_FLOATS:
@@ -110,7 +107,7 @@ def capture_attention_patterns(
         weight = []
         for layer in layers:
             w = result.cache[f"blocks.{layer}.attn.weights"]
-            arr = np.array(w.astype(mx.float32))[0]
+            arr = read_f32(w)[0]
             weight.append([[[round(float(x), 4) for x in r] for r in h] for h in arr])
         rows.append(S.grid(
             record.get("id"), ["layer", "head", "query", "key"], {"weight": weight},
