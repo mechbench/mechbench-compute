@@ -260,7 +260,7 @@ def capture(
                     f"record {record.get('id')!r} has no trace and replay is "
                     "'trace' — score/generate at fidelity 'trace' first")
             r = render(model, record)
-            ids = r.array
+            ids = model.make_ids(r.ids)
             prompt_len = r.prompt_len
         else:
             used_trace += 1

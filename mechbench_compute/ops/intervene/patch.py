@@ -3,12 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-import numpy as np
-
 from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.interp.answer import Answer
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.read_last_logp import read_last_logp
@@ -16,6 +14,7 @@ from mechbench_compute.interp.read_pair import read_pair
 from mechbench_compute.interp.render_text import render_text
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interp.resolve_target import resolve_target
+from mechbench_compute.intervene.array_ops import read_array_ops
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.spans import add_to_span
@@ -167,8 +166,8 @@ def patch_trace(
         clean, corrupt = read_pair(record)
         ids_clean = render_text(model, record, clean)
         ids_corrupt = render_text(model, record, corrupt)
-        n_clean = int(np.array(ids_clean).shape[-1])
-        n_corrupt = int(np.array(ids_corrupt).shape[-1])
+        n_clean = int(ids_clean.shape[-1])
+        n_corrupt = int(ids_corrupt.shape[-1])
         if n_clean != n_corrupt:
             pairs.append(S.grid(
                 record.get("id"), ["layer", "position"], {},
@@ -185,7 +184,7 @@ def patch_trace(
 
         def read_run(res, answer=answer) -> float:
             return answer.read(metric, read_last_logp(res.logits),
-                               _read_last_logits(res.logits))
+                               read_f32(res.logits[0, -1, :]))
 
         p_clean_in_clean = read_run(clean_run)
         corrupt_run = model.run(ids_corrupt)
@@ -211,7 +210,7 @@ def patch_trace(
                 if on_item:
                     on_item()
         tokens = [model.tokenizer.decode([int(t)])
-                  for t in np.array(ids_corrupt).reshape(-1)]
+                  for t in ids_corrupt.reshape(-1).tolist()]
         gap = p_clean_in_clean - baseline
         measures = {"recovery": recovery}
         if abs(gap) > 1e-9:
@@ -244,30 +243,23 @@ def patch_trace(
 _ATTRIBUTION_POINTS = ("resid_post", "resid_pre", "attn_out", "mlp_out")
 
 
-def _read_last_logits(logits: mx.array) -> np.ndarray:
-    row = logits[0, -1, :].astype(mx.float32)
-    mx.eval(row)
-    return np.array(row)
-
-
 def _compute_attribution_grid(model, ids_corrupt, layers: Sequence[int], point: str,
                               clean_cache, answer: Answer, metric: str) -> list[list[float]]:
     names = [f"blocks.{layer}.{point}" for layer in layers]
-    deltas = {n: mx.zeros(clean_cache[n].shape, dtype=mx.float32) for n in names}
+    xp = read_array_ops(clean_cache[names[0]])
+    deltas = {n: xp.zeros(clean_cache[n].shape) for n in names}
 
     def objective(ds):
-        hooks = {n: (lambda act, info, d=ds[n]: act + d.astype(act.dtype)) for n in names}
+        hooks = {n: (lambda act, info, d=ds[n]: act + xp.cast(d, act.dtype)) for n in names}
         res = model.run(ids_corrupt, hooks=hooks)
-        return answer.read_differentiable(metric, res.logits[0, -1, :].astype(mx.float32))
+        return answer.read_differentiable(metric, xp.cast(res.logits[0, -1, :], xp.float32))
 
-    grads = mx.grad(objective)(deltas)
+    grads = xp.grad(objective, deltas)
     add_to_span(backwards=1)
-    mx.eval(*grads.values())
     corrupt_cache = model.run(ids_corrupt, capture=names).cache
     grid: list[list[float]] = []
     for n in names:
-        diff = clean_cache[n].astype(mx.float32) - corrupt_cache[n].astype(mx.float32)
-        cell = mx.sum(grads[n] * diff, axis=-1)[0]
-        mx.eval(cell)
-        grid.append([round(float(x), 5) for x in np.array(cell)])
+        diff = xp.cast(clean_cache[n], xp.float32) - xp.cast(corrupt_cache[n], xp.float32)
+        cell = read_f32(xp.sum(grads[n] * diff, -1)[0]).reshape(-1)
+        grid.append([round(float(x), 5) for x in cell])
     return grid

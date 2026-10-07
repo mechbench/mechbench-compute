@@ -311,7 +311,7 @@ def ablate_circuits(
     captured: list[dict[str, np.ndarray]] = []
     for record, allowed in zip(records, outcomes, strict=True):
         r = render(model, record)
-        ids = r.array
+        ids = model.make_ids(r.ids)
         n_tokens = int(np.array(ids).shape[-1])
         if -reach > n_tokens:
             raise ValueError(f"record {record.get('id')!r} is {n_tokens} tokens long; the universe reaches "

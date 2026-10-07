@@ -8,7 +8,7 @@ import numpy as np
 from mechbench_compute import lexicon
 from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import make_f32
 from mechbench_compute.distill import render
 from mechbench_compute.interp.capped import read_capped
 from mechbench_compute.interp.load_kinds import load_kinds
@@ -165,11 +165,11 @@ def steer_inject(
         on_start(len(records) * len(alphas))
 
     out_rows: list[dict[str, Any]] = []
-    value = mx.array(dvec)
     softcap = model.architecture.attribution_unembed(model._model).softcap
     for record in records:
         r = render(model, record)
-        ids = r.array
+        ids = model.make_ids(r.ids)
+        value = make_f32(dvec, ids)
         seq = len(r.ids)
         position = record.get("position", params.get("position", "last"))
         pos_idx = POS.one(position, seq, tokens=r.tokens(model.tokenizer),

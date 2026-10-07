@@ -48,6 +48,9 @@ class StubModel:
     def tokenize(self, prompt: str, chat_template: bool = True):
         return mx.array([[0] + [1 + (len(w) % 7) for w in prompt.split()]])
 
+    def make_ids(self, ids):
+        return mx.array([[int(t) for t in ids]], dtype=mx.int32)
+
     def run(self, ids, interventions=None):
         arr = np.array(ids)[0]
         self.seen_ids.append([int(t) for t in arr])

@@ -245,7 +245,7 @@ def find_top_examples(
         starts_with_bos = bos is not None and len(r.ids) and int(r.ids[0]) == bos
         first = 0
         if feats is not None:
-            x = read_dictionary_activations(model, r.array, point, layer)
+            x = read_dictionary_activations(model, model.make_ids(r.ids), point, layer)
             rows = []
             for feat in feats:
                 values = encode_feature(x, feat)
@@ -253,7 +253,7 @@ def find_top_examples(
                     values[0] = np.float32(0)
                 rows.append(values)
         else:
-            res = model.run(r.array, interventions=[Capture.at([name])])
+            res = model.run(model.make_ids(r.ids), interventions=[Capture.at([name])])
             act = res.cache[name][0].astype(mx.float32)
             if vec is not None:
                 rows = [np.array(mx.sum(act * mx.array(vec), axis=-1))]

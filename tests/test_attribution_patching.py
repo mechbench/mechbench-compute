@@ -39,6 +39,9 @@ class _LinearModel:
     def tokenize(self, prompt, chat_template=False):
         return mx.array([[1, *self.tokenizer.encode(prompt)]])
 
+    def make_ids(self, ids):
+        return mx.array([[int(t) for t in ids]], dtype=mx.int32)
+
     def run(self, ids, hooks=None, capture=None, interventions=None):
         hooks_d, caps = compose(interventions, hooks=hooks, capture=capture)
         h = self.embed[ids]

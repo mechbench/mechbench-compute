@@ -8,6 +8,8 @@ from mechbench_compute.arrays import read_framework
 
 class MlxOps:
     framework = "mlx"
+    key = "mlx"
+    verbs = mx
 
     @property
     def float32(self) -> Any:
@@ -45,6 +47,35 @@ class MlxOps:
 
     def broadcast_to(self, x: Any, shape: Any) -> Any:
         return mx.broadcast_to(x, shape)
+
+    def lift(self, y: Any) -> Any:
+        return y if isinstance(y, mx.array) else mx.array(y, dtype=mx.float32)
+
+    def take(self, x: Any, indices: Any, axis: int) -> Any:
+        return mx.take(x, indices, axis=axis)
+
+    def put_along_axis(self, x: Any, indices: Any, values: Any, axis: int) -> Any:
+        return mx.put_along_axis(x, indices, values, axis=axis)
+
+    def count_nonfinite(self, where: Any, y: Any) -> int:
+        return int(mx.sum(mx.logical_and(where, mx.logical_not(mx.isfinite(y)))).item())
+
+    def zeros(self, shape: Any) -> Any:
+        return mx.zeros(shape, dtype=mx.float32)
+
+    def logsumexp(self, x: Any) -> Any:
+        return mx.logsumexp(x)
+
+    def exp(self, x: Any) -> Any:
+        return mx.exp(x)
+
+    def grad(self, objective: Any, deltas: dict[str, Any]) -> dict[str, Any]:
+        grads = mx.grad(objective)(deltas)
+        mx.eval(*grads.values())
+        return grads
+
+    def value_and_grad(self, read_value: Any, deltas: dict[str, Any]) -> Any:
+        return mx.value_and_grad(read_value)(deltas)
 
 
 MLX_OPS = MlxOps()

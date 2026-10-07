@@ -100,7 +100,7 @@ def scan_positions(
     cap = Capture.residual(layers, point="post")
     rows: list[dict[str, Any]] = []
     for record in records:
-        ids = render(model, record).array
+        ids = model.make_ids(render(model, record).ids)
         result = model.run(ids, interventions=[cap])
         base_lp = read_last_logp(result.logits)
         answer, _ = resolve_target(model, record, params, base_lp)

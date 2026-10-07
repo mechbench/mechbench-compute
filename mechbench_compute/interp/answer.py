@@ -7,7 +7,6 @@ from typing import Any
 import numpy as np
 
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
 from mechbench_compute.distill import encode, suffix_tokens
 
 
@@ -45,11 +44,14 @@ class Answer:
             return float(np.asarray(logits).reshape(-1)[self.preferred])
         return self.p(lp) if metric == "prob" else self.logp(lp)
 
-    def read_differentiable(self, metric: str, row: mx.array) -> mx.array:
+    def read_differentiable(self, metric: str, row: Any) -> Any:
         if metric == "logit":
             return row[self.preferred]
-        set_lp = mx.logsumexp((row - mx.logsumexp(row))[mx.array(list(self.ids))])
-        return mx.exp(set_lp) if metric == "prob" else set_lp
+        from mechbench_compute.intervene.array_ops import read_array_ops
+
+        xp = read_array_ops(row)
+        set_lp = xp.logsumexp((row - xp.logsumexp(row))[xp.array(list(self.ids))])
+        return xp.exp(set_lp) if metric == "prob" else set_lp
 
     def variants(self, tokenizer, lp: np.ndarray) -> list[dict[str, Any]]:
         row = np.asarray(lp, dtype=np.float64).reshape(-1)

@@ -117,7 +117,7 @@ def ablate_heads(
     metas: list[dict[str, Any]] = []
     for record, allowed in zip(records, outcomes, strict=True):
         r = render(model, record)
-        ids = r.array
+        ids = model.make_ids(r.ids)
         base_logits = model.run(ids).logits
         base_lp = read_last_logp(base_logits)
         if on_item:

@@ -17,15 +17,48 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- On torch, an intervention `spec` item that gives an operator `f` is no
+  longer refused: it runs there. A weight edit inside a `spec` is still
+  refused by name on torch ("a weight edit runs on the mlx backend only"),
+  now by `intervene/apply` too, before any forward.
 
 ### Changes that alter results without raising
 
-_None._
+_None._ Every MLX result is byte for byte what it was: `intervene/apply`
+(operators with dimension masks, `except`, frames and constants bound from
+`source`; zero, scale, rotate, clamp, head and attention-edge items;
+sweeps; capture readouts; weight edits), `intervene/ablate-heads`,
+`intervene/ablate-layers`, `intervene/steer`, `intervene/patch` (exact and
+attribution), `intervene/path`, `intervene/ablate-circuit`,
+`activations/capture-tokens`, `activations/capture-attention`,
+`activations/contrast`, `activations/examples`,
+`activations/differentiate`, `logits/read-layers`, `logits/scan`,
+`trajectory/capture`, `weights/*`, `direction/unembed`, `text/generate`
+with an operator and `adapter/train` with an operator on the four tiny MLX
+architectures digest the same before and after.
 
 ### Other
 
-_None._
+- **Interventions on the `torch` backend.** `intervene/apply`,
+  `intervene/ablate-heads`, `intervene/ablate-layers`, `intervene/steer`
+  and `intervene/patch` (exact and attribution) run on torch and are in
+  `backends.Backend.ops`. An operator `f` evaluates on torch through the
+  array-ops layer: `Operator.evaluate` reads its verbs from the array it
+  is given (`MlxOps.verbs` is `mlx.core`; `TorchOps.verbs` is
+  `torch_backend/operator_verbs.py`), and its mask reads and writes and its
+  bound constants come from the same layer. Attribution patching's
+  backward runs through the traced torch forward: inside
+  `torch_backend.forward.tracking_gradients()` the forward keeps its graph,
+  and `TorchOps.grad`/`value_and_grad` differentiate a metric by additive
+  deltas at the points named. Loaded with the same float32 weights, MLX
+  and torch read every number these operations write within 1e-3 of
+  `max(1, |value|)` on Gemma 4, Llama and Qwen 2 (mostly at the last
+  rounded digit) and within 5e-3 on Gemma 3, whose embedding scale MLX
+  rounds to bf16, and every token, id and label the same
+  (`tests/test_torch_interventions_match_mlx.py`).
+- The operations that read a record's tokens build their ids with
+  `model.make_ids` (MLX's is the int32 array `Rendered.array` was), and
+  `interp.render_text` returns the model's own ids.
 
 ## 0.194.0 — 2026-10-07
 

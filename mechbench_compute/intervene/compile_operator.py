@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from mechbench_compute._mlx import mx
+from mechbench_compute.intervene.array_ops import read_array_ops
 from mechbench_compute.intervene.operator_refused import OperatorRefused
 
 NUMBER, CONDITION = "number", "condition"
@@ -34,7 +34,7 @@ CONSTRUCTS = {ast.Attribute: "field access", ast.Subscript: "indexing", ast.List
               ast.Tuple: "a tuple", ast.Dict: "an object", ast.Set: "a set",
               ast.ListComp: "a comprehension", ast.GeneratorExp: "a comprehension"}
 
-Fn = Callable[[Mapping[str, Any]], Any]
+Fn = Callable[[Mapping[str, Any], Any], Any]
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,10 @@ class Operator:
     canonical: str
     names: tuple[str, ...]
     undefinable: bool
-    evaluate: Fn
+    run: Fn
+
+    def evaluate(self, env: Mapping[str, Any]) -> Any:
+        return self.run(env, read_array_ops(env["x"]).verbs)
 
 
 @functools.lru_cache(maxsize=256)
@@ -76,18 +79,18 @@ def _is_whole(node: ast.AST) -> bool:
 
 def _raise_to(base: Fn, exponent: Fn, node: ast.AST) -> Fn:
     if not _is_whole(node):
-        return lambda env: mx.power(base(env), exponent(env))
+        return lambda env, xp: xp.power(base(env, xp), exponent(env, xp))
     n = int(node.value)
 
-    def multiply(env):
-        b, out, k = base(env), None, n
+    def multiply(env, xp):
+        b, out, k = base(env, xp), None, n
         while k:
             if k & 1:
-                out = b if out is None else mx.multiply(out, b)
+                out = b if out is None else xp.multiply(out, b)
             k >>= 1
             if k:
-                b = mx.multiply(b, b)
-        return mx.ones_like(mx.array(b)) if out is None else out
+                b = xp.multiply(b, b)
+        return xp.ones_like(xp.array(b)) if out is None else out
 
     return multiply
 
@@ -127,10 +130,10 @@ class _Compiler:
     def compile_constant(self, node: ast.Constant) -> tuple[Fn, str]:
         v = node.value
         if isinstance(v, bool):
-            return (lambda env: mx.array(v)), CONDITION
+            return (lambda env, xp: xp.array(v)), CONDITION
         if isinstance(v, (int, float)):
             value = float(v)
-            return (lambda env: value), NUMBER
+            return (lambda env, xp: value), NUMBER
         self.refuse("OPERATOR_UNSUPPORTED", node, "a string or None has no elementwise value")
 
     def compile_name(self, node: ast.Name) -> tuple[Fn, str]:
@@ -140,7 +143,7 @@ class _Compiler:
                         "bind a value as a constant (a `$param` there is bound with the run)")
         if name != "x":
             self.names.add(name)
-        return (lambda env: env[name]), NUMBER
+        return (lambda env, xp: env[name]), NUMBER
 
     def compile_binop(self, node: ast.BinOp) -> tuple[Fn, str]:
         verb = ARITHMETIC.get(type(node.op))
@@ -152,15 +155,15 @@ class _Compiler:
             self.undefinable = True
         if isinstance(node.op, ast.Pow):
             return _raise_to(left, right, node.right), NUMBER
-        return (lambda env: getattr(mx, verb)(left(env), right(env))), NUMBER
+        return (lambda env, xp: getattr(xp, verb)(left(env, xp), right(env, xp))), NUMBER
 
     def compile_unaryop(self, node: ast.UnaryOp) -> tuple[Fn, str]:
         if isinstance(node.op, ast.Not):
             inner = self.condition(node.operand)
-            return (lambda env: mx.logical_not(inner(env))), CONDITION
+            return (lambda env, xp: xp.logical_not(inner(env, xp))), CONDITION
         operand = self.number(node.operand)
         if isinstance(node.op, ast.USub):
-            return (lambda env: mx.negative(operand(env))), NUMBER
+            return (lambda env, xp: xp.negative(operand(env, xp))), NUMBER
         if isinstance(node.op, ast.UAdd):
             return operand, NUMBER
         self.refuse("OPERATOR_UNSUPPORTED", node, "this operator has no elementwise form")
@@ -175,12 +178,12 @@ class _Compiler:
             verbs.append(verb)
         operands = [self.number(n) for n in (node.left, *node.comparators)]
 
-        def compare(env):
-            values = [o(env) for o in operands]
+        def compare(env, xp):
+            values = [o(env, xp) for o in operands]
             out = None
             for verb, a, b in zip(verbs, values, values[1:]):
-                c = getattr(mx, verb)(a, b)
-                out = c if out is None else mx.logical_and(out, c)
+                c = getattr(xp, verb)(a, b)
+                out = c if out is None else xp.logical_and(out, c)
             return out
 
         return compare, CONDITION
@@ -189,10 +192,10 @@ class _Compiler:
         parts = [self.condition(v) for v in node.values]
         verb = "logical_and" if isinstance(node.op, ast.And) else "logical_or"
 
-        def combine(env):
-            out = parts[0](env)
+        def combine(env, xp):
+            out = parts[0](env, xp)
             for p in parts[1:]:
-                out = getattr(mx, verb)(out, p(env))
+                out = getattr(xp, verb)(out, p(env, xp))
             return out
 
         return combine, CONDITION
@@ -202,7 +205,7 @@ class _Compiler:
         (body, kind), (orelse, other) = self.compile(node.body), self.compile(node.orelse)
         if kind != other:
             self.refuse("OPERATOR_TYPE", node, "one branch gives a number and the other a condition")
-        return (lambda env: mx.where(test(env), body(env), orelse(env))), kind
+        return (lambda env, xp: xp.where(test(env, xp), body(env, xp), orelse(env, xp))), kind
 
     def compile_call(self, node: ast.Call) -> tuple[Fn, str]:
         if not isinstance(node.func, ast.Name):
@@ -234,19 +237,19 @@ class _Compiler:
             self.undefinable = True
         if name in ONE_ARGUMENT:
             verb, (only,) = ONE_ARGUMENT[name], args
-            return (lambda env: getattr(mx, verb)(only(env))), NUMBER
+            return (lambda env, xp: getattr(xp, verb)(only(env, xp))), NUMBER
         if name == "log":
             if n == 1:
-                return (lambda env: mx.log(args[0](env))), NUMBER
-            return (lambda env: mx.divide(mx.log(args[0](env)), mx.log(args[1](env)))), NUMBER
+                return (lambda env, xp: xp.log(args[0](env, xp))), NUMBER
+            return (lambda env, xp: xp.divide(xp.log(args[0](env, xp)), xp.log(args[1](env, xp)))), NUMBER
         if name == "pow":
             return _raise_to(args[0], args[1], nodes[1]), NUMBER
         verb = "minimum" if name == "min" else "maximum"
 
-        def fold(env):
-            out = args[0](env)
+        def fold(env, xp):
+            out = args[0](env, xp)
             for a in args[1:]:
-                out = getattr(mx, verb)(out, a(env))
+                out = getattr(xp, verb)(out, a(env, xp))
             return out
 
         return fold, NUMBER

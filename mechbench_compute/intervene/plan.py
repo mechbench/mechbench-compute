@@ -87,5 +87,3 @@ def refuse_off_mlx(model, compiled: Compiled) -> None:
         return
     if compiled.weight_items:
         raise SpecError(f"a weight edit runs on the mlx backend only, and this model runs on {backend}")
-    if any(spec.operator is not None for spec in compiled.specs):
-        raise SpecError(f"an item's `f` runs on the mlx backend only, and this model runs on {backend}")

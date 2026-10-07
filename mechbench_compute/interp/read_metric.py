@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.interp.answer import Answer
 from mechbench_compute.interp.read_last_logp import read_last_logp
 
@@ -25,7 +26,7 @@ METRIC_DOC = (
     "without `outcomes`, or with an outcome the tokenizer splits, is refused by its id.")
 
 
-def read_metric(answer: Answer, metric: str, logits: mx.array,
+def read_metric(answer: Answer, metric: str, logits: Any,
                 outcomes: Sequence[Answer] | None = None) -> float:
     if metric not in METRICS:
         raise ValueError(f"unknown metric {metric!r}: one of {', '.join(METRICS)}")
@@ -44,7 +45,5 @@ def read_metric(answer: Answer, metric: str, logits: mx.array,
         q = p[p > 0] / mass
         return float(-(q * np.log2(q)).sum())
     if metric == "logit":
-        row = logits[0, -1, :].astype(mx.float32)
-        mx.eval(row)
-        return answer.read(metric, lp, np.array(row))
+        return answer.read(metric, lp, read_f32(logits[0, -1, :]))
     return answer.read(metric, lp)

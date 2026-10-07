@@ -3,20 +3,19 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-import numpy as np
-
 from mechbench_compute import lexicon
 from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.intervene.cell import Cell
 from mechbench_compute.intervene.compile import compile
+from mechbench_compute.intervene.plan import refuse_off_mlx
+from mechbench_compute.intervene.read_spec_items import read_spec_items
+from mechbench_compute.intervene.serialize_spec import serialize_spec
 from mechbench_compute.intervene.spec_error import SpecError
 from mechbench_compute.intervene.spec_intervention import SpecIntervention
-from mechbench_compute.intervene.read_spec_items import read_spec_items
 from mechbench_compute.intervene.sweep_as_run import sweep_as_run
 from mechbench_compute.intervene.sweep_cells import sweep_cells
-from mechbench_compute.intervene.serialize_spec import serialize_spec
 from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P, Resume
 
 OP = Op(
@@ -473,6 +472,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
         raise SpecError("intervene needs a non-empty `spec` list, or an "
                         "intervene/spec on the `intervention` port")
     compiled = compile(model, items, inputs=inputs, seed=int(params.get("seed", 0)))
+    refuse_off_mlx(model, compiled)
     specs, weight_items, filled = compiled.specs, compiled.weight_items, compiled.filled
     cells = sweep_cells(params)
     readout = dict(params.get("readout") or {"type": "decision"})
@@ -494,8 +494,8 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
     mid = S.model_id_of(model)
     rows: list[dict[str, Any]] = []
     for record, cell in _walk_cells(records, cells, weight_items, model):
-            ids = render(model, record).array
-            flat = [int(t) for t in np.array(ids).reshape(-1)]
+            flat = [int(t) for t in render(model, record).ids]
+            ids = model.make_ids(flat)
             tokens = [model.tokenizer.decode([t]) for t in flat]
             tracked = collect_tracked_answers(model, record, tracked=params.get("tracked"))
             factor = cell.factor
@@ -529,7 +529,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
                 for p in points:
                     t = res.cache[p]
                     v = t[0, pidx] if t.ndim == 3 else t[0]
-                    arr = np.array(v.astype(mx.float32)).reshape(-1)[:4096]
+                    arr = read_f32(v).reshape(-1)[:4096]
                     cl, cp = _parse_hook_name(p)
                     row = S.vector(
                         arr, S.space(model=mid, layer=cl, point=cp, d=int(arr.size)),

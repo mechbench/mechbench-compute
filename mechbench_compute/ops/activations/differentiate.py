@@ -244,7 +244,7 @@ def differentiate_activations(
     rows: list[dict[str, Any]] = []
     for record, (rendered, at) in zip(records, prepared, strict=True):
         add_to_span(tokens_in=len(rendered.ids))
-        found = differentiate_record(model, record, rendered.array, names, at, metric, params,
+        found = differentiate_record(model, record, model.make_ids(rendered.ids), names, at, metric, params,
                                      unembed if unembed.softcap is not None else None)
         coords = read_record_coords(record, params)
         for layer, grads, acts in zip(layers, found["grads"], found["acts"], strict=True):

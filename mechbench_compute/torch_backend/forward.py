@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +22,23 @@ EAGER_POINTS = frozenset({"attn.weights"})
 INTERFACE_CALL = re.compile(r"^\s*(attention_interface_(\d+))\s+->", re.MULTILINE)
 
 INTERFACE_NAMES: dict[type, str] = {}
+
+GRADIENTS: ContextVar[bool] = ContextVar("gradients", default=False)
+
+
+@contextmanager
+def tracking_gradients() -> Iterator[None]:
+    token = GRADIENTS.set(True)
+    try:
+        yield
+    finally:
+        GRADIENTS.reset(token)
+
+
+def read_grad_mode() -> Any:
+    import torch
+
+    return torch.enable_grad() if GRADIENTS.get() else torch.no_grad()
 
 
 def find_interface_call(attn: Any) -> Any:
@@ -195,7 +214,6 @@ def run_steps(steps: list[Step], hooks: dict[str, HookFn], capture_set: set[str]
 def run_forward(model: Any, input_ids: Any, *, sites: Sites, hooks: dict[str, HookFn] | None = None,
                 capture: list[str] | None = None, arch: Arch | None = None,
                 kv_cache: Any = None) -> tuple[Any, ActivationCache]:
-    import torch
 
     hooks = dict(hooks or {})
     capture_set = set(capture or [])
@@ -203,7 +221,7 @@ def run_forward(model: Any, input_ids: Any, *, sites: Sites, hooks: dict[str, Ho
     cached = read_cached_kwargs(kv_cache)
     wanted = set(hooks) | capture_set
     if not wanted - {"logits"}:
-        with torch.no_grad():
+        with read_grad_mode():
             logits = model(input_ids=input_ids, **cached).logits
         return dispatch("logits", None, "logits", logits, hooks, capture_set, cache), cache
     envoy = wrap_model(model)
@@ -211,7 +229,7 @@ def run_forward(model: Any, input_ids: Any, *, sites: Sites, hooks: dict[str, Ho
     eager = any(p in EAGER_POINTS for s in steps for p in s.points)
     held: dict[str, Any] = {}
     try:
-        with use_attention(model, "eager" if eager else None), torch.no_grad(), \
+        with use_attention(model, "eager" if eager else None), read_grad_mode(), \
                 envoy.trace(input_ids=input_ids, **cached):
             run_steps(steps, hooks, capture_set, cache, held)
     finally:

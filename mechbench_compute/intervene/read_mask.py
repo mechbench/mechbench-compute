@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute._mlx import mx
+from mechbench_compute.intervene.array_ops import read_array_ops
 from mechbench_compute.intervene.operator_refused import OperatorRefused
 
 PORT_WORD = "direction"
@@ -59,29 +59,32 @@ class Mask:
         return row if self.dims is None else row[self.read_indices(len(row))]
 
     def read(self, a: Any) -> Any:
+        xp = read_array_ops(a)
         if self.basis is not None:
-            return a @ self._array("reader", self.reader)
+            return a @ self._array(xp, "reader", self.reader)
         if self.dims is None:
             return a
-        return mx.take(a, self._array(("indices", a.shape[-1]), self.read_indices(a.shape[-1]), mx.int32),
-                       axis=-1)
+        return xp.take(a, self._array(xp, ("indices", a.shape[-1]), self.read_indices(a.shape[-1]),
+                                      np.int32), axis=-1)
 
     def write(self, a: Any, x: Any, y: Any, strength: float) -> Any:
-        y = mx.broadcast_to(y if isinstance(y, mx.array) else mx.array(y, dtype=mx.float32), x.shape)
+        xp = read_array_ops(a)
+        y = xp.broadcast_to(xp.lift(y), x.shape)
         if self.basis is not None:
             step = y - x if strength == 1.0 else strength * (y - x)
-            return a + step @ self._array("basis", self.basis)
+            return a + step @ self._array(xp, "basis", self.basis)
         new = y if strength == 1.0 else x + strength * (y - x)
         if self.dims is None:
             return new
-        idx = self._array(("indices", a.shape[-1]), self.read_indices(a.shape[-1]), mx.int32)
-        where = mx.broadcast_to(idx.reshape((1,) * (a.ndim - 1) + (-1,)), (*a.shape[:-1], idx.size))
-        return mx.put_along_axis(a, where, new, axis=-1)
+        idx = self._array(xp, ("indices", a.shape[-1]), self.read_indices(a.shape[-1]), np.int32)
+        where = xp.broadcast_to(idx.reshape((1,) * (a.ndim - 1) + (-1,)),
+                                (*a.shape[:-1], xp.size(idx)))
+        return xp.put_along_axis(a, where, new, axis=-1)
 
-    def _array(self, key: Any, value: Any, dtype: Any = None) -> Any:
-        if key not in self._arrays:
-            self._arrays[key] = mx.array(np.asarray(value, dtype=np.int32 if dtype is mx.int32 else np.float32))
-        return self._arrays[key]
+    def _array(self, xp: Any, key: Any, value: Any, dtype: Any = np.float32) -> Any:
+        if (xp.key, key) not in self._arrays:
+            self._arrays[(xp.key, key)] = xp.array(np.asarray(value, dtype=dtype))
+        return self._arrays[(xp.key, key)]
 
 
 def read_mask(value: Any, *, invert: bool = False) -> Mask:

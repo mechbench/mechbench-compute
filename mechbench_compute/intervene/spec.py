@@ -8,7 +8,6 @@ import numpy as np
 
 from mechbench_compute import directions as dirs
 from mechbench_compute import positions as POS
-from mechbench_compute._mlx import mx
 from mechbench_compute.intervene.array_ops import read_array_ops
 from mechbench_compute.intervene.bind_constants import bind_constants, check_constants
 from mechbench_compute.intervene.coerce_int_list import coerce_int_list
@@ -287,24 +286,21 @@ class Spec:
 
         return fn
 
-    def _apply_operator(self, act: mx.array, where: mx.array, rows: np.ndarray | None,
-                        bound: dict[int, dict[str, Any]], hook: str) -> mx.array:
-        if read_array_ops(act).framework != "mlx":
-            raise OperatorRefused(
-                "OPERATOR_BACKEND", f"`{self.operator.canonical}` runs on the mlx backend only, and "
-                f"this model runs on {read_array_ops(act).framework}", construct="f")
+    def _apply_operator(self, act: Any, where: Any, rows: np.ndarray | None,
+                        bound: dict[int, dict[str, Any]], hook: str) -> Any:
+        xp = read_array_ops(act)
         d = act.shape[-1]
         if d not in bound:
-            bound[d] = bind_constants(self.constants, self.mask, d, hook, rows)
-        a = act.astype(mx.float32)
+            bound[d] = bind_constants(self.constants, self.mask, d, hook, rows, xp)
+        a = xp.cast(act, xp.float32)
         x = self.mask.read(a)
         y = self.operator.evaluate({**bound[d], "x": x})
         if self.operator.undefinable:
-            n = int(mx.sum(mx.logical_and(where, mx.logical_not(mx.isfinite(y)))).item())
+            n = xp.count_nonfinite(where, y)
             if n:
                 raise OperatorRefused(
                     "OPERATOR_UNDEFINED", f"`{self.operator.canonical}` gave an undefined number (a "
                     "division by zero, the log or square root of a negative number, an overflow) at "
                     f"{n} coordinate{'' if n == 1 else 's'} of {hook}: the language's undefined number "
                     "is null, and an activation holds numbers", construct=self.operator.canonical)
-        return mx.where(where, self.mask.write(a, x, y, self.strength).astype(act.dtype), act)
+        return xp.where(where, xp.cast(self.mask.write(a, x, y, self.strength), act.dtype), act)

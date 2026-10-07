@@ -132,7 +132,7 @@ def ablate_layers(
     damage_by_layer: dict[int, list[float]] = {i: [] for i in layers}
     for record in records:
         r = render(model, record)
-        ids = r.array
+        ids = model.make_ids(r.ids)
         base_lp = read_last_logp(model.run(ids).logits)
         if on_item:
             on_item()

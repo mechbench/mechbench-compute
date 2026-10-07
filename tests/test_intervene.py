@@ -157,6 +157,9 @@ class _FakeModel:
     def tokenize(self, prompt, chat_template=False):
         return mx.array([[1, 2, 3]])
 
+    def make_ids(self, ids):
+        return mx.array([[int(t) for t in ids]], dtype=mx.int32)
+
     def run(self, ids, hooks=None, capture=None, interventions=None):
         from mechbench_compute.interventions import compose
 

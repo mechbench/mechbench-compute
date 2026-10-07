@@ -156,7 +156,7 @@ def capture_tokens(
 
         writer = tensors.ShardWriter(tempfile.mkdtemp(prefix="mechbench-tensor-"))
     for record, r, idx in kept_per_record:
-        ids = r.array
+        ids = model.make_ids(r.ids)
         add_to_span(tokens_in=int(ids.size))
         result = model.run(ids, interventions=[cap])
         seq = list(r.ids)

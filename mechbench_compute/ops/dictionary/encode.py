@@ -155,7 +155,7 @@ def encode_records(model: Any, records: Sequence[Mapping[str, Any]], dictionary:
     fired = np.zeros(width, dtype=bool)
     for record in records:
         rendered = render(model, record)
-        acts = read_dictionary_activations(model, rendered.array, point, layer)
+        acts = read_dictionary_activations(model, model.make_ids(rendered.ids), point, layer)
         if acts.shape[1] != d_in:
             raise ValueError(f"dictionary/encode: the dictionary reads {d_in}-wide activations, and "
                              f"{point} at layer {layer} of this model is {acts.shape[1]} wide")

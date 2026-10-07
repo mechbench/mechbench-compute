@@ -441,7 +441,14 @@ Adam and losses, `torch_backend/training_losses.py`; one numpy generator
 orders the items on both backends, `adapters/sample_batch.py`), write the
 adapter under MLX's keys, unwrap. Gradient checkpointing is
 `torch_backend/checkpointing.py`. What a training cost lands in the
-run's `resources.training`, by node. The core
+run's `resources.training`, by node. An operation's array arithmetic
+that is not the model's own forward goes through the array-ops layer
+(`intervene/array_ops.py`, `read_array_ops(array)`, MLX's `MlxOps` and
+torch's `torch_backend/array_ops.py`), so one body serves both backends:
+a `spec`'s ops, an operator `f` (its verbs, `torch_backend/operator_verbs.py`
+on torch), its mask and constants, and a gradient by additive deltas at
+named points (`grad`, `value_and_grad`; on torch the traced forward keeps
+its graph inside `torch_backend.forward.tracking_gradients()`). The core
 operations that run a model on torch are listed in
 `backends.Backend.ops`; any other is refused by name before its node
 runs.

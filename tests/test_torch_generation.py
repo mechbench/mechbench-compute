@@ -174,10 +174,10 @@ def test_an_intervention_applies_at_every_generated_step_on_torch(tiny):
     assert ids != [i["trace"]["token_ids"] for i in plain["items"]]
 
 
-def test_an_operator_or_a_weight_edit_is_refused_by_name_on_torch():
+def test_a_weight_edit_is_refused_by_name_on_torch():
     tiny = build_tiny_model("llama")
-    with pytest.raises(ValueError, match=r"`f` runs on the mlx backend only, and this model runs on torch"):
-        run_generate(tiny, {"spec": [{"point": "resid_post", "layers": [1], "f": "x * 2"}]})
+    with pytest.raises(ValueError, match=r"weight edit runs on the mlx backend only, and this model runs on torch"):
+        run_generate(tiny, {"spec": [{"parameter": "layers.1.mlp.down_proj.weight", "op": "zero"}]})
 
 
 def test_a_projection_reads_the_residual_at_each_generated_token_on_torch():
@@ -277,10 +277,24 @@ def test_a_torch_job_generates_chats_and_scores_and_says_what_ran(torch_job):
     assert numerics["deterministic_algorithms"] == (torch_job.device.type == "cuda")
 
 
+def test_a_torch_job_intervenes_with_an_operator_and_patches(torch_job):
+    payload = run_job([
+        {"id": "apply", "block": "intervene/apply", "inputs": {"records": RECORDS},
+         "params": {"model": "tiny/gemma3@rev", "spec": [
+             {"point": "resid_post", "layers": [1], "f": "x * 2 if x > 0 else x", "positions": "all"}]}},
+        {"id": "patch", "block": "intervene/patch",
+         "inputs": {"records": [{"id": "p", "a": "the cat sat", "b": "the dog sat", "template": "raw"}]},
+         "params": {"model": "tiny/gemma3@rev", "layers": [0, 1]}},
+    ])
+    for name in ("apply", "patch"):
+        assert payload["outputs"][name]["backend"] == "torch", name
+    assert len(payload["outputs"]["apply"]["items"]) == len(RECORDS) * 2
+    assert len(payload["outputs"]["patch"]["items"][0]["measures"]["recovery"]) == 2
+
+
 def test_an_operation_the_torch_backend_does_not_run_is_refused_by_name(torch_job):
-    with pytest.raises(backends.BackendRefused, match=r"intervene/patch does not run on the torch backend yet"):
-        run_job([{"id": "p", "block": "intervene/patch", "inputs": {"records": RECORDS},
-                  "params": {"model": "tiny/gemma3@rev"}}])
+    with pytest.raises(backends.BackendRefused, match=r"eval/benchmark does not run on the torch backend yet"):
+        run_job([{"id": "b", "block": "eval/benchmark", "params": {"model": "tiny/gemma3@rev"}}])
 
 
 def build_mlx_twin(name, tiny):

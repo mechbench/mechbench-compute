@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute._mlx import mx
 from mechbench_compute.intervene.operator_refused import OperatorRefused
 from mechbench_compute.intervene.read_mask import Mask
 
@@ -38,7 +37,7 @@ def check_constants(constants: Any, names: tuple[str, ...]) -> None:
 
 
 def bind_constants(constants: Mapping[str, Any], mask: Mask, d: int, point: str,
-                   rows: np.ndarray | None) -> dict[str, Any]:
+                   rows: np.ndarray | None, xp: Any) -> dict[str, Any]:
     width = mask.read_width(d)
     bound: dict[str, Any] = {}
     for name, value in constants.items():
@@ -52,7 +51,7 @@ def bind_constants(constants: Mapping[str, Any], mask: Mask, d: int, point: str,
                 raise OperatorRefused(
                     "CONSTANT_INVALID", f"constant `{name}` binds from `source`, whose rows are "
                     f"{row.size} wide, and {point!r} is {d} wide here", construct=name)
-            bound[name] = mx.array(np.asarray(mask.read_row(row), dtype=np.float32))
+            bound[name] = xp.array(np.asarray(mask.read_row(row), dtype=np.float32))
         elif isinstance(value, (int, float)):
             bound[name] = float(value)
         else:
@@ -60,5 +59,5 @@ def bind_constants(constants: Mapping[str, Any], mask: Mask, d: int, point: str,
                 raise OperatorRefused(
                     "CONSTANT_INVALID", f"constant `{name}` holds {len(value)} values, one per "
                     f"coordinate, and `x` has {width} here", construct=name)
-            bound[name] = mx.array(np.asarray(value, dtype=np.float32))
+            bound[name] = xp.array(np.asarray(value, dtype=np.float32))
     return bound

@@ -22,7 +22,7 @@ from mechbench_compute.torch_backend import mlx_random
 from mechbench_compute.torch_backend.lora_layers import apply_lora as apply_on_torch
 from mechbench_compute.torch_backend.lora_layers import read_lora_arrays
 from mechbench_compute.torch_backend.lora_layers import remove_lora as remove_on_torch
-from tests.test_torch_matches_mlx import PAIRS, build_on_mlx, read_torch_weights
+from tests.mlx_twins import PAIRS, build_on_mlx, read_torch_weights
 from tests.test_torch_training import ANCHORS, DECISION, RECORDS
 from tests.tiny_torch_models import build_tiny_model
 

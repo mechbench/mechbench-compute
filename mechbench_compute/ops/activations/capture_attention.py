@@ -95,7 +95,7 @@ def capture_attention_patterns(
     rows: list[dict[str, Any]] = []
     total_floats = 0
     for record in records:
-        ids = render(model, record).array
+        ids = model.make_ids(render(model, record).ids)
         add_to_span(tokens_in=int(ids.size))
         result = model.run(ids, interventions=[cap])
         tokens = [model.tokenizer.decode([int(t)])
