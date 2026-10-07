@@ -128,13 +128,17 @@ def walk_architectures(package: str) -> tuple[Architecture, ...]:
     return tuple(sorted(found, key=lambda a: a.model_type))
 
 
-def refuse_head_weights(model_type: str) -> Callable[[Any, int, int], Any]:
+def refuse_head_weights(model_type: str, backend: str = "mlx") -> Callable[[Any, int, int], Any]:
+    on, where = ("", "gemma4 only") if backend == "mlx" else (
+        f" on the {backend} backend", "gemma4 on the mlx backend only")
+    package = "architectures" if backend == "mlx" else f"{backend}_backend/architectures"
+
     def head_weights(model, layer: int, head: int):
         raise NotImplementedError(
-            f"head_weights is not written for the {model_type} architecture: the static "
+            f"head_weights is not written for the {model_type} architecture{on}: the static "
             f"per-head readout (HeadSpec: W_Q, W_K, W_V, W_O, layer type, KV sharing) is "
-            f"written for gemma4 only; write {model_type}'s in "
-            f"mechbench_compute/architectures/{model_type}.py")
+            f"written for {where}; write {model_type}'s in "
+            f"mechbench_compute/{package}/{model_type}.py")
 
     return head_weights
 

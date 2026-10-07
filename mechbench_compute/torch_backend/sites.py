@@ -35,6 +35,8 @@ class Sites:
     text_path: Callable[[Any], tuple[str, ...]]
     attn_out: Callable[[Any], Site]
     mlp_out: Callable[[Any], Site]
+    gate_out: Callable[[Any], Site] | None = None
+    qkv: Callable[..., list[Any]] | None = None
 
     def read_text(self, root: Any, module: Any) -> Any:
         envoy = root
