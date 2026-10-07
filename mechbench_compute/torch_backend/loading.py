@@ -72,12 +72,13 @@ def load_transformers(model_id: str, *, classes: Mapping[str, str], device: str 
 
     from mechbench_compute.torch_backend.determinism import make_deterministic
 
-    make_deterministic(torch.device(device or pick_device()))
+    target = torch.device(device or pick_device())
+    make_deterministic(target)
     config = transformers.AutoConfig.from_pretrained(model_id)
     name = classes.get(config.model_type, "AutoModelForCausalLM")
     model = getattr(transformers, name).from_pretrained(
-        model_id, dtype=dtype if dtype is not None else torch.bfloat16)
-    model.eval().to(device or pick_device())
+        model_id, dtype=dtype if dtype is not None else torch.bfloat16, device_map=target)
+    model.eval()
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
     return model, tokenizer
 

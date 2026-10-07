@@ -44,7 +44,7 @@ dependencies = [
 eval = ["lm-eval>=0.4"]
 # The torch backend: transformers models traced with nnsight, offered where
 # the machine has an NVIDIA GPU (mechbench_compute.backends).
-torch = ["torch>=2.4", "nnsight>=0.7,<0.9", "transformers>=5", "safetensors>=0.4"]
+torch = ["torch>=2.4", "nnsight>=0.7,<0.9", "transformers>=5", "safetensors>=0.4", "accelerate>=1.0"]
 dev = ["pytest>=8", "ruff>=0.5"]
 
 [project.urls]

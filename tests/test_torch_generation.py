@@ -369,3 +369,25 @@ def test_a_local_judge_grades_on_torch_and_repeats():
     again = run_judge(dict(params), inputs={"records": stories}, model=tiny)
     assert [r["id"] for r in first["items"]] == ["s1", "s2"]
     assert json.dumps(first["items"], sort_keys=True) == json.dumps(again["items"], sort_keys=True)
+
+
+def test_a_checkpoint_loads_straight_onto_its_device_with_no_copy_of_the_whole_model(tmp_path, monkeypatch):
+    from mechbench_compute.torch_backend.loading import load_transformers
+
+    tiny = build_tiny_model("llama")
+    tiny._model.save_pretrained(tmp_path)
+    tiny.tokenizer.save_pretrained(tmp_path)
+    moved: list[type] = []
+    real_to = torch.nn.Module.to
+
+    def watched(module, *args, **kwargs):
+        moved.append(type(module))
+        return real_to(module, *args, **kwargs)
+
+    monkeypatch.setattr(torch.nn.Module, "to", watched)
+    model, _ = load_transformers(str(tmp_path), classes={}, device=str(tiny.device), dtype=torch.float32)
+    assert type(tiny._model) not in moved
+    assert {p.device for p in model.parameters()} == {tiny.device}
+    loaded, saved = model.state_dict(), tiny._model.state_dict()
+    assert loaded.keys() == saved.keys()
+    assert all(torch.equal(loaded[k], saved[k]) for k in saved)

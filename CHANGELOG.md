@@ -107,6 +107,13 @@ digest the same before and after.
   `deterministic_warn_only`, `float32_matmul_precision`, `threads`, and
   on CUDA `cublas_workspace`, `tf32_matmul`, `cudnn_benchmark`). A seeded
   generation run twice on the CPU is identical, batched or not.
+- **A torch checkpoint loads straight onto its device**:
+  `from_pretrained(..., device_map=<device>)`, with no copy of the whole
+  model afterwards, so a checkpoint never needs its size twice where the
+  host and the GPU share memory (the DGX Spark's 128 GB). On the CPU the
+  weights load as before. This needs `accelerate`, now in the `torch`
+  extra and one of the modules the torch backend requires, so a machine
+  without it is told so by name.
 - `torch_backend.throughput.measure_throughput(model, batch_sizes=…,
   prompt_tokens=…, new_tokens=…)` reports prefill and decode tokens per
   second and peak GPU memory at each batch size; it asserts nothing.

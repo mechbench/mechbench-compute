@@ -113,7 +113,7 @@ def test_a_backend_installed_for_another_accelerator_is_absent_but_named():
 def test_the_torch_backend_is_offered_on_cuda_and_installed_with_its_extra():
     torch = next(b for b in backends.BACKENDS if b.name == "torch")
     assert torch.accelerators == ("cuda",)
-    assert torch.modules == ("torch", "nnsight", "transformers")
+    assert torch.modules == ("torch", "nnsight", "transformers", "accelerate")
     assert torch.extra == "torch"
     installed = backends.is_installed(torch)
     assert backends.is_available("torch", "cuda") is installed
