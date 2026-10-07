@@ -426,6 +426,17 @@ runs as SDPA unless `attn.weights` is named, when that run is eager.
 `torch_backend/tracing.py` loads nnsight with its `.save` mount turned
 off, since an MLX imported after that mount aborts.
 
+A torch forward continues from a `transformers` `DynamicCache`
+(`torch_backend/decoding.py`), so `generate.sample_completion_cached`
+runs on a `TorchModel` with hooks, captures and interventions at every
+step. `TorchModel.generate_batch` (`torch_backend/batched.py`) writes
+many samples together, left-padded, one forward per step; scoring
+batches the same way (`torch_backend/scoring.py`), and each batch is
+bounded by the GPU's free memory (`torch_backend/batching.py`). The core
+operations that run a model on torch are listed in
+`backends.Backend.ops`; any other is refused by name before its node
+runs.
+
 The executor runs a job on the backend the job's requirements name
 (`ProtocolSpec.extra["requirements"]`, which the runner passes from the
 job it claimed; a job that names none runs on `mlx`). Each declared

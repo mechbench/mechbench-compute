@@ -17,11 +17,26 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- A job on the `torch` backend whose graph names a core operation that
+  runs a model and that the backend does not run yet is refused before
+  the node runs: `BackendRefused` ("intervene/patch does not run on the
+  torch backend yet; there it runs …"). `backends.Backend.ops` lists
+  what torch runs: `activations/capture`, `eval/judge`,
+  `logits/attribute`, `logits/read`, `text/chat`, `text/generate`,
+  `text/resample` and `text/score`. Such a job used to fail inside the
+  operation on an MLX call. An installed extension's operations are not
+  gated.
+- On torch, an intervention `spec` item that gives an operator `f`, or a
+  weight edit, is refused by name ("an item's `f` runs on the mlx backend
+  only, and this model runs on torch").
 
 ### Changes that alter results without raising
 
-_None._
+_None._ Every MLX result is byte for byte what it was: `text/generate`
+(sampled, greedy with `stop`, with a `spec` sweep, with a `project`
+port), `text/score`, `logits/read` with `rollout` and `complete`,
+`text/resample` and `text/chat` on the four tiny MLX architectures
+digest the same before and after.
 
 ### Other
 
@@ -51,6 +66,56 @@ _None._
 - The torch forward reads and writes `logits` at the model's output
   rather than at `lm_head`, so a capped head's point is the capped
   logits; Gemma 3 and Llama, which apply no cap, give the same values.
+- **Generation and scoring on the `torch` backend.** Its architectures
+  (Gemma 3, Gemma 4, Llama, Qwen 2, Qwen 3) declare `generate` and
+  `score`, and its prompt cache is a
+  `transformers` `DynamicCache` (`torch_backend/decoding.py`), so a torch
+  forward continues from a cache, with or without hooks and captures,
+  and a hook's `offset` is the cache's length. `sample_completion_cached`
+  runs on a `TorchModel` with the same seeded sampler (temperature,
+  nucleus, stop strings, stop tokens, `max_tokens`, streaming), and
+  interventions, a `spec`'s growing positions and a `project` readout
+  apply at every generated step as on MLX. `logits/read`'s `rollout`
+  and `complete`, `text/score`, `text/resample`, `text/chat` and
+  `eval/judge` with local weights run on torch; on a capped head
+  (Gemma 4) `logits/read`'s readout keeps its cache, so a rollout
+  continues from it. Tiny models on the CPU, every torch architecture:
+  decoding from the cache reads what a whole forward reads (to 1e-4),
+  greedy generation is the argmax of whole forwards, and MLX and torch
+  loaded with the same weights generate the same greedy tokens, with and
+  without a `spec`.
+- **Batched generation on torch.** `text/generate` takes `batch` (8):
+  on torch the samples of a node are written together, left-padded, one
+  forward per step for all of them, with the attention mask, each
+  sequence's positions and a batched KV cache; each sequence stops at its
+  own stop token, stop string and `max_tokens` and draws from its own
+  seeded stream, so a batched sample is the one written alone unless
+  padding's float rounding moves a draw across a boundary. The
+  batch is bounded by half the GPU's free memory over an estimate of a
+  row's KV cache, hidden states and logits, and the collection's header
+  says the `batch` used. A node with a `spec` or a `project` port writes
+  one sample at a time. Padding moves a row's logits by float rounding
+  only: under 1e-4 on the CPU tiny models, where greedy tokens are the
+  same whatever shares the batch. Scoring batches too: `complete`'s
+  continuations by length and `text/score`'s items right-padded under an
+  attention mask (16 a forward, bounded the same way).
+- **Determinism on torch.** A `TorchModel` on CUDA sets
+  `CUBLAS_WORKSPACE_CONFIG=:4096:8` (unless set),
+  `torch.use_deterministic_algorithms(True, warn_only=True)`, no cuDNN
+  benchmark and no TF32 matmuls; `resources.hardware.numerics` declares
+  what was in force (`deterministic_algorithms`,
+  `deterministic_warn_only`, `float32_matmul_precision`, `threads`, and
+  on CUDA `cublas_workspace`, `tf32_matmul`, `cudnn_benchmark`). A seeded
+  generation run twice on the CPU is identical, batched or not.
+- `torch_backend.throughput.measure_throughput(model, batch_sizes=…,
+  prompt_tokens=…, new_tokens=…)` reports prefill and decode tokens per
+  second and peak GPU memory at each batch size; it asserts nothing.
+- `generate.py` and `prompts.py` import MLX through `_mlx`, and the
+  reasoning delimiters are read from every installed backend's
+  architectures, so generation imports on a machine without MLX.
+  `generate._sample_next` is `generate.sample_next` and
+  `generate._stop_ids` is `generate.read_stop_ids`, since the torch
+  backend reads them.
 
 ---
 
