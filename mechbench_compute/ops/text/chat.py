@@ -48,8 +48,7 @@ _MESSAGE_FIELDS = (
 
 _SANDBOX_FIELDS = (
     P("base", "string",
-      "The guest the sandbox runs: `mbshell` (a shell) or `cpython` (Python 3), "
-      "or a path to a `.wasm` file.",
+      "The guest the sandbox runs: `mbshell` (a shell) or `cpython` (Python 3).",
       "mbshell"),
     P("tools", "list[string]", "The sandbox's tools offered to the model.",
       ["bash", "read_file", "write_file", "list"],
@@ -462,7 +461,10 @@ def run(ctx, inputs, params):
         ref = model_ref_mod.parse(ref)
     records = inputs.get("records") or []
     if params.get("tools"):
-        params = {**params, "_block_runner": build_tool_runner(ctx)}
+        from mechbench_compute.ops.tools.lookup import read_run_project
+
+        params = {**params, "_block_runner": build_tool_runner(ctx),
+                  "_project": read_run_project(ctx.result_base)}
     if ref.is_endpoint:
         if params.get("spec") or inputs.get("intervention") is not None:
             raise ValueError(

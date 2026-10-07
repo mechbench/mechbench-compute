@@ -85,7 +85,8 @@ def run_local(model, ref, records, params, *, inputs=None, on_item=None,
                         on_item(key, resume_items[key], True)
                     continue
                 rng = _np.random.default_rng(item_seed(seed, rec.get("id"), k))
-                box, session = open_toolbox(image, tool_specs, block_runner=block_runner)
+                box, session = open_toolbox(image, tool_specs, block_runner=block_runner,
+                                            project=params.get("_project"))
                 turn = req
                 called_a_tool = False
                 thoughts: list[pm.ReasoningPart] = []

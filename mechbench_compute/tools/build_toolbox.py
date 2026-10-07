@@ -25,7 +25,8 @@ BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
 }
 
 
-def build_toolbox(value: Any, *, block_runner=None, session=None) -> Toolbox:
+def build_toolbox(value: Any, *, block_runner=None, session=None,
+                  project: str | None = None) -> Toolbox:
     tools: list[Any] = []
     for entry in value or ():
         if isinstance(entry, str):
@@ -37,4 +38,4 @@ def build_toolbox(value: Any, *, block_runner=None, session=None) -> Toolbox:
             tools.append(BUILTIN_TOOLS[entry])
         else:
             tools.append(entry)
-    return Toolbox(tools, block_runner=block_runner, session=session)
+    return Toolbox(tools, block_runner=block_runner, session=session, project=project)

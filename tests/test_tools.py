@@ -50,7 +50,7 @@ class TestTheToolbox:
                         "params": {"fetch": lambda path: {
                             "payload": {"path": path, "kind": "metric_table",
                                         "rows": [{"n": 3}]}}}},
-        }])
+        }], project="benji/lab")
         out = box.call(call("bench.lookup", path="benji/lab/results/j_1/stats"))
         assert '"kind": "metric_table"' in out.content
         assert box.runs[0].error == ""
@@ -106,7 +106,8 @@ class TestTheRemoteToolLoop:
             "name": "bench.lookup",
             "schema": {"type": "object", "properties": {"path": {"type": "string"}}},
             "handler": {"block": "tools/lookup",
-                        "params": {"fetch": lambda path: {"payload": {"rows": 3}}}},
+                        "params": {"fetch": lambda path: {"payload": {"rows": 3}},
+                                   "prefixes": ["path-414"]}},
         }
         params = self._params(max_tool_rounds=1, tools=[lookup],
                               provider_options={"mock": {"tool_call": "bench.lookup"}})

@@ -12,13 +12,14 @@ from mechbench_compute.tools.tool_run import ToolRun
 
 class Toolbox:
     def __init__(self, tools: Sequence[Any] = (), *, block_runner=None,
-                 session=None) -> None:
+                 session=None, project: str | None = None) -> None:
         self.tools = [ToolDef.parse(t) for t in tools]
         self._by_name = {t.name: t for t in self.tools}
         if len(self._by_name) != len(self.tools):
             raise ValueError("tool names must be unique within a toolbox")
         self._runner = block_runner
         self._session = session
+        self._project = project
         self.runs: list[ToolRun] = []
 
     def __bool__(self) -> bool:
@@ -65,7 +66,9 @@ class Toolbox:
                     f"tool {tool.name!r} is a sandbox tool, but this toolbox "
                     "was built without a session — offer it from a node that "
                     "declares a `sandbox` image")
-            fn = getattr(self._session, str(method), None)
+            from mechbench_compute.sandbox_session import TOOL_NAMES
+
+            fn = getattr(self._session, str(method), None) if method in TOOL_NAMES else None
             if fn is None:
                 raise ValueError(
                     f"tool {tool.name!r}: the session has no method "
@@ -84,6 +87,8 @@ class Toolbox:
         from mechbench_compute.registry import REGISTRY
 
         resolved = REGISTRY.find(ref)
+        if (resolved.name if resolved is not None else ref) == "tools/lookup":
+            params["_project"] = self._project
         if resolved is not None and resolved.name in ops.find_standalone():
             return ops.run_standalone(resolved, inputs, params)
         if self._runner is None:

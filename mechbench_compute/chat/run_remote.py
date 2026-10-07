@@ -99,7 +99,8 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
 
     def one(entry):
         key, rec, k, req = entry
-        box, session = open_toolbox(image, tool_specs, block_runner=block_runner)
+        box, session = open_toolbox(image, tool_specs, block_runner=block_runner,
+                                    project=params.get("_project"))
         extra_calls: list[Any] = []
         rounds: list[pm.Message] = []
         for round_no in range(max_tool_rounds + 1):
