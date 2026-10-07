@@ -29,6 +29,27 @@ _None._
 
 ---
 
+## 0.193.1 — 2026-10-07
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- A sandbox guest's stdout and stderr go to files again, as before
+  0.193.0, and are read back only up to the output cap; the disk ceiling
+  counts them, so a guest that floods its output is stopped at
+  `disk_bytes`. 0.193.0 captured them through wasmtime's custom output
+  streams, which cost about 18 µs a write: `xargs -n1` over 60,000 lines
+  took 3.3 s instead of 0.9 s. Results are unchanged.
+
+---
+
 ## 0.193.0 — 2026-10-07
 
 ### Changes that raise

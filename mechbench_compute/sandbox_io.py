@@ -8,25 +8,27 @@ from typing import Self
 QUOTA_POLL_S = 0.25
 
 
-class CappedOutput:
-    def __init__(self, limit: int) -> None:
-        self.room = limit + 1
-        self.parts: list[bytes] = []
+class CappedFile:
+    def __init__(self, path: str | os.PathLike[str], limit: int) -> None:
+        self.path = os.fspath(path)
+        self.limit = limit
+        with open(self.path, "wb"):
+            pass
 
     def __call__(self, data: bytes) -> None:
-        if self.room > 0 and data:
-            kept = data[:self.room]
-            self.parts.append(kept)
-            self.room -= len(kept)
+        with open(self.path, "ab") as f:
+            f.write(data)
 
     def read(self) -> bytes:
-        return b"".join(self.parts)
+        with open(self.path, "rb") as f:
+            return f.read(self.limit + 1)
 
 
 class DiskQuota:
     def __init__(self, root: str | os.PathLike[str], *, max_bytes: int,
-                 max_entries: int) -> None:
+                 max_entries: int, files: tuple[str, ...] = ()) -> None:
         self.root = os.fspath(root)
+        self.files = files
         self.max_bytes = max_bytes
         self.max_entries = max_entries
         self.tripped = False
@@ -50,9 +52,12 @@ class DiskQuota:
 
     def check(self) -> bool:
         used, entries = measure_tree(self.root, stop_at=self.max_entries)
+        used += sum(measure_file(f) for f in self.files)
         if used > self.max_bytes or entries > self.max_entries:
             self.tripped = True
             truncate_tree(self.root)
+            for f in self.files:
+                truncate_file(f)
         return self.tripped
 
 
@@ -73,6 +78,20 @@ def measure_tree(root: str, *, stop_at: int) -> tuple[int, int]:
     except OSError:
         pass
     return used, entries
+
+
+def measure_file(path: str) -> int:
+    try:
+        return os.stat(path, follow_symlinks=False).st_blocks * 512
+    except OSError:
+        return 0
+
+
+def truncate_file(path: str) -> None:
+    try:
+        os.truncate(path, 0)
+    except OSError:
+        pass
 
 
 def truncate_tree(root: str) -> None:

@@ -13,7 +13,7 @@ from typing import Any
 from mechbench_compute import guests
 from mechbench_compute import snapshots as fs
 from mechbench_compute.sandbox_ceilings import Ceilings, check_limit, read_ceilings
-from mechbench_compute.sandbox_io import CappedOutput, DiskQuota
+from mechbench_compute.sandbox_io import CappedFile, DiskQuota
 
 TRUNCATED = "\n[output truncated at {n} bytes]"
 
@@ -159,9 +159,6 @@ def clamp_limits(limits: Limits, ceilings: Ceilings) -> tuple[Limits, dict[str, 
     return (replace(limits, **capped) if capped else limits), capped
 
 
-_OUTPUT_LOCK = threading.Lock()
-
-
 def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         guest: str | os.PathLike[str], limits: Limits | None = None,
         strict: bool = False, env: Mapping[str, str] | None = None,
@@ -188,8 +185,8 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
         meta.mkdir()
         stdin_path = pathlib.Path(td) / "stdin"
         stdin_path.write_bytes(stdin.encode() if isinstance(stdin, str) else bytes(stdin))
-        stdout = CappedOutput(limits.output_bytes)
-        stderr = CappedOutput(limits.output_bytes)
+        stdout = CappedFile(pathlib.Path(td) / "stdout", limits.output_bytes)
+        stderr = CappedFile(pathlib.Path(td) / "stderr", limits.output_bytes)
 
         engine = _engine()
         module = _module(engine, guest_path)
@@ -217,31 +214,25 @@ def run(snapshot: fs.Snapshot, argv: Sequence[str], *,
             wasi.preopen_dir(str(mdir), at, fs_mutable=False)
         wasi.stdin_file = str(stdin_path)
 
+        wasi.stdout_file = stdout.path
+        wasi.stderr_file = stderr.path
         store = wasmtime.Store(engine)
-        try:
-            with _OUTPUT_LOCK:
-                # external: wasmtime-py — the custom-output slab is shared and unlocked
-                wasi.stdout_custom = stdout
-                wasi.stderr_custom = stderr
-                store.set_wasi(wasi)
-            return _run_in(store, engine, module, snapshot, argv, root, meta,
-                           guest_path=guest_path, limits=limits, capped=capped,
-                           ceilings=ceilings, strict=strict, stdout=stdout, stderr=stderr)
-        finally:
-            with _OUTPUT_LOCK:
-                store.close()
+        store.set_wasi(wasi)
+        return _run_in(store, engine, module, snapshot, argv, root, meta,
+                       guest_path=guest_path, limits=limits, capped=capped,
+                       ceilings=ceilings, strict=strict, stdout=stdout, stderr=stderr)
 
 
 def _run_in(store, engine, module, snapshot: fs.Snapshot, argv: Sequence[str],
             root: pathlib.Path, meta: pathlib.Path, *, guest_path: pathlib.Path,
             limits: Limits, capped: Mapping[str, Any], ceilings: Ceilings,
-            strict: bool, stdout: CappedOutput, stderr: CappedOutput) -> Result:
+            strict: bool, stdout: CappedFile, stderr: CappedFile) -> Result:
     import wasmtime
 
     store.set_fuel(limits.fuel)
     store.set_limits(memory_size=limits.memory_mb * 1024 * 1024)
     quota = DiskQuota(root, max_bytes=ceilings.disk_bytes,
-                      max_entries=2 * ceilings.max_files)
+                      max_entries=2 * ceilings.max_files, files=(stdout.path, stderr.path))
 
     linker = wasmtime.Linker(engine)
     linker.define_wasi()

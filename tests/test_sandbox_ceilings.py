@@ -10,7 +10,7 @@ from mechbench_compute import guests, sandbox
 from mechbench_compute import snapshots as fs
 from mechbench_compute.blocks.run_guest_json import run_guest_json
 from mechbench_compute.sandbox_ceilings import Ceilings, read_ceilings, set_ceilings
-from mechbench_compute.sandbox_io import CappedOutput, DiskQuota
+from mechbench_compute.sandbox_io import CappedFile, DiskQuota
 from mechbench_compute.sandbox_session import SandboxImage
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -113,11 +113,25 @@ class TestARunStaysUnderTheCeilings:
 
 
 class TestTheHostKeepsItsOwnMemory:
-    def test_output_is_held_only_to_the_cap(self):
-        out = CappedOutput(10)
-        for _ in range(1000):
+    def test_output_is_read_only_to_the_cap(self, tmp_path):
+        out = CappedFile(tmp_path / "stdout", 10)
+        for _ in range(100):
             out(b"x" * 4096)
         assert out.read() == b"x" * 11
+
+    def test_the_quota_counts_the_output_files(self, tmp_path):
+        root = tmp_path / "root"
+        root.mkdir()
+        stdout = tmp_path / "stdout"
+        stdout.write_bytes(os.urandom(64 * 1024))
+        quota = DiskQuota(root, max_bytes=1024, max_entries=100, files=(str(stdout),))
+        assert quota.check() and stdout.stat().st_size == 0
+
+    def test_a_guest_that_floods_stdout_is_stopped_at_the_disk_ceiling(self, guest, ceilings):
+        ceilings(disk_bytes=4 << 20)
+        r = sandbox.run(fs.EMPTY, ["sh", "-c", "while true; do echo xxxxxxxxxxxxxxxx; done"],
+                        guest=guest, limits=L(wall_seconds=20))
+        assert r.limit == "disk_bytes" and r.duration_ms < 15000
 
     def test_the_quota_counts_and_truncates_only_inside_its_root(self, tmp_path):
         root, outside = tmp_path / "root", tmp_path / "outside"
