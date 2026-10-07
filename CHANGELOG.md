@@ -25,7 +25,32 @@ _None._
 
 ### Other
 
-_None._
+- **Gemma 4, Qwen 2 and Qwen 3 on the torch backend**, at the `core`
+  level beside Gemma 3 and Llama, so `architecture_levels()` on a CUDA
+  runner names `gemma3`, `gemma4`, `llama`, `qwen2` and `qwen3`, each
+  `core`. Gemma 4 loads as `Gemma4ForConditionalGeneration` (a
+  `gemma4_text` checkpoint as a causal LM) and declares the core points
+  and `gate_out`, the per-layer input's write, under the same residual
+  law as on MLX: `resid_post[i] == (resid_pre[i] + attn_out[i] +
+  mlp_out[i] + gate_out[i]) * layer_scalar[i]`. A checkpoint without
+  per-layer inputs (31B) refuses `gate_out` by name, a mixture-of-experts
+  one (26B A4B) is refused before loading, and on a layer that shares
+  another's keys and values (E2B, E4B) `attn.k` and `attn.v` are the
+  shared ones that layer attends with. Its head applies the checkpoint's
+  final softcap, and `logits/read` on it reports `logit`,
+  `precap_logit` and `saturated` as on MLX. Qwen 2 (Qwen2.5 checkpoints)
+  and Qwen 3 (Qwen3, Qwen3-32B among them) read like Llama, with the
+  `qwen-2.5` tool dialect and `<think>` reasoning. Loaded with the same
+  float32 weights, the torch and MLX forwards agree on the logits and on
+  every point both declare within 1e-5 of the largest value for Gemma 4
+  (with per-layer inputs, without them, and with shared keys and values)
+  and Qwen 2, and within 1e-3 for Gemma 3, whose embedding scale MLX
+  rounds to bf16; a stored adapter moves the same weights on both.
+  `head_weights` stays refused on torch, and now says so for the torch
+  backend.
+- The torch forward reads and writes `logits` at the model's output
+  rather than at `lm_head`, so a capped head's point is the capped
+  logits; Gemma 3 and Llama, which apply no cap, give the same values.
 
 ---
 

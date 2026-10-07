@@ -239,8 +239,13 @@ def run(ctx, inputs, params):
 
 
 def read_capped_prefill(model, prompt_ids: list[int]):
-    from mechbench_compute._mlx import mx
     from mechbench_compute.interp.capped import read_capped
+
+    if model.architecture.backend != "mlx":
+        result = model.run(model.make_ids(prompt_ids), capture=["final_norm"])
+        row = result.logits[0, -1, :].float()
+        return (None, row), read_capped(model, row, result.cache["final_norm"])
+    from mechbench_compute._mlx import mx
 
     cache = model.prompt_cache()
     hidden = model.trunk_hidden(mx.array([prompt_ids]), cache=cache)

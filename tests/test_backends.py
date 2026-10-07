@@ -159,8 +159,9 @@ def test_the_architectures_a_runner_advertises_are_one_map_across_its_backends()
 
     torch = backends.find("torch")
     if backends.is_installed(torch):
-        assert support.architecture_levels("cuda") == {"gemma3": "core", "llama": "core"}
-        assert {a["modelType"] for a in support.local_architectures("torch")} == {"gemma3", "llama"}
+        core = {t: "core" for t in ("gemma3", "gemma4", "llama", "qwen2", "qwen3")}
+        assert support.architecture_levels("cuda") == core
+        assert {a["modelType"] for a in support.local_architectures("torch")} == set(core)
     else:
         assert support.architecture_levels("cuda") == {}
     if backends.is_importable("mlx.core"):

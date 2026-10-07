@@ -17,6 +17,7 @@ CALC = T.build_toolbox(["calc"]).tools
 EXPECTED = {
     "mlx-community/gemma-4-e2b-it-bf16": "gemma-4",
     "mlx-community/Qwen2.5-3B-Instruct-bf16": "qwen-2.5",
+    "Qwen/Qwen3-32B": "qwen-2.5",
     "mlx-community/Meta-Llama-3.1-8B-Instruct-bf16": "llama-3",
     "mlx-community/Llama-3.2-3B-Instruct-bf16": "llama-3",
 }

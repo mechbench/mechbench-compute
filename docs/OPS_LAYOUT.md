@@ -396,7 +396,10 @@ backend's live under its own package, walked the same way:
 
 ```
 mechbench_compute/torch_backend/architectures/gemma3.py   ARCH = Architecture(model_type="gemma3", backend="torch", loader="transformers", ...)
+mechbench_compute/torch_backend/architectures/gemma4.py
 mechbench_compute/torch_backend/architectures/llama.py
+mechbench_compute/torch_backend/architectures/qwen2.py
+mechbench_compute/torch_backend/architectures/qwen3.py
 ```
 
 What an architecture declares apart from any backend lives where both
@@ -411,11 +414,14 @@ The torch backend runs a `transformers` model under an nnsight trace
 model's own forward, and a run with any is one trace that reads and
 writes only the points named, in the order the forward reaches them,
 through the modules (`layers[i].input`/`.output`, the post-attention and
-post-feedforward norms, `lm_head`) and through nnsight's source
-operations inside the attention (`transpose_2` for `attn.v`,
-`apply_rotary_pos_emb_0` for `attn.q` and `attn.k`,
-`attention_interface_0` for `attn.per_head_out`, and the eager
-attention's `nn_functional_dropout_0` for `attn.weights`). Attention
+post-feedforward norms, Gemma 4's `post_per_layer_input_norm` for
+`gate_out`, the model's output for `logits`) and through nnsight's
+source operations inside the attention (`transpose_2` for `attn.v`,
+`apply_rotary_pos_emb_0` for `attn.q` and `attn.k`, or an
+architecture's own `Sites.qkv`, as Gemma 4's transposes and, on a layer
+that shares keys and values, its `.to` calls; `attention_interface_0`
+for `attn.per_head_out`, and the eager attention's
+`nn_functional_dropout_0` for `attn.weights`). Attention
 runs as SDPA unless `attn.weights` is named, when that run is eager.
 `torch_backend/tracing.py` loads nnsight with its `.save` mount turned
 off, since an MLX imported after that mount aborts.

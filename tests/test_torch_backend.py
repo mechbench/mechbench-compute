@@ -28,13 +28,13 @@ from mechbench_compute.torch_backend.lora import (
     restore_adapter_stack,
 )
 from mechbench_compute.torch_backend.model import TorchModel
-from tests.tiny_torch_models import build_tiny_model, make_adapter
+from tests.tiny_torch_models import KIT_MODELS, build_tiny_model, make_adapter
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 IDS = [1, 5, 9, 2, 7, 3, 11, 4]
 
-MODELS = ("gemma3", "llama", "gemma3-vlm")
+MODELS = tuple(name for name, _ in KIT_MODELS)
 
 
 @pytest.fixture(scope="module", params=MODELS)
@@ -124,6 +124,24 @@ def test_captures_leave_the_fast_path_s_logits_alone_bit_for_bit(tiny):
     assert torch.equal(tiny.run(ids, capture=every).logits, plain)
 
 
+def nudge(act, info):
+    return act + torch.linspace(0.0, 0.5, act.numel(), dtype=act.dtype, device=act.device).reshape(act.shape)
+
+
+def test_every_declared_point_is_written_where_the_forward_reads_it(tiny):
+    ids = tiny.make_ids(IDS)
+    a = tiny.architecture
+    plain = tiny.run(ids).logits
+    names = [f"blocks.{i}.{p}" for p in a.layer_points_of(tiny.arch) for i in range(tiny.arch.n_layers)]
+    names += [p for p in a.global_points if p != "final_norm.scale"]
+    for name in names:
+        held = tiny.run(ids, capture=[name]).logits if name.endswith("attn.weights") else plain
+        same = tiny.run(ids, hooks={name: lambda act, info: act * 1.0}).logits
+        moved = tiny.run(ids, hooks={name: nudge}).logits
+        assert torch.equal(same, held), name
+        assert not torch.allclose(moved, held, atol=1e-4), name
+
+
 @pytest.mark.parametrize("name", MODELS)
 def test_reading_attention_weights_leaves_the_next_forward_alone_bit_for_bit(name):
     model = build_tiny_model(name)
@@ -166,6 +184,14 @@ def test_logits_read_is_the_model_s_own_distribution(tiny):
     assert item["top"][0]["p"] == pytest.approx(float(p[best]), abs=1e-5)
     mat = tiny.tokenizer.convert_tokens_to_ids("mat")
     assert item["tracked"]["m"]["p"] == pytest.approx(float(p[mat]), abs=1e-5)
+    unembed = tiny.architecture.attribution_unembed(tiny._model)
+    assert out.get("softcap") == unembed.softcap
+    if unembed.softcap is None:
+        assert "precap_logit" not in item["tracked"]["m"]
+        return
+    precap = float(np.arctanh(float(logits[mat]) / unembed.softcap) * unembed.softcap)
+    assert item["tracked"]["m"]["logit"] == pytest.approx(float(logits[mat]), abs=1e-4)
+    assert item["tracked"]["m"]["precap_logit"] == pytest.approx(precap, abs=1e-3)
 
 
 def test_logits_read_refuses_rollout_and_complete_by_name_on_torch(tiny):
@@ -210,39 +236,34 @@ def test_a_refused_adapter_unwinds_the_stack_and_names_the_layer(tiny):
     assert all(torch.equal(read_weights(tiny)[k], v) for k, v in before.items())
 
 
-@pytest.mark.skipif(importlib.util.find_spec("mlx") is None, reason="MLX is not installed here")
-def test_the_same_stored_adapter_moves_the_same_weights_on_mlx_and_torch():
-    import mlx.core as mx
-    from mlx.utils import tree_flatten
+CONFIGS = sorted([*(ROOT / "tests" / "fixtures" / "configs").glob("*.json"),
+                  *(ROOT / "tests" / "fixtures" / "torch_configs").glob("*.json")])
 
-    from mechbench_compute.architectures import BY_MODEL_TYPE
-    from mechbench_compute.lora import fuse_adapter_stack as fuse_on_mlx
-    from tests.tiny_models import build_tiny_model as build_on_mlx
 
-    on_torch = build_tiny_model("gemma3")
-    on_mlx = build_on_mlx("gemma3", BY_MODEL_TYPE["gemma3"])
-    payload = make_payload(on_torch)
-    torch_before = read_weights(on_torch)
-    mlx_before = {k: np.array(v) for k, v in tree_flatten(on_mlx.lm.parameters())}
-    fuse_adapter_stack(on_torch.lm, [payload], layers=[[0, 2]])
-    fuse_on_mlx(on_mlx.lm, [payload], layers=[[0, 2]])
-    mx.eval(on_mlx.lm.parameters())
-    mlx_after = {k: np.array(v) for k, v in tree_flatten(on_mlx.lm.parameters())}
-    torch_after = read_weights(on_torch)
-    compared = 0
-    for key in payload["weights"]:
-        if not key.endswith(".lora_a"):
-            continue
-        name = key.removesuffix(".lora_a") + ".weight"
-        moved_torch = (torch_after[name] - torch_before[name]).cpu().numpy()
-        moved_mlx = mlx_after[name] - mlx_before[name]
-        assert np.allclose(moved_torch, moved_mlx, atol=1e-5), name
-        compared += 1
-    assert compared == 4 * 7
+@pytest.mark.parametrize("path", CONFIGS, ids=[p.stem for p in CONFIGS])
+def test_a_real_checkpoint_s_config_reads_as_the_same_arch_on_torch(path):
+    import dataclasses
+
+    import transformers
+
+    from mechbench_compute import support
+    from mechbench_compute.torch_backend.architectures import ARCHITECTURES, for_type
+
+    fixture = json.loads(path.read_text())
+    config = dict(fixture["config"])
+    assert support.refusal(config, ARCHITECTURES) is None
+    hf = transformers.AutoConfig.for_model(config.pop("model_type"), **config)
+    with torch.device("meta"):
+        model = getattr(transformers, fixture["config"]["architectures"][0])(hf)
+    architecture = for_type(hf.model_type)
+    arch = dataclasses.asdict(architecture.arch_of(model, fixture["repo"]))
+    assert {**arch, "global_layers": list(arch["global_layers"])} == fixture["arch"]
+    assert architecture.attribution_unembed(model).softcap == getattr(
+        hf.get_text_config(), "final_logit_softcapping", None)
 
 
 def test_a_checkpoint_on_disk_loads_and_runs_as_it_did_in_memory(tmp_path):
-    for name in ("gemma3", "gemma3-vlm", "llama"):
+    for name in MODELS:
         held = build_tiny_model(name)
         where = tmp_path / name
         held._model.save_pretrained(where)
@@ -265,10 +286,21 @@ def test_a_checkpoint_whose_head_caps_its_logits_is_refused_by_name(tmp_path):
         TorchModel.load(str(tmp_path), device="cpu", dtype=torch.float32)
 
 
+@pytest.mark.parametrize("config,refused", [
+    ({"model_type": "gemma4", "text_config": {"enable_moe_block": True}}, "mixture-of-experts"),
+    ({"model_type": "qwen3", "final_logit_softcapping": 30.0}, "the Qwen 3 head applies no cap"),
+    ({"model_type": "qwen3_moe"}, "'qwen3_moe' is not one compute loads"),
+])
+def test_a_checkpoint_the_torch_backend_cannot_serve_is_refused_before_loading(tmp_path, config, refused):
+    (tmp_path / "config.json").write_text(json.dumps(config))
+    with pytest.raises(NotImplementedError, match=refused):
+        TorchModel.load(str(tmp_path), device="cpu", dtype=torch.float32)
+
+
 def test_a_point_or_a_continuation_the_backend_lacks_is_refused_by_name(tiny):
-    with pytest.raises(InvalidHookName, match=r"blocks\.0\.gate_out \(not implemented by the '(gemma3|llama)' "
+    with pytest.raises(InvalidHookName, match=r"blocks\.0\.mlp\.act \(not implemented by the '\w+' "
                                               r"forward on the torch backend\)"):
-        tiny.run(tiny.make_ids(IDS), capture=["blocks.0.gate_out"])
+        tiny.run(tiny.make_ids(IDS), capture=["blocks.0.mlp.act"])
     with pytest.raises(NotImplementedError, match="continuing from a cache is not on it yet"):
         tiny.run(tiny.make_ids(IDS), capture=["blocks.0.resid_post"], kv_cache=object())
     with pytest.raises(NotImplementedError, match="on the mlx backend only"):

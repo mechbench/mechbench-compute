@@ -37,10 +37,14 @@ def test_levels_follow_the_points() -> None:
     assert {a.loader for a in ARCHITECTURES} <= set(support.LOADERS)
 
 
-def test_a_level_is_per_backend_and_the_torch_gemma3_is_core() -> None:
+def test_a_level_is_per_backend_and_every_torch_architecture_is_core() -> None:
     from mechbench_compute.torch_backend.architectures import BY_MODEL_TYPE as TORCH
 
-    assert {mt: a.level for mt, a in TORCH.items()} == {"gemma3": "core", "llama": "core"}
+    assert {mt: a.level for mt, a in TORCH.items()} == {
+        t: "core" for t in ("gemma3", "gemma4", "llama", "qwen2", "qwen3")}
+    assert set(TORCH["gemma4"].layer_points) == {*support.CORE_LAYER_POINTS, "gate_out"}
+    assert [x.point for x in TORCH["gemma4"].absent_when] == ["gate_out"]
+    assert [r.config_key for r in TORCH["gemma4"].refused_when] == ["enable_moe_block"]
     [gemma3] = [a for a in support.local_architectures() if a["modelType"] == "gemma3"]
     assert (gemma3["level"], gemma3["layerPoints"], [x["point"] for x in gemma3["absentWhen"]]) == (
         "full", list(_arch.LAYER_HOOK_POINTS), ["gate_out"])

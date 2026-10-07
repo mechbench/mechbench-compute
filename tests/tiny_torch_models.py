@@ -8,8 +8,17 @@ from transformers import (
     Gemma3ForCausalLM,
     Gemma3ForConditionalGeneration,
     Gemma3TextConfig,
+    Gemma4Config,
+    Gemma4ForCausalLM,
+    Gemma4ForConditionalGeneration,
+    Gemma4TextConfig,
+    Gemma4VisionConfig,
     LlamaConfig,
     LlamaForCausalLM,
+    Qwen2Config,
+    Qwen2ForCausalLM,
+    Qwen3Config,
+    Qwen3ForCausalLM,
     SiglipVisionConfig,
 )
 
@@ -51,11 +60,72 @@ def build_llama() -> torch.nn.Module:
         max_position_embeddings=64))
 
 
-BUILDERS = {"gemma3": build_gemma3, "llama": build_llama}
+GEMMA4_ROPE = {
+    "full_attention": {"partial_rotary_factor": 1.0, "rope_theta": 1000000.0,
+                       "rope_type": "proportional"},
+    "sliding_attention": {"rope_theta": 10000.0, "rope_type": "default"},
+}
+
+
+def make_gemma4_text(**overrides) -> Gemma4TextConfig:
+    return Gemma4TextConfig(**{
+        "hidden_size": 32, "num_hidden_layers": 4, "intermediate_size": 64,
+        "num_attention_heads": 4, "num_key_value_heads": 2, "head_dim": 8,
+        "global_head_dim": 8, "vocab_size": 64, "vocab_size_per_layer_input": 64,
+        "hidden_size_per_layer_input": 8, "num_kv_shared_layers": 0,
+        "use_double_wide_mlp": True, "sliding_window": WINDOW,
+        "layer_types": ["sliding_attention", "full_attention"] * 2,
+        "final_logit_softcapping": 30.0, "rope_parameters": GEMMA4_ROPE,
+        "max_position_embeddings": 64, **overrides})
+
+
+def build_gemma4(**overrides) -> torch.nn.Module:
+    return Gemma4ForCausalLM(make_gemma4_text(**overrides))
+
+
+def build_gemma4_31b() -> torch.nn.Module:
+    return build_gemma4(
+        num_hidden_layers=6, num_global_key_value_heads=1, global_head_dim=16,
+        hidden_size_per_layer_input=0, attention_k_eq_v=True,
+        layer_types=["sliding_attention"] * 5 + ["full_attention"],
+        rope_parameters={**GEMMA4_ROPE, "full_attention": {
+            "partial_rotary_factor": 0.25, "rope_theta": 1000000.0, "rope_type": "proportional"}})
+
+
+def build_gemma4_vlm() -> torch.nn.Module:
+    vision = Gemma4VisionConfig(hidden_size=16, intermediate_size=32, num_hidden_layers=1,
+                                num_attention_heads=2, num_key_value_heads=2, head_dim=8,
+                                position_embedding_size=16)
+    return Gemma4ForConditionalGeneration(Gemma4Config(
+        text_config=make_gemma4_text(), vision_config=vision, image_token_id=62,
+        audio_token_id=63, video_token_id=61, boi_token_id=60, eoi_token_id=59,
+        boa_token_id=58, eoa_token_index=57))
+
+
+def build_qwen2() -> torch.nn.Module:
+    return Qwen2ForCausalLM(Qwen2Config(
+        hidden_size=32, num_hidden_layers=4, intermediate_size=64, num_attention_heads=4,
+        num_key_value_heads=2, rms_norm_eps=1e-6, vocab_size=64, tie_word_embeddings=False,
+        max_position_embeddings=64, rope_parameters={"rope_theta": 1000000.0, "rope_type": "default"}))
+
+
+def build_qwen3() -> torch.nn.Module:
+    return Qwen3ForCausalLM(Qwen3Config(
+        hidden_size=32, num_hidden_layers=4, intermediate_size=64, num_attention_heads=4,
+        num_key_value_heads=2, head_dim=8, rms_norm_eps=1e-6, vocab_size=64,
+        tie_word_embeddings=False, max_position_embeddings=64,
+        rope_parameters={"rope_theta": 1000000.0, "rope_type": "default"}))
+
+
+BUILDERS = {"gemma3": build_gemma3, "gemma4": build_gemma4, "llama": build_llama,
+            "qwen2": build_qwen2, "qwen3": build_qwen3}
 
 MODEL_TYPES = tuple(sorted(BUILDERS))
 
-VARIANTS = {"gemma3-vlm": ("gemma3", build_gemma3_vlm)}
+VARIANTS = {"gemma3-vlm": ("gemma3", build_gemma3_vlm),
+            "gemma4-vlm": ("gemma4", build_gemma4_vlm),
+            "gemma4-31b": ("gemma4", build_gemma4_31b),
+            "gemma4-shared": ("gemma4", lambda: build_gemma4(num_kv_shared_layers=2))}
 
 KIT_MODELS = (*((t, t) for t in MODEL_TYPES), *((v, t) for v, (t, _) in VARIANTS.items()))
 
@@ -68,6 +138,9 @@ def build_tiny_model(name: str, architecture=None) -> TorchModel:
     with torch.no_grad():
         for p in model.parameters():
             p.copy_(torch.randn(p.shape, generator=draw) * 0.5)
+        for key, b in model.named_buffers():
+            if key.endswith("layer_scalar"):
+                b.copy_(torch.randn(b.shape, generator=draw) * 0.5)
     model.eval().to(DEVICE)
     return TorchModel(model, build_tokenizer(), architecture=architecture)
 

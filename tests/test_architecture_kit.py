@@ -41,6 +41,7 @@ TEMPLATE_OF = {
     "gemma4": "mlx-community/gemma-4-e2b-it-bf16",
     "llama": "mlx-community/Llama-3.2-3B-Instruct-bf16",
     "qwen2": "mlx-community/Qwen2.5-3B-Instruct-bf16",
+    "qwen3": "Qwen/Qwen3-32B",
 }
 
 
@@ -536,6 +537,14 @@ def test_the_dialect_parses_its_own_rendered_call(kit_name):
         assert dialects.identify(dialects.TemplateProbe(True, rendered)) is a.dialect
 
 
+def read_unprojected(attn) -> set[str]:
+    if getattr(attn, "is_kv_shared_layer", False):
+        return {"k_proj", "v_proj"}
+    if getattr(attn, "use_k_eq_v", False) or getattr(attn, "use_alternative_attention", False):
+        return {"v_proj"}
+    return set()
+
+
 @pytest.mark.parametrize("case", list_kit_params())
 def test_the_adapter_keys_reach_every_projection(case):
     kit_name, name, model_type = case
@@ -547,7 +556,7 @@ def test_the_adapter_keys_reach_every_projection(case):
     for i, layer in enumerate(model.lm.model.layers):
         for proj, container in keys.containers.items():
             stem = f"model.layers.{i}.{container}.{proj}"
-            if proj == "v_proj" and getattr(layer.self_attn, "use_k_eq_v", False):
+            if proj in read_unprojected(layer.self_attn):
                 assert f"{stem}.weight" not in params, stem
                 continue
             assert f"{stem}.weight" in params, stem
