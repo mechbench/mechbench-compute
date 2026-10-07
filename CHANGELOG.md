@@ -29,6 +29,23 @@ _None._
 
 ---
 
+## 0.192.1 — 2026-10-06
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- The first release published by CI through PyPI trusted publishing;
+  `scripts/release.py --upload` is gone and `--check` is the only mode.
+
+---
+
 ## 0.192.0 — 2026-10-05
 
 ### Changes that raise

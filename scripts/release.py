@@ -73,12 +73,11 @@ def rollout_budget() -> None:
 
 
 def main() -> None:
-    upload = "--upload" in sys.argv
-    if not upload and "--check" not in sys.argv:
-        print("usage: scripts/release.py --check    run the gate; upload nothing\n"
-              "       scripts/release.py --upload   run the gate, then twine upload "
-              "(the old path, until CI publishes; mechbench-runner/docs/RELEASING.md)\n"
-              "       add --with-model-budget to either to time the rollout")
+    if "--check" not in sys.argv:
+        print("usage: scripts/release.py --check    run the gate; dist/ holds what "
+              "CI publishes (a v<version> tag on main publishes; "
+              "mechbench-runner/docs/RELEASING.md)\n"
+              "       add --with-model-budget to time the rollout")
         sys.exit(2)
     with_budget = "--with-model-budget" in sys.argv
     m = re.search(r'^version = "([^"]+)"',
@@ -164,15 +163,6 @@ def main() -> None:
               "tests/test_rollout_work.py; the timing needs a model.")
 
     print(f"\ngate PASSED for {ver}")
-    if not upload:
-        print("--check: not uploading; dist/ holds what CI publishes")
-        return
-    print("uploading…")
-    proc = run(["uvx", "twine", "upload", f"dist/mechbench_compute-{ver}*"],
-               timeout=600)
-    if proc.returncode != 0:
-        die("twine upload", proc)
-    print(f"published mechbench-compute {ver}")
 
 
 if __name__ == "__main__":
