@@ -4,8 +4,10 @@ import atexit
 import functools
 import hashlib
 import json
+import os
 import pathlib
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +22,10 @@ WASM_PATH = pathlib.Path(__file__).with_name("mbexpr.wasm")
 ROOTS = ("params", "header")
 FUEL = 1_000_000
 FUEL_MARGIN = 2
+CEILING_ENV = "MECHBENCH_EXPR_CEILING_"
+MEMORY_MB = 2048
+SECONDS = 120.0
+EPOCH_TICK_S = 0.1
 FUEL_REMEDY = (
     "Read less per record: a comprehension spends steps on every item of the list it walks, and a "
     "built-in over the list (`sum(xs)`, `max(xs)`, `len(xs)`) two in all; a captured vector already "
@@ -76,17 +82,41 @@ class Filtered:
     undefined: dict[str, int]
 
 
+def read_ceiling(name: str, default: float) -> float:
+    raw = os.environ.get(CEILING_ENV + name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        value = float("nan")
+    if not 0 < value < float("inf"):
+        raise ValueError(f"{CEILING_ENV}{name}={raw!r} is not a number above 0")
+    return value
+
+
 class Engine:
     def __init__(self, wasm: bytes) -> None:
         import wasmtime
 
         self._wasmtime = wasmtime
-        self._engine = wasmtime.Engine()
+        config = wasmtime.Config()
+        config.epoch_interruption = True
+        self._engine = wasmtime.Engine(config)
         self._module = wasmtime.Module(self._engine, wasm)
         self._local = threading.local()
 
+        def tick(engine=self._engine) -> None:
+            while True:
+                time.sleep(EPOCH_TICK_S)
+                engine.increment_epoch()
+
+        threading.Thread(target=tick, daemon=True, name="mechbench-expr-epoch").start()
+
     def _instantiate(self) -> tuple[Any, Any]:
         store = self._wasmtime.Store(self._engine)
+        store.set_limits(memory_size=int(read_ceiling("MEMORY_MB", MEMORY_MB) * 1024 * 1024))
+        store.set_epoch_deadline(max(1, int(read_ceiling("SECONDS", SECONDS) / EPOCH_TICK_S)))
         instance = self._wasmtime.Instance(store, self._module, [])
         return store, instance.exports(store)
 
@@ -95,6 +125,12 @@ class Engine:
             data = json.dumps(request, allow_nan=False, default=_make_jsonable).encode()
         except ValueError as e:
             raise ExprError.of(str(request.get("expr", "")), "type", f"a value is not JSON: {e}") from None
+        try:
+            return self._call(data)
+        except (self._wasmtime.Trap, self._wasmtime.WasmtimeError) as e:
+            raise ExprError.of(str(request.get("expr", "")), "limit", describe_trap(e)) from None
+
+    def _call(self, data: bytes) -> dict[str, Any]:
         store, x = self._instantiate()
         memory = x["memory"]
         ptr = x["mbexpr_alloc"](store, len(data))
@@ -192,6 +228,16 @@ class Engine:
                         roots.add(root)
             cache[sources] = None if whole or "record" in " ".join(sources) else frozenset(roots)
         return cache[sources]
+
+
+def describe_trap(trap: Exception) -> str:
+    low = str(trap).lower()
+    if "interrupt" in low or "epoch" in low:
+        return (f"the expression ran past this runner's {read_ceiling('SECONDS', SECONDS):g} "
+                f"seconds")
+    lines = [line.strip() for line in str(trap).splitlines() if line.strip()]
+    return (f"the expression engine stopped, most likely out of this runner's "
+            f"{read_ceiling('MEMORY_MB', MEMORY_MB):g} MB of memory ({lines[-1] if lines else 'a trap'})")
 
 
 def _make_jsonable(value: Any) -> Any:
