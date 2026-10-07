@@ -17,6 +17,22 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+---
+
+## 0.193.0 — 2026-10-07
+
+### Changes that raise
+
 - A sandbox limit must be a positive number: `memory_mb`, `fuel`,
   `output_bytes`, `max_files` and `max_bytes` a whole number of at least
   1, `wall_seconds` a finite number above 0. A `records/python` or
