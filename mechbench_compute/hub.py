@@ -1,8 +1,22 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Callable
+
+HUB_ID = re.compile(r"(?:[A-Za-z0-9][\w.-]*/)?[A-Za-z0-9][\w.-]*(?:@[A-Za-z0-9][\w.-]*)?")
+# external: mlx-lm and mlx-vlm — the files they download for a model, less `*.py`, which only remote code needs
+ALLOW_PATTERNS = ("*.json", "*.safetensors", "*.model", "*.tiktoken", "*.txt", "*.jsonl", "*.jinja")
+
+
+def check_hub_id(ref: str) -> str:
+    if not HUB_ID.fullmatch(ref) or ".." in ref:
+        raise ValueError(
+            f"model {ref!r} is not a hub id: a protocol names a model as `org/name` "
+            f"or `org/name@revision`, of letters, digits, '_', '.' and '-' — never a "
+            f"path on the runner's disk")
+    return ref
 
 
 def parse_model_ref(ref: str) -> tuple[str, str | None]:
@@ -99,7 +113,8 @@ def ensure_model(
         if on_bytes is not None:
             kwargs["tqdm_class"] = _progress_tqdm(on_bytes)
         # external: huggingface_hub — snapshot_download lands in a directory named for the resolved commit
-        path = Path(snapshot_download(repo_id, revision=revision, **kwargs))
+        path = Path(snapshot_download(repo_id, revision=revision,
+                                      allow_patterns=list(ALLOW_PATTERNS), **kwargs))
     except Exception as exc:  # noqa: BLE001
         what = f"{repo_id}@{revision}" if revision else repo_id
         raise ValueError(f"could not fetch {what} from the HuggingFace hub: {exc}") from exc

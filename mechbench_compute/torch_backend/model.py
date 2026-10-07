@@ -42,6 +42,7 @@ class TorchModel:
 
     @classmethod
     def load(cls, model_id: str, *, device: str | None = None, dtype: Any = None,
+             hub_only: bool = False,
              on_download: Callable[[str, str | None], None] | None = None,
              on_download_bytes: Callable[[int, int], None] | None = None) -> TorchModel:
         import json
@@ -51,7 +52,7 @@ class TorchModel:
 
         requested = model_id
         started = time.perf_counter()
-        if Path(model_id).is_dir():
+        if not hub_only and Path(model_id).is_dir():
             repo_id, revision, snapshot = "local-checkpoint", Path(model_id).name, Path(model_id)
         else:
             repo_id, revision, snapshot = ensure_model(

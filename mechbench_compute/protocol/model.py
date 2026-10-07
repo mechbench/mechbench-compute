@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mechbench_compute.hub import check_hub_id
 from mechbench_compute.model_ref import describe_layers
 from mechbench_compute.protocol.model_cache_stale import ModelCacheStale
 from mechbench_compute.protocol.model_fingerprint import mark_loaded, read_applied
@@ -14,9 +15,10 @@ class ModelLoading:
                 f"{model_id.describe()} is a remote endpoint: this operation "
                 "runs local weights and cannot use one. Use "
                 "text/chat, which serves both.")
+        hub_only = True
         if hasattr(model_id, "base"):
             if getattr(model_id, "base_kind", None) == "bench":
-                model_id = str(self._materialize_checkpoint(model_id.base))
+                model_id, hub_only = str(self._materialize_checkpoint(model_id.base)), False
             else:
                 model_id = model_id.base
         if not model_id:
@@ -25,13 +27,15 @@ class ModelLoading:
                 "runs one names it in its own params, so the result can say "
                 "which weights produced it."
             )
+        if hub_only:
+            check_hub_id(str(model_id))
         from mechbench_compute.backends import backend_of, load_model_class
 
         backend = self._backend
         if (self._model is None or (model_id and model_id != self._model_id)
                 or backend_of(self._model) != backend.name):
             self._model = load_model_class(backend).load(
-                model_id, on_download=self._on_download,
+                model_id, hub_only=hub_only, on_download=self._on_download,
                 on_download_bytes=self._on_download_bytes)
             self._model_id = model_id
         if hasattr(self._model, "attention"):

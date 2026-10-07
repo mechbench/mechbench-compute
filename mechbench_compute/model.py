@@ -43,7 +43,7 @@ class Model:
         self.fingerprint: Any = None
 
     @classmethod
-    def load(cls, model_id: str, *,
+    def load(cls, model_id: str, *, hub_only: bool = False,
              on_download: Callable[[str, str | None], None] | None = None,
              on_download_bytes: Callable[[int, int], None] | None = None) -> Model:
         from .hub import ensure_model
@@ -52,7 +52,7 @@ class Model:
         from pathlib import Path as _Path
 
         fetch_started = time.perf_counter()
-        if _Path(model_id).is_dir():
+        if not hub_only and _Path(model_id).is_dir():
             repo_id, revision_sha, snapshot = (
                 "local-checkpoint",
                 _Path(model_id).name,
