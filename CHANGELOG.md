@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.194.0 — 2026-10-07
+
+### Changes that raise
+
 - A job on the `torch` backend whose graph names a core operation that
   runs a model and that the backend does not run yet is refused before
   the node runs: `BackendRefused` ("intervene/patch does not run on the
