@@ -17,7 +17,13 @@ def test_this_machine_reports_its_backend():
     assert active.name == "mlx"
     assert "darwin" in backends.describe_platform()
     assert backends.detect_accelerator() == "metal"
-    assert backends.advertise() == {"accelerator": "metal", "backends": ["mlx"]}
+    assert backends.detect_accelerators() == ["metal", "cpu"]
+    if backends.is_installed(backends.find("torch")):
+        assert backends.advertise() == {"accelerator": "metal", "backends": ["mlx", "torch"],
+                                        "accelerators": {"metal": ["mlx"], "cpu": ["torch"]}}
+    else:
+        assert backends.advertise() == {"accelerator": "metal", "backends": ["mlx"],
+                                        "accelerators": {"metal": ["mlx"]}}
 
 
 def test_a_machine_with_no_backend_gets_an_explanation(monkeypatch):
@@ -75,19 +81,22 @@ def test_backend_detection_does_not_import_the_backend(monkeypatch):
     assert len(loaded) == before
 
 
-@pytest.mark.parametrize("platform_name,machine,tools,accelerator", [
-    ("darwin", "arm64", set(), "metal"),
-    ("linux", "x86_64", {"nvidia-smi"}, "cuda"),
-    ("linux", "x86_64", {"rocm-smi"}, "rocm"),
-    ("linux", "x86_64", set(), "cpu"),
-    ("darwin", "x86_64", set(), "cpu"),
+@pytest.mark.parametrize("platform_name,machine,tools,accelerators", [
+    ("darwin", "arm64", set(), ["metal", "cpu"]),
+    ("linux", "x86_64", {"nvidia-smi"}, ["cuda", "cpu"]),
+    ("linux", "aarch64", {"nvidia-smi"}, ["cuda", "cpu"]),
+    ("linux", "x86_64", {"rocm-smi"}, ["rocm", "cpu"]),
+    ("linux", "x86_64", set(), ["cpu"]),
+    ("darwin", "x86_64", set(), ["cpu"]),
 ])
-def test_the_accelerator_is_the_hardware(monkeypatch, platform_name, machine, tools, accelerator):
+def test_the_accelerators_are_the_hardware_and_the_cpu_is_always_one(
+        monkeypatch, platform_name, machine, tools, accelerators):
     monkeypatch.setattr(backends.sys, "platform", platform_name)
     monkeypatch.setattr(backends.platform, "machine", lambda: machine)
     monkeypatch.setattr(backends.shutil, "which", lambda tool: f"/usr/bin/{tool}" if tool in tools else None)
-    assert backends.detect_accelerator() == accelerator
-    assert accelerator in backends.ACCELERATORS
+    assert backends.detect_accelerators() == accelerators
+    assert backends.detect_accelerator() == accelerators[0]
+    assert set(accelerators) <= set(backends.ACCELERATORS)
 
 
 def test_a_backend_installed_for_another_accelerator_is_absent_but_named():
@@ -106,19 +115,72 @@ def test_a_backend_installed_for_another_accelerator_is_absent_but_named():
         "present": True}
     assert on_metal[1]["present"] is False
     absent = on_metal[1]["absent"]
-    assert (absent == "it runs on cuda, and this machine's accelerator is metal"
+    assert (absent == "it runs on cuda, rocm or cpu, and this machine's accelerator is metal"
             or absent.endswith(" not installed: pip install 'mechbench-compute[torch]'")), absent
 
 
-def test_the_torch_backend_is_offered_on_cuda_and_installed_with_its_extra():
+def test_the_torch_backend_is_offered_on_cuda_rocm_and_cpu_and_installed_with_its_extra():
     torch = next(b for b in backends.BACKENDS if b.name == "torch")
-    assert torch.accelerators == ("cuda",)
+    assert torch.accelerators == ("cuda", "rocm", "cpu")
     assert torch.modules == ("torch", "nnsight", "transformers", "accelerate")
     assert torch.extra == "torch"
     installed = backends.is_installed(torch)
-    assert backends.is_available("torch", "cuda") is installed
+    for accelerator in ("cuda", "rocm", "cpu"):
+        assert backends.is_available("torch", accelerator) is installed
+        assert backends.advertise(accelerator)["backends"] == (["torch"] if installed else [])
     assert backends.is_available("torch", "metal") is False
-    assert backends.advertise("cuda")["backends"] == (["torch"] if installed else [])
+    assert backends.is_available("mlx", "cpu") is False
+
+
+def _machine(monkeypatch, platform_name, machine, tools, installed):
+    monkeypatch.setattr(backends.sys, "platform", platform_name)
+    monkeypatch.setattr(backends.platform, "machine", lambda: machine)
+    monkeypatch.setattr(backends.shutil, "which", lambda tool: f"/usr/bin/{tool}" if tool in tools else None)
+    modules = {m for b in backends.BACKENDS if b.name in installed for m in b.modules}
+    monkeypatch.setattr(backends, "is_importable", lambda module: module in modules)
+
+
+@pytest.mark.parametrize("platform_name,machine,tools,installed,advertised", [
+    ("darwin", "arm64", set(), {"mlx"},
+     {"accelerator": "metal", "backends": ["mlx"], "accelerators": {"metal": ["mlx"]}}),
+    ("darwin", "arm64", set(), {"mlx", "torch"},
+     {"accelerator": "metal", "backends": ["mlx", "torch"],
+      "accelerators": {"metal": ["mlx"], "cpu": ["torch"]}}),
+    ("linux", "aarch64", {"nvidia-smi"}, {"torch"},
+     {"accelerator": "cuda", "backends": ["torch"],
+      "accelerators": {"cuda": ["torch"], "cpu": ["torch"]}}),
+    ("linux", "x86_64", {"rocm-smi"}, {"torch"},
+     {"accelerator": "rocm", "backends": ["torch"],
+      "accelerators": {"rocm": ["torch"], "cpu": ["torch"]}}),
+    ("linux", "x86_64", set(), {"torch"},
+     {"accelerator": "cpu", "backends": ["torch"], "accelerators": {"cpu": ["torch"]}}),
+    ("linux", "x86_64", set(), set(), {"accelerator": "cpu", "backends": [], "accelerators": {}}),
+])
+def test_a_machine_advertises_every_accelerator_with_the_backends_it_runs_there(
+        monkeypatch, platform_name, machine, tools, installed, advertised):
+    _machine(monkeypatch, platform_name, machine, tools, installed)
+    assert backends.advertise() == advertised
+    assert [b.name for b in backends.available()] == advertised["backends"]
+    for accelerator, names in advertised["accelerators"].items():
+        assert backends.advertise(accelerator) == {
+            "accelerator": accelerator, "backends": names, "accelerators": {accelerator: names}}
+    if advertised["backends"]:
+        assert backends.select(advertised).name == advertised["backends"][0]
+    for accelerator, names in advertised["accelerators"].items():
+        for name in names:
+            assert backends.select(advertised, backend=name, accelerator=accelerator).name == name
+
+
+def test_a_mac_with_the_torch_extra_reports_each_backend_where_it_runs(monkeypatch):
+    _machine(monkeypatch, "darwin", "arm64", set(), {"mlx", "torch"})
+    assert [d["present"] for d in backends.describe()] == [True, True]
+    assert backends.active().name == "mlx"
+    _machine(monkeypatch, "darwin", "arm64", set(), {"torch"})
+    assert backends.active().name == "torch"
+    assert backends.describe()[0]["absent"] == "mlx.core is not installed"
+    _machine(monkeypatch, "linux", "x86_64", {"nvidia-smi"}, {"mlx", "torch"})
+    assert backends.describe()[0]["absent"] == (
+        "it runs on metal, and this machine's accelerators are cuda and cpu")
 
 
 def test_a_backend_the_executor_cannot_run_is_never_advertised():
@@ -128,7 +190,8 @@ def test_a_backend_the_executor_cannot_run_is_never_advertised():
     unrun = dataclasses.replace(torch, model=None)
     installed = backends.is_installed(torch)
     assert backends.available("cuda", (unrun,)) == ([unrun] if installed else [])
-    assert backends.advertise("cuda", (unrun,)) == {"accelerator": "cuda", "backends": []}
+    assert backends.advertise("cuda", (unrun,)) == {
+        "accelerator": "cuda", "backends": [], "accelerators": {}}
     with pytest.raises(backends.BackendRefused, match="does not run jobs on the torch backend"):
         backends.load_model_class(unrun)
     for b in backends.BACKENDS:
@@ -154,7 +217,7 @@ def test_a_missing_backend_is_refused_with_its_install_line():
     assert str(exc.value).endswith("pip install 'mechbench-compute[torch]'")
 
 
-def test_the_architectures_a_runner_advertises_are_one_map_across_its_backends():
+def test_the_architectures_a_runner_advertises_are_keyed_by_backend_and_flat_for_the_first():
     from mechbench_compute import support
 
     torch = backends.find("torch")
@@ -168,6 +231,10 @@ def test_the_architectures_a_runner_advertises_are_one_map_across_its_backends()
         mlx = {a["modelType"]: a["level"] for a in support.local_architectures()}
         assert support.architecture_levels("metal") == mlx
         assert support.local_architectures("mlx") == support.local_architectures()
+        assert support.architecture_levels_by_backend("metal") == {"mlx": mlx}
+        if backends.is_installed(torch):
+            assert support.architecture_levels_by_backend() == {"mlx": mlx, "torch": core}
+            assert support.architecture_levels() == mlx
 
 
 NEEDS_MLX = pytest.mark.skipif(not backends.is_importable("mlx.core"),
@@ -204,6 +271,53 @@ class TestSelectionByCapability:
             backends.select(laptop, backend="jax")
         with pytest.raises(backends.BackendRefused, match=r"advertises none on metal"):
             backends.select({"accelerator": "metal", "backends": []})
+        with pytest.raises(backends.BackendRefused, match=r"advertises none on metal"):
+            backends.select({"accelerator": "metal", "backends": [], "accelerators": {}})
+
+    def test_a_runner_with_a_set_takes_any_pair_it_advertises_and_names_the_pair_it_lacks(self):
+        mac = {"accelerator": "metal", "backends": ["mlx", "torch"],
+               "accelerators": {"metal": ["mlx"], "cpu": ["torch"]}}
+        assert backends.select(mac, backend="torch", accelerator="cpu").name == "torch"
+        assert backends.select(mac, backend="torch").name == "torch"
+        assert backends.select(mac, backend="mlx", accelerator="metal").name == "mlx"
+        assert backends.select(mac).name == "mlx"
+        assert backends.select(mac, accelerator="cpu").name == "torch"
+        with pytest.raises(backends.BackendRefused,
+                           match=r"^it needs the torch backend on metal, and this runner has "
+                                 r"mlx on metal, torch on cpu$"):
+            backends.select(mac, backend="torch", accelerator="metal")
+        with pytest.raises(backends.BackendRefused,
+                           match=r"^it needs a cuda accelerator, and this runner has metal and cpu$"):
+            backends.select(mac, backend="torch", accelerator="cuda")
+        laptop = {"accelerator": "metal", "backends": ["mlx"], "accelerators": {"metal": ["mlx"]}}
+        with pytest.raises(backends.BackendRefused,
+                           match=r"^it needs a cpu accelerator, and this runner has metal$"):
+            backends.select(laptop, backend="torch", accelerator="cpu")
+
+    def test_an_advertisement_before_the_set_is_read_as_one_accelerator(self):
+        old = {"accelerator": "cuda", "backends": ["torch"]}
+        assert backends.read_pairs(old) == {"cuda": ["torch"]}
+        assert backends.select(old, backend="torch", accelerator="cuda").name == "torch"
+        with pytest.raises(backends.BackendRefused,
+                           match=r"^it needs a cpu accelerator, and this runner has cuda$"):
+            backends.select(old, backend="torch", accelerator="cpu")
+
+
+class TestTheDeviceFollowsTheAccelerator:
+    def test_a_torch_job_s_accelerator_names_its_device(self):
+        torch = backends.find("torch")
+        assert backends.device_for(torch, "cpu") == "cpu"
+        assert backends.device_for(torch, "cuda") == "cuda"
+        assert backends.device_for(torch, "rocm") == "cuda"
+        assert backends.device_for(torch, None) is None
+        with pytest.raises(backends.BackendRefused,
+                           match=r"^the torch backend does not run on metal; it runs on cuda, rocm or cpu$"):
+            backends.device_for(torch, "metal")
+
+    def test_mlx_takes_no_device_whatever_the_job_names(self):
+        mlx = backends.find("mlx")
+        for accelerator in (None, "metal", "cpu", "cuda"):
+            assert backends.device_for(mlx, accelerator) is None
 
     @NEEDS_MLX
     def test_a_runner_with_two_backends_runs_a_job_that_names_neither_on_the_first_declared(self):
@@ -223,7 +337,7 @@ class TestImportableWithoutABackend:
         monkeypatch.setattr(
             importlib.util,
             "find_spec",
-            lambda n, *a, **k: None if n.split(".")[0] == "mlx" else real(n, *a, **k),
+            lambda n, *a, **k: None if n.split(".")[0] in {"mlx", "torch"} else real(n, *a, **k),
         )
         for name in [m for m in list(sys.modules) if m.startswith("mechbench_compute")]:
             monkeypatch.delitem(sys.modules, name, raising=False)

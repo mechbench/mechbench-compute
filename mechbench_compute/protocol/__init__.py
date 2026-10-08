@@ -28,6 +28,7 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
         self._model: Any = None
         self._model_id: str | None = None
         self._backend = backends.find(backends.DEFAULT_BACKEND)
+        self._accelerator: str | None = None
         self._attention: set[str] = set()
         self._described: dict[str, Any] | None = None
         self._on_download = on_download
@@ -44,7 +45,9 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
 
     def run(self, spec: ProtocolSpec, on_progress=None,
             secrets=None, resume=None, budget=None) -> Any:
-        self._backend = backends.read_required((spec.extra or {}).get("requirements"))
+        required = (spec.extra or {}).get("requirements")
+        self._backend = backends.read_required(required)
+        self._accelerator = (required or {}).get("accelerator")
         self._attention = set()
         self._described = None
         if spec.kind == "layer_ablation":

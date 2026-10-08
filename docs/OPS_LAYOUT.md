@@ -465,12 +465,29 @@ and the run's `resources.hardware` adds `backend`, `accelerator`, `gpu`,
 the `torch`, `cuda`, `transformers` and `nnsight` versions, and
 `attention`: the attention implementations its forwards ran (`eager`
 where a node read `attn.weights`, otherwise the model's own, `sdpa`). An
-mlx job's result keeps every byte it had. A runner advertises a backend
-only where the executor runs it, one that declares a `model`
-(`backends.advertise`), and the architectures it loads as one map of
-model type to level across those backends
-(`support.architecture_levels`; the first backend to declare a model
-type serves it).
+mlx job's result keeps every byte it had. A torch job's device follows
+the accelerator its requirements name (`backends.device_for`: `cpu` on
+the CPU even where a GPU exists, `cuda` and `rocm` on the GPU), and a
+torch model loaded on another accelerator is loaded again; one that
+names none takes the GPU when torch sees one. An mlx job is given no
+device.
+
+A machine has every accelerator `backends.detect_accelerators` finds,
+`cpu` always among them (`metal` on Apple silicon, `cuda` where
+`nvidia-smi` is, `rocm` where `rocm-smi` is), and torch is offered on
+`cuda`, `rocm` and `cpu`. A runner advertises, for each accelerator, the
+backends the executor runs there, each one that declares a `model`
+(`backends.advertise`: `{"accelerator": "metal", "backends": ["mlx",
+"torch"], "accelerators": {"metal": ["mlx"], "cpu": ["torch"]}}` on a Mac
+with the torch extra; `accelerator` is the first found and `backends`
+every one, as an advertisement before the set said them), and
+`backends.select` takes any pair it advertised. It advertises the
+architectures it loads by backend (`support.architecture_levels_by_backend`),
+and as one map of model type to level (`support.architecture_levels`):
+the first advertised backend's (MLX's on a Mac with the torch extra),
+the backend a job that names none runs on, so a placement that reads
+the flat map alone never places such a job for a model type only torch
+loads.
 
 `support.Architecture` is the interface. Its declarative fields:
 `model_type`, `name`, `loader`, `generate`/`score`/`train`,

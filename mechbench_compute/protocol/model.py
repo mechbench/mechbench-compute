@@ -29,14 +29,18 @@ class ModelLoading:
             )
         if hub_only:
             check_hub_id(str(model_id))
-        from mechbench_compute.backends import backend_of, load_model_class
+        from mechbench_compute.backends import backend_of, device_for, load_model_class
 
         backend = self._backend
+        accelerator = getattr(self, "_accelerator", None)
+        device = device_for(backend, accelerator)
         if (self._model is None or (model_id and model_id != self._model_id)
-                or backend_of(self._model) != backend.name):
+                or backend_of(self._model) != backend.name
+                or (device is not None and getattr(self._model, "accelerator", None) != accelerator)):
             self._model = load_model_class(backend).load(
                 model_id, hub_only=hub_only, on_download=self._on_download,
-                on_download_bytes=self._on_download_bytes)
+                on_download_bytes=self._on_download_bytes,
+                **({"device": device} if device is not None else {}))
             self._model_id = model_id
         if hasattr(self._model, "attention"):
             self._model.attention = self._attention

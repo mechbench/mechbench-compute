@@ -60,13 +60,15 @@ def torch_model(monkeypatch):
 
     tiny = build_tiny_model("gemma3")
     loads: list[str] = []
+    devices: list[str | None] = []
 
-    def load(cls, model_id, **_):
+    def load(cls, model_id, device=None, **_):
         loads.append(model_id)
+        devices.append(device)
         return tiny
 
     monkeypatch.setattr(TorchModel, "load", classmethod(load))
-    return SimpleNamespace(model=tiny, loads=loads)
+    return SimpleNamespace(model=tiny, loads=loads, devices=devices)
 
 
 @needs_torch
@@ -100,6 +102,34 @@ def test_a_job_that_requires_torch_runs_logits_read_and_attribute_through_the_to
     for package in ("torch", "transformers", "nnsight"):
         assert hardware[package] == importlib.metadata.version(package)
     assert hardware["attention"] == ["sdpa"]
+
+
+@needs_torch
+def test_a_torch_job_s_accelerator_chooses_its_device(torch_model):
+    payload = run_job({"class": "local", "backend": "torch", "accelerator": "cpu"})
+    assert torch_model.devices == ["cpu"]
+    assert payload["outputs"]["read"]["accelerator"] == "cpu"
+    run_job({"class": "local", "backend": "torch"})
+    assert torch_model.devices == ["cpu", None]
+
+
+@needs_torch
+def test_a_torch_model_loaded_on_another_accelerator_is_loaded_again(torch_model):
+    ex = ProtocolExecutor()
+    ex._backend = backends.find("torch")
+    ex._accelerator = "cpu"
+    assert ex._model_loaded(MODEL) is torch_model.model
+    assert ex._model_loaded(MODEL) is torch_model.model
+    assert torch_model.devices == ["cpu"]
+    ex._accelerator = "cuda"
+    ex._model_loaded(MODEL)
+    assert torch_model.devices == ["cpu", "cuda"]
+
+
+def test_a_torch_job_on_an_accelerator_torch_is_not_offered_on_is_refused_by_name():
+    with pytest.raises(backends.BackendRefused,
+                       match="the torch backend does not run on metal; it runs on cuda, rocm or cpu"):
+        run_job({"class": "local", "backend": "torch", "accelerator": "metal"})
 
 
 @needs_torch
@@ -173,9 +203,18 @@ def test_an_mlx_job_s_result_is_byte_identical_whatever_its_requirements_say(mon
     from tests.tiny_models import build_tiny_model
 
     tiny = build_tiny_model("gemma3")
-    monkeypatch.setattr(Model, "load", classmethod(lambda cls, model_id, **_: tiny))
-    results = [run_job(r) for r in (None, {"class": "local"}, {"class": "local", "backend": "mlx"})]
+    passed: list[dict] = []
+
+    def load(cls, model_id, **kwargs):
+        passed.append(kwargs)
+        return tiny
+
+    monkeypatch.setattr(Model, "load", classmethod(load))
+    results = [run_job(r) for r in (None, {"class": "local"}, {"class": "local", "backend": "mlx"},
+                                    {"class": "local", "backend": "mlx", "accelerator": "metal"},
+                                    {"class": "local", "accelerator": "cpu"})]
     assert len({json.dumps(r, sort_keys=True) for r in results}) == 1
+    assert not any("device" in kwargs for kwargs in passed)
     payload = results[0]
     assert payload["resources"]["hardware"] == hardware_class()
     for out in payload["outputs"].values():

@@ -17,15 +17,46 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- A torch job that names an accelerator torch is not offered on (`metal`)
+  is refused by name: "the torch backend does not run on metal; it runs
+  on cuda, rocm or cpu".
+- A torch job that names `cuda` or `rocm` loads its model there, and
+  fails where torch sees no GPU (a CPU-only torch build beside
+  `nvidia-smi`), where before it ran on the CPU without saying so.
+- `backends.select(capabilities, backend=, accelerator=)` refuses a
+  backend on an accelerator the runner did not advertise it on: "it
+  needs the torch backend on metal, and this runner has mlx on metal,
+  torch on cpu".
 
 ### Changes that alter results without raising
 
-_None._
+- A torch job's device follows its `requirements.accelerator`: `cpu`
+  runs on the CPU even where a GPU exists (before, torch took the GPU
+  whenever it saw one). A job that names no accelerator runs as before.
+  An mlx job is unchanged, byte for byte.
 
 ### Other
 
-_None._
+- A machine advertises more than one accelerator. The torch backend is
+  offered on `cuda`, `rocm` and `cpu` (it was `cuda` only), and
+  `backends.detect_accelerators()` lists every accelerator here, `cpu`
+  always last. `backends.advertise()` adds `accelerators`, each
+  accelerator with the backends the executor runs there (`{"metal":
+  ["mlx"], "cpu": ["torch"]}` on a Mac with the torch extra), beside
+  `accelerator` (the first found, as before) and `backends` (now every
+  backend on any of them). `available()`, `describe()` and `active()`
+  with no accelerator read every accelerator here, so a Mac with the
+  extra has torch present, and a Linux machine without a GPU has torch.
+  `backends.select` reads the set, or an advertisement before it as one
+  accelerator. `backends.device_for(backend, accelerator)` is the torch
+  device an accelerator names.
+- `support.architecture_levels_by_backend()`: the architectures a
+  runner loads, keyed by backend. `architecture_levels()`, the flat map
+  a placement before the keyed one reads, is the first advertised
+  backend's map (on one backend, as before; on a Mac with the torch
+  extra, MLX's, so a job that names no backend is never placed for a
+  model type only torch loads). It was the union, the first backend to
+  declare a model type serving it.
 
 ## 0.195.0 — 2026-10-08
 

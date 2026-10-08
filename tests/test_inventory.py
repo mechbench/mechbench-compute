@@ -116,7 +116,7 @@ class TestScan:
         monkeypatch.setattr(
             importlib.util,
             "find_spec",
-            lambda n, *a, **k: None if n.split(".")[0] == "mlx" else real(n, *a, **k),
+            lambda n, *a, **k: None if n.split(".")[0] in {"mlx", "torch"} else real(n, *a, **k),
         )
         from mechbench_compute import backends
 

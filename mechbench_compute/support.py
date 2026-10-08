@@ -182,14 +182,15 @@ def local_architectures(backend: str = "mlx") -> list[dict[str, Any]]:
     } for a in backends.load_architectures(backends.find(backend))]
 
 
-def architecture_levels(accelerator: str | None = None) -> dict[str, str]:
+def architecture_levels_by_backend(accelerator: str | None = None) -> dict[str, dict[str, str]]:
     from . import backends
 
-    levels: dict[str, str] = {}
-    for name in backends.advertise(accelerator)["backends"]:
-        for a in local_architectures(name):
-            levels.setdefault(a["modelType"], a["level"])
-    return levels
+    return {name: {a["modelType"]: a["level"] for a in local_architectures(name)}
+            for name in backends.advertise(accelerator)["backends"]}
+
+
+def architecture_levels(accelerator: str | None = None) -> dict[str, str]:
+    return next(iter(architecture_levels_by_backend(accelerator).values()), {})
 
 
 def provider_models() -> list[dict[str, Any]]:
