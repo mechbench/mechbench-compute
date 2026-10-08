@@ -9,7 +9,6 @@ from mechbench_compute import shapes as S
 from mechbench_compute.arrays import read_f32
 from mechbench_compute.intervene.cell import Cell
 from mechbench_compute.intervene.compile import compile
-from mechbench_compute.intervene.plan import refuse_off_mlx
 from mechbench_compute.intervene.read_spec_items import read_spec_items
 from mechbench_compute.intervene.serialize_spec import serialize_spec
 from mechbench_compute.intervene.spec_error import SpecError
@@ -472,7 +471,6 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
         raise SpecError("intervene needs a non-empty `spec` list, or an "
                         "intervene/spec on the `intervention` port")
     compiled = compile(model, items, inputs=inputs, seed=int(params.get("seed", 0)))
-    refuse_off_mlx(model, compiled)
     specs, weight_items, filled = compiled.specs, compiled.weight_items, compiled.filled
     cells = sweep_cells(params)
     readout = dict(params.get("readout") or {"type": "decision"})

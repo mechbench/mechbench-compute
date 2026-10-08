@@ -7,10 +7,12 @@ from mechbench_compute.weights.resolve_module import resolve_module
 
 
 def restore_parameters(lm: Any, handle: Sequence[tuple[str, Any]]) -> None:
-    import mlx.core as mx
+    if not handle:
+        return
+    from mechbench_compute.intervene.array_ops import read_array_ops
 
+    xp = read_array_ops(handle[0][1])
     for name, before in reversed(list(handle)):
         module, attr = resolve_module(lm, name)
-        setattr(module, attr, before)
-    if handle:
-        mx.eval([getattr(*resolve_module(lm, n)) for n, _ in handle])
+        xp.write_parameter(module, attr, before)
+    xp.settle([getattr(*resolve_module(lm, n)) for n, _ in handle])

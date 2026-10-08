@@ -174,10 +174,17 @@ def test_an_intervention_applies_at_every_generated_step_on_torch(tiny):
     assert ids != [i["trace"]["token_ids"] for i in plain["items"]]
 
 
-def test_a_weight_edit_is_refused_by_name_on_torch():
+def test_a_weight_edit_generates_on_torch_and_puts_the_weights_back():
     tiny = build_tiny_model("llama")
-    with pytest.raises(ValueError, match=r"weight edit runs on the mlx backend only, and this model runs on torch"):
-        run_generate(tiny, {"spec": [{"parameter": "layers.1.mlp.down_proj.weight", "op": "zero"}]})
+    before = {k: v.detach().clone() for k, v in tiny._model.state_dict().items()}
+    edited = run_generate(tiny, {"spec": [{"parameter": "layers.1.mlp.down_proj.weight", "op": "zero"}],
+                                 "temperature": 0, "control": True})
+    after = tiny._model.state_dict()
+    assert all(torch.equal(before[k], after[k]) for k in before)
+    by_factor = {}
+    for item in edited["items"]:
+        by_factor.setdefault(item["coords"]["factor"], []).append(item["text"])
+    assert by_factor[0.0] == [i["text"] for i in run_generate(tiny, {"temperature": 0})["items"]]
 
 
 def test_a_projection_reads_the_residual_at_each_generated_token_on_torch():

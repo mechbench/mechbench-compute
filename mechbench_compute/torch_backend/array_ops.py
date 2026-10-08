@@ -89,3 +89,17 @@ class TorchOps:
         grads = {n: torch.zeros_like(leaves[n]) if g is None else g
                  for (n, _), g in zip(leaves.items(), got, strict=True)}
         return (value.detach(), aux), grads
+
+    def read_parameter(self, module: Any, attr: str) -> Any:
+        return getattr(module, attr).data
+
+    def write_parameter(self, module: Any, attr: str, value: Any) -> None:
+        getattr(module, attr).data = value
+
+    def settle(self, arrays: list[Any]) -> None:
+        return None
+
+    def read_moments(self, chunk: Any) -> tuple[float, float, float, float]:
+        chunk = chunk.detach().float()
+        return (float(chunk.sum()), float((chunk * chunk).sum()), float((chunk == 0).sum()),
+                float(chunk.abs().max()))

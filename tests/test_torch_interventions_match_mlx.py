@@ -99,6 +99,18 @@ CASES = {
                                         "positions": {"after": 1}}),
     "capture-attention": lambda m: ("activations.capture_attention", {"records": RECORDS}, {"layers": [1, 2]}),
     "read-layers": lambda m: ("logits.read_layers", {"records": RECORDS}, {"top_k": 3}),
+    "scan": lambda m: ("logits.scan", {"records": RECORDS}, {}),
+    "unembed": lambda m: ("direction.unembed", {"direction": make_direction(m, 1, 11)}, {"top_k": 4}),
+    "weight-edits": applying([{"parameter": "layers.1.mlp.down_proj.weight", "op": "scale", "strength": 0.5},
+                              {"parameter": "layers.2.self_attn.o_proj.weight", "op": "zero"}]),
+    "weight-projection-and-truncation": lambda m: ("intervene.apply", {"records": RECORDS}, {"spec": [
+        {"parameter": "layers.*.mlp.down_proj.weight", "op": "project_out", "direction": make_direction(m, 1, 8)},
+        {"parameter": "layers.0.self_attn.q_proj.weight", "op": "truncate", "rank": 2}],
+        "sweep": {"strength": [0.0, 1.0]}}),
+    "weights-capture": lambda m: ("weights.capture", {},
+                                  {"points": ["layers.*.mlp.down_proj", "layers.1.self_attn.o_proj"],
+                                   "spectrum": 4, "values": True}),
+    "weights-decompose": lambda m: ("weights.decompose", {}, {"points": ["layers.*.self_attn.o_proj"], "k": 2}),
 }
 
 
@@ -136,7 +148,9 @@ def test_an_intervention_reads_the_same_on_mlx_and_torch(twins, case):
     name, on_torch, on_mlx = twins
     want = run(on_mlx, *CASES[case](on_mlx))
     got = run(on_torch, *CASES[case](on_torch))
-    assert got.get("items") or got.get("measures")
+    assert got.get("items") or got.get("measures") or got.get("positive")
+    if case == "weights-capture":
+        want, got = ({k: v for k, v in out.items() if k != "captured"} for out in (want, got))
     check_agree(want, got, TOLERANCE_OF.get(on_torch.architecture.model_type, TOLERANCE), f"{name} {case}")
 
 
@@ -154,3 +168,13 @@ def test_capture_tokens_writes_the_same_rows_as_shards_on_torch(twins):
         assert got["coords"]["position"] == want["coords"]["position"] and got["token"] == want["token"]
         a, b = np.asarray(want["vector"]), np.asarray(got["vector"])
         assert np.abs(a - b).max() <= tolerance * max(1.0, float(np.abs(a).max()))
+
+
+def test_a_weight_edit_puts_the_torch_weights_back_bit_for_bit(twins):
+    import torch
+
+    _, on_torch, _ = twins
+    before = {k: v.detach().clone() for k, v in on_torch._model.state_dict().items()}
+    run(on_torch, *CASES["weight-projection-and-truncation"](on_torch))
+    after = on_torch._model.state_dict()
+    assert all(torch.equal(before[k], after[k]) for k in before)

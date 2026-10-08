@@ -77,6 +77,22 @@ class MlxOps:
     def value_and_grad(self, read_value: Any, deltas: dict[str, Any]) -> Any:
         return mx.value_and_grad(read_value)(deltas)
 
+    def read_parameter(self, module: Any, attr: str) -> Any:
+        return getattr(module, attr)
+
+    def write_parameter(self, module: Any, attr: str, value: Any) -> None:
+        setattr(module, attr, value)
+
+    def settle(self, arrays: list[Any]) -> None:
+        mx.eval(arrays)
+
+    def read_moments(self, chunk: Any) -> tuple[float, float, float, float]:
+        chunk = chunk.astype(mx.float32)
+        s, s2, z, m = (mx.sum(chunk), mx.sum(chunk * chunk),
+                       mx.sum(chunk == 0), mx.max(mx.abs(chunk)))
+        mx.eval(s, s2, z, m)
+        return float(s), float(s2), float(z), float(m)
+
 
 MLX_OPS = MlxOps()
 

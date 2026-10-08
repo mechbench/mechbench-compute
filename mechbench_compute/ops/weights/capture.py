@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 
+from mechbench_compute.arrays import read_f32, read_framework
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.weights.compute_effective_rank import compute_effective_rank
 from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
@@ -94,10 +95,12 @@ _STAT_BLOCK_VALUES = 16_000_000
 
 
 def measure_parameter(arr: Any, *, spectrum: int = 0) -> dict[str, Any]:
-    import mlx.core as mx
+    from mechbench_compute.intervene.array_ops import read_array_ops
 
-    a = arr if isinstance(arr, mx.array) else mx.array(np.asarray(arr))
-    n = int(a.size)
+    arr = arr if hasattr(arr, "shape") else np.asarray(arr)
+    xp = read_array_ops(arr)
+    a = arr if read_framework(arr) == xp.framework else xp.array(np.asarray(arr))
+    n = xp.size(a)
     if n == 0:
         return {"frobenius": 0.0, "mean": 0.0, "std": 0.0,
                 "max_abs": 0.0, "sparsity": 0.0}
@@ -106,14 +109,11 @@ def measure_parameter(arr: Any, *, spectrum: int = 0) -> dict[str, Any]:
     total = sq = zeros = 0.0
     biggest = 0.0
     for start in range(0, rows, block):
-        chunk = (a[start:start + block] if a.ndim else a).astype(mx.float32)
-        s, s2, z, m = (mx.sum(chunk), mx.sum(chunk * chunk),
-                       mx.sum(chunk == 0), mx.max(mx.abs(chunk)))
-        mx.eval(s, s2, z, m)
-        total += float(s)
-        sq += float(s2)
-        zeros += float(z)
-        biggest = max(biggest, float(m))
+        s, s2, z, m = xp.read_moments(a[start:start + block] if a.ndim else a)
+        total += s
+        sq += s2
+        zeros += z
+        biggest = max(biggest, m)
     mean = total / n
     stats: dict[str, Any] = {
         "frobenius": float(np.sqrt(sq)),
@@ -123,7 +123,7 @@ def measure_parameter(arr: Any, *, spectrum: int = 0) -> dict[str, Any]:
         "sparsity": zeros / n,
     }
     if spectrum and a.ndim == 2:
-        sv = np.linalg.svd(np.array(a.astype(mx.float32)), compute_uv=False)
+        sv = np.linalg.svd(read_f32(a), compute_uv=False)
         stats["singular_values"] = [float(x) for x in sv[:spectrum]]
         stats["spectral"] = float(sv[0])
         stats["effective_rank"] = compute_effective_rank(sv)
@@ -147,8 +147,6 @@ def capture_weights(lm: Any, params: Mapping[str, Any] | None = None,
                 f"fewer points, or leave the values off — the stats and the "
                 f"spectrum are the reduced forms this block is for.")
 
-    import mlx.core as mx
-
     items: list[dict[str, Any]] = []
     for name in chosen:
         tensor = tensors[name]
@@ -157,13 +155,12 @@ def capture_weights(lm: Any, params: Mapping[str, Any] | None = None,
             "coords": parse_parameter_coords(name),
             "kind": "weights/parameter",
             "shape": [int(d) for d in tensor.shape],
-            "n": int(tensor.size),
-            "dtype": str(tensor.dtype).replace("mlx.core.", ""),
+            "n": int(np.prod(tensor.shape)),
+            "dtype": str(tensor.dtype).replace("mlx.core.", "").replace("torch.", ""),
             **measure_parameter(tensor, spectrum=spectrum),
         }
         if want_values:
-            item["values"] = np.array(
-                tensor.astype(mx.float32), dtype=np.float32).reshape(-1).tolist()
+            item["values"] = read_f32(tensor).reshape(-1).tolist()
         items.append(item)
 
     from mechbench_compute.lexicon import kinds as K

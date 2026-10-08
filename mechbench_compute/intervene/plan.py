@@ -75,15 +75,5 @@ def plan(model, params: Mapping[str, Any], inputs: Mapping[str, Any] | None) -> 
     if not items:
         return None
     compiled = compile(model, items, inputs=inputs, seed=int(params.get("seed", 0)))
-    refuse_off_mlx(model, compiled)
     return Plan(compiled, sweep_cells(params), params.get("sweep") or {})
 
-
-def refuse_off_mlx(model, compiled: Compiled) -> None:
-    from mechbench_compute.backends import backend_of
-
-    backend = backend_of(model)
-    if backend == "mlx":
-        return
-    if compiled.weight_items:
-        raise SpecError(f"a weight edit runs on the mlx backend only, and this model runs on {backend}")

@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-import numpy as np
 
 from mechbench_compute import lexicon
 from mechbench_compute import shapes as S
@@ -100,14 +99,14 @@ def scan_positions(
     cap = Capture.residual(layers, point="post")
     rows: list[dict[str, Any]] = []
     for record in records:
-        ids = model.make_ids(render(model, record).ids)
+        flat = render(model, record).ids
+        ids = model.make_ids(flat)
         result = model.run(ids, interventions=[cap])
         base_lp = read_last_logp(result.logits)
         answer, _ = resolve_target(model, record, params, base_lp)
         ranks, logprobs = lens.logit_lens_per_position(
             model, result.cache, answer, layers=layers)
-        tokens = [model.tokenizer.decode([int(t)])
-                  for t in np.array(ids).reshape(-1)]
+        tokens = [model.tokenizer.decode([int(t)]) for t in flat]
         rows.append(S.grid(
             record.get("id"), ["layer", "position"],
             {"logprob": [[round(float(x), 4) for x in r] for r in logprobs],

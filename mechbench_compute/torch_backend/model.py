@@ -203,8 +203,10 @@ class TorchModel:
         from mechbench_compute.arrays import read_softmax
 
         weight = self.lm.lm_head.weight
-        v = torch.as_tensor(np.asarray(vector) if isinstance(vector, np.ndarray) else vector,
-                            device=weight.device).to(weight.dtype)
+        if isinstance(vector, np.ndarray):
+            v = torch.as_tensor(vector, device=weight.device).to(torch.bfloat16).to(weight.dtype)
+        else:
+            v = torch.as_tensor(vector, device=weight.device).to(weight.dtype)
         while v.ndim < 3:
             v = v.unsqueeze(0)
         last = self.project_to_logits(v)[..., -1, :]

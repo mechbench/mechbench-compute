@@ -17,14 +17,18 @@ nothing said so.
 
 ### Changes that raise
 
-- On torch, an intervention `spec` item that gives an operator `f` is no
-  longer refused: it runs there. A weight edit inside a `spec` is still
-  refused by name on torch ("a weight edit runs on the mlx backend only"),
-  now by `intervene/apply` too, before any forward.
+- On torch, an intervention `spec` item that gives an operator `f`, or a
+  weight edit, is no longer refused: both run there.
 
 ### Changes that alter results without raising
 
-_None._ Every MLX result is byte for byte what it was: `intervene/apply`
+- On torch, `TorchModel.decoded_distribution` rounds a numpy vector to
+  bf16 before casting it to the head's dtype, as MLX does, so
+  `direction/unembed` and a `text/generate` `project` readout read the same
+  distribution on both backends from the same float32 weights. A bf16
+  checkpoint reads what it read; a float32 one moves by that rounding.
+
+Every MLX result is byte for byte what it was: `intervene/apply`
 (operators with dimension masks, `except`, frames and constants bound from
 `source`; zero, scale, rotate, clamp, head and attention-edge items;
 sweeps; capture readouts; weight edits), `intervene/ablate-heads`,
@@ -63,6 +67,18 @@ architectures digest the same before and after.
   interventions, and a capture's shards hold the rows its inline form
   would. `arrays.read_token_logprobs(rows, targets)` reads each position's
   log-probability of the next token on either backend.
+- **Weight edits, weights reads, the per-position lens and the
+  unembedding on torch.** A `spec`'s weight edits (`zero`, `scale`,
+  `project_out`, `truncate`) apply on torch through the array-ops layer
+  and put the weights back bit for bit (the original tensors are kept
+  and reassigned; the module's parameter objects never change), and
+  `weights/capture`, `weights/decompose`, `logits/scan` and
+  `direction/unembed` run there; all four are in `backends.Backend.ops`.
+  `weights.read_parameters` reads a torch model's decoder state (its
+  parameters and persistent buffers, Gemma 4's `layer_scalar` among them,
+  under MLX's names) and an untied `lm_head.weight`. `weights/circuit`
+  stays refused: it reads `head_weights`, which no torch architecture
+  declares yet.
 - The operations that read a record's tokens build their ids with
   `model.make_ids` (MLX's is the int32 array `Rendered.array` was), and
   `interp.render_text` returns the model's own ids.

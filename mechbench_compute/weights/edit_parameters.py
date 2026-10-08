@@ -15,7 +15,7 @@ WEIGHT_OPS: tuple[str, ...] = ("zero", "scale", "project_out", "truncate")
 
 def edit_parameters(lm: Any, items: Sequence[Mapping[str, Any]],
                     factor: float = 1.0) -> list[tuple[str, Any]]:
-    import mlx.core as mx
+    from mechbench_compute.intervene.array_ops import read_array_ops
 
     tensors = read_parameters(lm)
     handle: list[tuple[str, Any]] = []
@@ -32,19 +32,21 @@ def edit_parameters(lm: Any, items: Sequence[Mapping[str, Any]],
             strength = float(item.get("strength", 1.0)) * float(factor)
             for name in names:
                 module, attr = resolve_module(lm, name)
-                before = getattr(module, attr)
+                xp = read_array_ops(tensors[name])
+                before = xp.read_parameter(module, attr)
                 handle.append((name, before))
-                w = before.astype(mx.float32)
+                w = xp.cast(before, xp.float32)
                 if op == "zero":
-                    after = mx.zeros_like(w)
+                    after = xp.zeros_like(w)
                 elif op == "scale":
                     after = w * strength
                 elif op == "project_out":
                     after = project_out(w, item, name, strength)
                 else:
                     after = truncate(w, item, name)
-                setattr(module, attr, after.astype(before.dtype))
-        mx.eval([getattr(*resolve_module(lm, n)) for n, _ in handle])
+                xp.write_parameter(module, attr, xp.cast(after, before.dtype))
+        if handle:
+            xp.settle([getattr(*resolve_module(lm, n)) for n, _ in handle])
     except BaseException:
         restore_parameters(lm, handle)
         raise

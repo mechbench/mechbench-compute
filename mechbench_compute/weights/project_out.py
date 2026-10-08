@@ -10,8 +10,9 @@ from mechbench_compute.weights.read_direction import read_direction
 
 def project_out(w: Any, item: Mapping[str, Any], name: str,
                 strength: float) -> Any:
-    import mlx.core as mx
+    from mechbench_compute.intervene.array_ops import read_array_ops
 
+    xp = read_array_ops(w)
     v = read_direction(item, name)
     coords = parse_parameter_coords(name)
     known = RESIDUAL_SIDE.get(str(coords.get("projection")))
@@ -26,6 +27,6 @@ def project_out(w: Any, item: Mapping[str, Any], name: str,
         raise ValueError(
             f"the direction is {len(v)} wide and {name}'s {side} side is "
             f"{dim}: a direction only removes from the space it lives in.")
-    u = mx.array(v)[:, None] if side == "out" else mx.array(v)[None, :]
+    u = xp.array(v)[:, None] if side == "out" else xp.array(v)[None, :]
     return w - float(strength) * ((u @ (u.T @ w)) if side == "out"
                                   else ((w @ u.T) @ u))

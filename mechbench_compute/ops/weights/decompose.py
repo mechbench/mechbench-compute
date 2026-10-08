@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.weights.constants import RESIDUAL_SIDE
 from mechbench_compute.weights.parse_parameter_coords import parse_parameter_coords
@@ -103,12 +104,10 @@ def decompose_weights(lm: Any, params: Mapping[str, Any] | None = None,
             "something to do to a whole model by default. Name the modules "
             "— `layers.*.self_attn.o_proj`, `layers.12.mlp.down_proj`.")
 
-    import mlx.core as mx
-
     items: list[dict[str, Any]] = []
     refused: list[str] = []
     for name in chosen:
-        arr = np.array(tensors[name].astype(mx.float32), dtype=np.float32)
+        arr = read_f32(tensors[name])
         if arr.ndim != 2:
             refused.append(f"{name} (not a matrix)")
             continue

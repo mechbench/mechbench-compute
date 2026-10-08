@@ -129,6 +129,17 @@ def read_logprobs(x: Any) -> np.ndarray:
     return last - (top + np.log(np.exp(last - top).sum(axis=-1, keepdims=True)))
 
 
+def read_logprobs_by_row(x: Any) -> np.ndarray:
+    if read_framework(x) == "mlx":
+        from mechbench_compute._mlx import mx
+
+        f32 = x.astype(mx.float32)
+        lp = f32 - mx.logsumexp(f32, axis=-1, keepdims=True)
+        mx.eval(lp)
+        return np.array(lp)
+    return read_logprobs(x)
+
+
 def read_softmax(x: Any) -> np.ndarray:
     framework = read_framework(x)
     if framework == "mlx":
