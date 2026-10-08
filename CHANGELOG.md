@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.196.0 — 2026-10-08
+
+### Changes that raise
+
 - A torch job that names an accelerator torch is not offered on (`metal`)
   is refused by name: "the torch backend does not run on metal; it runs
   on cuda, rocm or cpu".
