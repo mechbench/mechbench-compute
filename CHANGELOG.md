@@ -79,6 +79,14 @@ architectures digest the same before and after.
   under MLX's names) and an untied `lm_head.weight`. `weights/circuit`
   stays refused: it reads `head_weights`, which no torch architecture
   declares yet.
+- **Gradients, path patching and circuit ablation on torch.**
+  `activations/differentiate` (every metric, through the capped head's
+  pre-cap logit on Gemma 4), `intervene/path` and
+  `intervene/ablate-circuit` run on torch and are in
+  `backends.Backend.ops`. A gradient differentiates the traced forward by
+  additive deltas, as attribution patching does; `api.read_array_ops` and
+  `api.read_f32` are in the plugin API for an extension's operation that
+  does the same.
 - The operations that read a record's tokens build their ids with
   `model.make_ids` (MLX's is the int32 array `Rendered.array` was), and
   `interp.render_text` returns the model's own ids.

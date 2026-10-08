@@ -30,7 +30,10 @@ its own business.
   not make with a `PointRefused`, code `POINT_ABSENT`), `read_mask`
   (dimensions, a direction or a frame, as an operator's `mask` is read),
   `add_to_span` (what a node did, a backward pass among it, counted in its
-  span) and `MAX_VECTOR_FLOATS`.
+  span), `read_f32` (any backend's array as float32 numpy),
+  `read_array_ops` (the array arithmetic for the backend an array lives
+  on, a gradient by additive deltas at named points among it) and
+  `MAX_VECTOR_FLOATS`.
 - **The lexicon helpers**: `collection`, `items_of`, `item_kind_of`,
   `read_header`, `arch_header`.
 - **The tensor store**: `ShardWriter(dir)` takes items one at a time —

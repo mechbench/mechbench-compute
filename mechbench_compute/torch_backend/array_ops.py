@@ -73,6 +73,12 @@ class TorchOps:
     def logsumexp(self, x: Any) -> Any:
         return torch.logsumexp(x, dim=-1)
 
+    def stack(self, xs: list[Any]) -> Any:
+        return torch.stack(xs)
+
+    def total(self, x: Any) -> Any:
+        return x.sum()
+
     def exp(self, x: Any) -> Any:
         return torch.exp(x)
 

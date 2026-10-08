@@ -29,6 +29,8 @@ SOURCES: dict[str, tuple[str, str | None]] = {
     "check_written": ("mechbench_compute.interp.check_written", "check_written"),
     "PointRefused": ("mechbench_compute.interp.point_refused", "PointRefused"),
     "add_to_span": ("mechbench_compute.spans", "add_to_span"),
+    "read_array_ops": ("mechbench_compute.intervene.array_ops", "read_array_ops"),
+    "read_f32": ("mechbench_compute.arrays", "read_f32"),
     "MAX_VECTOR_FLOATS": ("mechbench_compute.interp.constants", "MAX_VECTOR_FLOATS"),
     "collection": ("mechbench_compute.lexicon.kinds", "collection"),
     "items_of": ("mechbench_compute.lexicon.kinds", "items_of"),

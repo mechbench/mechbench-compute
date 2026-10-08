@@ -7,8 +7,9 @@ import numpy as np
 
 from mechbench_compute import lexicon
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.interp import read_last_logp, read_pair, render_text, resolve_target
+from mechbench_compute.intervene.array_ops import read_array_ops
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 
@@ -134,15 +135,16 @@ def _name(point: str, layer: int | None) -> str:
     return point if layer is None else f"blocks.{layer}.{point}"
 
 
-def _make_head_writer(value: mx.array, head: int | None) -> Callable:
-    def fn(act: mx.array, info) -> mx.array:
+def _make_head_writer(value: Any, head: int | None) -> Callable:
+    def fn(act: Any, info) -> Any:
+        xp = read_array_ops(act)
         if head is None:
-            return value.astype(act.dtype)
+            return xp.cast(value, act.dtype)
         mask = np.zeros(act.shape[1], dtype=bool)
         mask[head] = True
         view = [1] * len(act.shape)
         view[1] = act.shape[1]
-        return mx.where(mx.array(mask).reshape(view), value.astype(act.dtype), act)
+        return xp.where(xp.array(mask).reshape(view), xp.cast(value, act.dtype), act)
     return fn
 
 
@@ -244,8 +246,8 @@ def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[
         clean, corrupt = read_pair(record)
         ids_clean = render_text(model, record, clean)
         ids_corrupt = render_text(model, record, corrupt)
-        n_clean = int(np.array(ids_clean).shape[-1])
-        n_corrupt = int(np.array(ids_corrupt).shape[-1])
+        n_clean = int(ids_clean.shape[-1])
+        n_corrupt = int(ids_corrupt.shape[-1])
         if n_clean != n_corrupt:
             raise SpecError(
                 f"pair {record.get('id')!r} tokenizes to different lengths "
@@ -256,10 +258,10 @@ def run_path_patch(model, records: Sequence[Mapping[str, Any]], params: Mapping[
         answer, _ = resolve_target(model, record, params, clean_lp)
 
         def read(logits, answer=answer) -> float:
-            row = logits[0, -1, :].astype(mx.float32)
-            mx.eval(row)
-            arr = np.array(row)
-            return answer.read(metric, arr - float(mx.logsumexp(mx.array(arr))), arr)
+            xp = read_array_ops(logits)
+            row = xp.cast(logits[0, -1, :], xp.float32)
+            arr = read_f32(row)
+            return answer.read(metric, arr - float(xp.logsumexp(row)), arr)
 
         baseline = read(a.logits)
         sender_names = sorted({_name(s["point"], s["layer"]) for s in senders})

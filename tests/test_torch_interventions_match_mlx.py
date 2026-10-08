@@ -51,6 +51,15 @@ def make_direction(model, layer, seed):
                      method="t")
 
 
+def make_circuit(heads):
+    universe = {"points": ["attn.per_head_out"], "layers": [0, 1, 2, 3], "n_heads": 4, "positions": "all"}
+    components = [{"address": f"L{layer}.attn.per_head_out.H{head}@all", "point": "attn.per_head_out",
+                   "layer": layer, "head": head, "position": "all", "effect": -0.1} for layer, head in heads]
+    return {"id": "hand", "components": components, "metric": "logprob", "measure": "mean_delta",
+            "ablation": "hand", "universe": universe, "source": {"kind": "hand"}, "task": {"ids": ["a", "b"]},
+            "derivation": {"method": "hand", "sign": "negative", "kept": len(components), "total": 16}}
+
+
 def applying(spec, **params):
     return lambda m: ("intervene.apply", {"records": RECORDS}, {"spec": spec, **params})
 
@@ -93,6 +102,15 @@ CASES = {
     "patch-logit": lambda m: ("intervene.patch", {"records": PAIRED}, {"metric": "logit", "point": "resid_pre"}),
     "patch-attribution": lambda m: ("intervene.patch", {"records": PAIRED},
                                     {"method": "attribution", "point": "attn_out"}),
+    "path-to-a-query": lambda m: ("intervene.path", {"records": PAIRED},
+                                  {"receiver": {"point": "attn.q", "layer": 3, "head": 1},
+                                   "senders": "all-heads", "metric": "logit"}),
+    "path-to-the-logits": lambda m: ("intervene.path", {"records": PAIRED}, {"senders": "all-layers"}),
+    "ablate-circuit": lambda m: ("intervene.ablate_circuit",
+                                 {"records": RECORDS, "circuit": make_circuit([(0, 1), (2, 3)])}, {}),
+    "ablate-circuit-entropy": lambda m: ("intervene.ablate_circuit",
+                                         {"records": RECORDS, "circuit": make_circuit([(1, 0)])},
+                                         {"metric": "entropy", "reference": "empty"}),
     "capture-tokens": lambda m: ("activations.capture_tokens", {"records": RECORDS}, {"layers": [0, 2]}),
     "capture-tokens-every": lambda m: ("activations.capture_tokens", {"records": RECORDS},
                                        {"layers": [1], "point": "resid_pre", "every": 2,
@@ -110,6 +128,15 @@ CASES = {
     "weights-capture": lambda m: ("weights.capture", {},
                                   {"points": ["layers.*.mlp.down_proj", "layers.1.self_attn.o_proj"],
                                    "spectrum": 4, "values": True}),
+    "differentiate-margin": lambda m: ("activations.differentiate",
+                                       {"records": [{"id": "m", "user": "the cat sat on a", "contrast": "dog"}]},
+                                       {"layers": [1, 2], "metric": "margin", "top": 3}),
+    "differentiate-logit": lambda m: ("activations.differentiate", {"records": RECORDS},
+                                      {"layers": [3], "metric": "logit", "positions": "all"}),
+    "differentiate-outcomes": lambda m: ("activations.differentiate",
+                                         {"records": [{"id": "o", "user": "the cat sat on a",
+                                                       "outcomes": ["mat", "cat", "dog"]}]},
+                                         {"layers": [2], "metric": "entropy_outcomes", "top": 3}),
     "weights-decompose": lambda m: ("weights.decompose", {}, {"points": ["layers.*.self_attn.o_proj"], "k": 2}),
 }
 
@@ -148,7 +175,7 @@ def test_an_intervention_reads_the_same_on_mlx_and_torch(twins, case):
     name, on_torch, on_mlx = twins
     want = run(on_mlx, *CASES[case](on_mlx))
     got = run(on_torch, *CASES[case](on_torch))
-    assert got.get("items") or got.get("measures") or got.get("positive")
+    assert got
     if case == "weights-capture":
         want, got = ({k: v for k, v in out.items() if k != "captured"} for out in (want, got))
     check_agree(want, got, TOLERANCE_OF.get(on_torch.architecture.model_type, TOLERANCE), f"{name} {case}")

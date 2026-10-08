@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 
-from mechbench_compute._mlx import mx
 from mechbench_compute.api import (
     MAX_VECTOR_FLOATS,
     In,
@@ -21,6 +20,8 @@ from mechbench_compute.api import (
     items_of,
     positions,
     read_answer,
+    read_array_ops,
+    read_f32,
     read_last_logp,
     read_mask,
     read_record_coords,
@@ -318,26 +319,28 @@ def differentiate_record(model, record: Mapping[str, Any], ids, names: Sequence[
     shape = (1, int(ids.shape[-1]), int(model.arch.d_model))
     chosen: dict[str, int] = {}
 
+    xp = read_array_ops(ids)
+
     def read_value(deltas):
-        hooks = {n: (lambda act, info, d=deltas[n]: act + d.astype(act.dtype)) for n in names}
+        hooks = {n: (lambda act, info, d=deltas[n]: act + xp.cast(d, act.dtype)) for n in names}
         res = model.run(ids, hooks=hooks, capture=[*names, *(["final_norm"] if precap is not None else [])])
-        row = res.logits[0, -1, :].astype(mx.float32)
+        row = xp.cast(res.logits[0, -1, :], xp.float32)
         if outcomes is not None:
             return read_outcome_metric(metric, row, outcomes), [res.cache[n] for n in names]
         chosen.update(choose_tokens(model, record, params, read_last_logp(res.logits), metric))
         if precap is not None:
-            row = precap.project(res.cache["final_norm"][0, -1:, :])[0].astype(mx.float32)
+            row = xp.cast(precap.project(res.cache["final_norm"][0, -1:, :])[0], xp.float32)
         value = row[chosen["target"]] if metric == "logit" else row[chosen["target"]] - row[chosen["contrast"]]
         return value, [res.cache[n] for n in names]
 
-    (value, acts), grads = mx.value_and_grad(read_value)({n: mx.zeros(shape, dtype=mx.float32) for n in names})
+    (value, acts), grads = xp.value_and_grad(read_value, {n: xp.zeros(shape) for n in names})
     add_to_span(backwards=1)
-    idx = mx.array(list(at), dtype=mx.int32)
-    picked_grads = [mx.take(grads[n][0], idx, axis=0) for n in names]
-    picked_acts = [mx.take(a[0], idx, axis=0).astype(mx.float32) for a in acts]
-    mx.eval(value, picked_grads, picked_acts)
-    return {"value": float(value), "grads": [np.array(g).astype(np.float64) for g in picked_grads],
-            "acts": [np.array(a).astype(np.float64) for a in picked_acts], **chosen}
+    idx = xp.array(np.asarray(list(at), dtype=np.int32))
+    picked_grads = [xp.take(grads[n][0], idx, axis=0) for n in names]
+    picked_acts = [xp.cast(xp.take(a[0], idx, axis=0), xp.float32) for a in acts]
+    xp.settle([value, *picked_grads, *picked_acts])
+    return {"value": float(value), "grads": [read_f32(g).astype(np.float64) for g in picked_grads],
+            "acts": [read_f32(a).astype(np.float64) for a in picked_acts], **chosen}
 
 
 def choose_tokens(model, record: Mapping[str, Any], params: Mapping[str, Any], lp: np.ndarray,
@@ -355,11 +358,13 @@ def choose_tokens(model, record: Mapping[str, Any], params: Mapping[str, Any], l
 
 
 def read_outcome_metric(metric: str, row, outcomes: Sequence[Any]):
-    each = mx.stack([mx.logsumexp(mx.take(row, mx.array(list(o.ids), dtype=mx.int32))) for o in outcomes])
+    xp = read_array_ops(row)
+    each = xp.stack([xp.logsumexp(xp.take(row, xp.array(np.asarray(list(o.ids), dtype=np.int32)), axis=0))
+                     for o in outcomes])
     if metric == "mass_outcomes":
-        return mx.sum(mx.exp(each - mx.logsumexp(row)))
-    logq = each - mx.logsumexp(each)
-    return -mx.sum(mx.exp(logq) * logq) / math.log(2)
+        return xp.total(xp.exp(each - xp.logsumexp(row)))
+    logq = each - xp.logsumexp(each)
+    return -xp.total(xp.exp(logq) * logq) / math.log(2)
 
 
 def build_row(model, record: Mapping[str, Any], sp: Mapping[str, Any], coords: Mapping[str, Any],

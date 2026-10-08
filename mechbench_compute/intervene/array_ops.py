@@ -66,6 +66,12 @@ class MlxOps:
     def logsumexp(self, x: Any) -> Any:
         return mx.logsumexp(x)
 
+    def stack(self, xs: list[Any]) -> Any:
+        return mx.stack(xs)
+
+    def total(self, x: Any) -> Any:
+        return mx.sum(x)
+
     def exp(self, x: Any) -> Any:
         return mx.exp(x)
 

@@ -56,10 +56,12 @@ BACKENDS: tuple[Backend, ...] = (
         architectures="mechbench_compute.torch_backend.architectures",
         lora="mechbench_compute.torch_backend.lora",
         ops=("activations/capture", "activations/capture-attention", "activations/capture-tokens",
-             "adapter/train", "direction/unembed", "eval/judge", "intervene/ablate-heads", "intervene/ablate-layers",
-             "intervene/apply", "intervene/patch", "intervene/steer", "logits/attribute",
-             "logits/read", "logits/read-layers", "logits/scan", "text/chat", "text/generate",
-             "text/resample", "text/score", "weights/capture", "weights/decompose"),
+             "activations/differentiate", "adapter/train", "direction/unembed", "eval/judge",
+             "intervene/ablate-circuit", "intervene/ablate-heads", "intervene/ablate-layers",
+             "intervene/apply", "intervene/patch", "intervene/path", "intervene/steer",
+             "logits/attribute", "logits/read", "logits/read-layers", "logits/scan", "text/chat",
+             "text/generate", "text/resample", "text/score", "weights/capture",
+             "weights/decompose"),
     ),
 )
 
