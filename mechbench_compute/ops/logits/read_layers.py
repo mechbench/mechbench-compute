@@ -64,8 +64,8 @@ decides. A set of records renders as overlaid curves.
 def run(ctx, inputs, params):
     import numpy as _np
 
-    from mechbench_compute.interventions import Capture
     from mechbench_compute.distill import render
+    from mechbench_compute.interventions import Capture
 
     model = ctx.model(params.get("model"))
     tok = model.tokenizer

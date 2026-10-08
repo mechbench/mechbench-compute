@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-
 from mechbench_compute import lexicon
 from mechbench_compute import shapes as S
 from mechbench_compute.distill import render

@@ -180,10 +180,10 @@ def capture(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    from mechbench_compute.interventions import Capture
     from mechbench_compute import positions as POS
     from mechbench_compute.distill import render
     from mechbench_compute.interp import MAX_VECTOR_FLOATS, resolve_layers
+    from mechbench_compute.interventions import Capture
 
     axis = str(params.get("axis", "layers"))
     if axis not in AXES:
