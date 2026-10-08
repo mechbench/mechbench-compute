@@ -190,9 +190,11 @@ def list_universe(universe: Mapping[str, Any], n_heads: int) -> list[tuple[str, 
 
 
 def check_points(model, names: Sequence[str], ablation: str) -> None:
-    from mechbench_compute.api import find_architecture
+    declared = getattr(model, "architecture", None)
+    if not hasattr(declared, "layer_points_of"):
+        from mechbench_compute.api import find_architecture
 
-    declared = find_architecture(getattr(model.arch, "model_type", None))
+        declared = find_architecture(getattr(model.arch, "model_type", None))
     have = declared.layer_points_of(model.arch) if declared is not None else None
     for point in names:
         if point.startswith("resid_"):

@@ -361,6 +361,47 @@ def test_torch_generation_runs_where_mlx_cannot_be_imported():
     assert out.stdout.split()[-2:] == ["2", "False"]
 
 
+INTERVENE_WITHOUT_MLX = """
+import sys
+for name in ("mlx", "mlx.core", "mlx.utils", "mlx.nn", "mlx_lm", "mlx_vlm"):
+    sys.modules[name] = None
+from tests.tiny_torch_models import build_tiny_model
+from mechbench_compute.ops import Context
+from mechbench_compute.ops.activations import capture_tokens, differentiate
+from mechbench_compute.ops.intervene import ablate_circuit, apply, patch
+from mechbench_compute.ops.logits import read_layers
+from mechbench_compute.ops.trajectory import capture as trajectory
+tiny = build_tiny_model("llama")
+ctx = Context(loaded=tiny)
+records = [{"id": "a", "user": "the cat sat on a", "tracked": {"answer": "mat"}}]
+pairs = [{"id": "p", "a": "the cat sat", "b": "the dog sat", "template": "raw", "tracked": {"answer": "mat"}}]
+head = {"address": "L1.attn.per_head_out.H0@all", "point": "attn.per_head_out", "layer": 1, "head": 0,
+        "position": "all", "effect": -0.1}
+circuit = {"id": "h", "components": [head], "metric": "logprob", "ablation": "hand",
+           "universe": {"points": ["attn.per_head_out"], "layers": [0, 1, 2, 3], "n_heads": 4,
+                        "positions": "all"}}
+outs = [
+    apply.run(ctx, {"records": records}, {"model": "t", "spec": [
+        {"point": "resid_post", "layers": [1], "f": "x * 2", "positions": "all"},
+        {"parameter": "layers.2.mlp.down_proj.weight", "op": "zero"}]}),
+    patch.run(ctx, {"records": pairs}, {"model": "t", "method": "attribution", "point": "attn_out"}),
+    capture_tokens.run(ctx, {"records": records}, {"model": "t", "layers": [1], "storage": "tensor"}),
+    differentiate.run(ctx, {"records": records}, {"model": "t", "layers": [1], "metric": "logit"}),
+    ablate_circuit.run(ctx, {"records": records, "circuit": circuit}, {"model": "t"}),
+    read_layers.run(ctx, {"records": records}, {"model": "t"}),
+    trajectory.run(ctx, {"records": records}, {"model": "t", "axis": "layers"}),
+]
+print(len(outs), sys.modules["mlx"] is not None)
+"""
+
+
+def test_the_interventions_run_on_torch_where_mlx_cannot_be_imported():
+    out = subprocess.run([sys.executable, "-c", INTERVENE_WITHOUT_MLX], cwd=ROOT, capture_output=True,
+                         text=True, timeout=300, check=False)
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.split()[-2:] == ["7", "False"]
+
+
 def test_the_throughput_measure_reports_prefill_and_decode_rates():
     tiny = build_tiny_model("llama")
     rows = measure_throughput(tiny, batch_sizes=(1, 2), prompt_tokens=8, new_tokens=4)

@@ -98,6 +98,11 @@ tiny MLX architectures digest the same before and after.
   where it named mlx_lm's version. Of the core operations that run a
   model only `weights/circuit` is still refused on torch: it reads
   `head_weights`, which no torch architecture declares yet.
+- Every operation torch runs imports and runs where MLX cannot be
+  imported (as on a CUDA machine): `logits/read-layers` and
+  `trajectory/capture` import `Capture` from `interventions` rather than
+  the package root, and `intervene/ablate-circuit` reads the points the
+  loaded model's own architecture declares.
 - The operations that read a record's tokens build their ids with
   `model.make_ids` (MLX's is the int32 array `Rendered.array` was), and
   `interp.render_text` returns the model's own ids.
