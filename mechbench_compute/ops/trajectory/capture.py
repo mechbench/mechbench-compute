@@ -8,6 +8,8 @@ import numpy as np
 from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
+from mechbench_compute.arrays import read_f32, read_logprobs_by_row
+from mechbench_compute.intervene.array_ops import read_model_array_ops
 from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P, Resume
 
 OP = Op(
@@ -178,8 +180,6 @@ def capture(
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    import mlx.core as mx
-
     from mechbench_compute import Capture
     from mechbench_compute import positions as POS
     from mechbench_compute.distill import render
@@ -264,9 +264,9 @@ def capture(
             prompt_len = r.prompt_len
         else:
             used_trace += 1
-            ids = mx.array([ids_list])
+            ids = model.make_ids(ids_list)
             prompt_len = gen_start
-        arr = np.array(ids).reshape(-1)
+        arr = np.asarray(r.ids if ids_list is None else ids_list, dtype=np.int32)
         seq_len = int(arr.shape[0])
         toks = [tok.decode([int(t)]) for t in arr]
         sel = dict(tokens=toks, record=record, prompt_len=prompt_len, gen_start=gen_start)
@@ -281,17 +281,14 @@ def capture(
             pos = POS.one(position, seq_len, **sel)
             for step, layer in enumerate(layers):
                 t = result.cache[f"blocks.{layer}.{point}"]
-                v = t[0, pos, :].astype(mx.float32)
-                mx.eval(v)
+                v = read_f32(t[0, pos, :])
                 rows.append(_project_row(
-                    _build_point(record, coords, sp(layer), step, pos, np.array(v), tok, arr,
-                                 model, vocab_top), np.array(v), dvec, direction))
+                    _build_point(record, coords, sp(layer), step, pos, v, tok, arr,
+                                 model, vocab_top), v, dvec, direction))
         else:
             layer = layers[0]
             t = result.cache[f"blocks.{layer}.{point}"]
-            seq = t[0].astype(mx.float32)
-            mx.eval(seq)
-            mat = np.array(seq)
+            mat = read_f32(t[0])
             idx = POS.resolve(position, seq_len, **sel)
             if max_steps:
                 idx = idx[: int(max_steps)]
@@ -364,9 +361,5 @@ def _project_row(row: dict[str, Any], vec: np.ndarray,
 
 
 def _unembed_vector(model, vec: np.ndarray, k: int) -> dict[str, Any]:
-    import mlx.core as mx
-
-    logits = model.project_to_logits(mx.array(vec)[None, :]).astype(mx.float32)
-    lp = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
-    mx.eval(lp)
-    return S.distribution(np.array(lp).reshape(-1), model.tokenizer, top_k=k)
+    logits = model.project_to_logits(read_model_array_ops(model).array(vec)[None, :])
+    return S.distribution(read_logprobs_by_row(logits).reshape(-1), model.tokenizer, top_k=k)

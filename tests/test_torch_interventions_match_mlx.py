@@ -111,6 +111,15 @@ CASES = {
     "ablate-circuit-entropy": lambda m: ("intervene.ablate_circuit",
                                          {"records": RECORDS, "circuit": make_circuit([(1, 0)])},
                                          {"metric": "entropy", "reference": "empty"}),
+    "tokenize": lambda m: ("text.tokenize", {"vocabulary": ["cat", "dog", "mat"]}, {"keep": True}),
+    "contrast": lambda m: ("activations.contrast", {"records": PAIRED}, {"layers": "all"}),
+    "examples": lambda m: ("activations.examples", {"records": LABELED, "direction": make_direction(m, 1, 9)},
+                           {"k": 2, "window": 2, "sign": "both"}),
+    "trajectory-by-layer": lambda m: ("trajectory.capture", {"records": RECORDS}, {"axis": "layers", "vocab_top": 3}),
+    "trajectory-by-position": lambda m: ("trajectory.capture",
+                                         {"records": [{"id": "g", "prompt": "the cat", "template": "raw"}],
+                                          "project": make_direction(m, 2, 10)},
+                                         {"axis": "positions", "layer": 2, "positions": "all"}),
     "capture-tokens": lambda m: ("activations.capture_tokens", {"records": RECORDS}, {"layers": [0, 2]}),
     "capture-tokens-every": lambda m: ("activations.capture_tokens", {"records": RECORDS},
                                        {"layers": [1], "point": "resid_pre", "every": 2,
@@ -205,3 +214,30 @@ def test_a_weight_edit_puts_the_torch_weights_back_bit_for_bit(twins):
     run(on_torch, *CASES["weight-projection-and-truncation"](on_torch))
     after = on_torch._model.state_dict()
     assert all(torch.equal(before[k], after[k]) for k in before)
+
+
+def test_a_dictionary_encodes_the_same_features_on_mlx_and_torch(tmp_path):
+    from mechbench_compute.ops.dictionary.encode import encode_records
+    from tests.test_dictionary import load, write_dictionary
+
+    on_torch = build_tiny_model("gemma3")
+    on_mlx = build_on_mlx(on_torch)
+    write_dictionary(tmp_path, "resid_post/layer_2_width_48_l0_small")
+    dictionary = load(tmp_path)
+    want, got = (encode_records(m, RECORDS, dictionary, {}) for m in (on_mlx, on_torch))
+    check_agree(want, got, TOLERANCE_OF["gemma3"], "dictionary/encode")
+
+
+@pytest.mark.skipif(importlib.util.find_spec("lm_eval") is None, reason="lm-eval is not installed")
+def test_the_lm_eval_bridge_scores_the_same_on_mlx_and_torch(twins):
+    from types import SimpleNamespace
+
+    from mechbench_compute.lm_bridge import MechbenchLM
+
+    name, on_torch, on_mlx = twins
+    requests = [SimpleNamespace(args=(c, k)) for c, k in
+                [("the cat sat on", " a mat"), ("a dog", " ran"), ("the", " cat sat on the mat")]]
+    want, got = (MechbenchLM(m).loglikelihood(requests) for m in (on_mlx, on_torch))
+    tolerance = TOLERANCE_OF.get(on_torch.architecture.model_type, TOLERANCE)
+    for (a, greedy_a), (b, greedy_b) in zip(want, got, strict=True):
+        assert abs(a - b) <= tolerance * max(1.0, abs(a)) and greedy_a == greedy_b, name

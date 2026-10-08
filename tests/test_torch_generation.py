@@ -300,8 +300,9 @@ def test_a_torch_job_intervenes_with_an_operator_and_patches(torch_job):
 
 
 def test_an_operation_the_torch_backend_does_not_run_is_refused_by_name(torch_job):
-    with pytest.raises(backends.BackendRefused, match=r"eval/benchmark does not run on the torch backend yet"):
-        run_job([{"id": "b", "block": "eval/benchmark", "params": {"model": "tiny/gemma3@rev"}}])
+    with pytest.raises(backends.BackendRefused, match=r"weights/circuit does not run on the torch backend yet"):
+        run_job([{"id": "c", "block": "weights/circuit",
+                  "params": {"model": "tiny/gemma3@rev", "head": {"layer": 1, "index": 0}}}])
 
 
 def build_mlx_twin(name, tiny):

@@ -109,3 +109,13 @@ def read_array_ops(act: Any) -> Any:
 
         return TorchOps(act.device)
     return MLX_OPS
+
+
+def read_model_array_ops(model: Any) -> Any:
+    from mechbench_compute.backends import backend_of
+
+    if backend_of(model) == "torch":
+        from mechbench_compute.torch_backend.array_ops import TorchOps
+
+        return TorchOps(model.device)
+    return MLX_OPS

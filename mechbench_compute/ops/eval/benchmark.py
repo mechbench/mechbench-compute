@@ -119,13 +119,20 @@ def run(ctx, inputs, params):
              "value": r.get("value"), "stderr": r.get("stderr"),
              "n": r.get("n"), "coords": r["coords"]}
             for r in recs]
-    import mlx_lm
+    from mechbench_compute.backends import backend_of
 
+    backend = backend_of(model)
+    if backend == "mlx":
+        import mlx_lm
+
+        how = f"mlx_lm {mlx_lm.__version__} unused for load"
+    else:
+        how = f"the {backend} backend"
     return {"kind": "records/table",
             "name": params.get("name", f"suite-{variant}"),
             "description": (
                 f"lm-eval {lm_eval.__version__} via MechbenchLM "
-                f"(mlx_lm {mlx_lm.__version__} unused for load); "
+                f"({how}); "
                 f"tasks={','.join(tasks)} limit={limit} "
                 f"fewshot={num_fewshot}"),
             "row_axis": "task-metric",

@@ -8,7 +8,7 @@ import numpy as np
 from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.read_pair import read_pair
 from mechbench_compute.interp.render_text import render_text
@@ -90,8 +90,8 @@ def measure_residual_divergence(
         a, b = read_pair(record)
         ids_a = render_text(model, record, a)
         ids_b = render_text(model, record, b)
-        len_a = int(np.array(ids_a).shape[-1])
-        len_b = int(np.array(ids_b).shape[-1])
+        len_a = int(ids_a.shape[-1])
+        len_b = int(ids_b.shape[-1])
         if len_a != len_b:
             pairs.append(S.grid(
                 record.get("id"), ["layer", "position"], {},
@@ -109,13 +109,11 @@ def measure_residual_divergence(
         if on_item:
             on_item()
         tokens = [model.tokenizer.decode([int(t)])
-                  for t in np.array(ids_a).reshape(-1)]
+                  for t in ids_a.reshape(-1).tolist()]
         matrix: list[list[float]] = []
         for layer in layers:
-            va = np.array(run_a.cache[f"blocks.{layer}.{point}"][0]
-                          .astype(mx.float32))
-            vb = np.array(run_b.cache[f"blocks.{layer}.{point}"][0]
-                          .astype(mx.float32))
+            va = read_f32(run_a.cache[f"blocks.{layer}.{point}"][0])
+            vb = read_f32(run_b.cache[f"blocks.{layer}.{point}"][0])
             na = np.linalg.norm(va, axis=-1)
             nb = np.linalg.norm(vb, axis=-1)
             cos = (va * vb).sum(axis=-1) / np.maximum(na * nb, 1e-9)

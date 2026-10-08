@@ -8,7 +8,7 @@ import numpy as np
 from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
-from mechbench_compute._mlx import mx
+from mechbench_compute.arrays import read_f32
 from mechbench_compute.dictionaries.describe_dictionary import describe_dictionary
 from mechbench_compute.dictionaries.encode_feature import encode_feature
 from mechbench_compute.dictionaries.read_dictionary_activations import (
@@ -19,6 +19,7 @@ from mechbench_compute.dictionaries.resolve_feature import resolve_feature
 from mechbench_compute.dictionaries.resolve_features import resolve_features
 from mechbench_compute.distill import render
 from mechbench_compute.interp.load_kinds import load_kinds
+from mechbench_compute.intervene.array_ops import read_array_ops
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.seeds import derive as derive_seed
@@ -254,11 +255,12 @@ def find_top_examples(
                 rows.append(values)
         else:
             res = model.run(model.make_ids(r.ids), interventions=[Capture.at([name])])
-            act = res.cache[name][0].astype(mx.float32)
+            xp = read_array_ops(res.cache[name])
+            act = xp.cast(res.cache[name][0], xp.float32)
             if vec is not None:
-                rows = [np.array(mx.sum(act * mx.array(vec), axis=-1))]
+                rows = [read_f32(xp.sum(act * xp.array(vec), -1)).reshape(-1)]
             else:
-                rows = [np.array(act[:, index])]
+                rows = [read_f32(act[:, index])]
             if skip_bos and starts_with_bos:
                 first = 1
         toks = r.tokens(model.tokenizer)

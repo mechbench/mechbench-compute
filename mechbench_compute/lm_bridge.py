@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import mlx.core as mx
 from lm_eval.api.model import LM
+
+from mechbench_compute.arrays import read_logprobs_by_row
 
 
 # external: mlx-lm — mlx_lm.evaluate cannot load VLM-shaped checkpoints (Gemma 4 keeps its weights under language_model.*)
@@ -31,16 +32,15 @@ class MechbenchLM(LM):
             if not cont_ids or full_ids[: len(ctx_ids)] != ctx_ids:
                 ctx_ids = full_ids[:1]
                 cont_ids = full_ids[1:]
-            result = self.model.run(mx.array([full_ids], dtype=mx.int32))
-            logits = result.logits[0].astype(mx.float32)
-            logprobs = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
+            result = self.model.run(self.model.make_ids(full_ids))
+            logprobs = read_logprobs_by_row(result.logits[0])
             start = len(ctx_ids) - 1
             total = 0.0
             greedy = True
             for j, tok in enumerate(cont_ids):
                 lp = logprobs[start + j]
                 total += float(lp[int(tok)])
-                if int(mx.argmax(lp)) != int(tok):
+                if int(lp.argmax()) != int(tok):
                     greedy = False
             out.append((total, greedy))
             if self.on_request:

@@ -36,10 +36,11 @@ sweeps; capture readouts; weight edits), `intervene/ablate-heads`,
 attribution), `intervene/path`, `intervene/ablate-circuit`,
 `activations/capture-tokens`, `activations/capture-attention`,
 `activations/contrast`, `activations/examples`,
-`activations/differentiate`, `logits/read-layers`, `logits/scan`,
-`trajectory/capture`, `weights/*`, `direction/unembed`, `text/generate`
-with an operator and `adapter/train` with an operator on the four tiny MLX
-architectures digest the same before and after.
+`activations/differentiate` (margin, logit and the outcome metrics),
+`logits/read-layers`, `logits/scan`, `trajectory/capture`, `weights/*`,
+`direction/unembed`, `text/generate` with an operator, `adapter/train`
+with an operator and the lm-eval bridge's log-likelihoods on the four
+tiny MLX architectures digest the same before and after.
 
 ### Other
 
@@ -87,6 +88,16 @@ architectures digest the same before and after.
   additive deltas, as attribution patching does; `api.read_array_ops` and
   `api.read_f32` are in the plugin API for an extension's operation that
   does the same.
+- **The rest of the model operations on torch**: `activations/contrast`,
+  `activations/examples` (by direction, by neuron and by dictionary
+  feature), `trajectory/capture` (both axes, `vocab_top` and `project`),
+  `dictionary/encode`, `text/tokenize` and `eval/benchmark` run on torch
+  and are in `backends.Backend.ops`. The lm-eval bridge reads its
+  log-probabilities through `arrays.read_logprobs_by_row`, so it scores on
+  either backend; on torch the table's description names the backend
+  where it named mlx_lm's version. Of the core operations that run a
+  model only `weights/circuit` is still refused on torch: it reads
+  `head_weights`, which no torch architecture declares yet.
 - The operations that read a record's tokens build their ids with
   `model.make_ids` (MLX's is the int32 array `Rendered.array` was), and
   `interp.render_text` returns the model's own ids.
