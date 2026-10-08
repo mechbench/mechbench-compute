@@ -56,11 +56,11 @@ tiny MLX architectures digest the same before and after.
   `torch_backend.forward.tracking_gradients()` the forward keeps its graph,
   and `TorchOps.grad`/`value_and_grad` differentiate a metric by additive
   deltas at the points named. Loaded with the same float32 weights, MLX
-  and torch read every number these operations write within 1e-3 of
-  `max(1, |value|)` on Gemma 4, Llama and Qwen 2 (mostly at the last
-  rounded digit) and within 5e-3 on Gemma 3, whose embedding scale MLX
-  rounds to bf16, and every token, id and label the same
-  (`tests/test_torch_interventions_match_mlx.py`).
+  and torch read every number the operations below write within 1e-3 of
+  `max(1, |value|)` on Gemma 4, Llama and Qwen 2 and within 5e-3 on
+  Gemma 3, whose embedding scale MLX rounds to bf16 (measured: 1e-4, the
+  outputs' last rounded digit, and 1.5e-3), and every token, id and label
+  the same (`tests/test_torch_interventions_match_mlx.py`).
 - **Per-token captures, attention and the layer lens on torch.**
   `activations/capture-tokens` (with `storage: "tensor"` shards too),
   `activations/capture-attention` and `logits/read-layers` run on torch
