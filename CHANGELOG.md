@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.195.0 — 2026-10-08
+
+### Changes that raise
+
 - On torch, an intervention `spec` item that gives an operator `f`, or a
   weight edit, is no longer refused: both run there.
 
