@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from functools import partial
 from types import SimpleNamespace
 from typing import Any
@@ -23,10 +24,21 @@ def read_text(model: Any) -> Any:
     return found
 
 
+class LanguageModel(SimpleNamespace):
+    def named_parameters(self, prefix: str = "", recurse: bool = True) -> Iterator[tuple[str, Any]]:
+        lead = f"{prefix}." if prefix else ""
+        yield from self.model.named_parameters(prefix=f"{lead}model", recurse=recurse)
+        yield from self.lm_head.named_parameters(prefix=f"{lead}lm_head", recurse=recurse)
+
+    def parameters(self, recurse: bool = True) -> Iterator[Any]:
+        for _name, p in self.named_parameters(recurse=recurse):
+            yield p
+
+
 def read_language_model(model: Any) -> Any:
     if read_text_path(model) == ("model",):
         return model
-    return SimpleNamespace(model=model.model.language_model, lm_head=model.lm_head)
+    return LanguageModel(model=model.model.language_model, lm_head=model.lm_head)
 
 
 SITES = Sites(

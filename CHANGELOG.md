@@ -27,6 +27,27 @@ _None._
 
 _None._
 
+## 0.196.2 — 2026-10-12
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- A vision-language checkpoint on torch (Gemma 3 4B and 27B, Gemma 4,
+  every `…ForConditionalGeneration`) runs again: the language model the
+  backend hands out names its parameters, so the cached model's
+  fingerprint can be taken. 0.194.0–0.196.1 failed every such job at its
+  first model node with `'types.SimpleNamespace' object has no attribute
+  'named_parameters'` (seen on the DGX Spark's first jobs); the tests had
+  read only text-only tiny models through that path, and now read all
+  nine.
+
 ## 0.196.1 — 2026-10-12
 
 ### Changes that raise
