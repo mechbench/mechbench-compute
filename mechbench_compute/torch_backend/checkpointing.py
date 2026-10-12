@@ -7,6 +7,7 @@ from functools import partial
 from typing import Any
 
 from mechbench_compute.torch_backend.loading import read_text_config
+from mechbench_compute.torch_backend.memory import read_free_bytes
 
 SWITCH = "MECHBENCH_GRADIENT_CHECKPOINTING"
 
@@ -22,14 +23,6 @@ def estimate_activation_bytes(model: Any, tokens: int) -> int:
     logits = 6 * int(cfg.vocab_size)
     return int(tokens) * (int(cfg.num_hidden_layers) * per_token_layer + logits)
 
-
-def read_free_bytes(device: Any) -> int | None:
-    import torch
-
-    if getattr(device, "type", None) != "cuda":
-        return None
-    free, _total = torch.cuda.mem_get_info(device)
-    return int(free)
 
 
 def decide_checkpointing(model: Any, longest: int) -> bool:

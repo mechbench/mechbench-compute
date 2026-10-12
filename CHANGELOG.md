@@ -27,6 +27,27 @@ _None._
 
 _None._
 
+## 0.196.1 — 2026-10-12
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- On an integrated GPU (the GB10 in a DGX Spark), the memory a torch
+  job may still take is the host's `MemAvailable`, not
+  `torch.cuda.mem_get_info()`, which there reports the physical machine's
+  free pages: on Enverge's Spark VMs it read 2–9 GB while 64 GB
+  allocated. Batched generation and scoring no longer shrink to one or
+  two rows, and gradient checkpointing turns on only when a step needs
+  it. One reader (`torch_backend.memory.read_free_bytes`) serves both;
+  a discrete GPU reads `mem_get_info()` as before.
+
 ## 0.196.0 — 2026-10-08
 
 ### Changes that raise
