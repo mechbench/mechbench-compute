@@ -18,6 +18,7 @@ class Sub:
             limiter=self._limiter, budget=self.open_child_budget(budget),
             on_token=on_token, on_node_start=on_node_start)
         child._model, child._model_id = self._model, self._model_id
+        child._backend, child._accelerator = self._backend, self._accelerator
         child._checkpoint_dirs = self.__dict__.setdefault("_checkpoint_dirs", {})
         try:
             if isinstance(target, str):
@@ -36,6 +37,8 @@ class Sub:
                 extra={"graph": {**target, "dataflow": dataflow_mod.DATAFLOW},
                        "params": dict(params),
                        "inputs": dict(inputs),
+                       "requirements": {"backend": self._backend.name,
+                                        "accelerator": self._accelerator},
                        **({"outputs": [dict(o) for o in outputs]} if outputs else {})}),
                 secrets=secrets)
             return dict(out.payload.get("outputs") or {})

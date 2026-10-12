@@ -27,6 +27,29 @@ _None._
 
 _None._
 
+## 0.197.6 — 2026-10-12
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- A sub-run runs on its job's backend and accelerator. `records/map`,
+  `records/fold`, and the operations that run another (`dictionary/encode`,
+  `text/chat` by reference) started their child executor on the default
+  backend, mlx, with no accelerator, so on a torch job every model node
+  inside a body failed with "this job runs on the mlx backend, and
+  mlx.core is not installed" while the same node outside the body ran on
+  torch. Experiment 055's categories battery over the kept steps
+  (`050-over-training-gemma3`, `j_6ddjfsc0w5pksmyn2e8a`) read its
+  pretrained base on CUDA and then failed in the map over the
+  checkpoints. An mlx job is unchanged.
+
 ## 0.197.5 — 2026-10-12
 
 ### Changes that raise
