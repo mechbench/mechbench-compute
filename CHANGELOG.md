@@ -27,6 +27,30 @@ _None._
 
 _None._
 
+## 0.197.2 — 2026-10-12
+
+### Changes that raise
+
+- On an integrated GPU the allocator cap and the free memory that sizes
+  batches are the machine's budget: the device's total, less what the VM
+  itself uses (`/proc/meminfo`) and other processes' GPU memory
+  (`nvidia-smi`), with 12 GB of headroom on the cap (was 8). 0.196.5 took
+  `cudaMemGetInfo`, which on Enverge's VMs counts the host's disk cache as
+  used: after reading a 58 GB checkpoint it said 59 GB free, so the cap
+  allowed 52 GB and refused the 31B, though 80 GB then allocated cleanly
+  as the host gave its cache back. Measured there: 119 GB free, a cap of
+  107 GB. Without `/proc/meminfo` the cap falls back to the driver's
+  figure.
+
+### Changes that alter results without raising
+
+- Generation batches on an integrated GPU can be larger than under
+  0.196.5–0.197.1, sized from the budget above.
+
+### Other
+
+_None._
+
 ## 0.197.1 — 2026-10-12
 
 ### Changes that raise
