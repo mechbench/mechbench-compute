@@ -69,7 +69,23 @@ def resolve_cached_revision(repo_id: str,
 
 def snapshot_path(repo_id: str, commit_sha: str) -> Path | None:
     p = _repo_dir(repo_id) / "snapshots" / commit_sha
-    return p if p.exists() else None
+    return p if p.exists() and is_complete(p) else None
+
+
+# external: huggingface_hub — an interrupted snapshot_download leaves the snapshot directory with some of its files, and a later call resumes it
+def is_complete(snapshot: Path) -> bool:
+    import json
+
+    if not (snapshot / "config.json").is_file():
+        return False
+    index = snapshot / "model.safetensors.index.json"
+    if index.is_file():
+        try:
+            names = set(json.loads(index.read_text())["weight_map"].values())
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+        return all((snapshot / name).is_file() for name in names)
+    return True
 
 
 def is_offline() -> bool:

@@ -27,6 +27,27 @@ _None._
 
 _None._
 
+## 0.197.5 — 2026-10-12
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- A model whose download was cut off is fetched again instead of loaded
+  from the incomplete snapshot. A cached snapshot counts only when it has
+  its `config.json` and every file its safetensors index names; otherwise
+  `ensure_model` resumes the download. On the DGX Spark a reset during a
+  download left Gemma 4 31B's base with its index and none of its first
+  shard, and every load failed with "No such file or directory"
+  (transformers' own loader would have fetched it; the streaming loader of
+  0.197.1 reads the snapshot as it finds it).
+
 ## 0.197.4 — 2026-10-12
 
 ### Changes that raise
