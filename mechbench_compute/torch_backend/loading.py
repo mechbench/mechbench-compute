@@ -71,9 +71,11 @@ def load_transformers(model_id: str, *, classes: Mapping[str, str], device: str 
     import transformers
 
     from mechbench_compute.torch_backend.determinism import make_deterministic
+    from mechbench_compute.torch_backend.memory import cap_integrated
 
     target = torch.device(device or pick_device())
     make_deterministic(target)
+    cap_integrated(target)
     config = transformers.AutoConfig.from_pretrained(model_id)
     name = classes.get(config.model_type, "AutoModelForCausalLM")
     model = getattr(transformers, name).from_pretrained(

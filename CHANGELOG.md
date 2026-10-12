@@ -27,6 +27,28 @@ _None._
 
 _None._
 
+## 0.196.4 — 2026-10-12
+
+### Changes that raise
+
+- On an integrated GPU (the DGX Spark's GB10), loading a model on torch
+  caps the CUDA allocator at what the host can spare (its available
+  memory, plus what this process already holds, less 8 GB), so a shape
+  too large for the machine raises `torch.OutOfMemoryError`, which the
+  batch sizer and the calibration's guarded probes handle. Before, the
+  allocator took system memory until the kernel's OOM killer ended the
+  whole VM: both of Enverge's Spark VMs reset that way, one of them
+  seven times in a row on the same calibration job. A discrete GPU and
+  the CPU are untouched.
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
 ## 0.196.3 — 2026-10-12
 
 ### Changes that raise
