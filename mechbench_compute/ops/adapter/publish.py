@@ -75,6 +75,7 @@ def run(ctx, inputs, params):
             f"- base model: `{base_model}`",
             f"- rank: {lora.get('rank')}  alpha: {lora.get('alpha')}",
             f"- target modules: {', '.join(lora.get('target_modules') or [])}",
+            f"- layers: {', '.join(map(str, lora['layers']))}" if "layers" in lora else None,
             f"- trained for {payload.get('steps', '?')} steps"
             if payload.get("steps") else "",
             "",
@@ -91,8 +92,8 @@ def run(ctx, inputs, params):
         )
         record = {"kind": "adapter/push", "repo": repo, "private": private,
                   "dry_run": dry_run, "files": files,
-                  "lora": {k: lora.get(k) for k in ("rank", "alpha",
-                                                    "target_modules")},
+                  "lora": {**{k: lora.get(k) for k in ("rank", "alpha", "target_modules")},
+                           **({"layers": lora["layers"]} if "layers" in lora else {})},
                   "base_model": base_model}
         if dry_run:
             return {**record, "commit": None, "url": None}

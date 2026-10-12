@@ -27,6 +27,43 @@ _None._
 
 _None._
 
+## 0.198.0 — 2026-10-12
+
+### Changes that raise
+
+- `adapter/train` refuses a `lora.layers` the model cannot meet: an
+  index outside it (negative indices count from the end), a layer named
+  twice, a list or span that selects no layer, or a value of another
+  form. The message names the model's layer count.
+- `adapter/train` refuses to resume from a saved training state whose
+  adapter weights are not the node's (another `lora`), naming the
+  layers each holds. The node fingerprint already keeps such runs
+  apart, since `lora.layers` is among the params it hashes.
+
+### Changes that alter results without raising
+
+- A node that passed `lora.layers` before this release had it ignored
+  and trained every layer; it now trains the layers named.
+- An adapter imported from the Hub (`hf_adapter`) whose PEFT config
+  carries `layers_to_transform` now records them as `lora.layers`.
+
+### Other
+
+- `adapter/train`'s `lora` takes `layers`: `"all"` (the default), a
+  list of layer indices, or `{"from": i, "to": j}` (half-open, either
+  end optional), negative indices counting from the end. The adapter
+  wraps the target modules of those decoder layers only, on mlx and on
+  torch; every other layer stays the base model's. `"all"`, or any
+  selection of every layer, trains today's adapter byte for byte and
+  records no `layers`; a smaller selection records the resolved indices
+  as `lora.layers`. A chosen layer's initial weights are those it draws
+  in a run over every layer.
+- The adapter's weights hold the chosen layers only, so a fused model
+  reference, `adapter/merge` and `adapter/measure` act on those layers
+  without being told. `adapter/measure` carries `lora.layers` on its
+  header, a PEFT export writes them as `layers_to_transform`, and
+  `adapter/publish` names them on the model card and its record.
+
 ## 0.197.6 — 2026-10-12
 
 ### Changes that raise

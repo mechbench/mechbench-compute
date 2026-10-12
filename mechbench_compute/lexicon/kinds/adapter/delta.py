@@ -21,7 +21,8 @@ KIND = Kind(
     key=("id", "coords"),
     header={"base_model": "The base the adapter was trained on.",
             "trained_on": "`{base, adapters}` — the full stack.",
-            "lora": "`{rank, alpha, scale, target_modules}` of the adapter read.",
+            "lora": "`{rank, alpha, scale, target_modules}` of the adapter read, and the `layers` it "
+                    "was trained on when they are not every layer.",
             "measured": "`{modules, layers, frobenius}` — what this node covered, which is what the shares are shares of.",
             "source": "What to call this adapter, stamped on every item's `coords.adapter`."},
     renderer={"primitive": "table", "field_map": {"rows": "items"}},

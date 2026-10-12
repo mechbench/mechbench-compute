@@ -8,7 +8,8 @@ KIND = Kind(
     "A trained LoRA adapter: its weights, the base and stack it was trained on, its shape, and the training's methods section.",
     fields={"format": F("string", "`safetensors`."), "base_model": F("string", "The base it was trained on."),
             "trained_on": F("object", "`{base, adapters}` — the full stack."),
-            "lora": F("object", "`{rank, alpha, scale, target_modules, params}`."),
+            "lora": F("object", "`{rank, alpha, scale, target_modules, params}`, and `layers` when it was "
+                                  "trained on fewer than every layer."),
             "train": F("object", "Steps, lr, seed, batch, final loss, the target spec (under `objective: \"sft\"`, "
                                  "the objective and its settings), and the counts."),
             "data": F("string", "The safetensors bytes.", contentEncoding="binary"),
@@ -19,7 +20,8 @@ KIND = Kind(
     key=("id", "coords"),
     header={"base_model": "The base the adapters were trained on.",
             "trained_on": "`{base, adapters}` — the full stack.",
-            "lora": "`{rank, alpha, scale, target_modules, params}` of every adapter in it.",
+            "lora": "`{rank, alpha, scale, target_modules, params}` of every adapter in it, and `layers` "
+                    "when they were trained on fewer than every layer.",
             "train": "The training's methods section, as the final adapter carries it.",
             "checkpoint_every": "The cadence the checkpoints were kept at, in steps."},
     doc="What `adapter/train` produces, and what a model-running node takes on its `adapter` port. `train` records "

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Collection
 from typing import Any
 
 import numpy as np
@@ -30,7 +31,8 @@ class LoRALinear(torch.nn.Module):
 
 def apply_lora(model: Any, rank: int = 8, alpha: float = 16.0,
                targets: tuple[str, ...] = ("q_proj", "v_proj"), *, seed: int | None = None,
-               keys: AdapterKeys = ADAPTER_KEYS) -> int:
+               keys: AdapterKeys = ADAPTER_KEYS,
+               layers: Collection[int] | None = None) -> int:
     lm = model.lm
     model.frozen = {name: p.requires_grad for name, p in model._model.named_parameters()}
     for p in model._model.parameters():
@@ -39,7 +41,7 @@ def apply_lora(model: Any, rank: int = 8, alpha: float = 16.0,
     key = make_key(seed) if seed is not None else None
     wrapped_per_target = dict.fromkeys(targets, 0)
     try:
-        for layer in lm.model.layers:
+        for i, layer in enumerate(lm.model.layers):
             for name in targets:
                 container = keys.containers.get(name)
                 if container is None:
@@ -51,14 +53,17 @@ def apply_lora(model: Any, rank: int = 8, alpha: float = 16.0,
                 sub = None
                 if key is not None:
                     key, sub = split_key(key)
+                if layers is not None and i not in layers:
+                    continue
                 wrapped = LoRALinear(base, rank, alpha, key=sub)
                 setattr(holder, name, wrapped)
                 wrapped_per_target[name] += 1
                 n += wrapped.lora_a.numel() + wrapped.lora_b.numel()
         dead = [t for t, c in wrapped_per_target.items() if c == 0]
         if dead:
+            where = "chosen layer" if layers is not None else "layer"
             raise ValueError(
-                f"target modules {dead!r} exist on no layer of this architecture — adapter would "
+                f"target modules {dead!r} exist on no {where} of this architecture — adapter would "
                 f"train nothing for them. Wrapped counts: {wrapped_per_target!r}")
     except BaseException:
         remove_lora(model)

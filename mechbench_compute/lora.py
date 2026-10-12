@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import math
-from collections.abc import Iterator, Sequence
+from collections.abc import Collection, Iterator, Sequence
 
 import mlx.core as mx
 from mlx import nn
@@ -42,13 +42,14 @@ class LoRALinear(nn.Module):
 # external: mlx-vlm — freezing a whole VLM walks non-module attributes of some audio/vision towers and crashes; pass Model.lm
 def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
                targets: tuple[str, ...] = ("q_proj", "v_proj"),
-               *, seed: int | None = None, keys: AdapterKeys = ADAPTER_KEYS) -> int:
+               *, seed: int | None = None, keys: AdapterKeys = ADAPTER_KEYS,
+               layers: Collection[int] | None = None) -> int:
     lm.freeze()
     n = 0
     key = mx.random.key(seed) if seed is not None else None
     wrapped_per_target = dict.fromkeys(targets, 0)
     try:
-        for layer in lm.model.layers:
+        for i, layer in enumerate(lm.model.layers):
             for name in targets:
                 container = keys.containers.get(name)
                 if container is None:
@@ -61,14 +62,17 @@ def apply_lora(lm, rank: int = 8, alpha: float = 16.0,
                 sub = None
                 if key is not None:
                     key, sub = mx.random.split(key)
+                if layers is not None and i not in layers:
+                    continue
                 wrapped = LoRALinear(base, rank, alpha, key=sub)
                 setattr(holder, name, wrapped)
                 wrapped_per_target[name] += 1
                 n += wrapped.lora_a.size + wrapped.lora_b.size
         dead = [t for t, c in wrapped_per_target.items() if c == 0]
         if dead:
+            where = "chosen layer" if layers is not None else "layer"
             raise ValueError(
-                f"target modules {dead!r} exist on no layer of this "
+                f"target modules {dead!r} exist on no {where} of this "
                 f"architecture — adapter would train nothing for them. "
                 f"Wrapped counts: {wrapped_per_target!r}")
     except BaseException:

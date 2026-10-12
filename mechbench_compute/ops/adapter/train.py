@@ -94,6 +94,15 @@ sampling order, so two runs of the same node on the same machine produce
 a byte-identical adapter. Change the seed to see the spread a different
 draw gives.
 
+`lora.layers` chooses the decoder layers the adapter is trained on —
+`[-2, -1]` for the last two, `{"from": 0, "to": 8}` for the first
+eight — and every other layer stays the base model's, so the stream
+before the first chosen layer is the base model's exactly. The adapter
+holds weights for the chosen layers only and records them as
+`lora.layers`; fusing, merging and measuring it read them from its
+weights. A layer's initial weights are the ones it would draw in a run
+over every layer, so a subset starts where the full run starts there.
+
 ### Training on documents and conversations
 
 With `objective: "sft"` the same LoRA learns the next token of the
@@ -165,7 +174,7 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
            "Prompt records with a known `answer`, mixed into each batch.",
            many=True, required=False),
     ),
-    output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts; under `sft`, `objective`, `n_documents`, `n_conversations`, `n_tokens` (the tokens trained), `max_tokens`, `truncation`, `truncated` (the records cut), `naturalism`, `bos` (whether documents began with the BOS token) and, when a conversation was rendered by a template that stamps a date, `template_date`, in place of the target's). Wire it into a later node's `adapter` port, or `adapter/publish`. With `operator`, an `adapter/operator` instead: `parameters` by layer, `operator` (the form, `d`, `params`, `effective`), `base_model`, `trained_on` and `train`; a model reference carries it.",
+    output=Output('adapter/lora', collection=False, doc="`data` (safetensors bytes), `format`, `base_model`, `trained_on` (the base and any prior adapters), `lora` (rank, alpha, scale, target modules, `layers` when the adapter was trained on fewer than every layer, parameter count) and `train` (steps, lr, seed, batch, final loss, the target spec, depth, unit, replace, positions, counts; under `sft`, `objective`, `n_documents`, `n_conversations`, `n_tokens` (the tokens trained), `max_tokens`, `truncation`, `truncated` (the records cut), `naturalism`, `bos` (whether documents began with the BOS token) and, when a conversation was rendered by a template that stamps a date, `template_date`, in place of the target's). Wire it into a later node's `adapter` port, or `adapter/publish`. With `operator`, an `adapter/operator` instead: `parameters` by layer, `operator` (the form, `d`, `params`, `effective`), `base_model`, `trained_on` and `train`; a model reference carries it.",
                   otherwise=tuple(Otherwise("adapter/operator", param="operator.function", equals=f)
                                   for f in ("affine", "polynomial", "mlp"))),
     outputs={"checkpoints": Output(
@@ -301,13 +310,25 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
         P("lr", "float", "Learning rate.", 1e-4),
         P("lora", "object",
           "`{\"rank\": 8, \"alpha\": 16, \"target_modules\": [\"q_proj\", "
-          "\"v_proj\"]}` — the adapter's shape.",
-          {"rank": 8, "alpha": 16, "target_modules": ["q_proj", "v_proj"]}, fields=(
+          "\"v_proj\"], \"layers\": \"all\"}` — the adapter's shape.",
+          {"rank": 8, "alpha": 16, "target_modules": ["q_proj", "v_proj"], "layers": "all"}, fields=(
               P("rank", "int", "The adapter's rank.", 8),
               P("alpha", "float", "The scaling numerator: the update is scaled by `alpha / rank`.", 16),
               P("target_modules", "list[string]", "The projections the adapter is trained on.",
                 ["q_proj", "v_proj"],
                 choices=("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")),
+              P("layers", "\"all\" | list[int] | object",
+                "The decoder layers whose `target_modules` the adapter is trained on: `\"all\"`, a "
+                "list of layer indices, or `{\"from\": i, \"to\": j}`, layers `i` … `j − 1` with "
+                "either end optional. A negative index counts from the end, as in Python: `[-2, -1]` "
+                "is the last two layers. The other layers stay the base model's, and an index the "
+                "model lacks, a layer named twice or a selection of no layer is refused. The "
+                "adapter's `lora.layers` records the resolved indices when they are not every "
+                "layer.",
+                "all", fields=(
+                    P("from", "int", "The first layer trained.", 0),
+                    P("to", "int", "The layer after the last one trained; absent, the model's end.", None),
+                )),
           )),
         P("batch", "object",
           "Items per step by kind: depth 1 `{\"target\": 3, \"anchor\": 1, "

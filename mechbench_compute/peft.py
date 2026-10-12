@@ -44,6 +44,8 @@ def peft_export(adapter: dict, out_dir: str) -> str:
         "base_model_name_or_path": adapter.get("base_model"),
         "bias": "none",
     }
+    if "layers" in lora:
+        config["layers_to_transform"] = list(lora["layers"])
     (out / CONFIG_NAME).write_text(json.dumps(config, indent=2))
     return str(out)
 
@@ -83,12 +85,15 @@ def peft_import(repo_dir: str) -> dict:
 
     r = int(config.get("r", 8))
     alpha = float(config.get("lora_alpha", 16))
+    chosen = config.get("layers_to_transform")
+    layers = [chosen] if isinstance(chosen, int) else chosen
     return {
         "kind": "adapter/lora",
         "format": "safetensors",
         "base_model": config.get("base_model_name_or_path"),
         "lora": {"rank": r, "alpha": alpha, "scale": alpha / r,
-                  "target_modules": config.get("target_modules") or []},
+                  "target_modules": config.get("target_modules") or [],
+                  **({"layers": sorted(int(i) for i in layers)} if layers else {})},
         "train": {"source": "peft_import"},
         "data": data,
     }
