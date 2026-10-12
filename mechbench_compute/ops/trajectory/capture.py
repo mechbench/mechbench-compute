@@ -9,6 +9,13 @@ from mechbench_compute import lexicon
 from mechbench_compute import points as hookpoints
 from mechbench_compute import shapes as S
 from mechbench_compute.arrays import read_f32, read_logprobs_by_row
+from mechbench_compute.capture_rows import (
+    STORAGE_CHOICES,
+    STORAGE_DOC,
+    STORAGE_SECTION,
+    CaptureRows,
+    read_storage,
+)
 from mechbench_compute.intervene.array_ops import read_model_array_ops
 from mechbench_compute.lexicon._base import In, Op, Otherwise, Output, P, Resume
 
@@ -47,6 +54,11 @@ width), so there are three ways to keep it an object:
 * `project` — a direction: read the scalar coordinate along it at capture
   time and emit no vectors at all. The trace itself, as numbers.
 
+Or keep it whole: `storage: "tensor"` (or `"auto"`, the default, past the
+json ceiling of two million values) writes the points as shards beside
+the object, and a trajectory the run does not store has no ceiling. With
+`project` the points are numbers, always json.
+
 Every item carries the record's `coords`, which is what
 `trajectory/aggregate` groups on. A measurement a record carries as a
 field (what `text/measure` writes) becomes a coordinate through
@@ -57,6 +69,10 @@ it was generated as and where generation began. `replay: "auto"` uses those
 when present and tokenizes the text otherwise; re-tokenizing a generated
 story can shift a token boundary, and the trace is the ground truth of what
 the model saw.
+
+""" + STORAGE_SECTION + """
+Under tensor storage the header's `n_items` counts the points, not the
+records.
 """,
     inputs=(
         In("records", "records/record",
@@ -127,6 +143,8 @@ the model saw.
           "(`vocab`, with this many top tokens), a lens reading per step. "
           "`0` records none.",
           0),
+        P("storage", "string", STORAGE_DOC + " With `project`, always json.",
+          "auto", choices=STORAGE_CHOICES),
     ),
     example={
         "model": {"$param": "model"},
@@ -143,7 +161,7 @@ def run(ctx, inputs, params):
     records = lexicon.items_of(inputs.get("records") or [])
     return capture(
         model, records, params, project=inputs.get("project"),
-        on_item=ctx.on_item, on_start=ctx.on_start)
+        on_item=ctx.on_item, on_start=ctx.on_start, stored=ctx.stored)
 
 
 AXES = ("layers", "positions")
@@ -179,6 +197,7 @@ def capture(
     project: Mapping[str, Any] | None = None,
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
+    stored: bool = True,
 ) -> dict[str, Any]:
     from mechbench_compute import positions as POS
     from mechbench_compute.distill import render
@@ -234,21 +253,19 @@ def capture(
         per_record = width
     else:
         per_record = None if steps_per is None else steps_per * width
+    storage = read_storage(params)
+    sink = CaptureRows("json" if direction is not None else storage,
+                       ceiling=MAX_VECTOR_FLOATS, stored=stored,
+                       levers="set `pool`, `project`, or `max_steps`, or capture fewer records")
     if per_record:
-        total = len(records) * per_record
-        if total > MAX_VECTOR_FLOATS:
-            raise ValueError(
-                f"{len(records)} records × {per_record // width} steps × "
-                f"{width} dims = {total} floats exceeds the "
-                f"{MAX_VECTOR_FLOATS} cap — set `pool`, `project`, or "
-                "`max_steps`, or capture fewer records")
+        sink.plan(len(records) * per_record,
+                  f"{len(records)} records × {per_record // width} steps × {width} dims")
     if on_start:
         on_start(len(records))
 
     cap = Capture.residual(layers, point=hookpoints.side(point))
     tok = model.tokenizer
     mid = S.model_id_of(model)
-    rows: list[dict[str, Any]] = []
     used_trace = 0
     for record in records:
         ids_list, gen_start = (None, None)
@@ -282,7 +299,7 @@ def capture(
             for step, layer in enumerate(layers):
                 t = result.cache[f"blocks.{layer}.{point}"]
                 v = read_f32(t[0, pos, :])
-                rows.append(_project_row(
+                sink.add(_project_row(
                     _build_point(record, coords, sp(layer), step, pos, v, tok, arr,
                                  model, vocab_top), v, dvec, direction))
         else:
@@ -302,26 +319,21 @@ def capture(
                 row = _build_point(record, coords, sp(layer), at - first, at, v, tok, arr, model, 0)
                 row.pop("token", None)
                 row.update({"n_pooled": n_pooled, "pool": pool})
-                rows.append(_project_row(row, v, dvec, direction))
+                sink.add(_project_row(row, v, dvec, direction))
             else:
                 if dvec is None:
-                    running = len(rows) + len(idx)
-                    if running * width > MAX_VECTOR_FLOATS:
-                        raise ValueError(
-                            f"trajectory exceeds the {MAX_VECTOR_FLOATS}-float "
-                            f"cap at record {record.get('id')!r}; set `max_steps`, "
-                            "`pool`, or `project`, or capture fewer records")
+                    sink.plan((len(sink) + len(idx)) * width,
+                              f"the trajectory through record {record.get('id')!r}: "
+                              f"{len(sink) + len(idx)} points × {width} dims")
                 for p in idx:
                     row = _build_point(record, coords, sp(layer), p - first, p, mat[p], tok, arr,
                                        model, vocab_top)
-                    rows.append(_project_row(row, mat[p], dvec, direction))
+                    sink.add(_project_row(row, mat[p], dvec, direction))
         if on_item:
             on_item()
 
-    from mechbench_compute.lexicon import kinds as K
-
-    return K.collection(
-        "activations/coordinate" if dvec is not None else "trajectory/point", rows,
+    return sink.finish(
+        "activations/coordinate" if dvec is not None else "trajectory/point",
         axis=axis,
         point=point,
         layers=layers,

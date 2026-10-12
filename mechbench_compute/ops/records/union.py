@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from mechbench_compute.blocks.read_header import read_header
 from mechbench_compute.blocks.read_items import read_items
 from mechbench_compute.lexicon._base import WILDCARD, In, Op, Output, P, Resume
 
@@ -86,7 +87,7 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
         segments = []
         for port in ports:
             rec = inputs[port]
-            rec_rows = K.items_of(rec)
+            rec_rows = read_items(rec)
             segments.append({"source": port, "count": len(rec_rows)})
             for r in rec_rows:
                 item = dict(r)
@@ -95,9 +96,8 @@ def union(inputs: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any
                 for k in ("layer", "head", "label"):
                     item.pop(k, None)
                 rows.append(item)
-        header = {k: v for k, v in first.items()
-                  if k not in ("kind", "item_kind", "key", "items", "rows",
-                               "layers", "segments", "model")}
+        header = {k: v for k, v in read_header(first).items()
+                  if k not in ("kind", "item_kind", "key", "layers", "segments", "model")}
         return K.collection("activations/vector", rows, **header, segments=segments)
     segments = []
     records = []

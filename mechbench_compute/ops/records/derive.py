@@ -44,6 +44,10 @@ Every expression of a record reads the record as it arrived, not the fields
 set beside it: two fields cannot build on each other in one node; chain two
 derives when one reads the other.
 
+A capture stored as tensor shards is read as its rows, and the output is
+always a json collection, so a derive that drops `vector` from a capture
+too large for json yields an ordinary collection of the rest.
+
 A number with no value (a division by zero, the log of zero) is null, and
 the header's `undefined` counts them by reason. An `order_by` on the
 input (a sort's) is kept unless a field it names is dropped.

@@ -64,6 +64,7 @@ class Context:
     input_paths: Mapping[str, str] = field(default_factory=dict)
     run_params: Mapping[str, Any] | None = None
     result_base: str | None = None
+    stored: bool = True
     on_token: Callable[..., None] | None = None
 
     refused: Mapping[str, str] = field(default_factory=dict)

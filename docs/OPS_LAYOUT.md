@@ -141,6 +141,7 @@ resume state, paths, run params — is lent to every operation.
 | `ctx.input_paths` | the stored label each input arrived from |
 | `ctx.run_params` | the run's bound params, which a `$param` in an expression reads |
 | `ctx.result_base` | where the run's results land |
+| `ctx.stored` | whether the run will store this node's result: false under `keep: "outputs"` for a node that is not an output, whose result is held in memory and so has no size ceiling (the capture operations' `storage`) |
 
 Every field has a default, so a test builds one in a line:
 `run(Context(loaded=fake), inputs, params)`.

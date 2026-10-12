@@ -28,8 +28,24 @@ _DTYPES = {"float64": "F64", "float32": "F32", "float16": "F16", "int64": "I64",
            "int16": "I16", "int8": "I8", "uint8": "U8", "bool": "BOOL"}
 
 
+HEADER_KEYS = ("storage", "shards", "n_items", "d", LOCAL_DIR)
+
+
 def is_tensor(collection: Any) -> bool:
     return isinstance(collection, Mapping) and collection.get("storage") == STORAGE
+
+
+def strip_header(collection: Mapping[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in collection.items() if k not in HEADER_KEYS}
+
+
+def read_json_items(collection: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [{k: read_json_array(v) if isinstance(v, np.ndarray) else v for k, v in item.items()}
+            for item in items_of(collection)]
+
+
+def read_json_array(a: np.ndarray) -> list[float]:
+    return np.asarray(a, dtype=np.float32).astype(str).astype(np.float64).tolist()
 
 
 def _split_item(item: Mapping[str, Any]) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, float], dict[str, Any]]:

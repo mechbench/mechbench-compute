@@ -277,11 +277,11 @@ class TestResidualVectors:
             {"layers": [0]})
         assert out["items"][0]["coords"] == {"language": "fr"}
 
-    def test_the_float_cap_refuses_a_runaway_capture(self, monkeypatch):
+    def test_the_float_cap_refuses_a_runaway_json_capture(self, monkeypatch):
         monkeypatch.setattr(capture_op, "MAX_VECTOR_FLOATS", 10)
-        with pytest.raises(ValueError, match="cap"):
+        with pytest.raises(ValueError, match="cap .*storage: \"tensor\""):
             capture_residual_vectors(
-                StubModel(), [{"id": "c", "user": "a"}], {"layers": "all"})
+                StubModel(), [{"id": "c", "user": "a"}], {"layers": "all", "storage": "json"})
 
     @pytest.mark.parametrize("params,match", [
         ({"heads": [0]}, "`resid_post` has no heads"),

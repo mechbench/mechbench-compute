@@ -158,7 +158,7 @@ class TestTheExecutorMovesShards:
         monkeypatch.setattr(bench, "list_prefix_hashes", lambda prefix: {})
         monkeypatch.setattr(bench, "emit", lambda target, payload, **kw: emitted.__setitem__(target, payload) or {"path": target})
 
-        def fake_capture(model, records, params, on_item=None, on_start=None):
+        def fake_capture(model, records, params, on_item=None, on_start=None, stored=True):
             w = tensors.ShardWriter(tmp_path / "w", max_rows=4)
             for it in _items(10):
                 w.add(it)

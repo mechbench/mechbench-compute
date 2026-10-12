@@ -40,6 +40,7 @@ class Dispatch:
             input_paths=dict(input_paths),
             run_params=state.bound_params,
             result_base=state.result_base,
+            stored=not (state.discard and not state.outputs_of.get(nid)),
             resume_items=resume_kwargs.get("resume_items"),
             resume_state=resume_kwargs.get("resume_state"),
             on_token=self._node_on_token(nid), node=nid)

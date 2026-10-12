@@ -8,6 +8,10 @@ import numpy as np
 
 from mechbench_compute.api import (
     MAX_VECTOR_FLOATS,
+    STORAGE_CHOICES,
+    STORAGE_DOC,
+    STORAGE_SECTION,
+    CaptureRows,
     In,
     Op,
     Output,
@@ -15,7 +19,6 @@ from mechbench_compute.api import (
     Resume,
     add_to_span,
     check_written,
-    collection,
     item_kind_of,
     items_of,
     positions,
@@ -25,6 +28,7 @@ from mechbench_compute.api import (
     read_last_logp,
     read_mask,
     read_record_coords,
+    read_storage,
     render,
     resolve_layers,
     resolve_outcomes,
@@ -122,8 +126,8 @@ One forward and one backward pass per record, however many layers and
 positions are read. The backward pass runs from the decision position down
 to the earliest layer named, so later layers are cheaper, and it holds that
 span's activations in memory for the length of the prompt, as training on
-one example does. The model's weights are not changed. The block refuses
-more than two million values in all.
+one example does. The model's weights are not changed. The json ceiling is
+two million values in all (records × layers × positions × width).
 
 The variable of differentiation is a zero added at the point, which leaves
 the forward pass the model's own. Where the backward pass crosses an MLP,
@@ -131,7 +135,8 @@ MLX computes the MLP's compiled activation by its separate operations,
 which can move a float32 forward by a few units in the last place; with
 only the last layer named it crosses none, and `value` is a plain read's
 bit for bit.
-""",
+
+""" + STORAGE_SECTION,
     inputs=(
         In("records", "records/record",
            "The prompts (`user`, `prompt` or `text`), each optionally with `coords`, its own `tracked`, "
@@ -192,6 +197,7 @@ bit for bit.
               P("text", "string", "The token's text, checked against the model's vocabulary "
                 "when given.", None),
           )),
+        P("storage", "string", STORAGE_DOC, "auto", choices=STORAGE_CHOICES),
     ),
     example={
         "model": {"$param": "model"},
@@ -208,7 +214,7 @@ def run(ctx, inputs, params):
     model = ctx.model(params.get("model"))
     records = items_of(inputs.get("records") or [])
     return differentiate_activations(model, records, params, direction=inputs.get("direction"),
-                                     on_item=ctx.on_item, on_start=ctx.on_start)
+                                     on_item=ctx.on_item, on_start=ctx.on_start, stored=ctx.stored)
 
 
 def differentiate_activations(
@@ -218,6 +224,7 @@ def differentiate_activations(
     direction: Any = None,
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
+    stored: bool = True,
 ) -> dict[str, Any]:
     metric = str(params.get("metric", "logit"))
     if metric not in METRICS:
@@ -233,16 +240,14 @@ def differentiate_activations(
         raise ValueError("activations/differentiate needs at least one record")
     prepared = [prepare_record(model, record, selector) for record in records]
     total = sum(len(at) for _, at in prepared) * len(layers) * width
-    if total > MAX_VECTOR_FLOATS:
-        raise ValueError(
-            f"{len(records)} records × {len(layers)} layers × their positions × {width} dims = {total} "
-            f"values exceeds the {MAX_VECTOR_FLOATS} cap: name fewer layers, positions or records")
+    sink = CaptureRows(read_storage(params), ceiling=MAX_VECTOR_FLOATS, stored=stored,
+                       levers="name fewer layers, positions or records")
+    sink.plan(total, f"{len(records)} records × {len(layers)} layers × their positions × {width} dims")
     unembed = model.architecture.attribution_unembed(model._model)
     if on_start:
         on_start(len(records))
     names = [f"blocks.{layer}.{point}" for layer in layers]
     mid = shapes.model_id_of(model)
-    rows: list[dict[str, Any]] = []
     for record, (rendered, at) in zip(records, prepared, strict=True):
         add_to_span(tokens_in=len(rendered.ids))
         found = differentiate_record(model, record, model.make_ids(rendered.ids), names, at, metric, params,
@@ -251,12 +256,12 @@ def differentiate_activations(
         for layer, grads, acts in zip(layers, found["grads"], found["acts"], strict=True):
             sp = shapes.space(model=mid, layer=layer, point=point, d=width)
             for j, pos in enumerate(at):
-                rows.append(build_row(model, record, sp, coords, pos, rendered.ids[pos],
-                                      grads[j], acts[j], found, k, mask))
+                sink.add(build_row(model, record, sp, coords, pos, rendered.ids[pos],
+                                   grads[j], acts[j], found, k, mask))
         if on_item:
             on_item()
-    return collection(
-        "activations/vector", rows,
+    return sink.finish(
+        "activations/vector",
         model=mid, metric=metric, point=point, layers=layers, positions=selector, d_model=width,
         top=k or None, mask=mask_header, softcap=unembed.softcap,
         description=(

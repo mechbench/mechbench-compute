@@ -11,11 +11,17 @@ from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
 from mechbench_compute.arrays import read_f32
 from mechbench_compute.attribution import decompose_attn_out
+from mechbench_compute.capture_rows import (
+    STORAGE_CHOICES,
+    STORAGE_DOC,
+    STORAGE_SECTION,
+    CaptureRows,
+    read_storage,
+)
 from mechbench_compute.distill import render
 from mechbench_compute.interp.check_written import check_written
 from mechbench_compute.interp.constants import MAX_VECTOR_FLOATS
 from mechbench_compute.interp.read_record_coords import read_record_coords
-from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
@@ -97,8 +103,10 @@ record's `coords`, which is what `geometry/compare`, `geometry/span` and
 With `source: "queries"` or `"keys"` the block captures attention Q or K
 vectors instead of the residual, one row per (layer, head).
 
-The block refuses a capture of more than two million values; use fewer
-layers or records.
+""" + STORAGE_SECTION + """
+The json ceiling is two million values: records × layers × heads × width,
+or on attention weights the weights read. Attention weights go to tensor
+storage only when every row has one width, records of one length.
 """,
     inputs=(
         In("records", "records/record",
@@ -161,6 +169,7 @@ layers or records.
           "Drop records with no text instead of refusing. The dropped ids "
           "are reported in `skipped_empty`, because dropping changes n.",
           False),
+        P("storage", "string", STORAGE_DOC, "auto", choices=STORAGE_CHOICES),
     ),
     example={
         "model": {"$param": "model"},
@@ -175,7 +184,8 @@ def run(ctx, inputs, params):
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return capture_residual_vectors(
-        model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
+        model, records, params, on_item=ctx.on_item, on_start=ctx.on_start,
+        stored=ctx.stored)
 
 
 def capture_residual_vectors(
@@ -184,6 +194,7 @@ def capture_residual_vectors(
     params: Mapping[str, Any],
     on_item: Callable[[], None] | None = None,
     on_start: Callable[[int], None] | None = None,
+    stored: bool = True,
 ) -> dict[str, Any]:
     source = str(params.get("source", "resid"))
     if source not in ("resid", "queries", "keys"):
@@ -213,18 +224,16 @@ def capture_residual_vectors(
     width = (model.arch.d_model if source == "resid"
              else model.arch.d_model // model.arch.n_heads)
     total = len(records) * len(layers) * n_heads * width
-    if point != WEIGHTS and total > MAX_VECTOR_FLOATS:
-        raise ValueError(
-            f"{len(records)} conditions × {len(layers)} layers × "
-            f"{n_heads} heads × {width} dims = {total} floats exceeds "
-            f"the {MAX_VECTOR_FLOATS} cap — capture fewer layers or "
-            "conditions"
-        )
+    sink = CaptureRows(read_storage(params), ceiling=MAX_VECTOR_FLOATS, stored=stored,
+                       levers="capture fewer layers or records" if point != WEIGHTS
+                       else "read fewer heads, layers, query positions or records")
+    if point != WEIGHTS:
+        sink.plan(total, f"{len(records)} records × {len(layers)} layers × "
+                         f"{n_heads} heads × {width} dims")
     if on_start:
         on_start(len(records))
 
     cap = build_capture(source, point, heads, layers)
-    rows: list[dict[str, Any]] = []
     mid = S.model_id_of(model)
     n_weights = 0
     for record in records:
@@ -236,19 +245,16 @@ def capture_residual_vectors(
         queries = [] if pool or point != WEIGHTS else POS.resolve(position, len(r.ids), **sel)
         if point == WEIGHTS:
             n_weights += len(layers) * len(heads) * max(1, len(queries)) * len(r.ids)
-            if n_weights > MAX_VECTOR_FLOATS:
-                raise ValueError(
-                    f"attention weights of {len(heads)} heads × {len(layers)} layers "
-                    f"over records of {len(r.ids)} tokens exceed the "
-                    f"{MAX_VECTOR_FLOATS} cap — fewer heads, layers, query "
-                    "positions or records")
+            sink.plan(n_weights, f"attention weights of {len(heads)} heads × "
+                                 f"{len(layers)} layers over records of "
+                                 f"{len(r.ids)} tokens")
         add_to_span(tokens_in=len(r.ids))
         result = model.run(ids, interventions=[cap])
         coords = read_record_coords(record, params)
         if point == WEIGHTS:
-            rows += read_weight_rows(model, result.cache, record, r.ids, coords, mid=mid,
-                                     layers=layers, heads=heads, queries=queries,
-                                     over=over, pool=pool, top=top)
+            sink.extend(read_weight_rows(model, result.cache, record, r.ids, coords, mid=mid,
+                                         layers=layers, heads=heads, queries=queries,
+                                         over=over, pool=pool, top=top))
             if on_item:
                 on_item()
             continue
@@ -261,13 +267,13 @@ def capture_residual_vectors(
                     v, n_pooled = ((split[head, pos], None) if not pool
                                    else POS.pooled(split[head], over, pool["reduce"]))
                     sp = S.space(model=mid, layer=layer, point=point, d=width, head=head)
-                    rows.append(build_row(v, sp, record, coords, read_token, n_pooled, top))
+                    sink.add(build_row(v, sp, record, coords, read_token, n_pooled, top))
             elif source == "resid":
                 t = result.cache[f"blocks.{layer}.{point}"]
                 v, n_pooled = ((read_f32(t[0, pos, :]), None) if not pool
                                else POS.pooled(read_f32(t[0]), over, pool["reduce"]))
-                rows.append(build_row(v, S.space(model=mid, layer=layer, point=point, d=width),
-                                      record, coords, read_token, n_pooled, top))
+                sink.add(build_row(v, S.space(model=mid, layer=layer, point=point, d=width),
+                                   record, coords, read_token, n_pooled, top))
             else:
                 key = ("q" if source == "queries" else "k")
                 arr = read_f32(result.cache[f"blocks.{layer}.attn.{key}"])[0]
@@ -277,11 +283,11 @@ def capture_residual_vectors(
                     else:
                         v, n_pooled = arr[head, pos, :], None
                     sp = S.space(model=mid, layer=layer, point=f"attn.{key}", d=width, head=head)
-                    rows.append(build_row(v, sp, record, coords, read_token, n_pooled, top))
+                    sink.add(build_row(v, sp, record, coords, read_token, n_pooled, top))
         if on_item:
             on_item()
-    return load_kinds().collection(
-        "activations/vector", rows,
+    return sink.finish(
+        "activations/vector",
         model=mid,
         point=point,
         source=source,

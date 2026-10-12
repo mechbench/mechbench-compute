@@ -208,7 +208,8 @@ class TestCapturePositionsAxis:
     def test_the_cap_counts_what_is_emitted_not_what_is_read(self):
         from mechbench_compute import interp
         records = [{"id": f"s{i}", "text": "a bb ccc dddd"} for i in range(60)]
-        big = {"axis": "positions", "layer": 0, "positions": "all", "max_steps": 4}
+        big = {"axis": "positions", "layer": 0, "positions": "all", "max_steps": 4,
+               "storage": "json"}
         monkey = interp.MAX_VECTOR_FLOATS
         try:
             interp.MAX_VECTOR_FLOATS = 1000

@@ -126,7 +126,8 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "activations/differentiate": [
         ("ops/activations/differentiate.py", "run"),
         ("ops/activations/differentiate.py", "differentiate_activations"),
-        ("interp/resolve_target.py", "resolve_target")],
+        ("interp/resolve_target.py", "resolve_target"),
+        ("capture_rows.py", "read_storage")],
     "records/cross": [
         ("ops/records/cross.py", "run"),
         ("ops/records/cross.py", "_sample_value"),

@@ -27,6 +27,51 @@ _None._
 
 _None._
 
+## 0.197.0 — 2026-10-12
+
+### Changes that raise
+
+- `activations/capture`, `activations/differentiate` and
+  `trajectory/capture` take `storage: auto | json | tensor`, as
+  `activations/capture-tokens` did, through one shared implementation
+  (`mechbench_compute.capture_rows`, offered to extensions on the api as
+  `CaptureRows`). `"json"` refuses past the op's ceiling (two million
+  values; seven million for capture-tokens) and names `storage:
+  "tensor"` as the lever; `"tensor"` writes the rows as safetensors
+  shards beside the object, with no ceiling; `"auto"`, the default, is
+  json under the ceiling and tensor above. A capture past two million
+  values that refused before now succeeds as tensor shards; one under
+  it is the json it was, byte for byte.
+- A result the run does not store has no ceiling. Under `keep:
+  "outputs"` a node that is not an output is held in memory as rows
+  whatever its size (bounded by the machine, which on an integrated GPU
+  raises an out-of-memory error under 0.196.5's cap), where before the
+  ceiling refused it too. Experiment 055's `massive` protocol (13
+  records × every layer × the residual at the last position, the
+  vectors dropped one node later) refused at Gemma 3 27B and Gemma 4
+  31B; it now runs, stored as shards or held. The context carries
+  `ctx.stored`, false for such a node.
+- The refusals' wording changed: each names the projected size, the
+  ceiling, `storage: "tensor"`, the op's own levers and leaving the
+  result unstored.
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- The records operations (`derive`, `filter`, `union`, `python`,
+  `join`, `group`, `sort` and the others that read items) read a
+  tensor-stored collection as they read a json one: its rows
+  materialized with plain lists for vectors, and a header without the
+  shard bookkeeping (`storage`, `shards`, `n_items`, `d`, the local
+  shard directory). A `records/derive` that drops `vector` from a
+  tensor capture yields an ordinary json collection.
+- `support.generated.ts` gains `CaptureStorage` and
+  `CAPTURE_TOKENS_MAX_VALUES`, and `CAPTURE_MAX_VALUES` says it is the
+  json ceiling of a stored result, for the API's run check.
+
 ## 0.196.6 — 2026-10-12
 
 ### Changes that raise

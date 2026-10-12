@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 
 from mechbench_compute import __version__, support
+from mechbench_compute.capture_rows import STORAGE_CHOICES
 from mechbench_compute.interp.constants import MAX_VECTOR_FLOATS
+from mechbench_compute.ops.activations.capture_tokens import MAX_TOKEN_VECTOR_FLOATS
 from mechbench_compute.providers import pricing
 
 
@@ -91,9 +93,19 @@ def main() -> None:
     print("  tools: boolean;")
     print("}")
     print()
-    print("/** The most values one activations/capture node may hold: records x layers x heads x "
-          "width. */")
+    print("/** How a capture stores its rows: `json` in the object under the ceiling, `tensor` as "
+          "shards beside it with none, `auto` json under the ceiling and tensor above. */")
+    print("export type CaptureStorage = " + " | ".join(_ts(k) for k in STORAGE_CHOICES) + ";")
+    print()
+    print("/** The json ceiling of activations/capture, activations/differentiate and "
+          "trajectory/capture: records x layers x heads (or positions) x width. Only a stored "
+          "result with `storage: \"json\"` past it is refused; `auto` goes to tensor, and a "
+          "result the run does not store has no ceiling. */")
     print(f"export const CAPTURE_MAX_VALUES = {MAX_VECTOR_FLOATS};")
+    print()
+    print("/** The json ceiling of activations/capture-tokens: records x kept positions x layers x "
+          "width, under the same rules. */")
+    print(f"export const CAPTURE_TOKENS_MAX_VALUES = {MAX_TOKEN_VECTOR_FLOATS};")
     print()
     print(f"export const PRICE_TABLE_VERSION = {_ts(pricing.TABLE_VERSION)};")
     print()

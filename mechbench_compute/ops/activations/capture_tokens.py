@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 
 from mechbench_compute import lexicon
@@ -9,8 +7,13 @@ from mechbench_compute import points as hookpoints
 from mechbench_compute import positions as POS
 from mechbench_compute import shapes as S
 from mechbench_compute.arrays import read_f32, read_token_logprobs
+from mechbench_compute.capture_rows import (
+    STORAGE_CHOICES,
+    STORAGE_DOC,
+    CaptureRows,
+    read_storage,
+)
 from mechbench_compute.distill import render
-from mechbench_compute.interp.load_kinds import load_kinds
 from mechbench_compute.interp.read_record_coords import read_record_coords
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
@@ -50,7 +53,9 @@ such ceiling: the rows are written as safetensors shards beside the
 object (`<label>/shards/…`), the object itself is the header with the
 shards named, and a reader takes the rows one shard at a time — a
 hundred thousand tokens at a layer is an ordinary capture. `"auto"`, the
-default, is json under the ceiling and tensor above it.
+default, is json under the ceiling and tensor above it. A result the run
+does not store (under `keep: "outputs"`, a node that is not an output) has
+no ceiling at all: it is held in memory as rows whatever its size.
 
 Fitted against the surprisal it carries, by `direction/regress`, this is
 the surprise-direction probe.
@@ -79,11 +84,7 @@ the surprise-direction probe.
           "Take one position in n of those named — a way under the ceiling "
           "that keeps the whole sequence's span rather than its first part.",
           1),
-        P("storage", "string",
-          "`\"json\"`: the rows in the object, under the ceiling. "
-          "`\"tensor\"`: the rows as shards beside it, no ceiling. "
-          "`\"auto\"`: json under the ceiling, tensor above.",
-          "auto", choices=("auto", "json", "tensor")),
+        P("storage", "string", STORAGE_DOC, "auto", choices=STORAGE_CHOICES),
     ),
     example={
         "model": {"$param": "model"},
@@ -98,7 +99,8 @@ def run(ctx, inputs, params):
     model = ctx.model(params.get("model"))
     records = lexicon.items_of(inputs.get("records") or [])
     return capture_tokens(
-        model, records, params, on_item=ctx.on_item, on_start=ctx.on_start)
+        model, records, params, on_item=ctx.on_item, on_start=ctx.on_start,
+        stored=ctx.stored)
 
 
 MAX_TOKEN_VECTOR_FLOATS = 7_000_000
@@ -111,6 +113,7 @@ def capture_tokens(
     *,
     on_start=None,
     on_item=None,
+    stored=True,
 ):
     layers = resolve_layers(params.get("layers", "all"), model.arch.n_layers)
     point = hookpoints.normalize(str(params.get("point", "resid_post")))
@@ -127,34 +130,19 @@ def capture_tokens(
         kept_per_record.append((record, r, idx))
 
     total = sum(len(idx) for _, _, idx in kept_per_record) * len(layers) * width
-    storage = str(params.get("storage", "auto"))
-    if storage not in ("auto", "json", "tensor"):
-        raise ValueError(f"storage is 'auto', 'json' or 'tensor', not {storage!r}")
-    if storage == "auto":
-        storage = "tensor" if total > MAX_TOKEN_VECTOR_FLOATS else "json"
-    if storage == "json" and total > MAX_TOKEN_VECTOR_FLOATS:
-        raise ValueError(
-            f"{len(records)} records × {sum(len(i) for _, _, i in kept_per_record)} "
-            f"kept positions × {len(layers)} layers × {width} dims = {total} "
-            f"floats exceeds the {MAX_TOKEN_VECTOR_FLOATS} cap (a result "
-            "object may not exceed 64 MiB, and a float costs ~8.3 bytes "
-            "stored) — set `storage: \"tensor\"` to write the rows as shards, "
-            "capture fewer layers, narrow `positions` (the chat template's "
-            "own tokens are rarely the question), raise `every` to take one "
-            "position in n, or capture fewer records")
+    sink = CaptureRows(
+        read_storage(params), ceiling=MAX_TOKEN_VECTOR_FLOATS, stored=stored,
+        levers="capture fewer layers, narrow `positions` (the chat template's own "
+              "tokens are rarely the question), raise `every` to take one position "
+              "in n, or capture fewer records")
+    sink.plan(total, f"{len(records)} records × "
+                     f"{sum(len(i) for _, _, i in kept_per_record)} kept positions × "
+                     f"{len(layers)} layers × {width} dims")
     if on_start:
         on_start(len(records))
 
     cap = Capture.residual(layers, point=hookpoints.side(point))
     mid = S.model_id_of(model)
-    rows: list[dict[str, Any]] = []
-    writer = None
-    if storage == "tensor":
-        import tempfile
-
-        from mechbench_compute import tensors
-
-        writer = tensors.ShardWriter(tempfile.mkdtemp(prefix="mechbench-tensor-"))
     for record, r, idx in kept_per_record:
         ids = model.make_ids(r.ids)
         add_to_span(tokens_in=len(r.ids))
@@ -174,16 +162,8 @@ def capture_tokens(
                     coords={**coords, "position": int(pos),
                             **({"surprisal": bits} if bits is not None else {})},
                     token=token)
-                if writer is not None:
-                    writer.add(row)
-                else:
-                    rows.append(row)
+                sink.add(row)
         if on_item:
             on_item()
-    header = dict(model=mid, point=point, source="resid",
-                  position=str(positions), every=every, layers=layers, d_model=width)
-    if writer is not None:
-        from mechbench_compute import tensors
-
-        return tensors.collection("activations/vector", writer.close(), **header)
-    return load_kinds().collection("activations/vector", rows, **header)
+    return sink.finish("activations/vector", model=mid, point=point, source="resid",
+                       position=str(positions), every=every, layers=layers, d_model=width)

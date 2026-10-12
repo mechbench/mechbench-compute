@@ -44,6 +44,17 @@ its own business.
   the shards beside the object, and `items_of` reads them back a shard
   at a time. This is how a result past the 64 MiB object limit is
   stored.
+- **The capture storage**, for an operation that emits vectors and takes
+  `storage: auto | json | tensor` as the capture operations do:
+  `CaptureRows(storage, ceiling=…, stored=ctx.stored, levers=…)` holds
+  the rows, `plan(total, what)` refuses a stored json result past the
+  ceiling (naming `storage: "tensor"`) or switches `auto` to shards,
+  `add(row)` and `extend(rows)` take the rows and `finish(item_kind,
+  **header)` is the collection; `read_storage(params)`, and
+  `STORAGE_CHOICES`, `STORAGE_DOC` and `STORAGE_SECTION` for the
+  declaration. `ctx.stored` is false for a node whose result the run
+  will not store (under `keep: "outputs"`, a node that is not an
+  output), and such a result has no ceiling.
 - **The dictionary helpers**, for an operation that reads through a
   `direction/dictionary`: `read_dictionary_weights` (its encoder,
   decoder, biases and thresholds as arrays, refusing what is not a
