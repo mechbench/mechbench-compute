@@ -27,6 +27,32 @@ _None._
 
 _None._
 
+## 0.196.5 — 2026-10-12
+
+### Changes that raise
+
+- 0.196.4's cap on an integrated GPU is computed from the driver's free
+  memory (`cudaMemGetInfo`) instead of the VM's `MemAvailable`. On
+  Enverge's DGX Spark VMs the GPU and the VM's RAM share the machine's
+  memory, but `/proc/meminfo` inside the VM does not see GPU
+  allocations: 20 GB on the GPU left `MemAvailable` unchanged while the
+  driver's free figure fell by 20 GB. Measured there: 105 GB free, a cap
+  of 97 GB, and allocation raised `torch.OutOfMemoryError` at 90 GB with
+  the VM up.
+
+### Changes that alter results without raising
+
+- Free memory on an integrated GPU is the driver's figure again, as it
+  was before 0.196.1: 0.196.1 read the VM's `MemAvailable`, which
+  counted nothing the GPU held, so generation batches were sized as if
+  about 115 GB were always free. Batch sizes can be smaller than under
+  0.196.1–0.196.4; the 2–9 GB that 0.196.1 took for a misreading was
+  real pressure while a model loaded.
+
+### Other
+
+_None._
+
 ## 0.196.4 — 2026-10-12
 
 ### Changes that raise

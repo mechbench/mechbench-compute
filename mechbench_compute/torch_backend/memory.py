@@ -1,51 +1,37 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-MEMINFO = Path("/proc/meminfo")
 HEADROOM = 8 * 2**30
 
 
-def read_host_available(meminfo: Path = MEMINFO) -> int | None:
-    try:
-        for line in meminfo.read_text().splitlines():
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) * 1024
-    except (OSError, ValueError, IndexError):
-        return None
-    return None
+def read_index(device: Any) -> int:
+    import torch
+
+    return device.index if device.index is not None else torch.cuda.current_device()
 
 
-# external: cudaMemGetInfo on an integrated GPU (GB10) — it reports the physical machine's free pages, not what this process can take (2-9 GB while 64 GB allocated on Enverge's VMs)
 def read_free_bytes(device: Any) -> int | None:
     if getattr(device, "type", None) != "cuda":
         return None
     import torch
 
-    index = device.index if device.index is not None else torch.cuda.current_device()
-    if getattr(torch.cuda.get_device_properties(index), "is_integrated", False):
-        available = read_host_available()
-        if available is not None:
-            return available
-    free, _total = torch.cuda.mem_get_info(device)
+    free, _total = torch.cuda.mem_get_info(read_index(device))
     return int(free)
 
 
-# external: the caching allocator on an integrated GPU (GB10) — it takes system memory until the kernel's OOM killer ends the VM instead of raising torch.OutOfMemoryError (Enverge's DGX Spark, 2026-10-12)
-def cap_integrated(device: Any, meminfo: Path = MEMINFO) -> float | None:
+# external: the caching allocator on an integrated GPU (GB10) — it takes the machine's memory until the VM is reset instead of raising torch.OutOfMemoryError; the VM's /proc/meminfo does not see GPU allocations, cudaMemGetInfo does (Enverge's DGX Spark, 2026-10-12)
+def cap_integrated(device: Any) -> float | None:
     if getattr(device, "type", None) != "cuda":
         return None
     import torch
 
-    index = device.index if device.index is not None else torch.cuda.current_device()
+    index = read_index(device)
     props = torch.cuda.get_device_properties(index)
     if not getattr(props, "is_integrated", False):
         return None
-    available = read_host_available(meminfo)
-    if available is None:
-        return None
+    free, total = torch.cuda.mem_get_info(index)
     held = torch.cuda.memory_reserved(index)
-    fraction = min(1.0, max(0.05, (available + held - HEADROOM) / props.total_memory))
+    fraction = min(1.0, max(0.05, (free + held - HEADROOM) / total))
     torch.cuda.set_per_process_memory_fraction(fraction, index)
     return fraction
