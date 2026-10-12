@@ -10,6 +10,7 @@ from mechbench_compute.protocol.gather_inputs import gather_inputs
 from mechbench_compute.protocol.missing_upstream import MissingUpstream
 from mechbench_compute.protocol.named_outputs import read_edge_hash, split_outputs
 from mechbench_compute.protocol.progress import Progress
+from mechbench_compute.protocol.release import release_frames
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 from mechbench_compute.protocol.read_resume_entry import read_resume_entry
 from mechbench_compute.protocol.resolver import Resolver
@@ -102,7 +103,7 @@ class Pipeline:
                 raise
             except Exception as exc:  # noqa: BLE001
                 self._report_span(nid, span)
-                state.failures[nid] = exc
+                state.failures[nid] = release_frames(exc)
                 state.missing[nid] = {"reason": f"{type(exc).__name__}: {exc}",
                                       "source": [nid]}
                 print(f"[graph] {nid} failed: {exc}")

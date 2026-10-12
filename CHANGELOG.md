@@ -27,6 +27,29 @@ _None._
 
 _None._
 
+## 0.196.6 — 2026-10-12
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- A failed node no longer keeps its model in memory. The pipeline stored
+  each failure with its traceback, whose frames held the node's locals,
+  the model among them, in a cycle only the garbage collector frees; the
+  executor's eviction after a failure therefore freed nothing, and the
+  next load ran out of memory. On the DGX Spark one failed node in a
+  Gemma 3 27B job left 51 GB held, and every later job on that runner
+  failed at its first model node ("Tried to allocate 50.59 GiB"). Stored
+  failures keep their message and traceback without the frames' locals,
+  and loading a model drops the one held, collects, and empties the CUDA
+  cache first.
+
 ## 0.196.5 — 2026-10-12
 
 ### Changes that raise

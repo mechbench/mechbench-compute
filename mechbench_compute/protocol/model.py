@@ -6,6 +6,7 @@ from mechbench_compute.hub import check_hub_id
 from mechbench_compute.model_ref import describe_layers
 from mechbench_compute.protocol.model_cache_stale import ModelCacheStale
 from mechbench_compute.protocol.model_fingerprint import mark_loaded, read_applied
+from mechbench_compute.protocol.release import release_device_memory
 
 
 class ModelLoading:
@@ -37,6 +38,9 @@ class ModelLoading:
         if (self._model is None or (model_id and model_id != self._model_id)
                 or backend_of(self._model) != backend.name
                 or (device is not None and getattr(self._model, "accelerator", None) != accelerator)):
+            if self._model is not None:
+                self.evict_model()
+            release_device_memory()
             self._model = load_model_class(backend).load(
                 model_id, hub_only=hub_only, on_download=self._on_download,
                 on_download_bytes=self._on_download_bytes,
