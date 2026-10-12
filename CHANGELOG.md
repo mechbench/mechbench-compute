@@ -27,6 +27,36 @@ _None._
 
 _None._
 
+## 0.197.1 — 2026-10-12
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._ Parameters, buffers, tied weights, dtypes, configs and generation
+configs from the streaming load are bit-identical to `from_pretrained`'s on
+every kit model (float32 and bfloat16, single-file, sharded and the older
+Gemma 3 key layout), and so are the logits.
+
+### Other
+
+- The torch backend loads weights by streaming plain reads instead of
+  memory-mapping safetensors. On an integrated GPU (a DGX Spark) the mapped
+  pages stayed resident as a second, CPU-side copy of the weights until the
+  load ended, so Gemma 4 31B needed twice its size and the VM was reset. The
+  reader parses each file's header and reads one tensor at a time into a
+  buffer that is dropped once the tensor is on the device; transformers'
+  `from_pretrained` is given those tensors as its `state_dict`, so its key
+  renaming, dtype rules, buffer initialisation and weight tying apply
+  unchanged. `MECHBENCH_STREAM_LOAD=auto|on|off` picks it (`auto`, the
+  default, streams on an integrated GPU only). A checkpoint the streamer
+  cannot map in full (a key the model lacks, a parameter the checkpoint
+  lacks, a shape that disagrees, a dtype the reader does not decode, a
+  `.bin` checkpoint) loads through `from_pretrained` as before, with a
+  logged warning that names why.
+
 ## 0.197.0 — 2026-10-12
 
 ### Changes that raise

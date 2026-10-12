@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute._arch import Arch
+
+logger = logging.getLogger(__name__)
 
 
 def read_text_config(config: Any) -> Any:
@@ -72,14 +75,27 @@ def load_transformers(model_id: str, *, classes: Mapping[str, str], device: str 
 
     from mechbench_compute.torch_backend.determinism import make_deterministic
     from mechbench_compute.torch_backend.memory import cap_integrated
+    from mechbench_compute.torch_backend.streaming import (
+        StreamRefused,
+        decide_streaming,
+        load_streaming,
+    )
 
     target = torch.device(device or pick_device())
     make_deterministic(target)
     cap_integrated(target)
     config = transformers.AutoConfig.from_pretrained(model_id)
     name = classes.get(config.model_type, "AutoModelForCausalLM")
-    model = getattr(transformers, name).from_pretrained(
-        model_id, dtype=dtype if dtype is not None else torch.bfloat16, device_map=target)
+    cls = getattr(transformers, name)
+    chosen = dtype if dtype is not None else torch.bfloat16
+    model = None
+    if decide_streaming(target):
+        try:
+            model = load_streaming(cls, model_id, config=config, dtype=chosen, device=target)
+        except StreamRefused as refused:
+            logger.warning("streaming %s refused, loading it through from_pretrained: %s", model_id, refused)
+    if model is None:
+        model = cls.from_pretrained(model_id, dtype=chosen, device_map=target)
     model.eval()
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
     return model, tokenizer
