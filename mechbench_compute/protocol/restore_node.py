@@ -5,6 +5,7 @@ from mechbench_compute.protocol.named_outputs import (
     name_output_targets,
     read_edge_output,
 )
+from mechbench_compute.protocol.read_stored import read_stored
 
 
 def restore_node(state, nid, entry, block, params, fingerprint,
@@ -19,8 +20,9 @@ def restore_node(state, nid, entry, block, params, fingerprint,
         if named and not restore_named_results(state, nid, named):
             return False
         fetched = bench.fetch(entry["done"])
-        state.results[nid] = (fetched.get("payload", fetched)
-                              if isinstance(fetched, dict) else fetched)
+        state.results[nid] = read_stored(fetched.get("payload", fetched)
+                                         if isinstance(fetched, dict) else fetched,
+                                         entry["done"])
         state.node_paths[nid] = entry["done"]
         state.node_hashes[nid] = resume_mod.content_hash(state.results[nid])
         if on_node_done is not None:
@@ -49,7 +51,8 @@ def restore_named_results(state, nid, named) -> bool:
             print(f"[resume] {nid}: its output {name!r} is not at {path}; recomputing")
             state.named_results.pop(nid, None)
             return False
-        value = fetched.get("payload", fetched) if isinstance(fetched, dict) else fetched
+        value = read_stored(fetched.get("payload", fetched)
+                            if isinstance(fetched, dict) else fetched, path)
         state.named_results[nid][name] = value
         state.named_hashes.setdefault(nid, {})[name] = resume_mod.content_hash(value)
         state.named_paths.setdefault(nid, {})[name] = path

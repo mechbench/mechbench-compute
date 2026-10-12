@@ -7,6 +7,7 @@ from mechbench_compute.protocol.named_outputs import (
     name_output_targets,
     read_edge_path,
 )
+from mechbench_compute.protocol.read_stored import prepare_emit
 from mechbench_compute.protocol.serialize_params import serialize_params
 from mechbench_compute.registry import REGISTRY
 
@@ -15,7 +16,6 @@ def store_result(state, nid, node, block, params, in_edges, inputs, resolver,
                  fingerprint, on_node_kept=None) -> None:
     from mechbench_compute import bench, dataflow
     from mechbench_compute import resume as resume_mod
-    from mechbench_compute import tensors as tensors_mod
 
     state.results[nid] = lexicon.canonical_collection(state.results[nid])
     state.results[nid] = copy_arch(inputs, state.results[nid])
@@ -33,12 +33,7 @@ def store_result(state, nid, node, block, params, in_edges, inputs, resolver,
             target = f"{state.result_base}/{names[0]}"
         else:
             target = f"{state.result_base}/{dataflow.INTERMEDIATES}/{nid}"
-        to_emit = state.results[nid]
-        if tensors_mod.is_tensor(to_emit):
-            to_emit = tensors_mod.upload(
-                to_emit, target,
-                lambda lab, path: bench.put_file(lab, path, kind="tensor_shard"),
-                have=bench.list_prefix_hashes(target))
+        to_emit = prepare_emit(state.results[nid], target)
         out = bench.emit(
             target,
             to_emit,
@@ -87,12 +82,13 @@ def store_named_results(state, nid, block, params, in_edges, resolver, node) -> 
         if not state.result_base or (state.discard and not declared):
             continue
         first, *also = name_output_targets(state, nid, name)
-        out = bench.emit(first, value,
+        stored = prepare_emit(value, first)
+        out = bench.emit(first, stored,
                          inputs=read_cited_inputs(state, in_edges, resolver, node),
                          operation=lexicon.canonical_path(block), extension=pin,
                          params=serialize_params(params))
         state.named_paths.setdefault(nid, {})[name] = out["path"]
         for target in also:
-            bench.emit(target, value, inputs=[out["path"]],
+            bench.emit(target, stored, inputs=[out["path"]],
                        operation=lexicon.canonical_path(block), extension=pin,
                        params=serialize_params(params))

@@ -43,8 +43,6 @@ def train_lora(ctx, model, params, groups: Mapping[str, list[Any]], batch: Mappi
         lineage = {"kind": "adapter/lora", "format": "safetensors",
                    "base_model": trained_on["base"], "trained_on": trained_on,
                    "lora": lora}
-        if kept_steps:
-            check_kept_size(len(trainer.read_adapter_bytes(model)), len(kept_steps))
         if ctx.on_start:
             ctx.on_start(steps)
         resumed_from = int(ctx.resume_state["step"]) if ctx.resume_state else 0
@@ -92,17 +90,6 @@ def read_kept_steps(params, steps: int, every: int) -> list[int]:
             "adapter/train: keep_checkpoints keeps an adapter every "
             "`checkpoint_every` steps; set it above 0")
     return [*range(every, steps, every), steps]
-
-
-def check_kept_size(adapter_bytes: int, count: int) -> None:
-    from mechbench_compute.bench import MAX_OBJECT_BYTES
-
-    if adapter_bytes * count > MAX_OBJECT_BYTES:
-        raise ValueError(
-            f"adapter/train: {count} kept checkpoints of {adapter_bytes:,} bytes "
-            f"each are over the {MAX_OBJECT_BYTES:,}-byte object limit the "
-            f"collection is stored under; keep fewer with a larger "
-            f"`checkpoint_every` (at most {max(1, MAX_OBJECT_BYTES // adapter_bytes)} fit)")
 
 
 def restore_kept(kept_steps: list[int], resumed_from: int,

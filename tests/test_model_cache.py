@@ -176,9 +176,10 @@ class TestATrainingThatDiesMidRun:
     def test_a_refusal_after_the_lora_is_wrapped_unwraps_it(self):
         model = build_tiny_model("llama")
         marks, values = lora.mark_weights(model.lm), read_values(model)
-        with pytest.raises(ValueError, match="kept checkpoints"):
-            train_op.run(Context(loaded=model), {"records": [DOCUMENT]},
-                         {"model": "tiny", **SFT, "steps": 2_000_000, "checkpoint_every": 1,
+        with pytest.raises(ValueError, match="kept at step 1"):
+            train_op.run(Context(loaded=model, resume_state={"step": 2}, resume_items={}),
+                         {"records": [DOCUMENT]},
+                         {"model": "tiny", **SFT, "steps": 4, "checkpoint_every": 1,
                           "keep_checkpoints": True})
         assert_untouched(model, marks, values)
 

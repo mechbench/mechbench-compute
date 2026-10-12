@@ -79,9 +79,15 @@ a coordinate: `records/map` over the collection, with the item fed to a
 model's `adapter` port, sweeps any operation over steps, and
 `adapter/measure` reads the whole collection at once. A run interrupted
 after a kept step resumes with the items it already kept, not
-recomputed. The collection is one stored object, so the adapters' bytes
-times their count must fit the platform's 64 MiB object limit; the run
-refuses before training when it would not.
+recomputed. How many are kept, and how large each is, is bounded by the
+machine and the object store, not by one object: a stored object may not
+exceed 64 MiB, so a collection that would is stored with each adapter's
+bytes as its own file beside it (`<label>/files/…`, the object holding
+`storage: "files"` and, in place of each `data`, a `$file` naming the
+file's path, size and hash), and every reader — a `$ref`, a resumed node,
+`adapter/measure`, `adapter/merge`, a model's `adapter` port — reads the
+bytes back as before. A collection under the limit is the one object it
+always was. A single adapter past the limit is stored the same way.
 
 `seed` fixes the whole run: the adapter's initial weights as well as the
 sampling order, so two runs of the same node on the same machine produce

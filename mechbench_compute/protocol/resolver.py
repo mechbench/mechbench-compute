@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mechbench_compute import dataflow, lexicon
+from mechbench_compute.protocol.read_stored import read_stored
 from mechbench_compute.tensors import LOCAL_DIR
 
 
@@ -17,10 +18,7 @@ class Resolver:
         self.resolved: dict[str, dict] = {"objects": {}, "models": {}}
 
     def fetch_object(self, ref, want=None):
-        from pathlib import Path
-
         from mechbench_compute import bench
-        from mechbench_compute import tensors as tensors_mod
 
         fetched, meta = bench.fetch(ref, with_meta=True)
         got = (meta or {}).get("content_hash") or ""
@@ -30,14 +28,8 @@ class Resolver:
                 f"pinned object {ref!r} resolved to {got!r}, "
                 f"expected sha256 {want!r}")
         payload = fetched.get("payload", fetched) if isinstance(fetched, dict) else fetched
-        if tensors_mod.is_tensor(payload):
-            if self.on_download is not None:
-                self.on_download(str(ref), None)
-            payload = tensors_mod.materialize(
-                payload, str(ref), bench.get_file_chunks,
-                Path.home() / ".mechbench" / "tensors",
-                on_bytes=self.on_download_bytes)
-        return payload
+        return read_stored(payload, str(ref), on_download=self.on_download,
+                           on_download_bytes=self.on_download_bytes)
 
     def read_stored_inputs(self, node):
         found: list[str] = []
@@ -170,8 +162,10 @@ class Resolver:
         self.resolved["objects"][str(label)] = (
             (meta or {}).get("content_hash") or ""
         )
-        return (fetched.get("payload", fetched)
-                if isinstance(fetched, dict) else fetched)
+        return read_stored(fetched.get("payload", fetched)
+                           if isinstance(fetched, dict) else fetched, str(label),
+                           on_download=self.on_download,
+                           on_download_bytes=self.on_download_bytes)
 
     def resolve_params(self, params, block=None):
         return {k: self.resolve_value(

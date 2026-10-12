@@ -27,6 +27,41 @@ _None._
 
 _None._
 
+## 0.197.4 — 2026-10-12
+
+### Changes that raise
+
+- `adapter/train` with `keep_checkpoints` no longer refuses when the kept
+  adapters' bytes times their count pass the 64 MiB object limit ("4
+  kept checkpoints of 33,548,752 bytes each are over the
+  67,108,864-byte object limit…", Gemma 3 27B in experiment 055's dice
+  recipe). How many are kept, and how large each is, is now bounded by
+  the machine and the object store.
+
+### Changes that alter results without raising
+
+- A stored result past the 64 MiB object limit whose size is in bytes
+  values (an adapter's `data`: a collection of kept checkpoints, or a
+  single adapter past the limit) is stored with each bytes value as its
+  own file beside the object (`<label>/files/<sha256 prefix>.bin`, kind
+  `result_file`); the object carries `storage: "files"` and, in place of
+  each bytes value, `{"$file": {"path", "bytes", "sha256"}}`. Every read
+  through the executor — a `$ref`, a model reference's adapters, a
+  resumed node's outputs — fetches the files, checks their hashes and
+  gives the bytes back, so readers (`adapter/measure`, `adapter/merge`,
+  `records/map` into an `adapter` port) see the collection as before. A
+  result under the limit is stored byte for byte as it was, and its
+  content hash is unchanged either way. A reader outside compute (the
+  UI, the API) sees the `$file` references in place of the bytes.
+
+### Other
+
+- A named output (as `adapter/train`'s `checkpoints`) stored as tensor
+  shards now uploads its shards, as a node's default output did; and a
+  resumed node whose stored output is tensor shards or files reads them
+  back (its shards are fetched into the local cache) rather than handing
+  downstream nodes a header whose items are not on this machine.
+
 ## 0.197.3 — 2026-10-12
 
 ### Changes that raise

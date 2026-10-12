@@ -43,7 +43,10 @@ its own business.
   **header)` is the collection that names them. The executor uploads
   the shards beside the object, and `items_of` reads them back a shard
   at a time. This is how a result past the 64 MiB object limit is
-  stored.
+  stored. A result whose size is in bytes values (an adapter's `data`)
+  needs nothing of an operation: past the limit the executor stores
+  each bytes value as its own file beside the object, and every read
+  through the executor gives the bytes back.
 - **The capture storage**, for an operation that emits vectors and takes
   `storage: auto | json | tensor` as the capture operations do:
   `CaptureRows(storage, ceiling=…, stored=ctx.stored, levers=…)` holds
