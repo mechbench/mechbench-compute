@@ -27,6 +27,28 @@ _None._
 
 _None._
 
+## 0.197.3 — 2026-10-12
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- On torch a model that an operation had traced (any capture, hook or
+  intervention, through nnsight) stayed in memory after the executor let it
+  go: the envoy cache was a `WeakKeyDictionary` whose value, the envoy,
+  referenced its key, the model, so the entry never died. The next model
+  load (a switch to another model, or the same one after a training job or
+  a failed node evicted it) then held two copies of the weights; on the
+  DGX Spark a Gemma 3 27B organism failed to load with 51 GB still held.
+  The envoy now lives on the module it wraps and is freed with it, so a
+  load holds at most one copy, on torch as on MLX.
+
 ## 0.197.2 — 2026-10-12
 
 ### Changes that raise

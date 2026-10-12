@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import contextlib
-import weakref
 from collections.abc import Iterator
 from typing import Any
 
-ENVOYS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+# external: CPython — a WeakKeyDictionary value that references its key keeps the key alive for good, and an envoy references its module, so the envoy lives on the module and goes with it
+ENVOY = "_mechbench_envoy"
 
 
 def load_nnsight() -> Any:
@@ -20,9 +20,9 @@ def load_nnsight() -> Any:
 
 
 def wrap_model(module: Any) -> Any:
-    envoy = ENVOYS.get(module)
+    envoy = module.__dict__.get(ENVOY)
     if envoy is None:
-        envoy = ENVOYS[module] = load_nnsight().NNsight(module)
+        envoy = module.__dict__[ENVOY] = load_nnsight().NNsight(module)
     return envoy
 
 
