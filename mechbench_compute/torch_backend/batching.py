@@ -8,13 +8,19 @@ from mechbench_compute.torch_backend.memory import read_free_bytes
 MEMORY_SHARE = 0.5
 
 
+# external: transformers 5.19 — a config attribute that differs between layers raises when read whole (Gemma 4's head_dim, 31B's num_key_value_heads); per_layer_config carries each layer's own
+def read_kv_widths(cfg: Any) -> list[int]:
+    heads = int(cfg.num_attention_heads)
+    layers = getattr(cfg, "per_layer_config", None) or [cfg] * int(cfg.num_hidden_layers)
+    return [int(getattr(layer, "num_key_value_heads", None) or heads)
+            * int(getattr(layer, "head_dim", None) or int(cfg.hidden_size) // heads)
+            for layer in layers]
+
+
 def read_row_bytes(model: Any, tokens: int, *, logits_rows: int = 1) -> int:
     cfg = read_text_config(model._model.config)
-    heads = int(cfg.num_attention_heads)
-    head_dim = int(getattr(cfg, "head_dim", None) or int(cfg.hidden_size) // heads)
-    kv_heads = int(getattr(cfg, "num_key_value_heads", None) or heads)
     width = next(model._model.parameters()).element_size()
-    kv = 2 * int(cfg.num_hidden_layers) * kv_heads * head_dim * width * int(tokens)
+    kv = 2 * sum(read_kv_widths(cfg)) * width * int(tokens)
     hidden = 4 * int(cfg.hidden_size) * width * int(tokens)
     logits = int(cfg.vocab_size) * 4 * 2 * int(logits_rows)
     return kv + hidden + logits

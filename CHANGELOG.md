@@ -27,6 +27,27 @@ _None._
 
 _None._
 
+## 0.196.3 — 2026-10-12
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- Generation on torch runs on Gemma 4 under transformers 5.19: the batch
+  sizer reads each layer's key/value heads and head width from
+  `per_layer_config` (Gemma 4's sliding layers are 256 wide and its
+  global layers 512; 31B's differ in key/value heads too) and sums them.
+  Under 5.19, asking the config for one `head_dim` raises, so every
+  `text/generate` on Gemma 4 failed with "'head_dim' is a per-layer
+  attribute" (seen on the DGX Spark; the Mac tested 5.15). Uniform
+  configs size their batches exactly as before.
+
 ## 0.196.2 — 2026-10-12
 
 ### Changes that raise
