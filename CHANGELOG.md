@@ -13,6 +13,20 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
 ## 0.203.0 — 2026-10-15
 
 ### Changes that raise
@@ -53,20 +67,6 @@ _None._
   `check_one_width`); capture's refusal of tensor storage
   across two widths now ends "read the layers of each width in a node of
   their own" rather than "capture …".
-
-## Unreleased
-
-### Changes that raise
-
-_None._
-
-### Changes that alter results without raising
-
-_None._
-
-### Other
-
-_None._
 
 ## 0.202.0 — 2026-10-15
 
