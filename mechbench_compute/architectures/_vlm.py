@@ -21,7 +21,8 @@ def read_language_model(model):
 read_vlm_head_weights = make_head_weights(
     lambda model: model.language_model.model.layers,
     read_n_heads=lambda attn: attn.n_heads,
-    is_global=lambda layer: not layer.self_attn.is_sliding)
+    is_global=lambda layer: not layer.self_attn.is_sliding,
+    out_norm="post_attention_layernorm")
 
 
 def make_vlm_cache(model):

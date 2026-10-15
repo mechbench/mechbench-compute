@@ -11,7 +11,7 @@ from mechbench_compute.support import (
     refuse_logit_softcap,
 )
 from mechbench_compute.torch_backend.architectures._decoder import (
-    read_head_weights,
+    read_gemma_head_weights,
     read_language_model,
     read_text,
     read_text_path,
@@ -62,7 +62,7 @@ ARCH = Architecture(
     project_to_logits=make_project_to_logits(read_unembed),
     tokenize=tokenize_chat,
     attribution_unembed=read_unembed,
-    head_weights=read_head_weights,
+    head_weights=read_gemma_head_weights,
     dialect=None,
     reasoning=(),
     adapter_keys=ADAPTER_KEYS,

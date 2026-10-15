@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
-from .arrays import read_f32
+from .arrays import make_f32, read_f32
+
+GAIN_PROBE = 1024.0
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,12 @@ class HeadSpec:
     b_Q: np.ndarray | None = None
     b_K: np.ndarray | None = None
     b_V: np.ndarray | None = None
+    in_gain: np.ndarray | None = None
+    kv_in_gain: np.ndarray | None = None
+    q_gain: np.ndarray | None = None
+    k_gain: np.ndarray | None = None
+    v_gain: np.ndarray | None = None
+    out_gain: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -114,23 +123,77 @@ def slice_head(layer: int, head: int, *, n_heads: int, q_proj, k_proj, v_proj, o
     )
 
 
+def read_norm_gain(norm, dim: int, like) -> np.ndarray | None:
+    if norm is None:
+        return None
+    probe = make_f32(np.full((1, dim), GAIN_PROBE, np.float32), like)
+    return read_f32(norm(probe))[0]
+
+
 def make_head_weights(
     read_layers: Callable[[Any], Sequence[Any]],
     read_n_heads: Callable[[Any], int],
     is_global: Callable[[Any], bool],
+    out_norm: str | None = None,
 ) -> Callable[[Any, int, int], HeadSpec]:
     def head_weights(model, layer: int, head: int) -> HeadSpec:
         layers = read_layers(model)
         attn = layers[layer].self_attn
         kv_layer = find_kv_layer(layers, layer)
         kv = layers[kv_layer].self_attn
-        return slice_head(
+        spec = slice_head(
             layer, head, n_heads=int(read_n_heads(attn)),
             q_proj=attn.q_proj, k_proj=kv.k_proj, v_proj=getattr(kv, "v_proj", None),
             o_proj=attn.o_proj, is_global=bool(is_global(layers[layer])),
             is_kv_shared=kv_layer != layer, kv_layer=kv_layer)
+        like = attn.o_proj.weight
+        d, head_dim = spec.W_Q.shape[1], spec.head_dim
+        return dataclasses.replace(
+            spec,
+            in_gain=read_norm_gain(layers[layer].input_layernorm, d, like),
+            kv_in_gain=read_norm_gain(layers[kv_layer].input_layernorm, d, like),
+            q_gain=read_norm_gain(getattr(attn, "q_norm", None), head_dim, like),
+            k_gain=read_norm_gain(getattr(kv, "k_norm", None), head_dim, like),
+            v_gain=read_norm_gain(getattr(kv, "v_norm", None), head_dim, like),
+            out_gain=read_norm_gain(
+                None if out_norm is None else getattr(layers[layer], out_norm), d, like))
 
     return head_weights
+
+
+def fold(w: np.ndarray, bias: np.ndarray | None, *, in_gain: np.ndarray | None,
+         out_gain: np.ndarray | None, augment: bool) -> np.ndarray:
+    if in_gain is not None:
+        w = w * in_gain[None, :]
+    if augment:
+        column = np.zeros(w.shape[0], w.dtype) if bias is None else bias
+        w = np.concatenate([w, column[:, None]], axis=1)
+    if out_gain is not None:
+        w = out_gain[:, None] * w
+    return w
+
+
+def has_qk_bias(spec: HeadSpec) -> bool:
+    return spec.b_Q is not None or spec.b_K is not None
+
+
+def fold_q(spec: HeadSpec, *, augment: bool = False) -> np.ndarray:
+    return fold(spec.W_Q, spec.b_Q, in_gain=spec.in_gain, out_gain=spec.q_gain,
+                augment=augment)
+
+
+def fold_k(spec: HeadSpec, *, augment: bool = False) -> np.ndarray:
+    return fold(spec.W_K, spec.b_K, in_gain=spec.kv_in_gain, out_gain=spec.k_gain,
+                augment=augment)
+
+
+def fold_v(spec: HeadSpec, *, augment: bool = False) -> np.ndarray:
+    return fold(spec.W_V, spec.b_V, in_gain=spec.kv_in_gain, out_gain=spec.v_gain,
+                augment=augment)
+
+
+def fold_o(spec: HeadSpec) -> np.ndarray:
+    return spec.W_O if spec.out_gain is None else spec.out_gain[:, None] * spec.W_O
 
 
 def read_embed_matrix(model) -> np.ndarray:
@@ -139,7 +202,9 @@ def read_embed_matrix(model) -> np.ndarray:
 
 def read_unembed_matrix(model) -> np.ndarray:
     head = getattr(model.lm, "lm_head", None)
-    return read_embed_matrix(model) if head is None else read_dense_weight(head)
+    w = read_embed_matrix(model) if head is None else read_dense_weight(head)
+    norm = model.architecture.attribution_unembed(model._model).norm
+    return w * read_norm_gain(norm, w.shape[1], norm.weight)[None, :]
 
 
 def _unit_normalized_embed(model) -> np.ndarray:
@@ -174,7 +239,7 @@ def head_read_tokens(
     spec = get_head_spec(model, layer, head)
     if embed is None:
         embed = _unit_normalized_embed(model) if normalize else read_embed_matrix(model)
-    projected = embed @ spec.W_Q.T
+    projected = embed @ fold_q(spec).T
     scores = (projected ** 2).sum(axis=1)
     top_idx = np.argsort(-scores)[:k]
     return [
@@ -191,7 +256,7 @@ def head_key_tokens(
     spec = get_head_spec(model, layer, head)
     if embed is None:
         embed = _unit_normalized_embed(model) if normalize else read_embed_matrix(model)
-    projected = embed @ spec.W_K.T
+    projected = embed @ fold_k(spec).T
     scores = (projected ** 2).sum(axis=1)
     top_idx = np.argsort(-scores)[:k]
     return [
@@ -219,14 +284,16 @@ def qk_circuit(
     spec = get_head_spec(model, layer, head)
     if embed is None:
         embed = read_embed_matrix(model)
-    A = spec.W_Q.T
-    B = spec.W_K
+    augment = has_qk_bias(spec)
+    A = fold_q(spec, augment=augment).T
+    B = fold_k(spec, augment=augment)
     U, S, Vt = _truncated_svd_of_product(A, B, n_components)
+    d = embed.shape[1]
     components = tuple(
         CircuitComponent(
             rank=i, strength=float(S[i]),
-            left_tokens=_top_tokens_for_direction(model, U[:, i], k_tokens, embed),
-            right_tokens=_top_tokens_for_direction(model, Vt[i, :], k_tokens, embed),
+            left_tokens=_top_tokens_for_direction(model, U[:d, i], k_tokens, embed),
+            right_tokens=_top_tokens_for_direction(model, Vt[i, :d], k_tokens, embed),
         )
         for i in range(len(S))
     )
@@ -257,7 +324,7 @@ def head_ov_position_writes(
     V = read_f32(result.cache[f"blocks.{layer}.attn.v"])
     V_group = V[0, spec.kv_group]
 
-    writes = V_group @ spec.W_O.T
+    writes = V_group @ fold_o(spec).T
     logits = writes @ unembed.T
 
     L = V_group.shape[0]
@@ -289,7 +356,7 @@ def head_ov_actual_writes(
     PH = read_f32(result.cache[f"blocks.{layer}.attn.per_head_out"])
     PH_h = PH[0, head]
 
-    writes = PH_h @ spec.W_O.T
+    writes = PH_h @ fold_o(spec).T
     logits = writes @ unembed.T
 
     L = PH_h.shape[0]
@@ -318,14 +385,15 @@ def ov_circuit(
         embed = read_embed_matrix(model)
     if unembed is None:
         unembed = read_unembed_matrix(model)
-    A = spec.W_O
-    B = spec.W_V
+    A = fold_o(spec)
+    B = fold_v(spec, augment=spec.b_V is not None)
     U, S, Vt = _truncated_svd_of_product(A, B, n_components)
+    d = embed.shape[1]
     components = tuple(
         CircuitComponent(
             rank=i, strength=float(S[i]),
             left_tokens=_top_tokens_for_direction(model, U[:, i], k_tokens, unembed),
-            right_tokens=_top_tokens_for_direction(model, Vt[i, :], k_tokens, embed),
+            right_tokens=_top_tokens_for_direction(model, Vt[i, :d], k_tokens, embed),
         )
         for i in range(len(S))
     )
@@ -346,9 +414,9 @@ def _fro_of_product(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def composition_score(reader: np.ndarray, spec_out: HeadSpec) -> float:
-    inner = reader @ spec_out.W_O
-    numerator = _fro(inner @ spec_out.W_V)
-    denominator = _fro(reader) * _fro_of_product(spec_out.W_O, spec_out.W_V)
+    w_o, w_v = fold_o(spec_out), fold_v(spec_out)
+    numerator = _fro(reader @ w_o @ w_v)
+    denominator = _fro(reader) * _fro_of_product(w_o, w_v)
     return float(numerator / denominator) if denominator > 0 else 0.0
 
 
@@ -368,7 +436,7 @@ def head_composition(
             f"a head at layer {layer} can only compose with earlier layers; "
             f"{sorted(late)} are not earlier")
     dest = get_head_spec(model, layer, head)
-    readers = {"q": dest.W_Q, "k": dest.W_K, "v": dest.W_V}
+    readers = {"q": fold_q(dest), "k": fold_k(dest), "v": fold_v(dest)}
     rows: list[dict] = []
     for src_layer in layers:
         for src_head in range(dest.n_heads):

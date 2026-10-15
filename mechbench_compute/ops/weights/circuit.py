@@ -34,12 +34,22 @@ FOLLOWED them.
 component looks for, `right` the key tokens it matches. Position is not in
 it — RoPE is applied to the activations, not the weights — so a head that
 attends by position alone shows nothing here, which is itself the finding.
-Both circuits are the bare projections: the q/k/v norms some architectures
-apply per head (Gemma 3 and 4, Qwen 3), the projection biases (Qwen 2) and
-the final norm are left out. Where key/value heads are shared (grouped-query
+Both circuits fold in the gains of the norms around the head, so each is
+the map the head computes: the attention input norm's gain on W_Q, W_K and
+W_V, the per-head q, k and v norms' gains where the architecture has them
+(Gemma 3 and 4, Qwen 3), the attention output norm's gain on W_O (Gemma's
+`post_attention_layernorm`), and the final norm's gain in the unembedding
+`left` is read through. Projection biases (Qwen 2) enter as one more input
+coordinate, a constant 1, so they shape the components; the token readout
+uses the embedding coordinates only, and a component carried by the bias
+reads as weak tokens. Not folded, because no matrix can hold them: each
+RMSNorm's per-token scale (the 1/rms of the vector it normalizes), RoPE,
+and the final-logit softcap. `composition` folds the same
+gains, without the biases. Where key/value heads are shared (grouped-query
 attention), each query head reads its group's W_K and W_V, and `kv_group`
 names the group; a layer that reuses an earlier layer's keys and values
-(Gemma 4's shared layers) reads that layer's.
+(Gemma 4's shared layers) reads that layer's, through that layer's input
+norm.
 
 **`composition`** reads INTO one head (`head: {"layer": 23, "index": 5}`)
 and scores every head of the earlier layers against it: ‖W_read·W_OV‖ over

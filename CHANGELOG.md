@@ -40,26 +40,49 @@ _None._
 
 ### Changes that alter results without raising
 
-_None._
+- `weights/circuit` folds the norms' gains (and Qwen 2's biases) into
+  its circuits, so every `ov` and `qk` record and every `composition`
+  score changes on Gemma 4 (and on Gemma 3 and Qwen 3, new in this
+  release). Before, the circuits were the bare projections, W_O·W_V and
+  W_Qᵀ·W_K, which is not what a Gemma head computes: its input passes
+  the attention input norm's gain, its q and k pass per-head norms with
+  their own gains, its write passes `post_attention_layernorm`'s gain,
+  and its promoted tokens are read after the final norm's gain. Each
+  gain is a per-coordinate scale, so it moves the singular directions,
+  not only their sizes: `strength` changes (on the kit's tiny Gemma 4,
+  L1H2's first OV component 12.38 → 5.34, its first QK component
+  10.94 → 2.27; random gains make the tiny model's shifts larger than
+  a trained model's), the `left`/`right` tokens change with the
+  directions, and composition scores move by up to about 0.03 there
+  (L0H0→L3H1 `k` 0.154 → 0.124). The q/k/v biases enter the SVD as one
+  more input coordinate. `HeadSpec` keeps the bare slices and adds the
+  gains (`in_gain`, `kv_in_gain`, `q_gain`, `k_gain`, `v_gain`,
+  `out_gain`); `head_weights.fold_q`/`fold_k`/`fold_v`/`fold_o` give the
+  folded matrices, and `read_unembed_matrix` folds the final norm's
+  gain. `head_read_tokens`, `head_key_tokens` and both
+  `head_ov_*_writes` read the folded matrices too. Still not folded,
+  as the op's description says: each RMSNorm's per-token scale, RoPE
+  and the final-logit softcap. Records written by 0.199.0 and earlier
+  are not comparable with these; re-run them.
 
 ### Other
 
-- Gemma 4 on MLX reads every head byte for byte as before: the
-  `HeadSpec` arrays, `weights/circuit`'s `ov`, `qk` and `composition`
-  records and both `head_ov_*_writes` are identical on the kit's three
-  tiny Gemma 4 models (E-series, small softcap, 31B) against 0.199.0.
-  `ov`'s `left` tokens are now read through the unembedding, which is
-  the embedding matrix itself on Gemma 4.
+- Before the gains were folded, Gemma 4 on MLX read every head byte for
+  byte as in 0.199.0 through the new builder (the `HeadSpec` slices are
+  still identical); the record changes above are the folding alone.
 - `weights/circuit` runs on the torch backend, on all five torch
   architectures (Gemma 3, Gemma 4, Llama, Qwen 2, Qwen 3); it was the
   last operation torch refused. On MLX it now runs on Gemma 3, Llama
   and Qwen 2 as well, which raised `NotImplementedError` before.
 - Every architecture on both backends declares its heads through one
   builder, `head_weights.make_head_weights(read_layers, read_n_heads,
-  is_global)`: MLX's mlx-vlm families (`_vlm.read_vlm_head_weights`),
+  is_global, out_norm)`: MLX's mlx-vlm families (`_vlm.read_vlm_head_weights`),
   its mlx-lm families (`_mlx_lm.read_lm_head_weights`) and torch's
   transformers families (`torch_backend/architectures/_decoder.
-  read_head_weights`). `head_dim` and the key/value head count are read
+  read_head_weights`, and `read_gemma_head_weights` for the two Gemmas,
+  whose writes pass `post_attention_layernorm`). A norm's gain is read
+  by running the norm on a constant vector, so Gemma 3's `1 + w` and
+  every other family's offset need no table. `head_dim` and the key/value head count are read
   off each layer's own projections, so Gemma 4's 256-wide sliding and
   512-wide global layers and the 31B's per-layer key/value head counts
   need no special case; a query head reads its group's W_K and W_V
@@ -69,7 +92,7 @@ _None._
   case raised `AttributeError` before (a shared layer has no `k_proj`),
   so `weights/circuit` over every layer of Gemma 4 E2B or E4B failed.
   `HeadSpec` also carries each head's slice of the q/k/v biases
-  (`b_Q`, `b_K`, `b_V`; Qwen 2 has them), which the circuits leave out.
+  (`b_Q`, `b_K`, `b_V`; Qwen 2 has them).
   The weights are read through `arrays.read_f32`, MLX's quantized
   layers dequantized first; `head_weights` no longer imports MLX.
 - `weights/circuit` reads the embedding and unembedding once per node,
@@ -81,7 +104,14 @@ _None._
   position (which RoPE leaves unchanged), v, the head's attention-weighted
   values and its write (W_O·W_V on the values against `o_proj` with the
   other heads zeroed) from the head's own slices and the forward's
-  captures; `tests/test_torch_matches_mlx.py` runs `ov`, `qk` and
+  captures. A second test there checks the folded circuits against the
+  forward on every head of every kit model on both backends: the folded
+  QK matrix, with the per-token norm scales put back, gives the
+  forward's normed q·k at every position; the folded value path gives
+  the head's mixed values; the heads' writes through the folded W_O,
+  scaled by the output norm's per-token scale, sum to `attn_out`; and
+  the gain-folded unembedding gives the model's own projection of the
+  normed final residual. `tests/test_torch_matches_mlx.py` runs `ov`, `qk` and
   `composition` on the same weights on both backends for every paired
   kit model, and a torch job runs `weights/circuit` end to end.
 
