@@ -13,6 +13,20 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
 ## 0.202.0 — 2026-10-15
 
 ### Changes that raise
@@ -55,20 +69,6 @@ _None._
   carries the MLP's interior, so every architecture's `layerPoints`
   names the five points, and `dictionary/load`'s refusal of a
   transcoder no longer gives the missing point as its reason.
-
-## Unreleased
-
-### Changes that raise
-
-_None._
-
-### Changes that alter results without raising
-
-_None._
-
-### Other
-
-_None._
 
 ## 0.201.0 — 2026-10-15
 
