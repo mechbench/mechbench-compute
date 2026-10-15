@@ -13,6 +13,20 @@ nothing said so.
 
 ---
 
+## Unreleased
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
 ## 0.201.0 — 2026-10-15
 
 ### Changes that raise
@@ -44,20 +58,6 @@ _None._
   of the model. Callers of
   `Model.run` that read `logits` are unchanged: the default is
   `logits=True`.
-
-## Unreleased
-
-### Changes that raise
-
-_None._
-
-### Changes that alter results without raising
-
-_None._
-
-### Other
-
-_None._
 
 ## 0.200.0 — 2026-10-15
 
