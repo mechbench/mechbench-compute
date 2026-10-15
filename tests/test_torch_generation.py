@@ -14,7 +14,6 @@ if importlib.util.find_spec("nnsight") is None:
                 allow_module_level=True)
 torch = pytest.importorskip("torch")
 
-from mechbench_compute import backends
 from mechbench_compute.generate import sample_completion_cached
 from mechbench_compute.ops import Context
 from mechbench_compute.ops.logits import read as read_op
@@ -343,10 +342,20 @@ def test_a_torch_job_intervenes_with_an_operator_and_patches(torch_job):
     assert len(payload["outputs"]["patch"]["items"][0]["measures"]["recovery"]) == 2
 
 
-def test_an_operation_the_torch_backend_does_not_run_is_refused_by_name(torch_job):
-    with pytest.raises(backends.BackendRefused, match=r"weights/circuit does not run on the torch backend yet"):
-        run_job([{"id": "c", "block": "weights/circuit",
-                  "params": {"model": "tiny/gemma3@rev", "head": {"layer": 1, "index": 0}}}])
+def test_a_torch_job_reads_a_head_s_circuits_from_its_weights(torch_job):
+    payload = run_job([
+        {"id": "ov", "block": "weights/circuit",
+         "params": {"model": "tiny/gemma3@rev", "head": {"layer": 1, "index": 0},
+                    "components": 2, "top_k": 3}},
+        {"id": "into", "block": "weights/circuit",
+         "params": {"model": "tiny/gemma3@rev", "circuit": "composition",
+                    "head": {"layer": 1, "index": 0}}},
+    ])
+    ov, into = payload["outputs"]["ov"], payload["outputs"]["into"]
+    assert ov["backend"] == into["backend"] == "torch"
+    assert [it["coords"]["rank"] for it in ov["items"]] == [0, 1]
+    assert all(len(it["left"]) == len(it["right"]) == 3 for it in ov["items"])
+    assert len(into["items"]) == 4 * 3
 
 
 def build_mlx_twin(name, tiny):

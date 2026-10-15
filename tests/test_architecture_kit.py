@@ -565,17 +565,22 @@ def test_the_adapter_keys_reach_every_projection(case):
     assert kit.fit_adapter(model, keys) > 0
 
 
-def test_head_weights_reads_a_head_or_refuses_by_name(tiny):
-    a = tiny.architecture
-    try:
-        spec = a.head_weights(tiny._model, 0, 1)
-    except NotImplementedError as e:
-        assert a.model_type in str(e)
-        pytest.xfail(f"kit finding: {e}")
-    d, head_dim = tiny.arch.d_model, spec.head_dim
-    assert spec.W_Q.shape == (head_dim, d) and spec.W_K.shape == (head_dim, d)
-    assert spec.W_V.shape == (head_dim, d) and spec.W_O.shape == (d, head_dim)
-    assert (spec.n_heads, spec.n_kv_heads) == (tiny.arch.n_heads, tiny.arch.n_kv_heads)
+def test_head_weights_reads_every_layer_s_heads_at_the_shapes_the_arch_declares(tiny):
+    a, arch = tiny.architecture, tiny.arch
+    d = arch.d_model
+    for layer in range(arch.n_layers):
+        is_global = layer in arch.global_layers
+        n_kv = (arch.n_global_kv_heads
+                if is_global and arch.n_global_kv_heads is not None else arch.n_kv_heads)
+        for head in (0, arch.n_heads - 1):
+            spec = a.head_weights(tiny._model, layer, head)
+            head_dim = spec.head_dim
+            assert spec.W_Q.shape == (head_dim, d) and spec.W_K.shape == (head_dim, d)
+            assert spec.W_V.shape == (head_dim, d) and spec.W_O.shape == (d, head_dim)
+            assert (spec.n_heads, spec.n_kv_heads) == (arch.n_heads, n_kv), layer
+            assert spec.kv_group == head * n_kv // arch.n_heads
+            assert spec.is_global == is_global, layer
+            assert spec.is_kv_shared == (layer >= arch.first_kv_shared_layer), layer
 
 
 def test_a_gemma4_checkpoint_without_per_layer_inputs_refuses_gate_out_by_name():

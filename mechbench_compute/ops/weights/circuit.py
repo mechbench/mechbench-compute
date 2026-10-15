@@ -23,9 +23,10 @@ circuit story usually skips and then cannot defend.
 
 **`ov`** takes the top singular components of W_O·W_V, the map from what
 the head attends to onto what it writes into the residual stream. Each
-component pairs an input direction with an output direction, and both are
-read through the embedding as tokens: `right` are the tokens that trigger
-the component, `left` the tokens it then promotes. A copying head shows
+component pairs an input direction with an output direction, read as
+tokens: `right` through the embedding, the tokens that trigger the
+component, and `left` through the unembedding, the tokens it then promotes
+(the two are one matrix where the model ties them). A copying head shows
 the same tokens on both sides; an induction head shows the token that
 FOLLOWED them.
 
@@ -33,6 +34,12 @@ FOLLOWED them.
 component looks for, `right` the key tokens it matches. Position is not in
 it — RoPE is applied to the activations, not the weights — so a head that
 attends by position alone shows nothing here, which is itself the finding.
+Both circuits are the bare projections: the q/k/v norms some architectures
+apply per head (Gemma 3 and 4, Qwen 3), the projection biases (Qwen 2) and
+the final norm are left out. Where key/value heads are shared (grouped-query
+attention), each query head reads its group's W_K and W_V, and `kv_group`
+names the group; a layer that reuses an earlier layer's keys and values
+(Gemma 4's shared layers) reads that layer's.
 
 **`composition`** reads INTO one head (`head: {"layer": 23, "index": 5}`)
 and scores every head of the earlier layers against it: ‖W_read·W_OV‖ over
@@ -150,10 +157,20 @@ def read_head_circuits(model, params: Mapping[str, Any] | None = None,
     def _tokens(pairs_):
         return [{"token": t, "score": round(float(v), 5)} for t, v in pairs_]
 
-    analyse = hw.ov_circuit if which == "ov" else hw.qk_circuit
+    embed = hw.read_embed_matrix(model)
+    if which == "ov":
+        unembed = hw.read_unembed_matrix(model)
+
+        def analyse(lay, h):
+            return hw.ov_circuit(model, lay, h, k_tokens=top_k, n_components=components,
+                                 embed=embed, unembed=unembed)
+    else:
+        def analyse(lay, h):
+            return hw.qk_circuit(model, lay, h, k_tokens=top_k, n_components=components,
+                                 embed=embed)
     rows = []
     for lay, h in pairs:
-        got = analyse(model, lay, h, k_tokens=top_k, n_components=components)
+        got = analyse(lay, h)
         for comp in got.components:
             rows.append({
                 "id": f"L{lay}H{h}:{comp.rank}",

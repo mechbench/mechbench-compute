@@ -27,6 +27,64 @@ _None._
 
 _None._
 
+## 0.200.0 — 2026-10-14
+
+### Changes that raise
+
+- `head_weights.head_ov_position_writes` and `head_ov_actual_writes`
+  take `unembed=` where they took `embed=`, and read the writes through
+  the unembedding by default. Neither is an operation; a caller passing
+  `embed=` gets a `TypeError`.
+- `support.refuse_head_weights` is gone: no architecture refuses
+  `head_weights` any more.
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- Gemma 4 on MLX reads every head byte for byte as before: the
+  `HeadSpec` arrays, `weights/circuit`'s `ov`, `qk` and `composition`
+  records and both `head_ov_*_writes` are identical on the kit's three
+  tiny Gemma 4 models (E-series, small softcap, 31B) against 0.199.0.
+  `ov`'s `left` tokens are now read through the unembedding, which is
+  the embedding matrix itself on Gemma 4.
+- `weights/circuit` runs on the torch backend, on all five torch
+  architectures (Gemma 3, Gemma 4, Llama, Qwen 2, Qwen 3); it was the
+  last operation torch refused. On MLX it now runs on Gemma 3, Llama
+  and Qwen 2 as well, which raised `NotImplementedError` before.
+- Every architecture on both backends declares its heads through one
+  builder, `head_weights.make_head_weights(read_layers, read_n_heads,
+  is_global)`: MLX's mlx-vlm families (`_vlm.read_vlm_head_weights`),
+  its mlx-lm families (`_mlx_lm.read_lm_head_weights`) and torch's
+  transformers families (`torch_backend/architectures/_decoder.
+  read_head_weights`). `head_dim` and the key/value head count are read
+  off each layer's own projections, so Gemma 4's 256-wide sliding and
+  512-wide global layers and the 31B's per-layer key/value head counts
+  need no special case; a query head reads its group's W_K and W_V
+  (grouped-query attention), a layer whose keys are its values reads
+  W_K for both, and a Gemma 4 layer that reuses an earlier layer's keys
+  and values reads that layer's (`HeadSpec.kv_layer`). On MLX that last
+  case raised `AttributeError` before (a shared layer has no `k_proj`),
+  so `weights/circuit` over every layer of Gemma 4 E2B or E4B failed.
+  `HeadSpec` also carries each head's slice of the q/k/v biases
+  (`b_Q`, `b_K`, `b_V`; Qwen 2 has them), which the circuits leave out.
+  The weights are read through `arrays.read_f32`, MLX's quantized
+  layers dequantized first; `head_weights` no longer imports MLX.
+- `weights/circuit` reads the embedding and unembedding once per node,
+  not once per head.
+- Tests: the kit reads two heads of every layer at the shapes, groups,
+  layer types and kv sharing its arch declares;
+  `tests/test_head_weights_forward.py` rebuilds, for every head of every
+  kit model on MLX and torch, q and k at position 0, q·k at every
+  position (which RoPE leaves unchanged), v, the head's attention-weighted
+  values and its write (W_O·W_V on the values against `o_proj` with the
+  other heads zeroed) from the head's own slices and the forward's
+  captures; `tests/test_torch_matches_mlx.py` runs `ov`, `qk` and
+  `composition` on the same weights on both backends for every paired
+  kit model, and a torch job runs `weights/circuit` end to end.
+
 ## 0.199.0 — 2026-10-14
 
 ### Changes that raise

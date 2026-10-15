@@ -63,7 +63,8 @@ BACKENDS: tuple[Backend, ...] = (
              "intervene/ablate-layers", "intervene/apply", "intervene/patch", "intervene/path",
              "intervene/steer", "logits/attribute", "logits/read", "logits/read-layers",
              "logits/scan", "text/chat", "text/generate", "text/resample", "text/score",
-             "text/tokenize", "trajectory/capture", "weights/capture", "weights/decompose"),
+             "text/tokenize", "trajectory/capture", "weights/capture", "weights/circuit",
+             "weights/decompose"),
         devices=(("cuda", "cuda"), ("rocm", "cuda"), ("cpu", "cpu")),
     ),
 )

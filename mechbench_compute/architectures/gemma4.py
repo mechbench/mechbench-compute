@@ -18,10 +18,10 @@ from mechbench_compute.architectures._vlm import (
     make_vlm_cache,
     read_language_model,
     read_vlm_arch,
+    read_vlm_head_weights,
     tokenize_vlm,
 )
 from mechbench_compute.cache import ActivationCache, kv_offset
-from mechbench_compute.head_weights import HeadSpec, read_dense_weight
 from mechbench_compute.hooks import HookFn, attn_internal_layers, mlp_internal_layers
 from mechbench_compute.support import Absence, Architecture, Refusal, Unembed
 from mechbench_compute.thinking import Delimiters
@@ -46,30 +46,6 @@ def read_layer_scalars(model) -> tuple[float, ...]:
 
 def read_attn_out_norm(model, layer: int):
     return model.language_model.model.layers[layer].post_attention_layernorm
-
-
-def read_head_spec(model, layer: int, head: int) -> HeadSpec:
-    attn = model.language_model.model.layers[layer].self_attn
-    head_dim = int(attn.head_dim)
-    n_heads = int(attn.n_heads)
-    n_kv_heads = int(attn.n_kv_heads)
-    kv_group = head * n_kv_heads // n_heads
-    use_k_eq_v = bool(getattr(attn, "use_k_eq_v", False))
-    W_Q_full = read_dense_weight(attn.q_proj)
-    W_K_full = read_dense_weight(attn.k_proj)
-    W_V_full = W_K_full if use_k_eq_v else read_dense_weight(attn.v_proj)
-    W_O_full = read_dense_weight(attn.o_proj)
-    return HeadSpec(
-        layer=layer, head=head, kv_group=kv_group,
-        head_dim=head_dim, n_heads=n_heads, n_kv_heads=n_kv_heads,
-        W_Q=W_Q_full[head * head_dim:(head + 1) * head_dim, :],
-        W_K=W_K_full[kv_group * head_dim:(kv_group + 1) * head_dim, :],
-        W_V=W_V_full[kv_group * head_dim:(kv_group + 1) * head_dim, :],
-        W_O=W_O_full[:, head * head_dim:(head + 1) * head_dim],
-        is_global=(attn.layer_type == "full_attention"),
-        is_kv_shared=bool(attn.is_kv_shared_layer),
-        use_k_eq_v=use_k_eq_v,
-    )
 
 
 def _attention_with_internals(
@@ -347,7 +323,7 @@ ARCH = Architecture(
     project_to_logits=make_project_to_logits(read_unembed),
     tokenize=tokenize_vlm,
     attribution_unembed=read_unembed,
-    head_weights=read_head_spec,
+    head_weights=read_vlm_head_weights,
     dialect=DIALECT,
     reasoning=(Delimiters("<|channel>", "<channel|>", "thought\n"),),
     adapter_keys=ADAPTER_KEYS,

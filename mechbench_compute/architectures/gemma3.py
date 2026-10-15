@@ -18,6 +18,7 @@ from mechbench_compute.architectures._vlm import (
     make_vlm_cache,
     read_language_model,
     read_vlm_arch,
+    read_vlm_head_weights,
     tokenize_vlm,
 )
 from mechbench_compute.cache import ActivationCache, kv_offset
@@ -26,7 +27,6 @@ from mechbench_compute.support import (
     Absence,
     Architecture,
     Unembed,
-    refuse_head_weights,
     refuse_logit_softcap,
 )
 
@@ -277,7 +277,7 @@ ARCH = Architecture(
     project_to_logits=make_project_to_logits(read_unembed),
     tokenize=tokenize_vlm,
     attribution_unembed=read_unembed,
-    head_weights=refuse_head_weights("gemma3"),
+    head_weights=read_vlm_head_weights,
     dialect=None,
     reasoning=(),
     adapter_keys=ADAPTER_KEYS,

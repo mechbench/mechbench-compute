@@ -9,6 +9,7 @@ from mechbench_compute._arch import Arch
 from mechbench_compute._attention_mask import apply_mask
 from mechbench_compute.architectures._dispatch import dispatch, run_head
 from mechbench_compute.cache import ActivationCache, kv_offset
+from mechbench_compute.head_weights import make_head_weights
 from mechbench_compute.hooks import HookFn, attn_internal_layers
 from mechbench_compute.support import Unembed
 
@@ -21,6 +22,12 @@ def load_lm(model_id: str, **config: Any) -> tuple[Any, Any]:
 
 def read_lm(model):
     return model
+
+
+read_lm_head_weights = make_head_weights(
+    lambda model: model.model.layers,
+    read_n_heads=lambda attn: attn.n_heads,
+    is_global=lambda layer: not getattr(layer, "use_sliding", False))
 
 
 def make_lm_cache(model):

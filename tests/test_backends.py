@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import importlib.util
 import sys
 
@@ -362,3 +363,12 @@ class TestImportableWithoutABackend:
 
         with pytest.raises(ImportError, match="no compute backend"):
             _ = mechbench_compute.Model
+
+
+def test_an_operation_a_backend_does_not_list_is_refused_by_name():
+    narrow = dataclasses.replace(backends.find("torch"), ops=("text/generate",))
+    with pytest.raises(backends.BackendRefused, match=(
+            r"^weights/circuit does not run on the torch backend yet; there it runs "
+            r"text/generate$")):
+        backends.check_op(narrow, "weights/circuit", frozenset({"model.forward"}))
+    backends.check_op(narrow, "records/python", frozenset())
