@@ -76,3 +76,25 @@ class TestNodeStructure:
         ticks = []
         ProtocolExecutor().run(_spec(), on_progress=lambda d, t: ticks.append((d, t)))
         assert ticks[-1] == (4, 4)
+
+
+class TestReExpansion:
+    def test_a_node_that_learns_its_size_late_re_expands_without_overrunning(self, monkeypatch):
+        def fake(self, fn, inputs, params, *args, on_item=None, on_start=None):
+            on_start(2)
+            on_start(5)
+            for _ in range(4):
+                on_item()
+            on_start(9)
+            for _ in range(5):
+                on_item()
+            return {"kind": "decision_read", "conditions": []}
+
+        monkeypatch.setattr(ProtocolExecutor, "_run_model_block", fake)
+        views = []
+        ProtocolExecutor().run(
+            _spec(), on_progress=lambda d, t, node: views.append((d, t, dict(node))))
+        assert all(d <= t for d, t, _ in views)
+        assert [t for _, t, _ in views] == sorted(t for _, t, _ in views)
+        assert views[-1][:2] == (18, 18)
+        assert views[-1][2]["done"] == views[-1][2]["total"] == 9

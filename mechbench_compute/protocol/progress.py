@@ -34,10 +34,11 @@ class Progress:
         self.report()
 
     def expand(self, n_items) -> None:
+        n = max(int(n_items), 0)
+        before = max(self.node_view["total"], 1) if self.expanded else 1
         self.expanded = True
-        if n_items > 1:
-            self.total_units += n_items - 1
-        self.node_view["total"] = max(int(n_items), 0)
+        self.total_units += max(n, 1) - before
+        self.node_view["total"] = n
         self.report()
 
     def start_node(self, pos: int, nid: str) -> None:

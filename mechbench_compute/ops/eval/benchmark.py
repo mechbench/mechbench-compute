@@ -67,11 +67,39 @@ def check_task_names(tasks: list) -> list[str]:
     return tasks
 
 
+class RequestProgress:
+    def __init__(self, on_start, on_item, tasks: int) -> None:
+        self.on_start = on_start
+        self.on_item = on_item
+        self.requested = 0
+        self.unseen = tasks
+        self.seen = False
+        if on_start:
+            on_start(tasks)
+
+    def task_begins(self) -> None:
+        self.seen = False
+
+    def on_request(self, index: int, count: int) -> None:
+        if index == 0:
+            self.requested += count
+            if not self.seen:
+                self.seen = True
+                self.unseen -= 1
+            if self.on_start:
+                self.on_start(self.requested + self.unseen)
+        if self.on_item:
+            self.on_item()
+
+    def task_ends(self) -> None:
+        if not self.seen and self.on_item:
+            self.on_item()
+
+
 def run(ctx, inputs, params):
     check_task_names(list(params.get("tasks") or []))
     import lm_eval
 
-    pass
     from mechbench_compute.lm_bridge import MechbenchLM
 
     tasks = list(params.get("tasks") or [])
@@ -84,13 +112,13 @@ def run(ctx, inputs, params):
     seed = int(params.get("seed", 0))
 
     model = ctx.model(params.get("model"))
-    wrapper = MechbenchLM(model)
+    progress = RequestProgress(ctx.on_start, ctx.on_item, len(tasks))
+    wrapper = MechbenchLM(model, on_request=progress.on_request)
 
-    if ctx.on_start:
-        ctx.on_start(len(tasks))
     results_all: dict = {}
     nsamples_all: dict = {}
-    for i, task in enumerate(tasks):
+    for task in tasks:
+        progress.task_begins()
         out = lm_eval.simple_evaluate(
             model=wrapper,
             tasks=[task],
@@ -103,8 +131,7 @@ def run(ctx, inputs, params):
         )
         results_all.update(out["results"])
         nsamples_all.update(out.get("n-samples") or {})
-        if ctx.on_item:
-            ctx.on_item()
+        progress.task_ends()
 
     recs = build_metric_records(results_all, nsamples_all,
                                 variant=variant)
