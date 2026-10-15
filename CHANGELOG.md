@@ -13,7 +13,7 @@ nothing said so.
 
 ---
 
-## 0.203.0 — 2026-10-15
+## Unreleased
 
 ### Changes that raise
 
@@ -69,7 +69,7 @@ _None._
   whose node runs where its model is. No operation declared both
   before `dictionary/train`, so no operation's class changes.
 
-## Unreleased
+## 0.203.0 — 2026-10-15
 
 ### Changes that raise
 
@@ -81,7 +81,34 @@ _None._
 
 ### Other
 
-_None._
+- `activations/differentiate` takes the gradient at the MLP's interior:
+  `point` takes `mlp.in_norm`, `mlp.gate`, `mlp.up`, `mlp.act` and
+  `mlp.down_in`, the points `activations/capture` reads since 0.202.0,
+  on MLX and torch. The four neuron points are as wide as the layer's
+  MLP (Gemma 4's E models double it on their KV-shared layers): the
+  header's `widths` lists each layer's in the order of `layers`, each
+  vector's `space.d` is its own, and tensor storage across layers of
+  two widths is refused before the model runs, naming the layers of
+  each width, as capture refuses it. A `mask` is checked against every
+  width the node reads. At `mlp.down_in` the gradient is the metric's
+  rate per unit of a neuron's write and `top_product`, the gradient
+  times the activation, is each neuron's first-order attribution to the
+  metric (the same number at `mlp.act` and `mlp.up`), so `top` set to
+  the MLP's width ranks every neuron by its effect on the decision in
+  one backward pass per prompt. `heads` is not a param of this op and is
+  refused by name with any point. A zero added at an interior point
+  leaves the forward bit-identical on both backends; at the last layer
+  `value` is a plain read's bit for bit at `mlp.up`, `mlp.act` and
+  `mlp.down_in`, and moves by units in the last place at `mlp.in_norm`
+  and `mlp.gate`, whose backward pass crosses the MLP's activation, as
+  `resid_pre` always has. Every other point's result is unchanged.
+- The width handling `activations/capture` and `activations/differentiate`
+  share lives in `interp/read_mlp_widths.py`, `interp/check_one_width.py`
+  and `interp/check_interior.py`, and `mechbench_compute.api` offers it
+  (`INTERIOR`, `NEURONS`, `check_interior`, `read_mlp_widths`,
+  `check_one_width`); capture's refusal of tensor storage
+  across two widths now ends "read the layers of each width in a node of
+  their own" rather than "capture …".
 
 ## 0.202.0 — 2026-10-15
 
