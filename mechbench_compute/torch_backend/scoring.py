@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -44,7 +44,8 @@ def score_items(model: Any, prompt_ids: list[int], sequences: Mapping[str, list[
 
 
 def score_tokens(model: Any, sequences: Sequence[Sequence[int]], *,
-                 batch_size: int | None = None) -> list[np.ndarray]:
+                 batch_size: int | None = None,
+                 on_done: Callable[[int], None] | None = None) -> list[np.ndarray]:
     import torch
 
     order = sorted(range(len(sequences)), key=lambda i: -len(sequences[i]))
@@ -66,4 +67,7 @@ def score_tokens(model: Any, sequences: Sequence[Sequence[int]], *,
                 if n >= 2:
                     rows = model.head_logits(hidden[row:row + 1, :n - 1, :])[0]
                     out[i] = read_target_logprobs(rows, ids[row, 1:n]).cpu().numpy()
+        if on_done is not None:
+            for i in part:
+                on_done(i)
     return out

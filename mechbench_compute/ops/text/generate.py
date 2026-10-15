@@ -367,16 +367,18 @@ def run(ctx, inputs, params):
                         ctx.on_item(key, items[-1])
     header = {}
     if pending:
-        written, used = model.generate_batch(
-            [j["ids"] for j in pending], [j["rng"] for j in pending],
-            max_tokens=max_tokens, temperature=temperature, top_p=top_p,
-            stop_strings=stop_strings, on_tokens=[j["on_token"] for j in pending],
-            batch_size=batch)
-        header["batch"] = used
-        for job, (text, out_ids) in zip(pending, written, strict=True):
+        def finish(index, text, out_ids):
+            job = pending[index]
             items[job["at"]] = make_item(job, text, out_ids, **shared)
             if ctx.on_item:
                 ctx.on_item(job["key"], items[job["at"]])
+
+        _, used = model.generate_batch(
+            [j["ids"] for j in pending], [j["rng"] for j in pending],
+            max_tokens=max_tokens, temperature=temperature, top_p=top_p,
+            stop_strings=stop_strings, on_tokens=[j["on_token"] for j in pending],
+            batch_size=batch, on_done=finish)
+        header["batch"] = used
     return lexicon.collection(
         "text/document", items,
         name=params.get("name", "generated"),

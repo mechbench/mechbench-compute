@@ -58,7 +58,8 @@ def run(ctx, inputs, params):
                 f"score: item {it.get('id')!r} has no trace — Score "
                 "requires a trace-fidelity collection (set the "
                 "Generate block's fidelity to 'trace')")
-    batched = (model.score_tokens([list(it["trace"]["token_ids"]) for it in items])
+    batched = (model.score_tokens([list(it["trace"]["token_ids"]) for it in items],
+                                  on_done=(lambda _: ctx.on_item()) if ctx.on_item else None)
                if getattr(getattr(model, "architecture", None), "backend", "mlx") != "mlx" else None)
     values = []
     for index, it in enumerate(items):
@@ -79,7 +80,7 @@ def run(ctx, inputs, params):
                            "token_end": j + 2},
                 "value": round(float(sv), 3),
             })
-        if ctx.on_item:
+        if ctx.on_item and batched is None:
             ctx.on_item()
     return collection(
         "text/annotation", values,

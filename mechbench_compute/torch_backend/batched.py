@@ -112,7 +112,8 @@ def write_batch(model: Any, draws: Sequence[Draw], *, max_tokens: int, temperatu
 
 def write_draws(model: Any, draws: Sequence[Draw], *, max_tokens: int, temperature: float,
                 top_p: float, stop_strings: Sequence[str] = (),
-                batch_size: int | None = None) -> int:
+                batch_size: int | None = None,
+                on_batch: Callable[[Sequence[int]], None] | None = None) -> int:
     stops = tuple(s for s in (stop_strings or ()) if s)
     longest = max((len(d.prompt_ids) for d in draws), default=0) + int(max_tokens)
     size = bound_batch(model, batch_size or GENERATE_BATCH, longest)
@@ -120,4 +121,6 @@ def write_draws(model: Any, draws: Sequence[Draw], *, max_tokens: int, temperatu
     for part in chunk(order, size):
         write_batch(model, [draws[i] for i in part], max_tokens=max_tokens,
                     temperature=temperature, top_p=top_p, stops=stops)
+        if on_batch is not None:
+            on_batch(part)
     return size
