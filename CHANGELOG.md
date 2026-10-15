@@ -25,6 +25,20 @@ _None._
 
 ### Other
 
+_None._
+
+## 0.204.0 — 2026-10-15
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
 - `dictionary/train` trains a sparse autoencoder on a model's
   activations at one layer and emits it as a `direction/dictionary`
   that `dictionary/encode` and every feature operation read unchanged.
