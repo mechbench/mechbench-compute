@@ -14,18 +14,19 @@ SWITCH = "MECHBENCH_GRADIENT_CHECKPOINTING"
 SHARE_OF_FREE = 0.25
 
 
-def estimate_activation_bytes(model: Any, tokens: int) -> int:
+def estimate_activation_bytes(model: Any, tokens: int, *, math_attention: bool = False) -> int:
     cfg = read_text_config(model._model.config)
     d = int(cfg.hidden_size)
     width = getattr(cfg, "intermediate_size", None) or 4 * d
     ffn = int(max(width) if isinstance(width, (list, tuple)) else width)
     per_token_layer = 2 * (20 * d + 5 * ffn)
+    if math_attention:
+        per_token_layer += 4 * int(cfg.num_attention_heads) * int(tokens)
     logits = 6 * int(cfg.vocab_size)
     return int(tokens) * (int(cfg.num_hidden_layers) * per_token_layer + logits)
 
 
-
-def decide_checkpointing(model: Any, longest: int) -> bool:
+def decide_checkpointing(model: Any, longest: int, *, math_attention: bool = False) -> bool:
     chosen = os.environ.get(SWITCH, "auto").strip().lower()
     if chosen in ("on", "1", "true"):
         return True
@@ -34,7 +35,8 @@ def decide_checkpointing(model: Any, longest: int) -> bool:
     if chosen != "auto":
         raise ValueError(f"{SWITCH} is on, off or auto, not {chosen!r}")
     free = read_free_bytes(model.device)
-    return free is not None and estimate_activation_bytes(model, longest) > SHARE_OF_FREE * free
+    return free is not None and (estimate_activation_bytes(model, longest, math_attention=math_attention)
+                                 > SHARE_OF_FREE * free)
 
 
 def check_layers_checkpoint(layers: Any) -> None:

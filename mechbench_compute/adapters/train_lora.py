@@ -29,6 +29,10 @@ def train_lora(ctx, model, params, groups: Mapping[str, list[Any]], batch: Mappi
     checkpoint_every = int(params.get("checkpoint_every", 50))
     kept_steps = read_kept_steps(params, steps, checkpoint_every)
     trainer = read_trainer(model)
+    deterministic = bool(params.get("deterministic", True))
+    numerics = trainer.read_numerics(model, deterministic)
+    if numerics is not None:
+        methods = {**methods, "numerics": numerics}
 
     def keep(step, loss, data):
         return {"id": f"step-{step}", "coords": {"step": step}, **lineage,
@@ -71,7 +75,7 @@ def train_lora(ctx, model, params, groups: Mapping[str, list[Any]], batch: Mappi
             checkpoint_every=checkpoint_every if ctx.on_checkpoint else 0,
             on_checkpoint=ctx.on_checkpoint,
             resume_state=ctx.resume_state,
-            loss_fn=loss_fn)
+            loss_fn=loss_fn, deterministic=deterministic)
         data = trainer.read_adapter_bytes(model)
     finally:
         try:

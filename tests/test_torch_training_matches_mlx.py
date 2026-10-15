@@ -23,7 +23,13 @@ from mechbench_compute.torch_backend.lora_layers import apply_lora as apply_on_t
 from mechbench_compute.torch_backend.lora_layers import read_lora_arrays
 from mechbench_compute.torch_backend.lora_layers import remove_lora as remove_on_torch
 from tests.mlx_twins import PAIRS, build_on_mlx, read_torch_weights
-from tests.test_torch_training import ANCHORS, DECISION, RECORDS
+from tests.test_torch_training import (
+    ANCHORS,
+    DECISION,
+    OPERATORS,
+    RECORDS,
+    train_operator,
+)
 from tests.tiny_torch_models import build_tiny_model
 
 DOCUMENTS = [{"id": "d", "text": "the cat sat on a mat and the dog ran"},
@@ -36,6 +42,8 @@ SFT = {"model": "tiny", "objective": "sft", "steps": 16, "lr": 1e-3, "seed": 3,
 LOSS_TOLERANCE = 2e-4
 
 WEIGHT_TOLERANCE = 2e-3
+
+OPERATOR_LR = 0.01
 
 # external: MLX random.cpp — its own CPU and Metal normal draws part by a float32 ulp or two at about 0.5% of entries
 INIT_TOLERANCE = 5e-7
@@ -124,3 +132,41 @@ def test_an_adapter_trained_on_torch_fuses_on_mlx_and_moves_the_same_weights(nam
         moved = after[w] - before[w]
         assert np.abs(moved).max() > 0, w
         assert np.allclose(torch_after[w] - torch_before[w], moved, atol=1e-5), w
+
+
+def read_operator(out) -> dict[str, np.ndarray]:
+    return {f"{layer}.{name}": np.asarray(value, dtype=np.float64)
+            for layer, values in out["parameters"].items() for name, value in values.items()}
+
+
+def check_operators_alike(name: str, form: str, steps: tuple[int, ...]) -> None:
+    on_torch = build_tiny_model(name)
+    on_mlx = build_on_mlx(on_torch)
+    start = read_operator(train_operator(on_mlx, OPERATORS[form], 0, OPERATOR_LR))
+    drawn = read_operator(train_operator(on_torch, OPERATORS[form], 0, OPERATOR_LR))
+    assert list(start) == list(drawn)
+    assert all(np.abs(start[k] - drawn[k]).max() <= INIT_TOLERANCE for k in start)
+    curves: list[tuple[float, float]] = []
+    for n in steps:
+        want = train_operator(on_mlx, OPERATORS[form], n, OPERATOR_LR)
+        got = train_operator(on_torch, OPERATORS[form], n, OPERATOR_LR)
+        curves.append((want["train"]["final_loss"], got["train"]["final_loss"]))
+    a, b = np.array(curves).T
+    assert np.abs(a - b).max() <= LOSS_TOLERANCE * np.abs(a).max(), curves
+    wa, wb = read_operator(want), read_operator(got)
+    assert list(wa) == list(wb) and want["operator"]["params"] == got["operator"]["params"]
+    moved = np.sqrt(sum(float(((wa[k] - start[k]) ** 2).sum()) for k in wa))
+    gap = np.sqrt(sum(float(((wa[k] - wb[k]) ** 2).sum()) for k in wa))
+    assert moved > 0.01 and gap <= WEIGHT_TOLERANCE * moved, (gap, moved)
+    assert want["operator"]["effective"] == got["operator"]["effective"]
+
+
+@pytest.mark.parametrize("form", [f for f in OPERATORS if f != "pulled"])
+@pytest.mark.parametrize("name", [n for n, _ in PAIRS])
+def test_mlx_and_torch_train_the_same_operator_alike(name, form):
+    check_operators_alike(name, form, (1, 4, 8))
+
+
+@pytest.mark.parametrize("name", [n for n, _ in PAIRS])
+def test_the_l1_pull_prunes_alike_on_mlx_and_torch_before_its_threshold_amplifies_rounding(name):
+    check_operators_alike(name, "pulled", (1, 2))

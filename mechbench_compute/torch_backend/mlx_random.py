@@ -50,8 +50,12 @@ def draw_bits(key: np.ndarray, n: int) -> np.ndarray:
 
 
 def split_key(key: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    pair = draw_bits(key, 4).reshape(2, 2)
+    pair = split_keys(key, 2)
     return pair[0], pair[1]
+
+
+def split_keys(key: np.ndarray, num: int) -> np.ndarray:
+    return draw_bits(key, 2 * int(num)).reshape(int(num), 2)
 
 
 def fuse_multiply_add(a: np.ndarray, b: np.ndarray, c: float) -> np.ndarray:

@@ -13,6 +13,7 @@ from mechbench_compute.torch_backend.checkpointing import (
     checkpointed,
     decide_checkpointing,
 )
+from mechbench_compute.torch_backend.determinism import is_cuda, training_numerics
 from mechbench_compute.torch_backend.lora_layers import read_lora_parameters
 from mechbench_compute.torch_backend.throughput import synchronize
 from mechbench_compute.torch_backend.training_losses import TorchLoss, read_torch_loss
@@ -99,11 +100,14 @@ def train_soft_ce(model: Any, groups: Mapping[str, list[Any]], batch_sizes: Mapp
                   on_step: Callable[[int, float], None] | None = None, checkpoint_every: int = 0,
                   on_checkpoint: Callable[[dict], None] | None = None,
                   resume_state: Mapping | None = None, loss_fn: Callable | None = None,
-                  checkpointing: bool | None = None) -> float:
+                  checkpointing: bool | None = None, deterministic: bool = True,
+                  parameters: Mapping[str, torch.nn.Parameter] | None = None,
+                  after_update: Callable[[Adam], None] | None = None) -> float:
     loss_val, measured = train_measured(
         model, groups, batch_sizes, steps=steps, lr=lr, seed=seed, factories=factories,
         on_step=on_step, checkpoint_every=checkpoint_every, on_checkpoint=on_checkpoint,
-        resume_state=resume_state, loss_fn=loss_fn, checkpointing=checkpointing)
+        resume_state=resume_state, loss_fn=loss_fn, checkpointing=checkpointing,
+        deterministic=deterministic, parameters=parameters, after_update=after_update)
     record_training(**measured)
     return loss_val
 
@@ -114,10 +118,12 @@ def train_measured(model: Any, groups: Mapping[str, list[Any]], batch_sizes: Map
                    on_step: Callable[[int, float], None] | None = None, checkpoint_every: int = 0,
                    on_checkpoint: Callable[[dict], None] | None = None,
                    resume_state: Mapping | None = None, loss_fn: Callable | None = None,
-                   checkpointing: bool | None = None) -> tuple[float, dict[str, Any]]:
+                   checkpointing: bool | None = None, deterministic: bool = True,
+                   parameters: Mapping[str, torch.nn.Parameter] | None = None,
+                   after_update: Callable[[Adam], None] | None = None) -> tuple[float, dict[str, Any]]:
     loss = read_torch_loss(loss_fn)
     rng = np.random.default_rng(seed)
-    params = read_lora_parameters(model)
+    params = read_lora_parameters(model) if parameters is None else dict(parameters)
     opt = Adam(params, lr)
     start = 1
     if resume_state is not None:
@@ -126,21 +132,24 @@ def train_measured(model: Any, groups: Mapping[str, list[Any]], batch_sizes: Map
     drawn = [ex for _, f, _ in active_factories for ex in f(np.random.default_rng(seed))]
     longest = max((loss.tokens(ex) for ex in [*drawn, *(ex for _, items, _ in active for ex in items)]),
                   default=1)
-    on = decide_checkpointing(model, longest) if checkpointing is None else bool(checkpointing)
     device = model.device
+    on = (decide_checkpointing(model, longest, math_attention=deterministic and is_cuda(device))
+          if checkpointing is None else bool(checkpointing))
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
     tokens = 0
     synchronize(device)
     started = time.perf_counter()
     loss_val = 0.0
-    with checkpointed(model, on):
+    with training_numerics(device, deterministic), checkpointed(model, on):
         for step in range(start, int(steps) + 1):
             batch = sample_batch(rng, active, active_factories)
             tokens += sum(loss.tokens(ex) for ex in batch)
             loss_val = step_once(model, batch, loss)
             add_to_span(backwards=1)
             opt.update()
+            if after_update is not None:
+                after_update(opt)
             if on_step:
                 on_step(step, loss_val)
             if (checkpoint_every and on_checkpoint is not None
@@ -156,4 +165,4 @@ def train_measured(model: Any, groups: Mapping[str, list[Any]], batch_sizes: Map
         "tokens": tokens, "tokens_per_s": round(tokens / seconds, 2) if seconds > 0 else None,
         "peak_memory_bytes": (int(torch.cuda.max_memory_allocated(device))
                               if device.type == "cuda" else None),
-        "gradient_checkpointing": on}
+        "gradient_checkpointing": on, "deterministic": bool(deterministic)}
