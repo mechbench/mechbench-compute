@@ -77,7 +77,8 @@ class TestFamilySupport:
         for fam in ("qwen2", "llama"):
             assert _arch.family_supports(fam, "resid_post", layer_scoped=True)
             assert _arch.family_supports(fam, "attn.weights", layer_scoped=True)
-            assert not _arch.family_supports(fam, "mlp.act", layer_scoped=True)
+            assert _arch.family_supports(fam, "mlp.act", layer_scoped=True)
+            assert not _arch.family_supports(fam, "attn.in_norm", layer_scoped=True)
             assert not _arch.family_supports(fam, "attn.scores", layer_scoped=True)
             assert not _arch.family_supports(fam, "gate_out", layer_scoped=True)
             for p in NEW_GLOBAL:
@@ -108,7 +109,7 @@ class TestValidation:
         m = _FakeModelForValidation(_arch_e2b_like(model_type="qwen2"))
         m._validate_hook_names({"blocks.3.resid_post", "final_norm.scale"})
         with pytest.raises(InvalidHookName) as e:
-            m._validate_hook_names({"blocks.3.mlp.act"})
+            m._validate_hook_names({"blocks.3.attn.scores"})
         assert "not implemented" in str(e.value)
 
     def test_gemma3_takes_every_point_but_the_per_layer_gate_it_lacks(self):

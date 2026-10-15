@@ -291,6 +291,6 @@ def test_a_checkpoint_the_torch_backend_cannot_serve_is_refused_before_loading(t
 
 
 def test_a_point_the_backend_lacks_is_refused_by_name(tiny):
-    with pytest.raises(InvalidHookName, match=r"blocks\.0\.mlp\.act \(not implemented by the '\w+' "
+    with pytest.raises(InvalidHookName, match=r"blocks\.0\.attn\.scores \(not implemented by the '\w+' "
                                               r"forward on the torch backend\)"):
-        tiny.run(tiny.make_ids(IDS), capture=["blocks.0.mlp.act"])
+        tiny.run(tiny.make_ids(IDS), capture=["blocks.0.attn.scores"])

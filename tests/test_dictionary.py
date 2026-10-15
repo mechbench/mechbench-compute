@@ -251,8 +251,11 @@ class TestEncodeRefuses:
     def test_a_point_the_architecture_does_not_offer(self, tmp_path):
         write_dictionary(tmp_path, "tc", hook=f"model.layers.{LAYER}.pre_feedforward_layernorm.output")
         dictionary = load(tmp_path, "tc")
+        llama = architectures.for_type("llama")
+        without = dataclasses.replace(llama, layer_points=tuple(
+            p for p in llama.layer_points if p != "mlp.in_norm"))
         with pytest.raises(ValueError, match="mlp.in_norm, which Llama does not offer"):
-            encode_records(build_tiny_model("llama"), RECORDS, dictionary, {})
+            encode_records(build_tiny_model("llama", without), RECORDS, dictionary, {})
 
     def test_a_derivation_it_does_not_read(self, tiny, sae):
         with pytest.raises(ValueError, match="the dictionary is a 'transcoder'"):

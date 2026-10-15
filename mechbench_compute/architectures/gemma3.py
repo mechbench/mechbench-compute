@@ -12,6 +12,7 @@ from mechbench_compute.architectures._dispatch import (
     dispatch,
     read_layers,
     run_head,
+    run_mlp_with_internals,
     stop_early,
 )
 from mechbench_compute.architectures._head import (
@@ -140,38 +141,6 @@ def _attention_with_internals(
     return attn.o_proj(output)
 
 
-def _mlp_with_internals(
-    mlp,
-    x_normed: mx.array,
-    *,
-    hooks: dict[str, HookFn],
-    capture_set: set[str],
-    cache: ActivationCache,
-    layer_idx: int,
-) -> mx.array:
-    gate = mlp.gate_proj(x_normed)
-    gate = dispatch(
-        f"blocks.{layer_idx}.mlp.gate", layer_idx, "mlp.gate", gate,
-        hooks, capture_set, cache,
-    )
-    up = mlp.up_proj(x_normed)
-    up = dispatch(
-        f"blocks.{layer_idx}.mlp.up", layer_idx, "mlp.up", up,
-        hooks, capture_set, cache,
-    )
-    act = nn.gelu_approx(gate)
-    act = dispatch(
-        f"blocks.{layer_idx}.mlp.act", layer_idx, "mlp.act", act,
-        hooks, capture_set, cache,
-    )
-    down_in = act * up
-    down_in = dispatch(
-        f"blocks.{layer_idx}.mlp.down_in", layer_idx, "mlp.down_in", down_in,
-        hooks, capture_set, cache,
-    )
-    return mlp.down_proj(down_in)
-
-
 # external: mlx-vlm — this mirrors models/gemma3/language.py (Gemma3Model, TransformerBlock, Attention, MLP, LanguageModel __call__)
 def run_forward(
     model,
@@ -248,8 +217,8 @@ def run_forward(
             hooks, capture_set, cache,
         )
         if i in manual_mlp_layer_set:
-            m_out = _mlp_with_internals(
-                layer.mlp, m_in,
+            m_out = run_mlp_with_internals(
+                layer.mlp, m_in, act=nn.gelu_approx,
                 hooks=hooks, capture_set=capture_set, cache=cache, layer_idx=i,
             )
         else:

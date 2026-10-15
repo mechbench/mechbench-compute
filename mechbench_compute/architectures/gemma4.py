@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import mlx.core as mx
-import mlx.nn as nn
+from mlx import nn
 from mlx_vlm.models import cache as cache_mod
 
 from mechbench_compute._arch import GLOBAL_HOOK_POINTS, LAYER_HOOK_POINTS, Arch
@@ -11,6 +11,7 @@ from mechbench_compute.architectures._dispatch import (
     dispatch,
     read_layers,
     run_head,
+    run_mlp_with_internals,
     stop_early,
 )
 from mechbench_compute.architectures._head import (
@@ -255,27 +256,10 @@ def run_forward(
             hooks, capture_set, cache,
         )
         if i in manual_mlp_layer_set:
-            gate = layer.mlp.gate_proj(m)
-            gate = dispatch(
-                f"blocks.{i}.mlp.gate", i, "mlp.gate", gate,
-                hooks, capture_set, cache,
+            m = run_mlp_with_internals(
+                layer.mlp, m, act=nn.gelu_approx,
+                hooks=hooks, capture_set=capture_set, cache=cache, layer_idx=i,
             )
-            up = layer.mlp.up_proj(m)
-            up = dispatch(
-                f"blocks.{i}.mlp.up", i, "mlp.up", up,
-                hooks, capture_set, cache,
-            )
-            act = nn.gelu_approx(gate)
-            act = dispatch(
-                f"blocks.{i}.mlp.act", i, "mlp.act", act,
-                hooks, capture_set, cache,
-            )
-            down_in = act * up
-            down_in = dispatch(
-                f"blocks.{i}.mlp.down_in", i, "mlp.down_in", down_in,
-                hooks, capture_set, cache,
-            )
-            m = layer.mlp.down_proj(down_in)
         else:
             m = layer.mlp(m)
         m = layer.post_feedforward_layernorm(m)
