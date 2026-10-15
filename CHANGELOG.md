@@ -66,14 +66,6 @@ _None._
   the gradient-checkpointing estimate counts them (4 bytes × heads ×
   tokens² a layer) when it runs.
 
-On the CPU nothing moves: deterministic mode leaves every byte where
-0.199.0 put it (the decision objective with kept checkpoints and `sft`
-on all nine kit models digest the same before and after, and on and
-off), and every MLX result is byte for byte what it was (`adapter/train`
-with a LoRA and with each operator form — affine on dimensions,
-polynomial, gated MLP, a rank-2 subspace with an L1 pull — with
-checkpoints, on the four tiny MLX architectures, digest the same).
-
 - `weights/circuit` folds the norms' gains (and Qwen 2's biases) into
   its circuits, so every `ov` and `qk` record and every `composition`
   score changes on Gemma 4 (and on Gemma 3 and Qwen 3, new in this
@@ -98,6 +90,14 @@ checkpoints, on the four tiny MLX architectures, digest the same).
   as the op's description says: each RMSNorm's per-token scale, RoPE
   and the final-logit softcap. Records written by 0.199.0 and earlier
   are not comparable with these; re-run them.
+
+On the CPU nothing moves: deterministic mode leaves every byte where
+0.199.0 put it (the decision objective with kept checkpoints and `sft`
+on all nine kit models digest the same before and after, and on and
+off), and every MLX result is byte for byte what it was (`adapter/train`
+with a LoRA and with each operator form — affine on dimensions,
+polynomial, gated MLP, a rank-2 subspace with an L1 pull — with
+checkpoints, on the four tiny MLX architectures, digest the same).
 
 ### Other
 
