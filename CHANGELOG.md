@@ -27,6 +27,20 @@ _None._
 
 _None._
 
+## 0.205.1 — 2026-10-15
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- The vendored marks table follows mechbench-viz 05aeb47: the `graph` mark's panels share one layer axis and one size scale (every panel the same width, a component present in several panels at the same place in each), it reads `axes.layer` (a column placed by its layer index when the model's layer count is known), and its depth channel is `layer`, so `records/plot` stamps the model's layer axis on a graph whose `layer` is encoded, as it does for the other depth marks.
+
 ## 0.205.0 — 2026-10-15
 
 ### Changes that raise

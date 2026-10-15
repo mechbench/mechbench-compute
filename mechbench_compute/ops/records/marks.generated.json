@@ -307,6 +307,10 @@
           "type": "object",
           "doc": "What each encoded field is called in prose: the axis titles and the words the readout uses."
         },
+        "axes": {
+          "type": "object",
+          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`. A numeric axis's layout: `x` or `y` as `{scale, zero, constant, quantiles}`, where `scale` is `linear`, `log` or `signed-log` (sign(x)·log(1 + |x|/c), `constant` its c, 1 when not given) and `quantiles` ticks the axis at the data's quantiles, each a level (0.99) or a `{q, value}`."
+        },
         "focus": {
           "type": "string",
           "doc": "The field shared with the other figures on a page."
@@ -336,7 +340,9 @@
           ]
         }
       },
-      "depth": [],
+      "depth": [
+        "layer"
+      ],
       "row_fields": {
         "id": "A record's name, printed above its panel when there are several.",
         "from": "A link's first end, by component id.",
