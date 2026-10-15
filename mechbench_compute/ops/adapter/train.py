@@ -92,7 +92,9 @@ always was. A single adapter past the limit is stored the same way.
 `seed` fixes the whole run: the adapter's initial weights as well as the
 sampling order, so two runs of the same node on the same machine produce
 a byte-identical adapter. Change the seed to see the spread a different
-draw gives.
+draw gives. On torch that holds on a GPU too under `deterministic`, the
+default, which holds torch to deterministic algorithms (attention's backward
+on CUDA in its math kernel); `train.numerics` records the mode that ran.
 
 `lora.layers` chooses the decoder layers the adapter is trained on —
 `[-2, -1]` for the last two, `{"from": 0, "to": 8}` for the first
@@ -387,6 +389,11 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
           "and at the last, as the `checkpoints` output: a collection of "
           "adapters over `coords.step`.",
           False),
+        P("deterministic", "bool",
+          "On torch, hold training to deterministic algorithms so the same seed writes the same "
+          "bytes on a GPU too; `false` lets CUDA pick faster kernels that may not. MLX training "
+          "is deterministic either way.",
+          True),
     ),
     example={
         "model": {"$param": "model"},
@@ -402,7 +409,6 @@ into a checkpoint. `depth` above 1, `continuation` and `path` items and
 
 def run(ctx, inputs, params):
     from mechbench_compute.adapters.train_lora import train_lora
-    from mechbench_compute.backends import backend_of
     from mechbench_compute.distill import encode, render
     from mechbench_compute.finetune import (
         batch_for,
@@ -456,9 +462,6 @@ def run(ctx, inputs, params):
             "adapter/train: target.unit and target.replace describe slots — "
             "set target.depth above 1")
     operator = params.get("operator")
-    if operator is not None and backend_of(model) == "torch":
-        raise ValueError("adapter/train: an operator trains on the mlx backend only, and this "
-                         "model runs on torch; train a LoRA here, or run the job on mlx")
     batch = (read_operator_batch(params, depth) if operator is not None
              else batch_for(depth, unit, params.get("batch")))
     rendered_all = [rendered_of(r) for r in records]
@@ -527,7 +530,8 @@ def run(ctx, inputs, params):
         return {DEFAULT_OUTPUT: train_operator(
             ctx, model, operator, {"target": marginals, "anchor": anchors}, batch,
             trained_on=trained_on, methods=methods,
-            checkpoint_every=int(params.get("checkpoint_every", 50)))}
+            checkpoint_every=int(params.get("checkpoint_every", 50)),
+            deterministic=bool(params.get("deterministic", True)))}
 
     return train_lora(ctx, model, params,
                       {"target": marginals, "anchor": anchors, "continuation": continuations},

@@ -27,15 +27,46 @@ _None._
 
 _None._
 
-## 0.200.0 — 2026-10-14
+## 0.200.0 — 2026-10-15
 
 ### Changes that raise
 
-_None._
+- `adapter/train` with `operator` on a torch model is no longer refused:
+  it trains there (below).
+- On CUDA, `adapter/train` under `deterministic` (the default) holds
+  torch to `use_deterministic_algorithms(True)` without `warn_only`, so
+  an operation with no deterministic implementation raises where it
+  warned. A `CUBLAS_WORKSPACE_CONFIG` other than `:4096:8` or `:16:8` is
+  refused by name before training. `deterministic: false` trains as
+  0.199.0 did.
 
 ### Changes that alter results without raising
 
-_None._
+- On torch, the trained adapter's `train` (an `adapter/lora`, each kept
+  checkpoint, and an `adapter/operator`) carries `numerics`: the mode
+  (`deterministic`), the torch flags in force while training
+  (`deterministic_algorithms`, `deterministic_warn_only`,
+  `float32_matmul_precision`, `threads`; on CUDA `cublas_workspace`,
+  `tf32_matmul`, `cudnn_benchmark` and `attention_backward`, `math` or
+  `default`), and, under `deterministic: false`, a `note` saying two
+  runs with the same seed can differ in their last bits. A torch job's
+  `resources.training` adds `deterministic`. An MLX adapter's header
+  is unchanged.
+- On CUDA, a deterministic training runs attention's backward in the
+  math kernel (`sdpa_kernel(SDPBackend.MATH)`), where 0.199.0 let torch
+  pick flash or memory-efficient attention, whose backward adds in a
+  different order each run; a CUDA adapter's bytes move by that
+  rounding. The math kernel saves each layer's attention weights, so
+  the gradient-checkpointing estimate counts them (4 bytes × heads ×
+  tokens² a layer) when it runs.
+
+On the CPU nothing moves: deterministic mode leaves every byte where
+0.199.0 put it (the decision objective with kept checkpoints and `sft`
+on all nine kit models digest the same before and after, and on and
+off), and every MLX result is byte for byte what it was (`adapter/train`
+with a LoRA and with each operator form — affine on dimensions,
+polynomial, gated MLP, a rank-2 subspace with an L1 pull — with
+checkpoints, on the four tiny MLX architectures, digest the same).
 
 ### Other
 
@@ -98,6 +129,62 @@ _None._
   `MECHBENCH_SYSTEM_CRASH_REPORTS=1` keeps the system's reports. That
   test now asserts the child died of SIGABRT, not just that it
   failed.
+
+- **Reproducible training on torch.** `adapter/train` takes
+  `deterministic` (default true; MLX ignores it, its training being
+  deterministic already). On torch it holds training to deterministic
+  algorithms for the node and puts the process's settings back after,
+  and on CUDA also chooses the math attention kernel (no cuDNN, flash
+  or memory-efficient backward). The other sources of run-to-run drift
+  were already closed and stay so: the LoRA initialisation is MLX's
+  seeded threefry draw, the data order one numpy generator per seed,
+  no dropout (the model stays in eval mode; gradient checkpointing sets
+  `training` on the decoder layers only), no torch RNG, the frozen
+  embeddings take no `index_add` backward, Adam is elementwise, each
+  item's gradient accumulates in a fixed order, and TF32 and the cuDNN
+  benchmark are off with `CUBLAS_WORKSPACE_CONFIG` set at load. On the
+  CPU tiny models two seeded runs write the same adapter bytes and the
+  same optimizer state (every `m`, `v`, step and the data generator's
+  state at every checkpoint), for a LoRA and for an operator, and a run
+  resumed from a mid-run checkpoint written through numpy `.npz` (as
+  the runner's spool now stores it) and JSON (the generator's state)
+  ends on the uninterrupted run's bytes; the state round-trips through
+  `.npz` bit for bit. Measured cost on the CPU (8 threads, 40 steps,
+  median of 7, per step): within −2.5 % and +8 % of the fast path on
+  Gemma 3, Gemma 4, Llama and Qwen 2 for both objectives, which is the
+  timing noise, so it is the default. On CUDA it is not measured yet:
+  the next GPU session times `time_training` and a decision and an
+  `sft` node with `deterministic` true and false, checks the two runs
+  of each write the same bytes, reads the peak memory of the math
+  kernel's attention weights at the longest `sft` record, and records
+  whether torch raised for any operation.
+- **`adapter/train` with `operator` on the `torch` backend.** Every
+  form trains there — `affine` (on every coordinate, on a list of
+  dimensions, on a learned subspace), `polynomial`, `mlp`, with
+  `gate` and with the `penalty`'s L1 pull — with gradients reaching
+  each parameter through a forward hook on the decoder layer's output
+  (`resid_post`), the base frozen and given back bit for bit
+  (`torch_backend/operators.py`). The forms' expressions evaluate
+  through the torch operator verbs, and the verbs they use (`add`,
+  `multiply`, `power`) and the mask's reads and writes (`index_select`,
+  `scatter`) carry gradients; the forms are fixed, so no verb is
+  reachable that does not (`floor`, `round`, `remainder` and the
+  comparisons are not). The initial parameters are MLX's draw exactly
+  (`mlx_random.split_keys` splits a key `num` ways as MLX does); the
+  parameter names, Adam, the proximal step, checkpoints and resume are
+  MLX's. Loaded with the same float32 weights and trained at lr 0.01
+  for 8 steps, MLX and torch keep the loss within 2e-4 of the curve's
+  largest and the parameters' movement within 2e-3 of its norm, the
+  LoRA test's tolerances, on all eight paired kit models (measured, the
+  loss as written, to four decimals: within 7.3e-5 and the parameters
+  within 9.8e-4 on Gemma 3, whose embedding scale MLX rounds to bf16,
+  and within 2.1e-5 and 1e-5 on the others). The L1 pull is checked
+  over two steps: its threshold decides whether a value lands on the
+  identity, so later steps amplify Gemma 3's rounding (2.6e-4 of the
+  curve's largest at step 4, closing by step 8). An
+  operator still attaches on MLX only: a torch model refuses a model
+  reference that carries one. `read_operator_spec` and the operator
+  training import no MLX on a torch machine.
 
 ## 0.199.0 — 2026-10-14
 

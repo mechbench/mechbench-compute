@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
+import pathlib
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -38,6 +41,8 @@ DECISION = {"model": "tiny", "target": {"uniform": ["mat", "dog", "cat"]}, "clos
             "checkpoint_every": 4, "keep_checkpoints": True}
 
 IDS = [2, 7, 8, 9, 10, 11]
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def train(model, params=DECISION, **ctx):
@@ -118,11 +123,55 @@ def test_the_trained_adapter_fuses_on_torch_and_moves_the_logits():
     assert np.array_equal(read_logits(model), base)
 
 
-def test_an_operator_is_refused_on_torch_by_name():
+OPERATORS = {"affine": {"layers": [1], "function": "affine", "mask": [0, 3, 5]},
+             "polynomial": {"layers": [1, 2], "function": "polynomial", "degree": 3},
+             "mlp": {"layers": [2], "function": "mlp", "width": 4, "gate": True},
+             "subspace": {"layers": [1], "function": "affine", "mask": {"rank": 2}},
+             "pulled": {"layers": [1], "function": "affine", "mask": {"rank": 2},
+                        "penalty": {"l1": 0.01}}}
+
+
+def train_operator(model, operator, steps=8, lr=DECISION["lr"]):
+    params = {**{k: v for k, v in DECISION.items() if k not in ("lora", "keep_checkpoints")},
+              "steps": steps, "lr": lr, "batch": {"target": 3}, "operator": operator}
+    return train_op.run(Context(loaded=model), {"records": RECORDS}, params)["out"]
+
+
+@pytest.mark.parametrize("form", OPERATORS)
+def test_an_operator_trains_on_torch_every_parameter_moves_and_the_base_comes_back(form):
     model = build_tiny_model("gemma3")
-    with pytest.raises(ValueError, match="operator trains on the mlx backend only"):
-        train(model, {**DECISION, "keep_checkpoints": False,
-                      "operator": {"layers": [1], "function": "affine"}})
+    before = {k: (p.detach().clone(), p.requires_grad) for k, p in model._model.named_parameters()}
+    start, out = train_operator(model, OPERATORS[form], 0), train_operator(model, OPERATORS[form])
+    assert out["kind"] == "adapter/operator" and out["train"]["final_loss"] > 0
+    assert out["operator"]["effective"] > 0 and set(out["parameters"]) == set(start["parameters"])
+    for layer, values in out["parameters"].items():
+        for name, value in values.items():
+            moved = np.abs(np.asarray(value) - np.asarray(start["parameters"][layer][name])).max()
+            assert moved > 0, (layer, name)
+    for k, p in model._model.named_parameters():
+        assert torch.equal(p, before[k][0]) and p.requires_grad == before[k][1], k
+    assert not model.lm.model.layers[1]._forward_hooks
+
+
+OPERATOR_WITHOUT_MLX = """
+import sys
+for name in ("mlx", "mlx.core", "mlx.utils", "mlx.nn", "mlx_lm", "mlx_vlm"):
+    sys.modules[name] = None
+from tests.tiny_torch_models import build_tiny_model
+from mechbench_compute.ops import Context
+from mechbench_compute.ops.adapter import train
+out = train.run(Context(loaded=build_tiny_model("llama")), {"records": [{"id": "a", "user": "the cat"}]},
+                {"model": "t", "target": {"uniform": ["mat", "dog"]}, "closer": " ran", "steps": 2,
+                 "lr": 0.05, "operator": {"layers": [1], "function": "polynomial"}})["out"]
+print(out["kind"], sys.modules["mlx"] is not None)
+"""
+
+
+def test_an_operator_trains_on_torch_where_mlx_cannot_be_imported():
+    out = subprocess.run([sys.executable, "-c", OPERATOR_WITHOUT_MLX], cwd=ROOT, capture_output=True,
+                         text=True, timeout=300, check=False)
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.split()[-2:] == ["adapter/operator", "False"]
 
 
 def test_checkpointing_is_decided_by_the_switch_and_by_the_free_memory(monkeypatch):

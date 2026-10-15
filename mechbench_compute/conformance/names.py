@@ -15,7 +15,7 @@ VERBS = {
     "group", "grow", "guess", "hash", "index", "infer", "iter", "join",
     "judge", "keep", "label", "list", "load", "log", "lookup", "make", "map",
     "mark", "match", "materialize", "measure", "merge", "move", "name",
-    "normalize", "note", "open", "orthogonalize", "pack", "parse", "patch",
+    "normalize", "note", "open", "orthogonalize", "orthonormalize", "pack", "parse", "patch",
     "pick", "place", "plan", "plot", "pop", "prepare", "project", "prune",
     "publish", "push", "put", "quote", "raise", "rank", "read", "record",
     "reduce", "refuse", "register", "regress", "reject", "relabel", "release", "remove",

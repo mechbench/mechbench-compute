@@ -8,12 +8,9 @@ import mlx.core as mx
 import numpy as np
 from mlx import nn
 
+from mechbench_compute.adapters.read_operator_spec import write_polynomial
 from mechbench_compute.intervene.compile_operator import compile_operator
 from mechbench_compute.intervene.read_mask import Mask
-
-
-def _write_polynomial(degree: int) -> str:
-    return " + ".join(["c0", "c1 * x", *(f"c{i} * x ** {i}" for i in range(2, degree + 1))])
 
 
 def _orthonormalize_rows(p: mx.array) -> mx.array:
@@ -85,7 +82,7 @@ class OperatorModule(nn.Module):
             return compile_operator("a * x + b").evaluate({"x": x, "a": self.a, "b": self.b})
         if self._function == "polynomial":
             env = {f"c{i}": self.c[i] for i in range(self._degree + 1)}
-            return compile_operator(_write_polynomial(self._degree)).evaluate({**env, "x": x})
+            return compile_operator(write_polynomial(self._degree)).evaluate({**env, "x": x})
         return x + mx.maximum(x @ self.W1.T + self.b1, 0.0) @ self.W2.T + self.b2
 
     def read_identity(self) -> dict[str, Any]:

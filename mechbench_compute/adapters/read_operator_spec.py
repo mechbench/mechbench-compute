@@ -15,7 +15,7 @@ def _is_index(v: Any) -> bool:
 
 
 def read_operator_spec(value: Any, *, n_layers: int, d: int) -> dict[str, Any]:
-    from mechbench_compute.lora import check_layers
+    from mechbench_compute.adapter_keys import check_layers
 
     if not isinstance(value, Mapping):
         raise TypeError("an operator is an object: {layers, mask, function, …}")
@@ -74,3 +74,7 @@ def read_operator_spec(value: Any, *, n_layers: int, d: int) -> dict[str, Any]:
             raise ValueError(f"an operator's `penalty` is {{\"l1\": λ}}, λ at least 0; got {penalty!r}")
         spec["penalty"] = {"l1": float(l1)}
     return spec
+
+
+def write_polynomial(degree: int) -> str:
+    return " + ".join(["c0", "c1 * x", *(f"c{i} * x ** {i}" for i in range(2, degree + 1))])
