@@ -63,6 +63,11 @@ _None._
   (`mechbench-compute[dictionaries]`); without it a hub corpus is
   refused by name. A `transcoder` or `crosscoder` derivation is refused
   by name. The operation is a job, not a try.
+- An operation that needs a model and the network (`model.*` with
+  `network:*`) is `local`; `by-model` is kept for an operation that
+  needs a model and a provider (`model.*` with `provider.*`), the one
+  whose node runs where its model is. No operation declared both
+  before `dictionary/train`, so no operation's class changes.
 
 ## Unreleased
 

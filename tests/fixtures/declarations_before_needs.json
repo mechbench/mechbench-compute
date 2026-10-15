@@ -12,7 +12,7 @@
   "adapter/train": "mlx-local",
   "dictionary/encode": "mlx-local",
   "dictionary/load": "remote",
-  "dictionary/train": "by-model",
+  "dictionary/train": "mlx-local",
   "direction/add": "pure",
   "direction/average": "pure",
   "direction/classify": "pure",
