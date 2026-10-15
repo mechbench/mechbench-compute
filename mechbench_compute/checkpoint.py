@@ -7,40 +7,32 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import mlx.core as mx
-
-from mechbench_compute.contained import check_file_name, write_inside
-from mechbench_compute.lora import (
+from mechbench_compute import backends
+from mechbench_compute.adapter_keys import (
     ADAPTER_KEYS,
     AdapterKeys,
     check_layers,
     group_by_module,
 )
+from mechbench_compute.contained import check_file_name, write_inside
 
 MANIFEST_NAME = "manifest"
 _COMPLETE_MARK = ".complete"
 
 
-def _adapter_deltas(payload: Mapping[str, Any], keys: AdapterKeys = ADAPTER_KEYS,
-                    layers: Sequence[int] | None = None) -> dict[str, mx.array]:
-    import os
-    import tempfile
+def find_arrays(arrays: str | None = None) -> backends.Backend:
+    if arrays is not None:
+        return backends.find(arrays)
+    return backends.find("mlx" if backends.is_importable("mlx.core") else "torch")
 
-    from mechbench_compute.lora import load_adapter
 
+def _adapter_deltas(payload: Mapping[str, Any], lora: Any, keys: AdapterKeys = ADAPTER_KEYS,
+                    layers: Sequence[int] | None = None) -> dict[str, Any]:
     cfg = payload.get("lora") or {}
     scale = float(cfg.get("alpha", 16)) / float(cfg.get("rank", 8))
+    weights = lora.load_adapter_bytes(payload["data"])
 
-    fd, path = tempfile.mkstemp(suffix=".safetensors")
-    os.close(fd)
-    try:
-        with open(path, "wb") as f:
-            f.write(payload["data"])
-        weights = load_adapter(path)
-    finally:
-        os.unlink(path)
-
-    deltas: dict[str, mx.array] = {}
+    deltas: dict[str, Any] = {}
     for (i, container, proj), ab in group_by_module(weights, keys, layers).items():
         if keys.containers.get(proj) is None:
             raise ValueError(f"unknown projection {proj!r} in adapter")
@@ -54,13 +46,20 @@ def _adapter_deltas(payload: Mapping[str, Any], keys: AdapterKeys = ADAPTER_KEYS
     return deltas
 
 
-def read_adapter_keys(snap: Path, layers: Sequence[Sequence[int] | None] = ()) -> AdapterKeys:
-    from mechbench_compute._arch import read_arch_from_config
-    from mechbench_compute.architectures import for_type
+def read_layer_count(config: Mapping[str, Any], defaults: Mapping[str, Any]) -> int:
+    text = config.get("text_config")
+    source = {**defaults, **(text if isinstance(text, Mapping) else config)}
+    layer_types = source.get("layer_types")
+    return len(layer_types) if layer_types else int(source["num_hidden_layers"])
 
+
+def read_adapter_keys(snap: Path, layers: Sequence[Sequence[int] | None] = (),
+                      arrays: backends.Backend | None = None) -> AdapterKeys:
+    backend = arrays or find_arrays()
     config_path = snap / "config.json"
     config = json.loads(config_path.read_text()) if config_path.exists() else {}
-    declared = for_type(config.get("model_type"))
+    declared = backends.import_attribute(backend.architectures, backend).for_type(
+        config.get("model_type"))
     chosen = [one for one in layers if one is not None]
     if chosen:
         if declared is None:
@@ -68,7 +67,7 @@ def read_adapter_keys(snap: Path, layers: Sequence[Sequence[int] | None] = ()) -
                 f"an adapter's `layers` is checked against the checkpoint's layers, and its "
                 f"config.json names model_type {config.get('model_type')!r}, which compute "
                 f"does not load")
-        n_layers = read_arch_from_config(config).n_layers
+        n_layers = read_layer_count(config, declared.config_defaults)
         for one in chosen:
             check_layers(one, n_layers)
     return ADAPTER_KEYS if declared is None else declared.adapter_keys
@@ -80,6 +79,7 @@ def export_merged(
     out_dir: str | Path,
     *,
     layers: Sequence[Sequence[int] | None] = (),
+    arrays: str | None = None,
 ) -> list[str]:
     from mechbench_compute.adapters.is_operator import is_operator
 
@@ -97,17 +97,19 @@ def export_merged(
             "checkpoint this merge knows how to rewrite"
         )
     weight_map: dict[str, str] = json.loads(index_path.read_text())["weight_map"]
-    keys = read_adapter_keys(snap, layers)
+    backend = find_arrays(arrays)
+    lora = backends.load_lora(backend)
+    keys = read_adapter_keys(snap, layers, backend)
 
-    merged_deltas: dict[str, mx.array] = {}
+    merged_deltas: dict[str, Any] = {}
     for index, payload in enumerate(adapter_payloads):
         chosen = layers[index] if index < len(layers) else None
-        for suffix, delta in _adapter_deltas(payload, keys, chosen).items():
+        for suffix, delta in _adapter_deltas(payload, lora, keys, chosen).items():
             merged_deltas[suffix] = (
                 merged_deltas[suffix] + delta if suffix in merged_deltas else delta
             )
 
-    shard_targets: dict[str, dict[str, mx.array]] = {}
+    shard_targets: dict[str, dict[str, Any]] = {}
     for suffix, delta in merged_deltas.items():
         hits = [name for name in weight_map if name.endswith(suffix)]
         if len(hits) != 1:
@@ -124,12 +126,7 @@ def export_merged(
             continue
         dest = out / entry.name
         if entry.name in shard_targets:
-            tensors = dict(mx.load(str(entry)))
-            for name, delta in shard_targets[entry.name].items():
-                w = tensors[name]
-                tensors[name] = (w + delta.astype(w.dtype)).astype(w.dtype)
-            mx.eval(list(tensors.values()))
-            mx.save_safetensors(str(dest), tensors)
+            lora.fuse_into_shard(entry, dest, shard_targets[entry.name])
         else:
             shutil.copyfile(entry, dest)
         written.append(entry.name)

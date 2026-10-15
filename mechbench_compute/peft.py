@@ -1,14 +1,33 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
-import mlx.core as mx
-
-from mechbench_compute.lora import ADAPTER_KEYS
+from mechbench_compute.adapter_keys import ADAPTER_KEYS
+from mechbench_compute.backends import is_importable
+from mechbench_compute.safetensors_raw import read_raw, write_raw
 
 CONFIG_NAME = "adapter_config.json"
 WEIGHTS_NAME = "adapter_model.safetensors"
+
+
+def load_tensors(path: str | Path) -> dict[str, Any]:
+    if is_importable("mlx.core"):
+        import mlx.core as mx
+
+        return dict(mx.load(str(path)))
+    return read_raw(Path(path).read_bytes())
+
+
+def save_tensors(path: str | Path, tensors: Mapping[str, Any]) -> None:
+    if is_importable("mlx.core"):
+        import mlx.core as mx
+
+        mx.save_safetensors(str(path), dict(tensors))
+        return
+    Path(path).write_bytes(write_raw(tensors))
 
 
 def peft_export(adapter: dict, out_dir: str) -> str:
@@ -17,7 +36,7 @@ def peft_export(adapter: dict, out_dir: str) -> str:
 
     tmp = out / "_ours.safetensors"
     tmp.write_bytes(adapter["data"])
-    ours = dict(mx.load(str(tmp)))
+    ours = load_tensors(tmp)
     tmp.unlink()
 
     peft_weights = {}
@@ -31,7 +50,7 @@ def peft_export(adapter: dict, out_dir: str) -> str:
         peft_weights[
             f"base_model.model.model.layers.{i}.{container}.{proj}"
             f".lora_{ab.upper()}.weight"] = w
-    mx.save_safetensors(str(out / WEIGHTS_NAME), peft_weights)
+    save_tensors(out / WEIGHTS_NAME, peft_weights)
 
     lora = adapter.get("lora") or {}
     config = {
@@ -56,7 +75,7 @@ def peft_import(repo_dir: str) -> dict:
     if config.get("peft_type", "LORA").upper() != "LORA":
         raise ValueError(
             f"only LORA adapters supported; got {config.get('peft_type')!r}")
-    peft_weights = dict(mx.load(str(d / WEIGHTS_NAME)))
+    peft_weights = load_tensors(d / WEIGHTS_NAME)
     ours = {}
     extra = []
     for key, w in peft_weights.items():
@@ -78,7 +97,7 @@ def peft_import(repo_dir: str) -> dict:
     fd, tmp = tempfile.mkstemp(suffix=".safetensors")
     os.close(fd)
     try:
-        mx.save_safetensors(tmp, ours)
+        save_tensors(tmp, ours)
         data = Path(tmp).read_bytes()
     finally:
         os.unlink(tmp)

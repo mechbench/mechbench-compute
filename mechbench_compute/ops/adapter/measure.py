@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-import tempfile
 from collections.abc import Mapping
 from typing import Any
 
@@ -120,9 +118,8 @@ def _measure_adapter(adapter: Any, params: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def read_adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str], dict[str, np.ndarray]]:
-    import mlx.core as mx
-
-    from mechbench_compute.lora import ADAPTER_KEYS, load_adapter
+    from mechbench_compute.adapter_keys import ADAPTER_KEYS
+    from mechbench_compute.safetensors_raw import read_f64, read_raw
 
     data = payload.get("data")
     if data is None:
@@ -134,22 +131,13 @@ def read_adapter_pairs(payload: Mapping[str, Any]) -> dict[tuple[int, str, str],
 
         data = base64.b64decode(data)
     pairs: dict[tuple[int, str, str], dict[str, np.ndarray]] = {}
-    fd, path = tempfile.mkstemp(suffix=".safetensors")
-    os.close(fd)
-    try:
-        with open(path, "wb") as f:
-            f.write(data)
-        for key, w in load_adapter(path).items():
-            m = ADAPTER_KEYS.key_re.match(key)
-            if m is None:
-                raise ValueError(f"unrecognized adapter key {key!r}")
-            i, container, proj, ab = (int(m.group(1)), m.group(2),
-                                      m.group(3), m.group(4))
-            # external: MLX — mx.load is lazy and file-backed; reading an array after the unlink aborts the process
-            pairs.setdefault((i, container, proj), {})[ab] = np.array(
-                w.astype(mx.float32), dtype=np.float64)
-    finally:
-        os.unlink(path)
+    for key, w in read_raw(bytes(data)).items():
+        m = ADAPTER_KEYS.key_re.match(key)
+        if m is None:
+            raise ValueError(f"unrecognized adapter key {key!r}")
+        i, container, proj, ab = (int(m.group(1)), m.group(2),
+                                  m.group(3), m.group(4))
+        pairs.setdefault((i, container, proj), {})[ab] = read_f64(w)
     missing = [k for k, v in pairs.items() if set(v) != {"a", "b"}]
     if missing:
         where = ", ".join(f"{i}.{c}.{p}" for i, c, p in sorted(missing))
