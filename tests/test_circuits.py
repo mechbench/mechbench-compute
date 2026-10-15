@@ -443,6 +443,11 @@ class TestTheKinds:
         for name in ("intervene/circuit", "intervene/faithfulness"):
             kind = K.BY_KIND[name]
             assert kind.extends == "records/record" and kind.key == ("id",) and kind.speak
-        assert K.BY_KIND["intervene/circuit"].draw is None
+        circuit = K.BY_KIND["intervene/circuit"]
+        assert circuit.draw.mark == "graph" and circuit.draw.encoding == {
+            "components": "components", "links": "links", "id": "address", "layer": "layer", "weight": "effect"}
+        component = circuit.fields["components"]["items"]["properties"]
+        link = circuit.fields["links"]["items"]["properties"]
+        assert {"address", "layer", "effect"} <= set(component) and {"from", "to", "effect"} <= set(link)
         assert K.BY_KIND["intervene/faithfulness"].draw.encoding == {
             "x": "circuit", "y": "faithfulness", "lo": "faithfulness_lo", "hi": "faithfulness_hi"}

@@ -39,7 +39,7 @@ class TestChartMarks:
         spec = build_chart(self.ROWS, {"mark": "bar", "x": "layer", "y": "mean"})
         assert spec["mark"] == "bar@1" and spec["encoding"] == {"x": "layer", "y": "mean"}
         assert "scale" not in spec
-        with pytest.raises(ValueError, match="bar@1, line@1, point@1, heat@1 and tokens@1"):
+        with pytest.raises(ValueError, match="bar@1, line@1, point@1, heat@1, tokens@1 and graph@1"):
             build_chart(self.ROWS, {"mark": "sparkline", "x": "layer", "y": "mean"})
 
     GRID = {"kind": "collection", "item_kind": "intervene/trace", "items": [

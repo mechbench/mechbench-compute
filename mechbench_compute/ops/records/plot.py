@@ -7,7 +7,16 @@ from typing import Any
 
 from mechbench_compute.blocks.expand_cells import expand_cells
 from mechbench_compute.blocks.read_items import read_items
+from mechbench_compute.charts.check_axes import AXIS_SCALES, check_axes
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
+
+AXIS_FIELDS = (
+    P("scale", "string", "`linear`, `log` or `signed-log`.", None, choices=AXIS_SCALES),
+    P("constant", "float", "A `signed-log` axis's c, above zero; 1 when not given.", None),
+    P("quantiles", "list[json]",
+      "Ticks at the data's quantiles: each a level in 0..1 (0.99) or a `{q, value}`.", None),
+    P("zero", "bool", "Keep zero in view.", None),
+)
 
 OP = Op(
     name="records/plot",
@@ -49,6 +58,21 @@ beside the point it belongs to; `level` says which (0.9 for 90%), and is
 read from the input's `interval` header when the input carries one.
 `bin` makes a bar chart a histogram: the renderer counts the rows into
 that many bins of `x` and draws the counts, so `y` is not encoded.
+
+### A graph
+
+`mark: "graph"` draws one record as one graph laid out by layer: a
+circuit's components and the links between them, an attribution
+graph's units and weighted links. `encoding.components` names the
+record field holding the components and `encoding.links` the one
+holding the links (`{from, to}` by component id); `id`, `layer`,
+`weight`, `label`, `text` and `sign` name fields of a component or a
+link. A component's area and a link's width grow with |weight|, warm
+where it is positive and cool where negative. `threshold` leaves weak
+links undrawn without changing the rows, `layout` puts the layers in
+`columns` or `rows`, and `order` sorts a layer's components by `id` or
+by `weight`. The records are passed through as they are: the mark
+draws them.
 
 ### What each mark reads
 
@@ -97,7 +121,7 @@ The two are different and may be combined.
         In("records", "collection | records/table",
            "The table, or any collection of items, to chart.", many=True),
     ),
-    output=Output('records/chart', collection=False, doc='`title`, `mark` as `<name>@<version>` (`bar@1`), `encoding` (`x`, `y`, `series`, `color`, `value`, `text`, `lo`, `hi` as the mark declares them), `scale`, `labels`, `axes`, `annotate`, `reference`, `focus`, `facet`, `bin` and `level` when given (`level` also when the input carries an `interval`), and `source` or `data`. `data.rows` are the input\'s items with their coordinates flattened in; the row fields the renderer reads beside the encoded ones are `id`, `note`, `<x>_token`, and on a heat mark `<y>_token` and `token`.'),
+    output=Output('records/chart', collection=False, doc='`title`, `mark` as `<name>@<version>` (`bar@1`), `encoding` (`x`, `y`, `series`, `color`, `value`, `text`, `lo`, `hi`, and on a graph `components`, `links`, `id`, `layer`, `weight`, `label`, `sign`, as the mark declares them), `scale`, `labels`, `axes`, `annotate`, `reference`, `focus`, `facet`, `bin`, `level`, `threshold`, `layout` and `order` when given (`level` also when the input carries an `interval`), and `source` or `data`. `data.rows` are the input\'s items with their coordinates flattened in, or on a graph the records as they are, one graph each; the row fields the renderer reads beside the encoded ones are `id`, `note`, `<x>_token`, on a heat mark `<y>_token` and `token`, and on a graph `from`, `to` and `absent`.'),
     params=(
         P("encoding", "object",
           "Which field goes where. `x`/`y` for the point-shaped marks, "
@@ -111,9 +135,20 @@ The two are different and may be combined.
               P("color", "string",
                 "The categorical field each mark takes its colour from, in place.", None),
               P("value", "string", "The number a heat cell or a token takes its colour from.", None),
-              P("text", "string", "The field holding a row's tokens, for a token strip.", None),
+              P("text", "string",
+                "The field holding a row's tokens, for a token strip; a graph component's example.", None),
               P("lo", "string", "The interval's lower end.", None),
               P("hi", "string", "The interval's upper end.", None),
+              P("components", "string",
+                "A graph: the record field holding its components.", None),
+              P("links", "string",
+                "A graph: the record field holding its links, each `{from, to}` by component id.", None),
+              P("id", "string", "A graph: a component's id, the field its links name it by.", None),
+              P("layer", "string", "A graph: a component's layer, the column or row it is drawn in.", None),
+              P("weight", "string",
+                "A graph: a component's or a link's signed number; area and width grow with its size.", None),
+              P("label", "string", "A graph: what is printed for a component, its id when absent.", None),
+              P("sign", "string", "A graph: a link's sign, when its weight does not carry one.", None),
           )),
         P("x", "string", "The x field; the same as `encoding.x`.", None),
         P("y", "string", "The y field; the same as `encoding.y`.", None),
@@ -123,8 +158,9 @@ The two are different and may be combined.
         P("hi", "string", "The upper end; the same as `encoding.hi`.", None),
         P("mark", "string",
           "`\"bar\"`, `\"line\"`, `\"point\"`, `\"heat\"` (a grid of cells) "
-          "or `\"tokens\"` (a prompt's tokens, coloured); `name@1` is the same.",
-          "bar", choices=("bar", "line", "point", "heat", "tokens")),
+          "`\"tokens\"` (a prompt's tokens, coloured) or `\"graph\"` (components "
+          "and links laid out by layer); `name@1` is the same.",
+          "bar", choices=("bar", "line", "point", "heat", "tokens", "graph")),
         P("bin", "int",
           "A bar mark only: count the rows into this many bins of `x` and "
           "draw the counts, a histogram. `y` is then the count and is not "
@@ -134,11 +170,19 @@ The two are different and may be combined.
           "The level of the `lo`/`hi` interval (0.95 for 95%), said in the "
           "readout. Read from the input's `interval` header when not given.",
           None),
-        P("scale", "string",
-          "How `value` becomes colour: `\"diverging\"` centres on zero (a "
-          "recovery, a Δ log p), `\"sequential\"` runs from the lowest "
-          "value. Diverging when the values cross zero, by default.",
-          None, choices=("diverging", "sequential")),
+        P("scale", "string | object",
+          "How `value` becomes colour: `{ramp, per}`, or the ramp alone as a "
+          "string. `ramp` `\"diverging\"` centres on zero (a recovery, a "
+          "Δ log p), `\"sequential\"` runs from the lowest value; diverging "
+          "when the values cross zero, by default. `per: \"row\"` scales each "
+          "row of a heat map, or each strip of tokens, to its own extreme; "
+          "`per: \"figure\"` scales every row to the figure's.",
+          None, choices=("diverging", "sequential"), fields=(
+              P("ramp", "string", "`diverging` or `sequential`.", None,
+                choices=("diverging", "sequential")),
+              P("per", "string", "`row` or `figure`: what one colour scale spans.", None,
+                choices=("row", "figure")),
+          )),
         P("title", "string", "The chart's title: its claim, as a sentence.", ""),
         P("labels", "object",
           "What each encoded field is called in prose — the axis labels "
@@ -149,13 +193,17 @@ The two are different and may be combined.
               P("value", "string", "What the value field is called.", None),
               P("series", "string", "What the series field is called.", None),
               P("color", "string", "What the colour field is called.", None),
+              P("weight", "string", "A graph: what the weight field is called.", None),
           )),
         P("axes", "object",
           "Landmarks for an axis. `layer` carries the model's depth: "
           "`n` layers, the `global` attention layers, and "
           "`kv_shared_from`, the first layer that reuses keys and values. "
           "Read from the input's `arch` header when not given and the x or y "
-          "field is `layer`.",
+          "field is `layer`. `x` and `y` lay out a numeric axis: its "
+          "`scale`, `linear`, `log` or `signed-log` (sign(x)·log(1 + |x|/c), "
+          "`constant` its c, 1 when not given), `quantiles` to tick it at "
+          "the data's quantiles, and `zero` to keep zero in view.",
           None, fields=(
               P("layer", "object", "The depth landmarks.", None, fields=(
                   P("n", "int", "How many layers the model has.", None),
@@ -163,6 +211,8 @@ The two are different and may be combined.
                   P("kv_shared_from", "int",
                     "The first layer that reuses earlier keys and values.", None),
               )),
+              P("x", "object", "The x axis's layout.", None, fields=AXIS_FIELDS),
+              P("y", "object", "The y axis's layout.", None, fields=AXIS_FIELDS),
           )),
         P("annotate", "list[object]",
           "Callouts drawn on the figure: each names the row it sits at "
@@ -192,6 +242,18 @@ The two are different and may be combined.
           "one shared x axis, each with its own value scale — four sweeps "
           "as four aligned panels rather than four lines on one scale.",
           None),
+        P("threshold", "float",
+          "A graph only: links whose |weight| is under this are not drawn, "
+          "and a component left with no link fades; the rows are not changed.",
+          None),
+        P("layout", "string",
+          "A graph only: its layers as `columns` (the earliest at the left, "
+          "the default) or `rows` (the earliest at the top).",
+          None, choices=("columns", "rows")),
+        P("order", "string",
+          "A graph only: its components along their layer by `id`, or by "
+          "|weight| with the largest first.",
+          None, choices=("id", "weight")),
     ),
     example={
         "title": "Removing only the attention at each layer",
@@ -206,7 +268,7 @@ The two are different and may be combined.
 )
 
 
-MARKS = ("bar", "line", "point", "heat", "tokens")
+MARKS = ("bar", "line", "point", "heat", "tokens", "graph")
 
 
 SCALES = ("diverging", "sequential")
@@ -222,7 +284,7 @@ CHANNELS = tuple(dict.fromkeys(c for m in DECLARED["marks"] for c in m["channels
 
 SETTINGS = tuple(dict.fromkeys(o for m in DECLARED["marks"] for o in m["options"]))
 
-LABEL_FIELDS = ("x", "y", "value", "series", "color")
+LABEL_FIELDS = ("x", "y", "value", "series", "color", "weight")
 DEPTH_FIELD = "layer"
 
 
@@ -244,29 +306,26 @@ def _read_layer_axis(header: Mapping[str, Any] | None) -> dict[str, Any] | None:
     return out
 
 
-def _check_layer_axis(axes: Any) -> dict[str, Any]:
-    if not isinstance(axes, Mapping):
-        raise ValueError("records/plot axes is an object: {\"layer\": {n, global, kv_shared_from}}")
-    out = dict(axes)
-    layer = out.get("layer")
-    if layer is None:
-        return out
-    if not isinstance(layer, Mapping) or "n" not in layer:
-        raise ValueError("records/plot axes.layer needs `n`, the number of layers")
-    n = int(layer["n"])
-    checked: dict[str, Any] = {"n": n}
-    if layer.get("global") is not None:
-        globals_ = [int(i) for i in layer["global"]]
-        bad = [i for i in globals_ if not 0 <= i < n]
-        if bad:
-            raise ValueError(f"records/plot axes.layer.global names layers outside 0..{n - 1}: {bad}")
-        checked["global"] = globals_
-    if layer.get("kv_shared_from") is not None:
-        k = int(layer["kv_shared_from"])
-        if not 0 <= k <= n:
-            raise ValueError(f"records/plot axes.layer.kv_shared_from is outside 0..{n}: {k}")
-        checked["kv_shared_from"] = k
-    out["layer"] = checked
+def read_scale(decl: dict[str, Any], scale: Any) -> Any:
+    declared = decl["options"].get("scale", {})
+    choices = declared.get("choices", SCALES)
+    if not isinstance(scale, Mapping):
+        if str(scale) not in choices:
+            raise ValueError(f"records/plot scale must be one of {', '.join(choices)}, or "
+                             f"{{ramp, per}}, not {scale!r}")
+        return str(scale)
+    fields = declared.get("fields", {})
+    unknown = sorted(set(scale) - set(fields))
+    if unknown:
+        raise ValueError(f"records/plot scale names {unknown}; it reads {list_words(sorted(fields))}")
+    out: dict[str, str] = {}
+    for k, allowed in fields.items():
+        v = scale.get(k)
+        if v is None:
+            continue
+        if str(v) not in allowed:
+            raise ValueError(f"records/plot scale.{k} must be one of {', '.join(allowed)}, not {v!r}")
+        out[k] = str(v)
     return out
 
 
@@ -366,6 +425,37 @@ def read_bin(value: Any) -> int:
     return int(value)
 
 
+def read_graph_settings(decl: dict[str, Any], given: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    t = given.get("threshold")
+    if t is not None:
+        if isinstance(t, bool) or not isinstance(t, (int, float)) or not t >= 0:
+            raise ValueError(f"records/plot threshold is a |weight| at or above zero, not {t!r}")
+        out["threshold"] = float(t)
+    for o in ("layout", "order"):
+        v = given.get(o)
+        if v is None or v == "":
+            continue
+        choices = decl["options"][o]["choices"]
+        if str(v) not in choices:
+            raise ValueError(f"records/plot {o} must be one of {', '.join(choices)}, not {v!r}")
+        out[o] = str(v)
+    return out
+
+
+def read_graph_rows(records: Any, encoding: Mapping[str, str]) -> list[Any]:
+    field = encoding["components"]
+    if isinstance(records, Mapping) and field in records:
+        recs: list[Any] = [records]
+    else:
+        recs = read_items(records)
+    for i, r in enumerate(recs):
+        if not isinstance(r, Mapping) or not isinstance(r.get(field), list):
+            raise ValueError(f"a graph mark draws one graph per record: record {i} carries no list under "
+                             f"`{field}` (encoding.components)")
+    return recs
+
+
 def build_chart(records: Any, params: Mapping[str, Any],
                source_label: str | None = None) -> dict[str, Any]:
     decl, legacy = read_mark(params.get("mark", "bar"))
@@ -383,16 +473,15 @@ def build_chart(records: Any, params: Mapping[str, Any],
     given = {"title": params.get("title"), "labels": params.get("labels"), "axes": params.get("axes"),
              "annotate": params.get("annotate"), "reference": params.get("reference"),
              "focus": params.get("focus"), "facet": params.get("facet"), "bin": params.get("bin"),
-             "level": params.get("level"), "scale": params.get("scale")}
+             "level": params.get("level"), "scale": params.get("scale"),
+             "threshold": params.get("threshold"), "layout": params.get("layout"),
+             "order": params.get("order")}
     if given["bin"] is None and "bin" in legacy:
         given["bin"] = legacy["bin"]
     settings = [o for o in SETTINGS if is_set(given.get(o))]
     refuse_undeclared(decl, encoding, settings)
-    scale = given["scale"]
-    choices = decl["options"].get("scale", {}).get("choices", SCALES)
-    if scale is not None and str(scale) not in choices:
-        raise ValueError(
-            f"records/plot scale must be one of {', '.join(choices)}, not {scale!r}")
+    scale = read_scale(decl, given["scale"]) if is_set(given["scale"]) else None
+    graph = read_graph_settings(decl, given)
     labels_in = params.get("labels") or {}
     if not isinstance(labels_in, Mapping):
         raise ValueError("records/plot labels is an object: {x, y, value, series, color}")
@@ -402,7 +491,7 @@ def build_chart(records: Any, params: Mapping[str, Any],
             f"records/plot labels names {unknown}; it labels {', '.join(LABEL_FIELDS)}")
     labels = {k: str(v) for k, v in labels_in.items() if v}
     on_depth = any(encoding.get(c) == DEPTH_FIELD for c in decl["depth"])
-    axes = (_check_layer_axis(params["axes"]) if params.get("axes") is not None
+    axes = (check_axes(params["axes"]) if params.get("axes") is not None
             else ({"layer": la} if on_depth and (la := _read_layer_axis(header)) else None))
     annotate = (_check_annotations(params["annotate"])
                 if params.get("annotate") is not None else None)
@@ -418,7 +507,7 @@ def build_chart(records: Any, params: Mapping[str, Any],
         "title": params.get("title", ""),
         "mark": decl["address"],
         "encoding": encoding,
-        **({"scale": str(scale)} if scale else {}),
+        **({"scale": scale} if scale else {}),
         **({"labels": labels} if labels else {}),
         **({"axes": axes} if axes else {}),
         **({"annotate": annotate} if annotate else {}),
@@ -427,9 +516,12 @@ def build_chart(records: Any, params: Mapping[str, Any],
         **({"facet": str(facet)} if facet else {}),
         **({"bin": bins} if bins is not None else {}),
         **({"level": level} if level is not None else {}),
+        **graph,
     }
     if source_label:
         spec["source"] = source_label
+    elif decl["name"] == "graph":
+        spec["data"] = {"rows": read_graph_rows(records, encoding)}
     else:
         recs = (records["rows"] if isinstance(records, Mapping)
                 and isinstance(records.get("rows"), list) else read_items(records))

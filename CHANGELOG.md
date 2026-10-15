@@ -27,6 +27,43 @@ _None._
 
 _None._
 
+## 0.205.0 — 2026-10-15
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- `records/plot` draws a `graph`: one record is one graph, its
+  components laid out by layer and its links between them, a
+  component's area and a link's width growing with |weight|. The
+  encoding gains `components` (required: the record field holding the
+  components), `links`, `id`, `layer`, `weight`, `label` and `sign`
+  (`text` names a component's example); the settings `threshold`
+  (links under it are not drawn, the rows unchanged), `layout`
+  (`columns` or `rows`) and `order` (`id` or `weight`), and
+  `labels.weight`. The records are passed through as they are, one
+  graph each; a record without a list under the components field is
+  refused, as are the graph's settings on any other mark.
+- `intervene/circuit` declares its chart: a `graph` of `components`
+  and `links`, a component named by its `address`, at its `layer`,
+  weighed by its `effect`.
+- `records/plot` reads the unit-figure conventions. `scale` is the
+  ramp alone, as before, or `{ramp, per}`: `per: "row"` scales each
+  row of a heat map, or each token strip, to its own extreme, and a
+  token strip now takes a scale. `axes.x` and `axes.y` lay out a
+  numeric axis: `scale` `linear`, `log` or `signed-log`, its
+  `constant` above zero, `quantiles` (a level, or `{q, value}`) and
+  `zero`. An unknown ramp, `per`, axis scale or key, a constant at or
+  below zero and a level outside 0..1 are refused by name.
+- `ops/records/marks.generated.json` is mechbench-viz's at 23f61ed;
+  `records/chart` declares `threshold`, `layout` and `order`.
+
 ## 0.204.0 — 2026-10-15
 
 ### Changes that raise
