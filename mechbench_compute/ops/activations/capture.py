@@ -249,7 +249,7 @@ def capture_residual_vectors(
                                  f"{len(layers)} layers over records of "
                                  f"{len(r.ids)} tokens")
         add_to_span(tokens_in=len(r.ids))
-        result = model.run(ids, interventions=[cap])
+        result = model.run(ids, interventions=[cap], logits=False)
         coords = read_record_coords(record, params)
         if point == WEIGHTS:
             sink.extend(read_weight_rows(model, result.cache, record, r.ids, coords, mid=mid,

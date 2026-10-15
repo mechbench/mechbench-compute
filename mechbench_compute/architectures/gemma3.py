@@ -8,7 +8,12 @@ from mlx_vlm.models.base import create_attention_mask
 from mechbench_compute._arch import GLOBAL_HOOK_POINTS, LAYER_HOOK_POINTS, Arch
 from mechbench_compute._attention_mask import apply_mask
 from mechbench_compute.adapter_keys import ADAPTER_KEYS
-from mechbench_compute.architectures._dispatch import dispatch, run_head
+from mechbench_compute.architectures._dispatch import (
+    dispatch,
+    read_layers,
+    run_head,
+    stop_early,
+)
 from mechbench_compute.architectures._head import (
     make_head_logits,
     make_project_to_logits,
@@ -176,7 +181,8 @@ def run_forward(
     capture: list[str] | None = None,
     arch: Arch | None = None,
     kv_cache=None,
-) -> tuple[mx.array, ActivationCache]:
+    stop_after: int | None = None,
+) -> tuple[mx.array | None, ActivationCache]:
     hooks = dict(hooks or {})
     capture_set = set(capture or [])
     manual_attn_layer_set = attn_internal_layers(
@@ -207,7 +213,7 @@ def run_forward(
         else None
     )
 
-    for i, layer in enumerate(tm.layers):
+    for i, layer in enumerate(read_layers(tm.layers, stop_after)):
         c = kv_cache[i]
         is_global = (i + 1) % pattern == 0
         local_mask = global_mask if is_global else sliding_mask
@@ -258,6 +264,8 @@ def run_forward(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
+    if stop_after is not None:
+        return stop_early(cache)
     logits = run_head(h, norm=tm.norm, unembed=lm.lm_head,
                       hooks=hooks, capture_set=capture_set, cache=cache)
     return logits, cache

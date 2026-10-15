@@ -30,3 +30,12 @@ def run_head(
     logits = dispatch("logits", None, "logits", logits, hooks, capture_set, cache)
     mx.eval([logits] + list(cache.values()))
     return logits
+
+
+def read_layers(layers, stop_after: int | None):
+    return layers if stop_after is None else layers[:stop_after + 1]
+
+
+def stop_early(cache: ActivationCache) -> tuple[None, ActivationCache]:
+    mx.eval(list(cache.values()))
+    return None, cache

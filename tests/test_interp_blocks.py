@@ -78,7 +78,7 @@ class StubModel:
     def make_ids(self, ids):
         return mx.array([[int(t) for t in ids]], dtype=mx.int32)
 
-    def run(self, ids, interventions=None):
+    def run(self, ids, interventions=None, logits=True):
         self.runs += 1
         arr = np.array(ids)[0]
         seq = len(arr)
@@ -777,8 +777,8 @@ class TestQKSources:
         model = StubModel()
         orig = model.run
 
-        def with_qk(ids, interventions=None):
-            r = orig(ids, interventions=interventions)
+        def with_qk(ids, interventions=None, logits=True):
+            r = orig(ids, interventions=interventions, logits=logits)
             arr = np.array(ids)[0]
             seq = len(arr)
             hd = D_MODEL // 2

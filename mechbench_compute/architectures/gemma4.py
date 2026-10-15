@@ -7,7 +7,12 @@ from mlx_vlm.models import cache as cache_mod
 from mechbench_compute._arch import GLOBAL_HOOK_POINTS, LAYER_HOOK_POINTS, Arch
 from mechbench_compute._attention_mask import apply_mask
 from mechbench_compute.adapter_keys import ADAPTER_KEYS
-from mechbench_compute.architectures._dispatch import dispatch, run_head
+from mechbench_compute.architectures._dispatch import (
+    dispatch,
+    read_layers,
+    run_head,
+    stop_early,
+)
 from mechbench_compute.architectures._head import (
     cap_logits,
     make_head_logits,
@@ -172,7 +177,8 @@ def run_forward(
     capture: list[str] | None = None,
     arch: Arch | None = None,
     kv_cache=None,
-) -> tuple[mx.array, ActivationCache]:
+    stop_after: int | None = None,
+) -> tuple[mx.array | None, ActivationCache]:
     hooks = dict(hooks or {})
     capture_set = set(capture or [])
 
@@ -202,7 +208,7 @@ def run_forward(
     previous_kvs = tm.previous_kvs
     intermediates: list[tuple] = [(None, None)] * len(tm.layers)
 
-    for i, layer in enumerate(tm.layers):
+    for i, layer in enumerate(read_layers(tm.layers, stop_after)):
         if getattr(layer, "enable_moe", False):
             raise NotImplementedError(
                 "MoE decoder layers (Gemma 4 26B) are not supported by the "
@@ -302,6 +308,8 @@ def run_forward(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
+    if stop_after is not None:
+        return stop_early(cache)
     u = read_unembed(model)
     logits = run_head(h, norm=tm.norm, unembed=lambda x: cap_logits(u, u.project(x)),
                       hooks=hooks, capture_set=capture_set, cache=cache)

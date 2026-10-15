@@ -63,12 +63,15 @@ class FakeModel:
     def make_ids(self, ids) -> np.ndarray:
         return np.asarray([[int(t) for t in ids]], dtype=np.int64)
 
-    def run(self, input_ids, *, hooks=None, capture=None, interventions=None, kv_cache=None):
+    def run(self, input_ids, *, hooks=None, capture=None, interventions=None, kv_cache=None,
+            logits=True):
         result = self.inner.run(mx.array(np.asarray(input_ids), dtype=mx.int32), hooks=hooks,
-                                capture=capture, interventions=interventions, kv_cache=kv_cache)
+                                capture=capture, interventions=interventions, kv_cache=kv_cache,
+                                logits=logits)
         cache = ActivationCache({k: read_f32(v) for k, v in result.cache.items()},
                                 offset=result.cache.offset)
-        return RunResult(logits=read_f32(result.logits), cache=cache)
+        return RunResult(logits=None if result.logits is None else read_f32(result.logits),
+                         cache=cache)
 
     def head_logits(self, hidden) -> np.ndarray:
         return read_f32(self.inner.head_logits(mx.array(np.asarray(hidden, dtype=np.float32))))

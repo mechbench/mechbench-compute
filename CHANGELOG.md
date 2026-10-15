@@ -13,6 +13,38 @@ nothing said so.
 
 ---
 
+## 0.201.0 — 2026-10-15
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- A forward that only reads stops at the last layer it reads.
+  `Model.run(..., logits=False)` says the caller wants the cache and no
+  logits; the forward then runs the decoder layers up to the last one
+  any capture, hook or intervention names and stops there, skipping the
+  later layers, the final norm and the unembedding, and returns
+  `logits` as `None`. A request that names `final_norm`,
+  `final_norm.scale` or `logits`, or that passes a KV cache (which the
+  later layers would leave unfilled), runs the whole model as before.
+  The layers that run are the same code on the same inputs, so every
+  captured value is bit-identical to the whole forward's on MLX and on
+  torch (where the nnsight trace is stopped after the last read);
+  Gemma 4's per-layer inputs and KV-shared layers read the same values
+  either side of the first shared layer. `activations/capture`,
+  `activations/contrast`, `activations/capture-attention`,
+  `activations/examples` and the dictionary encoders' reads ask for no
+  logits, so a capture of a mid-depth layer costs about that fraction
+  of the model. Callers of
+  `Model.run` that read `logits` are unchanged: the default is
+  `logits=True`.
+
 ## Unreleased
 
 ### Changes that raise

@@ -95,7 +95,7 @@ def capture_attention_patterns(
     for record in records:
         flat = render(model, record).ids
         add_to_span(tokens_in=len(flat))
-        result = model.run(model.make_ids(flat), interventions=[cap])
+        result = model.run(model.make_ids(flat), interventions=[cap], logits=False)
         tokens = [model.tokenizer.decode([int(t)]) for t in flat]
         seq = len(tokens)
         total_floats += len(layers) * model.arch.n_heads * seq * seq

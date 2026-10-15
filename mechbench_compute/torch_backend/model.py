@@ -8,7 +8,7 @@ import numpy as np
 
 from mechbench_compute import support
 from mechbench_compute.errors import InvalidHookName
-from mechbench_compute.hooks import HookFn, parse_hook_name
+from mechbench_compute.hooks import HookFn, parse_hook_name, read_last_layer
 from mechbench_compute.interventions import Intervention, compose
 from mechbench_compute.run_result import RunResult
 from mechbench_compute.spans import add_to_span
@@ -119,17 +119,19 @@ class TorchModel:
 
     def run(self, input_ids: Any, *, hooks: dict[str, HookFn] | None = None,
             capture: list[str] | None = None, interventions: list[Intervention] | None = None,
-            kv_cache: Any = None) -> RunResult:
+            kv_cache: Any = None, logits: bool = True) -> RunResult:
         final_hooks, final_capture = compose(interventions, hooks=hooks, capture=capture)
         names = set(final_hooks) | set(final_capture)
         self.check_hook_names(names)
-        logits, cache = self.architecture.forward(
+        stop_after = (None if logits or kv_cache is not None
+                      else read_last_layer(names, arch=self.arch))
+        out, cache = self.architecture.forward(
             self._model, input_ids, hooks=final_hooks, capture=final_capture,
-            arch=self.arch, kv_cache=kv_cache)
+            arch=self.arch, kv_cache=kv_cache, stop_after=stop_after)
         self.attention.add(read_attention(self._model, names, self.arch))
         add_to_span(forwards=1, tokens_in=int(input_ids.numel()), bytes_captured=sum(
             int(cache[n].numel() * cache[n].element_size()) for n in set(final_capture) if n in cache))
-        return RunResult(logits=logits, cache=cache)
+        return RunResult(logits=out, cache=cache)
 
     def check_hook_names(self, names: Iterable[str]) -> None:
         declared = self.architecture

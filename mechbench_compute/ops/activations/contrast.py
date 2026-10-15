@@ -102,10 +102,10 @@ def measure_residual_divergence(
                 on_item()
                 on_item()
             continue
-        run_a = model.run(ids_a, interventions=[cap])
+        run_a = model.run(ids_a, interventions=[cap], logits=False)
         if on_item:
             on_item()
-        run_b = model.run(ids_b, interventions=[cap])
+        run_b = model.run(ids_b, interventions=[cap], logits=False)
         if on_item:
             on_item()
         tokens = [model.tokenizer.decode([int(t)])

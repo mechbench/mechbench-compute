@@ -11,7 +11,7 @@ from mlx_vlm.utils import get_model_path, load_config
 from . import _arch, architectures, support
 from .adapters.read_operator_hooks import read_operator_hooks
 from .errors import InvalidHookName
-from .hooks import HookFn, parse_hook_name
+from .hooks import HookFn, parse_hook_name, read_last_layer
 from .interventions import Intervention, compose
 from .run_result import RunResult
 from .spans import add_to_span
@@ -125,19 +125,23 @@ class Model:
         capture: list[str] | None = None,
         interventions: list[Intervention] | None = None,
         kv_cache=None,
+        logits: bool = True,
     ) -> RunResult:
         final_hooks, final_capture = compose(
             interventions, hooks=hooks, capture=capture,
         )
+        requested = set(final_hooks) | set(final_capture)
         final_hooks = read_operator_hooks(self.lm, final_hooks)
         self._validate_hook_names(set(final_hooks.keys()) | set(final_capture))
-        logits, cache = self.architecture.forward(
+        stop_after = (None if logits or kv_cache is not None
+                      else read_last_layer(requested, arch=self.arch))
+        out, cache = self.architecture.forward(
             self._model, input_ids, hooks=final_hooks, capture=final_capture,
-            arch=self.arch, kv_cache=kv_cache,
+            arch=self.arch, kv_cache=kv_cache, stop_after=stop_after,
         )
         add_to_span(forwards=1, bytes_captured=sum(
             int(cache[n].nbytes) for n in set(final_capture) if n in cache))
-        return RunResult(logits=logits, cache=cache)
+        return RunResult(logits=out, cache=cache)
 
     def _validate_hook_names(self, names: Iterable[str]) -> None:
         from . import _arch as _arch_mod
