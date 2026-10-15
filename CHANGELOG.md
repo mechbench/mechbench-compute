@@ -27,6 +27,37 @@ _None._
 
 _None._
 
+## 0.200.0 — 2026-10-14
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- `eval/benchmark` reports each lm-eval request as it is scored. It
+  reported once per task, so one large task on a large model could
+  run past the runner's 900-second watchdog with nothing said. The
+  node's total starts at one unit per task and grows to the requests
+  each task asks for as the harness hands them over; a task that asks
+  for none counts as one. Scores, order and the table are unchanged.
+- A node may call `on_start` more than once: the later call replaces
+  the node's total instead of adding to it, so `done` still never
+  passes `total`. No operation called it twice before this one.
+- On an integrated GPU the budget's other-processes term falls back to
+  NVML when `nvidia-smi --query-compute-apps` prints `[N/A]` for every
+  process, as it does on the GB10 (DGX Spark): `pynvml`'s
+  compute and graphics process lists, when `pynvml` is importable.
+  `torch_backend.memory.read_others` returns the bytes with the source
+  that answered (`nvidia-smi`, `nvml`) or, where neither does, `null`
+  with the reasons; `read_integrated_breakdown` carries total, host
+  use, others, their source and the budget, and `cap_integrated` logs
+  it. Where nothing answers, others still count as nothing, as before.
+
 ## 0.199.0 — 2026-10-14
 
 ### Changes that raise
