@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 import mlx.core as mx
+from mlx import nn
 
 from mechbench_compute._arch import Arch
 from mechbench_compute._attention_mask import apply_mask
@@ -11,11 +12,12 @@ from mechbench_compute.architectures._dispatch import (
     dispatch,
     read_layers,
     run_head,
+    run_mlp_with_internals,
     stop_early,
 )
 from mechbench_compute.cache import ActivationCache, kv_offset
 from mechbench_compute.head_weights import make_head_weights
-from mechbench_compute.hooks import HookFn, attn_internal_layers
+from mechbench_compute.hooks import HookFn, attn_internal_layers, mlp_internal_layers
 from mechbench_compute.support import Unembed
 
 
@@ -161,6 +163,9 @@ def run_lm_forward(
     manual_attn_layer_set = attn_internal_layers(
         set(hooks.keys()) | capture_set, arch=arch,
     )
+    manual_mlp_layer_set = mlp_internal_layers(
+        set(hooks.keys()) | capture_set, arch=arch,
+    )
 
     cache = ActivationCache(offset=kv_offset(kv_cache))
     tm = model.model
@@ -195,7 +200,16 @@ def run_lm_forward(
 
         mid = h
         m_in = layer.post_attention_layernorm(mid)
-        m_out = layer.mlp(m_in)
+        m_in = dispatch(
+            f"blocks.{i}.mlp.in_norm", i, "mlp.in_norm", m_in, hooks, capture_set, cache,
+        )
+        if i in manual_mlp_layer_set:
+            m_out = run_mlp_with_internals(
+                layer.mlp, m_in, act=nn.silu,
+                hooks=hooks, capture_set=capture_set, cache=cache, layer_idx=i,
+            )
+        else:
+            m_out = layer.mlp(m_in)
         m_out = dispatch(
             f"blocks.{i}.mlp_out", i, "mlp_out", m_out, hooks, capture_set, cache,
         )

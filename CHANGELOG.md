@@ -13,6 +13,49 @@ nothing said so.
 
 ---
 
+## 0.202.0 — 2026-10-15
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- `activations/capture` reads the MLP's interior: `point` takes
+  `mlp.in_norm` (the MLP's input after its norm), `mlp.gate` and
+  `mlp.up` (its two projections), `mlp.act` (the gate's nonlinearity)
+  and `mlp.down_in` (`mlp.act` times `mlp.up`, what each neuron writes
+  through its row of the down-projection), so a capture reads a whole
+  layer's neurons per prompt. `mlp.in_norm` is d_model wide; the other
+  four are as wide as the layer's MLP, which Gemma 4's E models double
+  on their KV-shared layers (E2B: 6144 on layers 0–14, 12288 on 15–34).
+  The header's `widths` lists each captured layer's width in the order
+  of `layers`, and each item's `space.d` is its own. Tensor storage
+  holds rows of one width, so a capture across layers of two widths
+  that needs it is refused before the model runs, naming the layers of
+  each width. `heads` with an interior point is refused by name, and an
+  interior point at a layer stops a read-only forward after that layer
+  as any other point does.
+- The Llama and Qwen 2 forwards on MLX, and every torch forward (Gemma
+  3, Gemma 4, Llama, Qwen 2, Qwen 3), now read the same five points;
+  before, only MLX's Gemma 3 and Gemma 4 did. On MLX the MLP runs as
+  its separate projections only at a layer whose interior is read
+  (Gemma 3, Gemma 4 and the mlx-lm models share that one path now), and
+  every other value, the residual stream and the logits included, is
+  bit-identical to the fused MLP's in float32 and bfloat16 on every kit
+  model. On torch the points are read at the MLP's module boundaries
+  (its input, `gate_proj`, `act_fn`, `up_proj`, and `down_proj`'s
+  input), bit-identical to an untraced forward, and agree with MLX
+  within the cross-backend tolerances on the paired kit models,
+  Gemma 4's double-wide KV-shared layers included. The `core` level
+  carries the MLP's interior, so every architecture's `layerPoints`
+  names the five points, and `dictionary/load`'s refusal of a
+  transcoder no longer gives the missing point as its reason.
+
 ## Unreleased
 
 ### Changes that raise

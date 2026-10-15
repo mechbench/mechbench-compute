@@ -178,7 +178,7 @@ def load_dictionary(params: Mapping[str, Any], *,
         raise ValueError(
             f"dictionary/load: {repo}/{path} is a {derivation}. A {derivation} is a direction/dictionary "
             "with its own derivation, and this operation reads sparse autoencoders only so far: "
-            + ("a transcoder reads `mlp.in_norm`, which needs its architecture's full hook points"
+            + ("a transcoder reads `mlp.in_norm` and writes `mlp_out`, which encode does not read yet"
                if derivation == "transcoder" else
                "a crosscoder reads several layers at once, which encode does not read yet"))
     activation = read_activation(config)

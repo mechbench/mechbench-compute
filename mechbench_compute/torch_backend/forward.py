@@ -14,7 +14,7 @@ from mechbench_compute.torch_backend.decoding import (
     read_cache_offset,
     read_cached_kwargs,
 )
-from mechbench_compute.torch_backend.sites import Site, Sites
+from mechbench_compute.torch_backend.sites import Site, Sites, read_child_output
 from mechbench_compute.torch_backend.tracing import disarm, use_attention, wrap_model
 
 EAGER_POINTS = frozenset({"attn.weights"})
@@ -173,6 +173,22 @@ def plan_rope_qkv(attn: Any, i: int, points: set[str]) -> list[Step]:
     return steps
 
 
+def read_input(module: Any) -> Site:
+    return Site(lambda: module.input, lambda value: setattr(module, "input", value))
+
+
+def plan_mlp(mlp: Any, i: int, points: set[str]) -> list[Step]:
+    by_point = {
+        "mlp.in_norm": lambda: read_input(mlp),
+        "mlp.gate": lambda: read_child_output("gate_proj", mlp),
+        "mlp.act": lambda: read_child_output("act_fn", mlp),
+        "mlp.up": lambda: read_child_output("up_proj", mlp),
+        "mlp.down_in": lambda: read_input(mlp.down_proj),
+    }
+    return [make_step(f"blocks.{i}.{p}", i, p, site()) for p, site in by_point.items()
+            if p in points]
+
+
 def plan_layer(layer: Any, i: int, points: set[str], sites: Sites) -> list[Step]:
     steps: list[Step] = []
     named = f"blocks.{i}."
@@ -196,6 +212,7 @@ def plan_layer(layer: Any, i: int, points: set[str], sites: Sites) -> list[Step]
             read_heads, pack_heads))
     if "attn_out" in points:
         steps.append(make_step(named + "attn_out", i, "attn_out", sites.attn_out(layer)))
+    steps.extend(plan_mlp(layer.mlp, i, points))
     if "mlp_out" in points:
         steps.append(make_step(named + "mlp_out", i, "mlp_out", sites.mlp_out(layer)))
     if "gate_out" in points:

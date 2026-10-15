@@ -27,7 +27,12 @@ from mechbench_compute.interventions import Capture
 from mechbench_compute.lexicon._base import In, Op, Output, P, Resume
 from mechbench_compute.spans import add_to_span
 
-POINTS = ("resid_post", "resid_pre", "attn_out", "mlp_out", "gate_out", "attn.weights")
+POINTS = ("resid_post", "resid_pre", "attn_out", "mlp_out", "gate_out", "mlp.in_norm",
+          "mlp.gate", "mlp.up", "mlp.act", "mlp.down_in", "attn.weights")
+
+INTERIOR = ("mlp.in_norm", "mlp.gate", "mlp.up", "mlp.act", "mlp.down_in")
+
+NEURONS = INTERIOR[1:]
 
 WRITES = ("attn_out", "mlp_out", "gate_out")
 
@@ -66,6 +71,19 @@ name, with the code `POINT_ABSENT`. The architecture's residual law
 relates them: `resid_post` is `resid_pre` plus the writes (on Gemma 4,
 times the layer's scalar), so the writes at one layer say which of them
 moved a dimension of the stream.
+
+The MLP's interior is read at five points: `mlp.in_norm`, the MLP's input
+after its norm, d_model wide; `mlp.gate` and `mlp.up`, its two
+projections; `mlp.act`, the gate's nonlinearity; and `mlp.down_in`,
+`mlp.act` times `mlp.up`, the coefficient each neuron writes its row of
+the down-projection with. The last four are as wide as the MLP
+(`intermediate_size`), which can differ by layer (Gemma 4's E models
+double it on their KV-shared layers): the header's `widths` names each
+captured layer's, in the order of `layers`, and each item's `space.d` its
+own. Reading them leaves every other read bit-identical. Tensor storage
+holds rows of one width, so a capture across layers of two widths that
+needs it is refused before the model runs, naming the layers of each
+width to capture apart.
 
 `heads` splits `attn_out` by head, one vector per head: the head's output
 through its slice of `o_proj`, then through the norm the architecture
@@ -122,7 +140,7 @@ storage only when every row has one width, records of one length.
            "scales this one.",
            required=False),
     ),
-    output=Output('activations/vector', collection=True, doc='One item per record per layer (per head, for Q/K sources and split heads; per head and query position, for attention weights): `{id, coords, space, vector, norm}`, plus `token` (the token read, when not pooled; on attention weights the query token, its position in `coords.position`), `n_pooled` when pooled, and with `top` set, `top` and `rms_without_top` (on attention weights, `top` alone). The header carries `model`, `point`, `source`, `position` (`"pooled"` when pooled), `layers`, `d_model` (absent on attention weights, whose width is the record\'s length), `heads` and `attention_path: "per_head"` when heads were read, `top` when set, and `skipped_empty` listing any records dropped under `skip_empty`.'),
+    output=Output('activations/vector', collection=True, doc='One item per record per layer (per head, for Q/K sources and split heads; per head and query position, for attention weights): `{id, coords, space, vector, norm}`, plus `token` (the token read, when not pooled; on attention weights the query token, its position in `coords.position`), `n_pooled` when pooled, and with `top` set, `top` and `rms_without_top` (on attention weights, `top` alone). The header carries `model`, `point`, `source`, `position` (`"pooled"` when pooled), `layers`, `d_model` (absent on attention weights, whose width is the record\'s length), `widths` on `mlp.gate`, `mlp.up`, `mlp.act` and `mlp.down_in` (each layer\'s MLP width, in the order of `layers`), `heads` and `attention_path: "per_head"` when heads were read, `top` when set, and `skipped_empty` listing any records dropped under `skip_empty`.'),
     params=(
         P("layers", "list[int] | \"all\"",
           "Which layers to run over.",
@@ -131,8 +149,13 @@ storage only when every row has one width, records of one length.
           "What to read: `\"resid_post\"` (the residual stream after each "
           "layer), `\"resid_pre\"` (before it), a layer's write into it "
           "(`\"attn_out\"`, `\"mlp_out\"`, or `\"gate_out\"`, the per-layer "
-          "input gate, which a checkpoint without one refuses), or "
-          "`\"attn.weights\"`, the attention weights of the heads `heads` names.",
+          "input gate, which a checkpoint without one refuses), the MLP's "
+          "interior (`\"mlp.in_norm\"`, the MLP's input after its norm; "
+          "`\"mlp.gate\"` and `\"mlp.up\"`, its two projections; "
+          "`\"mlp.act\"`, the gate's nonlinearity; `\"mlp.down_in\"`, "
+          "`mlp.act` times `mlp.up`, what each neuron writes through its row "
+          "of the down-projection; all but `mlp.in_norm` as wide as the MLP), "
+          "or `\"attn.weights\"`, the attention weights of the heads `heads` names.",
           "resid_post", choices=POINTS, value="point"),
         P("heads", "list[int] | \"all\"",
           "With `attn_out`, split the attention write by these heads, one "
@@ -223,13 +246,17 @@ def capture_residual_vectors(
                else model.arch.n_kv_heads if source == "keys" else len(heads or [None]))
     width = (model.arch.d_model if source == "resid"
              else model.arch.d_model // model.arch.n_heads)
-    total = len(records) * len(layers) * n_heads * width
+    widths = read_widths(model, layers) if point in NEURONS else [width] * len(layers)
+    total = len(records) * n_heads * sum(widths)
     sink = CaptureRows(read_storage(params), ceiling=MAX_VECTOR_FLOATS, stored=stored,
                        levers="capture fewer layers or records" if point != WEIGHTS
                        else "read fewer heads, layers, query positions or records")
     if point != WEIGHTS:
         sink.plan(total, f"{len(records)} records × {len(layers)} layers × "
-                         f"{n_heads} heads × {width} dims")
+                         f"{n_heads} heads × {width} dims" if len(set(widths)) == 1
+                  else f"{len(records)} records × {sum(widths)} dims over "
+                       f"{len(layers)} layers")
+        check_one_width(sink, point, layers, widths)
     if on_start:
         on_start(len(records))
 
@@ -272,7 +299,8 @@ def capture_residual_vectors(
                 t = result.cache[f"blocks.{layer}.{point}"]
                 v, n_pooled = ((read_f32(t[0, pos, :]), None) if not pool
                                else POS.pooled(read_f32(t[0]), over, pool["reduce"]))
-                sink.add(build_row(v, S.space(model=mid, layer=layer, point=point, d=width),
+                d = widths[layers.index(layer)]
+                sink.add(build_row(v, S.space(model=mid, layer=layer, point=point, d=d),
                                    record, coords, read_token, n_pooled, top))
             else:
                 key = ("q" if source == "queries" else "k")
@@ -295,6 +323,7 @@ def capture_residual_vectors(
         **({"pool": pool} if pool else {}),
         layers=layers,
         d_model=None if point == WEIGHTS else width,
+        **({"widths": widths} if point in NEURONS else {}),
         **({"heads": heads} if heads is not None else {}),
         **({"attention_path": "per_head"} if heads is not None or source != "resid" else {}),
         **({"top": top} if top else {}),
@@ -313,7 +342,35 @@ def read_point(model, spec: Any, source: str) -> str:
             "is read with source 'resid'")
     if point in WRITES:
         check_written(model, point)
+    if point in INTERIOR and not model.architecture.supports(point, layer_scoped=True):
+        raise ValueError(
+            f"the {model.arch.model_type!r} forward on the {model.architecture.backend} "
+            f"backend does not read `{point}`")
     return point
+
+
+def read_widths(model, layers: list[int]) -> list[int]:
+    blocks = model.lm.model.layers
+    return [read_out_width(blocks[i].mlp.gate_proj) for i in layers]
+
+
+def read_out_width(linear) -> int:
+    while hasattr(linear, "base"):
+        linear = linear.base
+    return int(linear.weight.shape[0])
+
+
+def check_one_width(sink: CaptureRows, point: str, layers: list[int],
+                    widths: list[int]) -> None:
+    if sink.writer is None or len(set(widths)) == 1:
+        return
+    by_width: dict[int, list[int]] = {}
+    for layer, w in zip(layers, widths):
+        by_width.setdefault(w, []).append(layer)
+    said = "; ".join(f"layers {ls} are {w} wide" for w, ls in by_width.items())
+    raise ValueError(
+        f"`{point}` here is {said}, and tensor storage holds rows of one width: "
+        "capture the layers of each width in a node of their own")
 
 
 def read_heads(spec: Any, point: str, n_heads: int) -> list[int] | None:

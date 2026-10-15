@@ -12,8 +12,8 @@ LEVELS: dict[str, str] = {
     "full": "every hook point: the residual stream, attention and MLP internals, "
             "the per-layer gate, the embedding, the final norm and the logits",
     "core": "the residual stream, attention and MLP outputs, attention weights, "
-            "per-head outputs, q/k/v, the embedding, the final norm and the logits; "
-            "no MLP internals and no pre-norm or pre-rope points",
+            "per-head outputs, q/k/v, the MLP's interior, the embedding, the final norm "
+            "and the logits; no other attention internals and no pre-norm or pre-rope points",
     "text": "generation, scoring and training, with no hook points",
 }
 
@@ -22,6 +22,7 @@ LOADERS: tuple[str, ...] = ("mlx-vlm", "mlx-lm", "transformers")
 CORE_LAYER_POINTS: tuple[str, ...] = (
     "resid_pre", "attn_out", "mlp_out", "resid_post",
     "attn.weights", "attn.per_head_out", "attn.q", "attn.k", "attn.v",
+    "mlp.in_norm", "mlp.gate", "mlp.up", "mlp.act", "mlp.down_in",
 )
 CORE_GLOBAL_POINTS: tuple[str, ...] = GLOBAL_HOOK_POINTS
 
