@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import contextlib
 import math
-from collections.abc import Collection, Iterator, Sequence
+import os
+from collections.abc import Collection, Iterator, Mapping, Sequence
 
 import mlx.core as mx
 from mlx import nn
@@ -121,6 +122,30 @@ def read_adapter_bytes(lm) -> bytes:
 
 def load_adapter(path: str) -> dict[str, mx.array]:
     return dict(mx.load(path))
+
+
+def load_adapter_bytes(data: bytes) -> dict[str, mx.array]:
+    import os
+    import tempfile
+
+    fd, path = tempfile.mkstemp(suffix=".safetensors")
+    os.close(fd)
+    try:
+        with open(path, "wb") as f:
+            f.write(data)
+        return load_adapter(path)
+    finally:
+        os.unlink(path)
+
+
+def fuse_into_shard(src: str | os.PathLike, dest: str | os.PathLike,
+                    deltas: Mapping[str, mx.array]) -> None:
+    tensors = dict(mx.load(str(src)))
+    for name, delta in deltas.items():
+        w = tensors[name]
+        tensors[name] = (w + delta.astype(w.dtype)).astype(w.dtype)
+    mx.eval(list(tensors.values()))
+    mx.save_safetensors(str(dest), tensors)
 
 
 

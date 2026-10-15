@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
@@ -16,6 +17,22 @@ def load_adapter_bytes(data: bytes) -> dict[str, Any]:
     from safetensors.torch import load
 
     return load(data)
+
+
+def fuse_into_shard(src: str | os.PathLike, dest: str | os.PathLike,
+                    deltas: Mapping[str, Any]) -> None:
+    import torch
+    from safetensors import safe_open
+    from safetensors.torch import load_file, save_file
+
+    with safe_open(str(src), framework="pt") as f:
+        metadata = f.metadata()
+    tensors = load_file(str(src))
+    with torch.no_grad():
+        for name, delta in deltas.items():
+            w = tensors[name]
+            tensors[name] = (w + delta.to(w.device, w.dtype)).to(w.dtype)
+    save_file(tensors, str(dest), metadata=metadata)
 
 
 def fuse(lm: Any, weights: Mapping[str, Any], scale: float, *, skip_missing: bool = False,

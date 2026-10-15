@@ -27,6 +27,43 @@ _None._
 
 _None._
 
+## 0.200.0 — 2026-10-14
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- `adapter/merge`, `adapter/measure`, `adapter/publish` and
+  `dictionary/load` run on the torch backend. `checkpoint.py`,
+  `peft.py` and `adapter/measure` imported MLX at the top, so the
+  first three failed on import wherever MLX is absent (Linux, CUDA).
+  The merge takes its arithmetic from a backend's `lora` module
+  (`load_adapter_bytes`, `fuse_into_shard`): MLX's where MLX is
+  installed, unchanged, and torch's elsewhere (`export_merged` takes
+  `arrays` to name one). A torch merge adds `scale · B @ A` to each
+  target weight in the weight's dtype, honouring `lora.layers`, and
+  keeps each shard's safetensors metadata; its checkpoint loads on
+  both backends, and on the tiny llama and qwen2 its weights are
+  within 1e-6 of MLX's and its logits within 1e-5 of the base with
+  the adapter fused (on a bf16 snapshot the two backends' merged
+  weights were bit-identical). The MLX merge, `peft_export`,
+  `peft_import` and `adapter/measure` give byte-identical output to
+  0.199.0 (checked by hash on a two-adapter bf16 stack). Where MLX is
+  absent, `peft.py` renames the adapter's tensors in a plain
+  safetensors reader and writer (`safetensors_raw.py`), so the PEFT
+  repository and an imported `hf_adapter` hold the same tensors with
+  the data in name order; an adapter imported there therefore hashes
+  apart from the same adapter imported on MLX. `adapter/measure` reads
+  the adapter's bytes with that reader on every backend (float32 and
+  bfloat16 widen exactly, as before). `dictionary/load` was already
+  numpy only; a dictionary it loads encodes on torch.
+
 ## 0.199.0 — 2026-10-14
 
 ### Changes that raise
