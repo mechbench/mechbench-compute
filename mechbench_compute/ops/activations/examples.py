@@ -254,7 +254,7 @@ def find_top_examples(
                     values[0] = np.float32(0)
                 rows.append(values)
         else:
-            res = model.run(model.make_ids(r.ids), interventions=[Capture.at([name])])
+            res = model.run(model.make_ids(r.ids), interventions=[Capture.at([name])], logits=False)
             xp = read_array_ops(res.cache[name])
             act = xp.cast(res.cache[name][0], xp.float32)
             if vec is not None:

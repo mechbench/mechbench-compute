@@ -82,3 +82,14 @@ def dispatch(
     if name in capture_set:
         cache[name] = activation
     return activation
+
+
+def read_last_layer(hook_names: set[str], arch: _arch.Arch | None = None) -> int | None:
+    last = -1
+    for n in hook_names:
+        info = parse_hook_name(n, arch=arch)
+        if info.layer is not None:
+            last = max(last, info.layer)
+        elif info.point != "embed":
+            return None
+    return last

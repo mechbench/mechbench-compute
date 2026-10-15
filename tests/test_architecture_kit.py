@@ -195,12 +195,12 @@ def test_a_head_that_ignores_the_checkpoint_s_cap_fails_by_name():
 
 def break_the_residual(architecture):
     def forward_with_a_wrong_residual(model, input_ids, *, hooks=None, capture=None,
-                                      arch=None, kv_cache=None):
+                                      arch=None, kv_cache=None, stop_after=None):
         hooks = dict(hooks or {})
         for i in range(arch.n_layers):
             hooks.setdefault(f"blocks.{i}.resid_post", lambda act, info: act * 1.5)
         return architecture.forward(model, input_ids, hooks=hooks, capture=capture,
-                                    arch=arch, kv_cache=kv_cache)
+                                    arch=arch, kv_cache=kv_cache, stop_after=stop_after)
 
     return dataclasses.replace(architecture, model_type="llama-broken",
                                name="Llama with a wrong residual",

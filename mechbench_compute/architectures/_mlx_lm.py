@@ -7,7 +7,12 @@ import mlx.core as mx
 
 from mechbench_compute._arch import Arch
 from mechbench_compute._attention_mask import apply_mask
-from mechbench_compute.architectures._dispatch import dispatch, run_head
+from mechbench_compute.architectures._dispatch import (
+    dispatch,
+    read_layers,
+    run_head,
+    stop_early,
+)
 from mechbench_compute.cache import ActivationCache, kv_offset
 from mechbench_compute.head_weights import make_head_weights
 from mechbench_compute.hooks import HookFn, attn_internal_layers
@@ -149,7 +154,8 @@ def run_lm_forward(
     capture: list[str] | None = None,
     arch: Arch | None = None,
     kv_cache=None,
-) -> tuple[mx.array, ActivationCache]:
+    stop_after: int | None = None,
+) -> tuple[mx.array | None, ActivationCache]:
     hooks = dict(hooks or {})
     capture_set = set(capture or [])
     manual_attn_layer_set = attn_internal_layers(
@@ -165,7 +171,7 @@ def run_lm_forward(
         kv_cache = make_lm_cache(model)
     masks = make_masks(tm, h, kv_cache)
 
-    for i, layer in enumerate(tm.layers):
+    for i, layer in enumerate(read_layers(tm.layers, stop_after)):
         c = kv_cache[i]
         local_mask = masks[i]
 
@@ -199,6 +205,8 @@ def run_lm_forward(
             f"blocks.{i}.resid_post", i, "resid_post", h, hooks, capture_set, cache,
         )
 
+    if stop_after is not None:
+        return stop_early(cache)
     logits = run_head(h, norm=tm.norm, unembed=read_unembed(model).project,
                       hooks=hooks, capture_set=capture_set, cache=cache)
     return logits, cache
