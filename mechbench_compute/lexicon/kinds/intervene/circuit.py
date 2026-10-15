@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mechbench_compute.lexicon._base import Kind, Metric, P
+from mechbench_compute.lexicon._base import Draw, Kind, Metric, P
 from mechbench_compute.lexicon.values import COORDS, ID, F
 
 COMPONENT = {
@@ -44,8 +44,8 @@ KIND = Kind(
         "The `universe` is what the circuit's complement is taken within, copied from the source's axes. "
         "`derivation.kept_share` is the summed effect of the kept components, in the sense of "
         "`derivation.sign`, over the same sum across the universe. A threshold that kept nothing is a circuit "
-        "with no components. `links` is absent until a source carries them. Draw one through "
-        "`records/unnest field: components` and `heat`.",
+        "with no components. `links` is absent until a source carries them. It draws as a `graph`: "
+        "each component at its layer, sized by its effect, and its links between them.",
     extends="records/record",
     fields={"id": ID, "coords": COORDS,
             "components": F("array", "What the circuit is made of.", items=COMPONENT),
@@ -76,6 +76,8 @@ KIND = Kind(
           "{'' if derivation.top is None else ', top ' + str(derivation.top)}) carrying "
           "{round(derivation.kept_share, 2)} of the {metric} effect, found under {ablation} ablation"
           "{'' if source.path is None else '; from ' + source.path}.",
+    draw=Draw(mark="graph", encoding={"components": "components", "links": "links", "id": "address",
+                                      "layer": "layer", "weight": "effect"}),
     metrics=(
         Metric("jaccard", "similarity", True,
                "The share of components two circuits have in common: |A∩B| / |A∪B| over their addresses, "

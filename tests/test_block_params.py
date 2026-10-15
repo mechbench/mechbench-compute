@@ -41,7 +41,7 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
     "records/plot": [
         ("ops/records/plot.py", "run"),
         ("ops/records/plot.py", "_read_layer_axis"),
-        ("ops/records/plot.py", "_check_layer_axis"),
+        ("charts/check_axes.py", "check_axes"),
         ("ops/records/plot.py", "_check_annotations"),
         ("ops/records/plot.py", "_check_references"),
         ("ops/records/plot.py", "build_chart")],

@@ -24,7 +24,7 @@
         },
         "axes": {
           "type": "object",
-          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`."
+          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`. A numeric axis's layout: `x` or `y` as `{scale, zero, constant, quantiles}`, where `scale` is `linear`, `log` or `signed-log` (sign(x)·log(1 + |x|/c), `constant` its c, 1 when not given) and `quantiles` ticks the axis at the data's quantiles, each a level (0.99) or a `{q, value}`."
         },
         "annotate": {
           "type": "list",
@@ -86,7 +86,7 @@
         },
         "axes": {
           "type": "object",
-          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`."
+          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`. A numeric axis's layout: `x` or `y` as `{scale, zero, constant, quantiles}`, where `scale` is `linear`, `log` or `signed-log` (sign(x)·log(1 + |x|/c), `constant` its c, 1 when not given) and `quantiles` ticks the axis at the data's quantiles, each a level (0.99) or a `{q, value}`."
         },
         "annotate": {
           "type": "list",
@@ -141,7 +141,7 @@
         },
         "axes": {
           "type": "object",
-          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`."
+          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`. A numeric axis's layout: `x` or `y` as `{scale, zero, constant, quantiles}`, where `scale` is `linear`, `log` or `signed-log` (sign(x)·log(1 + |x|/c), `constant` its c, 1 when not given) and `quantiles` ticks the axis at the data's quantiles, each a level (0.99) or a `{q, value}`."
         },
         "annotate": {
           "type": "list",
@@ -193,7 +193,7 @@
         },
         "axes": {
           "type": "object",
-          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`."
+          "doc": "The model's depth landmarks for a layer axis: `layer: {n, global, kv_shared_from}`. A numeric axis's layout: `x` or `y` as `{scale, zero, constant, quantiles}`, where `scale` is `linear`, `log` or `signed-log` (sign(x)·log(1 + |x|/c), `constant` its c, 1 when not given) and `quantiles` ticks the axis at the data's quantiles, each a level (0.99) or a `{q, value}`."
         },
         "focus": {
           "type": "string",
@@ -204,12 +204,22 @@
           "doc": "Small multiples: one panel per value of this field."
         },
         "scale": {
-          "type": "string",
-          "doc": "How a value becomes colour.",
+          "type": "object",
+          "doc": "How a value becomes colour: `{ramp, per}`, or the ramp alone as a string. `ramp` is `diverging` (cool below zero, warm above it) or `sequential`, decided by whether the values cross zero when not given. `per: \"row\"` scales each row of a heat map, or each strip of tokens with its conditions, to its own extreme; `per: \"figure\"` scales every row to the figure's. Not given, a heat map is scaled to the figure and a token strip to its panel.",
           "choices": [
             "diverging",
             "sequential"
-          ]
+          ],
+          "fields": {
+            "ramp": [
+              "diverging",
+              "sequential"
+            ],
+            "per": [
+              "row",
+              "figure"
+            ]
+          }
         }
       },
       "depth": [
@@ -251,17 +261,87 @@
           "doc": "Small multiples: one panel per value of this field."
         },
         "scale": {
-          "type": "string",
-          "doc": "How a value becomes colour.",
+          "type": "object",
+          "doc": "How a value becomes colour: `{ramp, per}`, or the ramp alone as a string. `ramp` is `diverging` (cool below zero, warm above it) or `sequential`, decided by whether the values cross zero when not given. `per: \"row\"` scales each row of a heat map, or each strip of tokens with its conditions, to its own extreme; `per: \"figure\"` scales every row to the figure's. Not given, a heat map is scaled to the figure and a token strip to its panel.",
           "choices": [
             "diverging",
             "sequential"
-          ]
+          ],
+          "fields": {
+            "ramp": [
+              "diverging",
+              "sequential"
+            ],
+            "per": [
+              "row",
+              "figure"
+            ]
+          }
         }
       },
       "depth": [],
       "row_fields": {
         "id": "The strip's name, printed beside it when there are several."
+      }
+    },
+    {
+      "name": "graph",
+      "version": 1,
+      "address": "graph@1",
+      "channels": {
+        "components": "required",
+        "links": "optional",
+        "id": "optional",
+        "layer": "optional",
+        "weight": "optional",
+        "label": "optional",
+        "text": "optional",
+        "sign": "optional"
+      },
+      "options": {
+        "title": {
+          "type": "string",
+          "doc": "The figure's claim, as a sentence."
+        },
+        "labels": {
+          "type": "object",
+          "doc": "What each encoded field is called in prose: the axis titles and the words the readout uses."
+        },
+        "focus": {
+          "type": "string",
+          "doc": "The field shared with the other figures on a page."
+        },
+        "facet": {
+          "type": "string",
+          "doc": "Small multiples: one panel per value of this field."
+        },
+        "threshold": {
+          "type": "number",
+          "doc": "Links whose |weight| is under this are not drawn, and a component left with no link fades; the rows are not changed."
+        },
+        "layout": {
+          "type": "string",
+          "doc": "A graph's layers as columns (the earliest at the left, the default) or rows (the earliest at the top).",
+          "choices": [
+            "columns",
+            "rows"
+          ]
+        },
+        "order": {
+          "type": "string",
+          "doc": "A graph's components along their layer: by id, or by |weight| with the largest first.",
+          "choices": [
+            "id",
+            "weight"
+          ]
+        }
+      },
+      "depth": [],
+      "row_fields": {
+        "id": "A record's name, printed above its panel when there are several.",
+        "from": "A link's first end, by component id.",
+        "to": "A link's second end, by component id.",
+        "absent": "On a component or a link: true draws it dashed, as one that is not there."
       }
     }
   ],
