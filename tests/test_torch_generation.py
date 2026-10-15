@@ -152,6 +152,50 @@ def test_text_generate_on_torch_batches_and_matches_one_at_a_time(tiny):
     assert json.dumps(again["items"], sort_keys=True) == json.dumps(batched["items"], sort_keys=True)
 
 
+def test_generate_batch_reports_each_sample_and_returns_what_it_returns_without_the_callback(tiny):
+    plain, _ = draw(tiny, PROMPTS, temperature=0.9, batch_size=2)
+    reported: dict[int, list[int]] = {}
+    seen, _ = draw(tiny, PROMPTS, temperature=0.9, batch_size=2,
+                   on_done=lambda i, text, ids: reported.setdefault(i, ids))
+    assert seen == plain
+    assert reported == dict(enumerate(plain))
+
+
+def test_text_generate_on_torch_reports_items_as_each_batch_ends(monkeypatch):
+    from mechbench_compute.torch_backend import batched as batched_mod
+
+    tiny = build_tiny_model("llama")
+    params = {"model": "tiny", "n": 2, "max_tokens": 6, "seed": 3, "batch": 2, "fidelity": "trace"}
+    silent = generate_op.run(Context(loaded=tiny), {"records": RECORDS}, params)
+    events: list = []
+    original = batched_mod.write_batch
+    monkeypatch.setattr(batched_mod, "write_batch",
+                        lambda *a, **kw: (original(*a, **kw), events.append("batch"))[0])
+    ctx = Context(loaded=tiny, on_item=lambda key, item, *_: events.append(key))
+    heard = generate_op.run(ctx, {"records": RECORDS}, params)
+    assert [e == "batch" for e in events] == [True, False, False] * 3
+    assert sorted(e for e in events if e != "batch") == sorted(
+        f"{r['id']}:{k}" for r in RECORDS for k in range(2))
+    assert json.dumps(heard, sort_keys=True) == json.dumps(silent, sort_keys=True)
+
+
+def test_text_score_on_torch_reports_items_as_each_batch_ends(monkeypatch):
+    from mechbench_compute.torch_backend import scoring
+
+    tiny = build_tiny_model("llama")
+    monkeypatch.setattr(scoring, "SCORE_BATCH", 1)
+    items = [{"id": f"d{i}", "trace": {"token_ids": p}} for i, p in enumerate(PROMPTS)]
+    silent = score_op.run(Context(loaded=tiny), {"collection": items}, {"model": "tiny"})
+    events: list = []
+    original = tiny.trunk_hidden
+    monkeypatch.setattr(tiny, "trunk_hidden",
+                        lambda *a, **kw: (events.append("batch"), original(*a, **kw))[1])
+    heard = score_op.run(Context(loaded=tiny, on_item=lambda *_: events.append("item")),
+                         {"collection": items}, {"model": "tiny"})
+    assert events == ["batch", "item"] * len(PROMPTS)
+    assert json.dumps(heard, sort_keys=True) == json.dumps(silent, sort_keys=True)
+
+
 def test_an_intervention_applies_at_every_generated_step_on_torch(tiny):
     direction = np.random.default_rng(0).normal(size=tiny.arch.d_model).astype(np.float32) * 40
     spec = [{"point": "resid_post", "layers": [1], "op": "add", "positions": "all",

@@ -177,25 +177,35 @@ class TorchModel:
     def generate_batch(self, prompts: list[list[int]], rngs: list[Any], *, max_tokens: int,
                        temperature: float, top_p: float, stop_strings: Any = (),
                        on_tokens: list[Any] | None = None,
-                       batch_size: int | None = None) -> tuple[list[tuple[str, list[int]]], int]:
+                       batch_size: int | None = None,
+                       on_done: Callable[[int, str, list[int]], None] | None = None,
+                       ) -> tuple[list[tuple[str, list[int]]], int]:
         from mechbench_compute.generate import cut_at_stop
         from mechbench_compute.torch_backend.batched import Draw, write_draws
 
         draws = [Draw(list(p), rng, (on_tokens or [None] * len(prompts))[i])
                  for i, (p, rng) in enumerate(zip(prompts, rngs, strict=True))]
-        used = write_draws(self, draws, max_tokens=max_tokens, temperature=temperature,
-                           top_p=top_p, stop_strings=stop_strings, batch_size=batch_size)
         stops = tuple(s for s in (stop_strings or ()) if s)
-        out = []
-        for d in draws:
-            text = self.tokenizer.decode(d.out_ids)
-            out.append((cut_at_stop(text, stops) if d.hit_stop else text, list(d.out_ids)))
+        out: list[tuple[str, list[int]]] = [("", [])] * len(draws)
+
+        def finish(part: Any) -> None:
+            for i in part:
+                d = draws[i]
+                text = self.tokenizer.decode(d.out_ids)
+                out[i] = (cut_at_stop(text, stops) if d.hit_stop else text, list(d.out_ids))
+                if on_done is not None:
+                    on_done(i, *out[i])
+
+        used = write_draws(self, draws, max_tokens=max_tokens, temperature=temperature,
+                           top_p=top_p, stop_strings=stop_strings, batch_size=batch_size,
+                           on_batch=finish)
         return out, used
 
-    def score_tokens(self, sequences: list[list[int]], *, batch_size: int | None = None) -> list[np.ndarray]:
+    def score_tokens(self, sequences: list[list[int]], *, batch_size: int | None = None,
+                     on_done: Callable[[int], None] | None = None) -> list[np.ndarray]:
         from mechbench_compute.torch_backend.scoring import score_tokens
 
-        return score_tokens(self, sequences, batch_size=batch_size)
+        return score_tokens(self, sequences, batch_size=batch_size, on_done=on_done)
 
     def decoded_distribution(self, vector: Any) -> np.ndarray:
         import torch

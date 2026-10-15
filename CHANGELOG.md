@@ -27,6 +27,31 @@ _None._
 
 _None._
 
+## 0.199.0 — 2026-10-14
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- `text/generate` on torch reports each sample as its batch ends. It
+  queued every sample into one `generate_batch` call and reported none
+  until the last batch returned, so a node that streamed no tokens
+  showed no progress, and the runner's watchdog stopped a job whose
+  generation ran past 15 minutes. `generate_batch` takes `on_done`,
+  called with each sample's index, text and token ids as its batch
+  ends; resume items advance batch by batch too. `text/score` on torch
+  likewise reports each item as its batch is scored (`score_tokens`
+  takes `on_done`). Samples, their order and every result are
+  unchanged. Experiment 055's animals organism on the DGX Spark
+  (Gemma 4 31B, `j_04gkzcsf14dn7v7tsneh`) retrained and was stopped in
+  generation fifteen times before its watchdog was raised by hand.
+
 ## 0.198.0 — 2026-10-12
 
 ### Changes that raise
