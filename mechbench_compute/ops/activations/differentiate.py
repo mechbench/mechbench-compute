@@ -7,7 +7,9 @@ from typing import Any
 import numpy as np
 
 from mechbench_compute.api import (
+    INTERIOR,
     MAX_VECTOR_FLOATS,
+    NEURONS,
     STORAGE_CHOICES,
     STORAGE_DOC,
     STORAGE_SECTION,
@@ -18,6 +20,8 @@ from mechbench_compute.api import (
     P,
     Resume,
     add_to_span,
+    check_interior,
+    check_one_width,
     check_written,
     item_kind_of,
     items_of,
@@ -27,6 +31,7 @@ from mechbench_compute.api import (
     read_f32,
     read_last_logp,
     read_mask,
+    read_mlp_widths,
     read_record_coords,
     read_storage,
     render,
@@ -40,7 +45,7 @@ METRICS = ("logit", "margin", "entropy_outcomes", "mass_outcomes")
 
 OUTCOME_METRICS = ("entropy_outcomes", "mass_outcomes")
 
-POINTS = ("resid_pre", "resid_post", "attn_out", "mlp_out", "gate_out")
+POINTS = ("resid_pre", "resid_post", "attn_out", "mlp_out", "gate_out", *INTERIOR)
 
 WRITES = ("attn_out", "mlp_out", "gate_out")
 
@@ -51,7 +56,8 @@ OP = Op(
     summary=(
         "Take the gradient of one number read at the model's decision (a target's logit, its margin over "
         "a contrast, or the entropy or mass on a record's outcomes) with respect to the activations at a "
-        "point, per dimension and position, in one backward pass per prompt."
+        "point, per dimension and position, in one backward pass per prompt: the residual stream, a "
+        "write into it, or the MLP's neurons."
     ),
     description="""\
 For each record the block runs the prompt forward once with the activation
@@ -109,6 +115,29 @@ lower the metric by about that much: an estimate, not the effect of doing
 so. A coordinate the model holds large, such as a massive activation, can
 lead `top_product` with a small gradient.
 
+### The MLP's neurons
+
+`point` takes the MLP's interior as `activations/capture` reads it:
+`mlp.in_norm` (the MLP's input after its norm, d_model wide), `mlp.gate`
+and `mlp.up` (its two projections), `mlp.act` (the gate's nonlinearity)
+and `mlp.down_in` (`mlp.act` times `mlp.up`). The last four are as wide as
+the layer's MLP, one coordinate per neuron, which can differ by layer
+(Gemma 4's E models double it on their KV-shared layers): the header's
+`widths` names each layer's, in the order of `layers`, and each vector's
+`space.d` its own. Tensor storage holds rows of one width, so a node
+across layers of two widths that needs it is refused before the model
+runs, naming the layers of each width.
+
+At `mlp.down_in` a neuron's coordinate is the coefficient it writes its
+row of the down-projection with, so the gradient there, `vector`, is how
+fast the metric moves per unit of that neuron's write, and the gradient
+times the activation, `top_product`, is the neuron's first-order
+attribution to the metric: about what the metric would lose if that
+neuron alone wrote nothing. A positive entry raises the metric, a
+negative one lowers it. Since `mlp.down_in` is `mlp.act` times `mlp.up`,
+the product is the same number read at `mlp.act` or `mlp.up`, and a list
+of `top` set to the MLP's width ranks every neuron.
+
 `mask` names coordinates to read the derivative along, as an operator's
 `mask` in `intervene/apply` names what it acts on: a list of dimensions, a
 direction, a frame of several (a list of them, or a `direction/vector`
@@ -134,7 +163,9 @@ the forward pass the model's own. Where the backward pass crosses an MLP,
 MLX computes the MLP's compiled activation by its separate operations,
 which can move a float32 forward by a few units in the last place; with
 only the last layer named it crosses none, and `value` is a plain read's
-bit for bit.
+bit for bit; so does `mlp.up`, `mlp.act` or `mlp.down_in` at the last
+layer, whose backward pass stops short of the activation, while
+`mlp.in_norm` and `mlp.gate` cross it.
 
 """ + STORAGE_SECTION,
     inputs=(
@@ -155,7 +186,7 @@ bit for bit.
            "scales this one.",
            required=False),
     ),
-    output=Output('activations/vector', collection=True, doc='One item per record per layer per position: `{id, coords, space, vector, norm, token, position}` as a capture emits them, `vector` the gradient of the metric there and `norm` its length, to six significant figures; `value`, the metric itself; `target` (and `contrast` under `margin`), the tokens differentiated; with `top`, `top` and `top_product`, each `[{dim, value, share}]`; with a mask, `along`. The header carries `model`, `metric`, `point`, `layers`, `positions`, `d_model`, `top`, `mask` (the dimensions, or each direction by its provenance) and, on an architecture with a final softcap, `softcap`.'),
+    output=Output('activations/vector', collection=True, doc='One item per record per layer per position: `{id, coords, space, vector, norm, token, position}` as a capture emits them, `vector` the gradient of the metric there and `norm` its length, to six significant figures; `value`, the metric itself; `target` (and `contrast` under `margin`), the tokens differentiated; with `top`, `top` and `top_product`, each `[{dim, value, share}]` (at `mlp.down_in`, `top_product` is each neuron\'s first-order attribution to the metric); with a mask, `along`. The header carries `model`, `metric`, `point`, `layers`, `positions`, `d_model`, `widths` on `mlp.gate`, `mlp.up`, `mlp.act` and `mlp.down_in` (each layer\'s MLP width, in the order of `layers`), `top`, `mask` (the dimensions, or each direction by its provenance) and, on an architecture with a final softcap, `softcap`.'),
     params=(
         P("metric", "string",
           "What is differentiated, read at the decision position: `logit` (the target's logit), "
@@ -165,9 +196,12 @@ bit for bit.
           "logit", choices=METRICS),
         P("point", "string",
           "Where the gradient is taken: the residual stream entering a layer (`resid_pre`) or leaving it "
-          "(`resid_post`), or a write into it, `attn_out`, `mlp_out`, or `gate_out` on a checkpoint "
-          "with a per-layer input gate. A write the checkpoint does not make is refused by name with "
-          "`POINT_ABSENT`, as `activations/capture` refuses it.",
+          "(`resid_post`), a write into it, `attn_out`, `mlp_out`, or `gate_out` on a checkpoint "
+          "with a per-layer input gate, or the MLP's interior: `mlp.in_norm` (its input after its "
+          "norm), `mlp.gate` and `mlp.up` (its two projections), `mlp.act` (the gate's nonlinearity) "
+          "or `mlp.down_in` (`mlp.act` times `mlp.up`, each neuron's write coefficient), all but "
+          "`mlp.in_norm` as wide as the MLP. A write the checkpoint does not make is refused by name "
+          "with `POINT_ABSENT`, as `activations/capture` refuses it.",
           "resid_post", choices=POINTS, value="point"),
         P("layers", "list[int] | \"all\"",
           "Which layers, each its own vector from the same backward pass.",
@@ -235,14 +269,18 @@ def differentiate_activations(
     selector = params.get("positions", "last")
     k = read_top(params.get("top", 0))
     width = int(model.arch.d_model)
-    mask, mask_header = read_mask_param(params.get("mask"), direction, width, point)
+    widths = read_mlp_widths(model, layers) if point in NEURONS else [width] * len(layers)
+    mask, mask_header = read_mask_param(params.get("mask"), direction, widths, point)
     if not records:
         raise ValueError("activations/differentiate needs at least one record")
     prepared = [prepare_record(model, record, selector) for record in records]
-    total = sum(len(at) for _, at in prepared) * len(layers) * width
+    total = sum(len(at) for _, at in prepared) * sum(widths)
     sink = CaptureRows(read_storage(params), ceiling=MAX_VECTOR_FLOATS, stored=stored,
                        levers="name fewer layers, positions or records")
-    sink.plan(total, f"{len(records)} records × {len(layers)} layers × their positions × {width} dims")
+    sink.plan(total, f"{len(records)} records × {len(layers)} layers × their positions × {width} dims"
+              if len(set(widths)) == 1 else
+              f"{len(records)} records × their positions × {sum(widths)} dims over {len(layers)} layers")
+    check_one_width(sink, point, layers, widths)
     unembed = model.architecture.attribution_unembed(model._model)
     if on_start:
         on_start(len(records))
@@ -251,10 +289,10 @@ def differentiate_activations(
     for record, (rendered, at) in zip(records, prepared, strict=True):
         add_to_span(tokens_in=len(rendered.ids))
         found = differentiate_record(model, record, model.make_ids(rendered.ids), names, at, metric, params,
-                                     unembed if unembed.softcap is not None else None)
+                                     unembed if unembed.softcap is not None else None, widths=widths)
         coords = read_record_coords(record, params)
-        for layer, grads, acts in zip(layers, found["grads"], found["acts"], strict=True):
-            sp = shapes.space(model=mid, layer=layer, point=point, d=width)
+        for layer, d, grads, acts in zip(layers, widths, found["grads"], found["acts"], strict=True):
+            sp = shapes.space(model=mid, layer=layer, point=point, d=d)
             for j, pos in enumerate(at):
                 sink.add(build_row(model, record, sp, coords, pos, rendered.ids[pos],
                                    grads[j], acts[j], found, k, mask))
@@ -263,7 +301,7 @@ def differentiate_activations(
     return sink.finish(
         "activations/vector",
         model=mid, metric=metric, point=point, layers=layers, positions=selector, d_model=width,
-        top=k or None, mask=mask_header, softcap=unembed.softcap,
+        widths=widths if point in NEURONS else None, top=k or None, mask=mask_header, softcap=unembed.softcap,
         description=(
             f"The gradient of the {metric} at the decision position with respect to {point}, one "
             "backward pass per record: the first-order sensitivity at the prompt's own activations, "
@@ -274,9 +312,11 @@ def differentiate_activations(
 def check_point(model, point: str) -> None:
     if point not in POINTS:
         raise ValueError(f"unknown point {point!r}: the gradient is taken at {', '.join(POINTS)}, the "
-                         "residual stream and the writes into it")
+                         "residual stream, the writes into it and the MLP's interior")
     if point in WRITES:
         check_written(model, point)
+    if point in INTERIOR:
+        check_interior(model, point)
 
 
 def read_top(value: Any) -> int:
@@ -285,7 +325,7 @@ def read_top(value: Any) -> int:
     return value
 
 
-def read_mask_param(value: Any, port: Any, width: int, point: str) -> tuple[Any, Any]:
+def read_mask_param(value: Any, port: Any, widths: Sequence[int], point: str) -> tuple[Any, Any]:
     if port is not None:
         if value is not None and value != "direction":
             raise ValueError("a direction arrived on the `direction` port and the node names its own "
@@ -294,7 +334,8 @@ def read_mask_param(value: Any, port: Any, width: int, point: str) -> tuple[Any,
     if value is None:
         return None, None
     mask = read_mask(value)
-    mask.check(width, point)
+    for width in sorted(set(widths)):
+        mask.check(width, point)
     if mask.dims is not None:
         return mask, list(mask.dims)
     if isinstance(value, Mapping) and item_kind_of(value) is not None:
@@ -318,13 +359,16 @@ def prepare_record(model, record: Mapping[str, Any], selector: Any) -> tuple[Any
 
 
 def differentiate_record(model, record: Mapping[str, Any], ids, names: Sequence[str], at: Sequence[int],
-                         metric: str, params: Mapping[str, Any], unembed: Any) -> dict[str, Any]:
+                         metric: str, params: Mapping[str, Any], unembed: Any,
+                         widths: Sequence[int] | None = None) -> dict[str, Any]:
     outcomes = resolve_outcomes(model, record) if metric in OUTCOME_METRICS else None
     precap = unembed if outcomes is None else None
-    shape = (1, int(ids.shape[-1]), int(model.arch.d_model))
+    length = int(ids.shape[-1])
+    widths = widths or [int(model.arch.d_model)] * len(names)
     chosen: dict[str, int] = {}
 
     xp = read_array_ops(ids)
+    zeros = {name: xp.zeros((1, length, w)) for name, w in zip(names, widths, strict=True)}
 
     def read_value(deltas):
         hooks = {n: (lambda act, info, d=deltas[n]: act + xp.cast(d, act.dtype)) for n in names}
@@ -338,7 +382,7 @@ def differentiate_record(model, record: Mapping[str, Any], ids, names: Sequence[
         value = row[chosen["target"]] if metric == "logit" else row[chosen["target"]] - row[chosen["contrast"]]
         return value, [res.cache[n] for n in names]
 
-    (value, acts), grads = xp.value_and_grad(read_value, {n: xp.zeros(shape) for n in names})
+    (value, acts), grads = xp.value_and_grad(read_value, zeros)
     add_to_span(backwards=1)
     idx = xp.array(np.asarray(list(at), dtype=np.int32))
     picked_grads = [xp.take(grads[n][0], idx, axis=0) for n in names]

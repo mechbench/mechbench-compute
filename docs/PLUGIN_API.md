@@ -27,7 +27,12 @@ its own business.
   `METRICS`, `OUTCOME_METRICS` and `METRIC_DOC`, `report_own_top1`,
   `read_record_coords`, `positions` (the position selector),
   `resolve_layers`, `check_written` (refuses a write the checkpoint does
-  not make with a `PointRefused`, code `POINT_ABSENT`), `read_mask`
+  not make with a `PointRefused`, code `POINT_ABSENT`), the MLP's
+  interior points as `INTERIOR` and the neuron-wide ones among them as
+  `NEURONS`, `check_interior` (refuses an interior point the forward does
+  not read), `read_mlp_widths` (each layer's MLP width) and
+  `check_one_width` (refuses tensor storage across layers of two
+  widths, naming them), `read_mask`
   (dimensions, a direction or a frame, as an operator's `mask` is read),
   `add_to_span` (what a node did, a backward pass among it, counted in its
   span), `read_f32` (any backend's array as float32 numpy),

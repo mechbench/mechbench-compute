@@ -19,8 +19,11 @@ from mechbench_compute.capture_rows import (
     read_storage,
 )
 from mechbench_compute.distill import render
+from mechbench_compute.interp.check_interior import check_interior
+from mechbench_compute.interp.check_one_width import check_one_width
 from mechbench_compute.interp.check_written import check_written
-from mechbench_compute.interp.constants import MAX_VECTOR_FLOATS
+from mechbench_compute.interp.constants import INTERIOR, MAX_VECTOR_FLOATS, NEURONS
+from mechbench_compute.interp.read_mlp_widths import read_mlp_widths
 from mechbench_compute.interp.read_record_coords import read_record_coords
 from mechbench_compute.interp.resolve_layers import resolve_layers
 from mechbench_compute.interventions import Capture
@@ -29,10 +32,6 @@ from mechbench_compute.spans import add_to_span
 
 POINTS = ("resid_post", "resid_pre", "attn_out", "mlp_out", "gate_out", "mlp.in_norm",
           "mlp.gate", "mlp.up", "mlp.act", "mlp.down_in", "attn.weights")
-
-INTERIOR = ("mlp.in_norm", "mlp.gate", "mlp.up", "mlp.act", "mlp.down_in")
-
-NEURONS = INTERIOR[1:]
 
 WRITES = ("attn_out", "mlp_out", "gate_out")
 
@@ -246,7 +245,7 @@ def capture_residual_vectors(
                else model.arch.n_kv_heads if source == "keys" else len(heads or [None]))
     width = (model.arch.d_model if source == "resid"
              else model.arch.d_model // model.arch.n_heads)
-    widths = read_widths(model, layers) if point in NEURONS else [width] * len(layers)
+    widths = read_mlp_widths(model, layers) if point in NEURONS else [width] * len(layers)
     total = len(records) * n_heads * sum(widths)
     sink = CaptureRows(read_storage(params), ceiling=MAX_VECTOR_FLOATS, stored=stored,
                        levers="capture fewer layers or records" if point != WEIGHTS
@@ -342,35 +341,9 @@ def read_point(model, spec: Any, source: str) -> str:
             "is read with source 'resid'")
     if point in WRITES:
         check_written(model, point)
-    if point in INTERIOR and not model.architecture.supports(point, layer_scoped=True):
-        raise ValueError(
-            f"the {model.arch.model_type!r} forward on the {model.architecture.backend} "
-            f"backend does not read `{point}`")
+    if point in INTERIOR:
+        check_interior(model, point)
     return point
-
-
-def read_widths(model, layers: list[int]) -> list[int]:
-    blocks = model.lm.model.layers
-    return [read_out_width(blocks[i].mlp.gate_proj) for i in layers]
-
-
-def read_out_width(linear) -> int:
-    while hasattr(linear, "base"):
-        linear = linear.base
-    return int(linear.weight.shape[0])
-
-
-def check_one_width(sink: CaptureRows, point: str, layers: list[int],
-                    widths: list[int]) -> None:
-    if sink.writer is None or len(set(widths)) == 1:
-        return
-    by_width: dict[int, list[int]] = {}
-    for layer, w in zip(layers, widths):
-        by_width.setdefault(w, []).append(layer)
-    said = "; ".join(f"layers {ls} are {w} wide" for w, ls in by_width.items())
-    raise ValueError(
-        f"`{point}` here is {said}, and tensor storage holds rows of one width: "
-        "capture the layers of each width in a node of their own")
 
 
 def read_heads(spec: Any, point: str, n_heads: int) -> list[int] | None:

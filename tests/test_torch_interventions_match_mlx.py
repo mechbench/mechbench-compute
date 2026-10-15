@@ -146,6 +146,14 @@ CASES = {
                                          {"records": [{"id": "o", "user": "the cat sat on a",
                                                        "outcomes": ["mat", "cat", "dog"]}]},
                                          {"layers": [2], "metric": "entropy_outcomes", "top": 3}),
+    "differentiate-down-in": lambda m: ("activations.differentiate",
+                                        {"records": [{"id": "m", "user": "the cat sat on a", "contrast": "dog"}]},
+                                        {"layers": [1, 2], "point": "mlp.down_in", "metric": "margin", "top": 3}),
+    "differentiate-act-outcomes": lambda m: ("activations.differentiate",
+                                             {"records": [{"id": "o", "user": "the cat sat on a",
+                                                           "outcomes": ["mat", "cat", "dog"]}]},
+                                             {"layers": [1, 2], "point": "mlp.act",
+                                              "metric": "entropy_outcomes", "top": 3}),
     "weights-decompose": lambda m: ("weights.decompose", {}, {"points": ["layers.*.self_attn.o_proj"], "k": 2}),
 }
 
