@@ -9,7 +9,7 @@ from mechbench_compute.live.read_notable import K_FLOORS
 GRAPH_NODES_MAX = 16
 SPEAK_ITEMS = 5
 WALL_SECONDS = 120.0
-TRAINING = frozenset({"adapter/train", "adapter/merge"})
+TRAINING = frozenset({"adapter/train", "adapter/merge", "dictionary/train"})
 RESULT = "result"
 TOO_LONG = "too long for a try: run it as a job"
 

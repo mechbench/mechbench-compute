@@ -287,10 +287,12 @@ class TestWhatAnOperationNeeds:
         for op in lexicon.OPS:
             assert op.requires in ("pure", "local", "remote", "by-model"), op.name
 
-    def test_the_operations_that_run_either_side_are_the_ones_that_chat_with_a_provider(self) -> None:
+    def test_the_operations_that_run_either_side_chat_with_a_provider_or_read_the_network(self) -> None:
         either = {op.name for op in lexicon.OPS if op.requires == "by-model"}
-        assert either == {op.name for op in lexicon.OPS if "provider.chat" in op.needs}
-        assert either == {"text/chat", "eval/judge"}
+        assert either == {op.name for op in lexicon.OPS if "provider.chat" in op.needs
+                          or any(n.startswith("network:") for n in op.needs)
+                          and any(n.startswith("model.") for n in op.needs)}
+        assert either == {"text/chat", "eval/judge", "dictionary/train"}
 
     def test_the_pure_registry_is_pure(self) -> None:
         from mechbench_compute import ops

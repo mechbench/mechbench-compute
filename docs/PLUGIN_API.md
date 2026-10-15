@@ -64,7 +64,10 @@ its own business.
   sparse autoencoder), `read_dictionary_activations` (a model's
   activations at the point and layer it reads, one forward pass) and
   `encode_features` (activations through its nonlinearity, one value
-  per feature).
+  per feature). `read_train_settings` (a `dictionary/train` node's
+  params read and checked) and `train_dictionary` (the training, from a
+  loaded model and a records corpus or the params' `corpus`, to the
+  emitted dictionary) are what `dictionary/train` runs.
 - **The record helpers**, for comparing records as `records/diff` does:
   `flatten_record` (a record as dotted paths), `index_by_key` (records
   by id or named coordinates, a duplicate refused), `is_field_match` (a

@@ -6,7 +6,7 @@ from mechbench_compute.lexicon.values import F
 KIND = Kind(
     "direction/dictionary",
     "A sparse dictionary over a model's activations: one feature per item, each with its encoder and decoder weights, and the dictionary's derivation, source and shape on the header.",
-    doc="Written by `dictionary/load`. A dictionary is a basis, not a set: its encoder reads activations at the "
+    doc="Written by `dictionary/load` and `dictionary/train`. A dictionary is a basis, not a set: its encoder reads activations at the "
         "spaces in `reads` and gives each feature a value, and its decoder writes the sum of each feature's "
         "decoder row times that value, plus `b_dec`, back into the spaces in `writes`. How it was made is "
         "`derivation`, and it is the only difference between the methods: a sparse autoencoder (`sae`) reads "
@@ -42,9 +42,20 @@ KIND = Kind(
         "d_in": "The width of what the encoder reads.",
         "d_out": "The width of what the decoder writes.",
         "activation": "The encoder's nonlinearity: `{fn: jumprelu}` (each feature's own threshold), `{fn: relu}`, "
-                      "or `{fn: topk, k}`.",
+                      "or `{fn: topk, k}`; a trained dictionary adds the `training` that made it (`batchtopk` "
+                      "with its `k`, or `jumprelu` with its `l0`).",
         "b_dec": "The decoder bias, `d_out` numbers.",
         "published": "What the source says of itself: its own `l0`, measured on its training data.",
+        "trained": "For a dictionary `dictionary/train` made, in place of `source` and `published`: the corpus "
+                   "(each source's dataset, revision, commit and documents read), the hashes of the first "
+                   "buffer's and the held-out windows' tokens, the tokens and steps trained, the seed, the "
+                   "scale folded into the weights, the hyperparameters, the training curve and the compute "
+                   "version.",
+        "fidelity": "For a dictionary `dictionary/train` made: how well it reads the model on held-out tokens "
+                    "never trained on: `variance_explained`, `l0`, `mse`, `dead` and `dense` (the shares of "
+                    "features that never fire and that fire on more than `dense_rate` of the tokens), and "
+                    "`loss`, the model's next-token loss `clean`, with the reconstruction `spliced` in at the "
+                    "point and with the point `zero`, their differences and the share `recovered`.",
     },
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
     speak="feature {index} of a {header.width}-wide {header.derivation} at {header.reads[0].point} layer "

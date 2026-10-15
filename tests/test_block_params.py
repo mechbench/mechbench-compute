@@ -220,6 +220,10 @@ SITES: dict[str, list[tuple[str, str | None]]] = {
         ("ops/dictionary/encode.py", "encode_records")],
     "dictionary/load": [
         ("ops/dictionary/load.py", "load_dictionary")],
+    "dictionary/train": [
+        ("ops/dictionary/train.py", "run"),
+        ("dictionaries/train_settings.py", "read_settings"),
+        ("dictionaries/train_dictionary.py", "train_dictionary")],
     "geometry/align": [
         ("ops/geometry/align.py", "run")],
     "geometry/compare": [
