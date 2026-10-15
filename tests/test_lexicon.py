@@ -292,6 +292,19 @@ class TestWhatAnOperationNeeds:
         assert either == {op.name for op in lexicon.OPS if "provider.chat" in op.needs}
         assert either == {"text/chat", "eval/judge"}
 
+    def test_a_model_op_that_reads_the_network_is_local_and_one_that_asks_a_provider_is_either(self) -> None:
+        def requires(*needs: str) -> str:
+            return lexicon.Op("x/y", "s", "d", (), needs=frozenset(needs)).requires
+
+        assert requires("model.forward", "network:huggingface.co") == "local"
+        assert requires("runtime.mlx", "network:huggingface.co") == "local"
+        assert requires("model.forward", "provider.chat") == "by-model"
+        assert requires("model.forward", "provider.chat", "network:huggingface.co") == "by-model"
+        assert requires("network:huggingface.co") == "remote"
+        assert requires("provider.chat") == "remote"
+        assert requires() == "pure"
+        assert lexicon.BY_NAME["dictionary/train"].requires == "local"
+
     def test_the_pure_registry_is_pure(self) -> None:
         from mechbench_compute import ops
 

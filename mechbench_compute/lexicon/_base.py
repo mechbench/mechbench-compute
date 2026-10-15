@@ -424,8 +424,9 @@ class Op:
     def requires(self) -> str:
         model = any(n.startswith("model.") for n in self.needs)
         local = model or "runtime.mlx" in self.needs
-        remote = any(n.startswith(("provider.", NETWORK)) for n in self.needs)
-        if model and remote:
+        provider = any(n.startswith("provider.") for n in self.needs)
+        remote = provider or any(n.startswith(NETWORK) for n in self.needs)
+        if model and provider:
             return "by-model"
         return "local" if local else "remote" if remote else "pure"
 

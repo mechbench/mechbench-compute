@@ -25,7 +25,49 @@ _None._
 
 ### Other
 
-_None._
+- `dictionary/train` trains a sparse autoencoder on a model's
+  activations at one layer and emits it as a `direction/dictionary`
+  that `dictionary/encode` and every feature operation read unchanged.
+  The corpus is a Hugging Face dataset read from its parquet files row
+  group by row group (`corpus`: `repo`, `config`, `split`, `revision`,
+  a text `field` or a `chat` column rendered through the model's
+  template, several sources interleaved by `weight`), or a stored
+  records collection on `records`; the order is fixed by `seed`.
+  Documents are packed into windows of `context` tokens, the model runs
+  each to the layer read and stops, and the first position of every
+  window and every beginning-of-sequence token are left out. The first
+  `heldout_tokens` are set aside; the rest fill a shuffled buffer of
+  `buffer_tokens` trained through in batches of `batch_tokens`.
+  Activations are never stored. They are scaled to a mean squared norm
+  of d on the first buffer, and the scale is folded back into the
+  emitted weights, so the stored dictionary reads raw activations and
+  gives the features the trainer saw. `activation` `batchtopk` (the
+  default, `k` per token across a batch, an auxiliary loss for dead
+  features, emitted as a JumpReLU at the running threshold) or
+  `jumprelu` (thresholds learned through a straight-through estimate,
+  pulled toward `l0`); unit-norm decoder rows, float32 Adam with a
+  warm-up and a decay over the last fifth. Progress is reported for every
+  batch harvested and every step; the training state is saved at the
+  end of the buffer in which every `checkpoint_tokens` fall, with where
+  the corpus stands, and a resumed run finishes bit-identical to an
+  uninterrupted one. The header carries `trained` in place of `source`
+  and `published` (the corpus with each source's commit, the hashes of
+  the first buffer's and the held-out tokens, tokens, steps, seed,
+  scale, hyperparameters, the training curve, the compute version) and
+  `fidelity` on the held-out tokens: variance explained, L0, the dead
+  and dense shares, and the next-token loss with the reconstruction
+  spliced in at the point against the loss with the point zeroed. E2B
+  defaults: `width` 16384, `k` 64, `tokens` 200M, `context` 1024,
+  `batch_tokens` 4096, `buffer_tokens` 262144. MLX only. Reading a hub
+  corpus needs `pyarrow`, the new `dictionaries` extra
+  (`mechbench-compute[dictionaries]`); without it a hub corpus is
+  refused by name. A `transcoder` or `crosscoder` derivation is refused
+  by name. The operation is a job, not a try.
+- An operation that needs a model and the network (`model.*` with
+  `network:*`) is `local`; `by-model` is kept for an operation that
+  needs a model and a provider (`model.*` with `provider.*`), the one
+  whose node runs where its model is. No operation declared both
+  before `dictionary/train`, so no operation's class changes.
 
 ## 0.203.0 — 2026-10-15
 

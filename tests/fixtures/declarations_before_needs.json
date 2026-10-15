@@ -12,6 +12,7 @@
   "adapter/train": "mlx-local",
   "dictionary/encode": "mlx-local",
   "dictionary/load": "remote",
+  "dictionary/train": "mlx-local",
   "direction/add": "pure",
   "direction/average": "pure",
   "direction/classify": "pure",
@@ -124,6 +125,10 @@
   "dictionary/load": {
    "items": false,
    "level": "restart"
+  },
+  "dictionary/train": {
+   "items": false,
+   "level": "state-restorable"
   },
   "direction/add": {
    "items": false,

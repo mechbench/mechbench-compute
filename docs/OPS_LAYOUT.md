@@ -162,7 +162,9 @@ operation's `run` touches is named by a need it declares.
   `model.*` or `runtime.mlx` need is `local` (`mlx-local` before the
   backend was named apart); otherwise a
   `provider.*` or `network:*` need is `remote`; a `model.*` need with a
-  `provider.*` or `network:*` one is `by-model`; none is `pure`. It is
+  `provider.*` one is `by-model` (with a `network:*` one it stays
+  `local`: the weights run here, and the network is read from here);
+  none is `pure`. It is
   still in the wire form, for placement; it is no longer written.
 - **Whether it can run with no executor at all** — it needs nothing and
   its `run` never reads `ctx`. That is the set a tool handler or a chunked

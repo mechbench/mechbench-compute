@@ -109,7 +109,8 @@ def test_a_need_outside_the_vocabulary_is_refused() -> None:
     ({"provider.embed"}, "remote"),
     ({"network:huggingface.co"}, "remote"),
     ({"model.sample", "provider.chat"}, "by-model"),
-    ({"model.forward", "network:example.com"}, "by-model"),
+    ({"model.forward", "network:example.com"}, "local"),
+    ({"model.forward", "provider.chat", "network:example.com"}, "by-model"),
 ])
 def test_requires_is_derived_from_needs(needs: set[str], requires: str) -> None:
     assert Op("x/y", "s", "d", (), needs=frozenset(needs)).requires == requires

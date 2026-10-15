@@ -46,6 +46,8 @@ eval = ["lm-eval>=0.4"]
 # NVIDIA or AMD GPU and on any machine's CPU (mechbench_compute.backends).
 torch = ["torch>=2.4", "nnsight>=0.7,<0.9", "transformers>=5", "safetensors>=0.4", "accelerate>=1.0",
          "nvidia-ml-py>=12.535"]
+# `dictionary/train` reads a Hugging Face dataset's parquet files row group by row group.
+dictionaries = ["pyarrow>=15"]
 dev = ["pytest>=8", "ruff>=0.5"]
 
 [project.urls]

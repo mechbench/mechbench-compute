@@ -53,6 +53,8 @@ SOURCES: dict[str, tuple[str, str | None]] = {
     "read_dictionary_activations": ("mechbench_compute.dictionaries.read_dictionary_activations",
                                     "read_dictionary_activations"),
     "encode_features": ("mechbench_compute.dictionaries.encode_features", "encode_features"),
+    "read_train_settings": ("mechbench_compute.dictionaries.train_settings", "read_settings"),
+    "train_dictionary": ("mechbench_compute.dictionaries.train_dictionary", "train_dictionary"),
     "arch_header": ("mechbench_compute.blocks", "arch_header"),
     "flatten_record": ("mechbench_compute.blocks.flatten_record", "flatten_record"),
     "index_by_key": ("mechbench_compute.blocks.index_by_key", "index_by_key"),
