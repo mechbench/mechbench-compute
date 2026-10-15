@@ -81,6 +81,23 @@ _None._
   with the reasons; `read_integrated_breakdown` carries total, host
   use, others, their source and the budget, and `cap_integrated` logs
   it. Where nothing answers, others still count as nothing, as before.
+- `backends.keep_apart()` makes a process refuse, by name and before
+  the import, to load one backend's model or adapter once another
+  backend is loaded: the torch backend once `mlx.core` is imported,
+  the MLX backend once `nnsight` is. Importing MLX beside nnsight
+  aborts the process. It is off unless a caller turns it on, so
+  parity tests that run both backends in one process are unchanged;
+  the runner turns it on for its job process. `Backend.marker` names
+  the module that marks each backend as loaded. `load_model_class`
+  and `load_lora` take an optional `declared`.
+- The test suite and `scripts/release.py` set their task's crash
+  exception ports to none, so a test that aborts a child (the MLX
+  import after nnsight's mount) and any gate step that aborts no
+  longer bring up macOS's "Python quit unexpectedly" dialog or leave
+  a report in `~/Library/Logs/DiagnosticReports`.
+  `MECHBENCH_SYSTEM_CRASH_REPORTS=1` keeps the system's reports. That
+  test now asserts the child died of SIGABRT, not just that it
+  failed.
 
 ## 0.199.0 — 2026-10-14
 

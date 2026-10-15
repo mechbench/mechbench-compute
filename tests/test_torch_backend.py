@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import signal
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -83,7 +84,7 @@ def test_a_trace_leaves_nothing_mounted_so_mlx_still_imports_after_it():
 @pytest.mark.skipif(importlib.util.find_spec("mlx") is None, reason="MLX is not installed here")
 def test_without_the_guard_nnsight_s_mount_breaks_the_next_mlx_import():
     out = run_trace_then_mlx("tracing.load_nnsight = lambda: __import__('nnsight')")
-    assert out.returncode != 0 and out.stdout.split() == ["mounted"], (out.stdout, out.stderr[-500:])
+    assert out.returncode == -signal.SIGABRT and out.stdout.split() == ["mounted"], (out.stdout, out.stderr[-500:])
 
 
 def test_the_interventions_act_on_torch_tensors(tiny):

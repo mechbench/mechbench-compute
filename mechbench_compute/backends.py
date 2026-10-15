@@ -28,6 +28,7 @@ class Backend:
     lora: str | None = None
     ops: tuple[str, ...] | None = None
     devices: tuple[tuple[str, str], ...] = ()
+    marker: str | None = None
 
     @property
     def modules(self) -> tuple[str, ...]:
@@ -44,6 +45,7 @@ BACKENDS: tuple[Backend, ...] = (
         model="mechbench_compute.model:Model",
         architectures="mechbench_compute.architectures",
         lora="mechbench_compute.lora",
+        marker="mlx.core",
     ),
     Backend(
         name="torch",
@@ -66,12 +68,33 @@ BACKENDS: tuple[Backend, ...] = (
              "logits/scan", "text/chat", "text/generate", "text/resample", "text/score",
              "text/tokenize", "trajectory/capture", "weights/capture", "weights/decompose"),
         devices=(("cuda", "cuda"), ("rocm", "cuda"), ("cpu", "cpu")),
+        marker="nnsight",
     ),
 )
 
 
 class BackendRefused(ValueError):
     pass
+
+
+_apart = False
+
+
+def keep_apart(on: bool = True) -> None:
+    global _apart
+    _apart = on
+
+
+def check_apart(backend: Backend, declared: Sequence[Backend] = BACKENDS) -> None:
+    if not _apart:
+        return
+    for other in declared:
+        if other.name != backend.name and other.marker and other.marker in sys.modules:
+            raise BackendRefused(
+                f"this job runs on the {backend.name} backend, and this process has "
+                f"already loaded the {other.name} backend ({other.marker}); a job "
+                f"process keeps MLX and torch apart, because importing MLX beside "
+                f"nnsight aborts the process")
 
 
 def describe_platform() -> str:
@@ -224,15 +247,17 @@ def import_attribute(path: str, backend: Backend) -> Any:
     return getattr(found, attribute) if attribute else found
 
 
-def load_model_class(backend: Backend) -> Any:
+def load_model_class(backend: Backend, declared: Sequence[Backend] = BACKENDS) -> Any:
     if backend.model is None:
         raise BackendRefused(f"the executor does not run jobs on the {backend.name} backend yet")
+    check_apart(backend, declared)
     return import_attribute(backend.model, backend)
 
 
-def load_lora(backend: Backend) -> Any:
+def load_lora(backend: Backend, declared: Sequence[Backend] = BACKENDS) -> Any:
     if backend.lora is None:
         raise BackendRefused(f"the {backend.name} backend fuses no stored adapter yet")
+    check_apart(backend, declared)
     return import_attribute(backend.lora, backend)
 
 
