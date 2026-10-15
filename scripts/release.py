@@ -80,6 +80,10 @@ def main() -> None:
               "       add --with-model-budget to time the rollout")
         sys.exit(2)
     with_budget = "--with-model-budget" in sys.argv
+    sys.path.insert(0, str(REPO))
+    from tests.crash_reporter import keep_from_crash_reporter
+
+    keep_from_crash_reporter()
     m = re.search(r'^version = "([^"]+)"',
                   (REPO / "pyproject.toml").read_text(), re.MULTILINE)
     if not m:
