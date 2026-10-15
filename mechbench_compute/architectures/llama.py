@@ -15,6 +15,7 @@ from mechbench_compute.architectures._mlx_lm import (
     make_lm_cache,
     read_lm,
     read_lm_arch,
+    read_lm_head_weights,
     read_unembed,
     run_lm_forward,
     tokenize_lm,
@@ -23,7 +24,6 @@ from mechbench_compute.support import (
     CORE_GLOBAL_POINTS,
     CORE_LAYER_POINTS,
     Architecture,
-    refuse_head_weights,
     refuse_logit_softcap,
 )
 from mechbench_compute.thinking import THINK_TAGS
@@ -56,7 +56,7 @@ ARCH = Architecture(
     project_to_logits=make_project_to_logits(read_unembed),
     tokenize=tokenize_lm,
     attribution_unembed=read_unembed,
-    head_weights=refuse_head_weights("llama"),
+    head_weights=read_lm_head_weights,
     dialect=DIALECT,
     reasoning=(THINK_TAGS,),
     adapter_keys=ADAPTER_KEYS,

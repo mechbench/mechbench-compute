@@ -8,13 +8,13 @@ from mechbench_compute.support import (
     CORE_GLOBAL_POINTS,
     CORE_LAYER_POINTS,
     Architecture,
-    refuse_head_weights,
     refuse_logit_softcap,
 )
 from mechbench_compute.thinking import THINK_TAGS
 from mechbench_compute.tool_dialects.qwen2 import DIALECT
 from mechbench_compute.torch_backend.architectures._decoder import (
     SITES,
+    read_head_weights,
     read_language_model,
     read_unembed,
 )
@@ -49,7 +49,7 @@ ARCH = Architecture(
     project_to_logits=make_project_to_logits(read_unembed),
     tokenize=tokenize_chat,
     attribution_unembed=read_unembed,
-    head_weights=refuse_head_weights("qwen3", "torch"),
+    head_weights=read_head_weights,
     dialect=DIALECT,
     reasoning=(THINK_TAGS,),
     adapter_keys=ADAPTER_KEYS,

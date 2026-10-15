@@ -515,7 +515,7 @@ without asking which architecture it holds:
 | `attribution_unembed` | `(model) -> Unembed(norm, project, softcap)` |
 | `layer_scalars` | `(model) -> tuple[float, ...]`, each layer's scalar on the whole stream when the residual law has `layer_scalar[i]` (Gemma 4); `None` otherwise |
 | `attn_out_norm` | `(model, layer) -> norm`, the norm `o_proj`'s output passes through to become `attn_out` (Gemma's `post_attention_layernorm`); `None` when `attn_out` is `o_proj`'s output (Llama and Qwen 2, whose `post_attention_layernorm` is the MLP's input norm) |
-| `head_weights` | `(model, layer, head) -> HeadSpec`, or `NotImplementedError` naming the architecture |
+| `head_weights` | `(model, layer, head) -> HeadSpec`: one head's W_Q, W_K, W_V, W_O (and biases) sliced from its layer, the gains of the norms around it (attention input, per-head q/k/v, attention output), its key/value group, the layer its keys and values come from, and whether the layer is global. Every architecture builds it with `head_weights.make_head_weights(read_layers, read_n_heads, is_global, out_norm)`; a norm's gain is read by running the norm on a constant vector, so no family's gain offset is written down; `head_dim` and the key/value head count are read off the projections, so they may differ by layer |
 | `dialect` | a `dialects.ToolDialect`, or `None` when the template has no tool protocol |
 | `reasoning` | `thinking.Delimiters` the model's tokenizer may declare |
 | `adapter_keys` | `lora.AdapterKeys(key_re, containers, peft_re)` |
@@ -596,8 +596,10 @@ hold for any backend's arrays:
   (`tests/fixtures/chat_templates.json`);
 - the adapter keys reach every q/k/v/o/gate/up/down projection, except a
   `v_proj` on a layer whose values are its keys (`use_k_eq_v`);
-- `head_weights` reads a head, or refuses naming the architecture
-  (an expected failure, reported as such).
+- `head_weights` reads a head whose slices have the shapes its arch
+  declares, and (`tests/test_head_weights_forward.py`) a head's own
+  slices rebuild its q, k, v and its write into the stream from the
+  forward's captures.
 
 A fixture copy of llama with a wrong residual fails the residual law by
 name. A new architecture is admitted by adding its file, its tiny model

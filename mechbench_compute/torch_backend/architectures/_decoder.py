@@ -5,6 +5,7 @@ from functools import partial
 from types import SimpleNamespace
 from typing import Any
 
+from mechbench_compute.head_weights import make_head_weights
 from mechbench_compute.torch_backend.heads import make_unembed
 from mechbench_compute.torch_backend.sites import (
     Sites,
@@ -48,3 +49,13 @@ SITES = Sites(
 )
 
 read_unembed = make_unembed(read_text, 0.0)
+
+HEAD_LAYOUT = {
+    "read_layers": lambda model: read_text(model).layers,
+    "read_n_heads": lambda attn: attn.config.num_attention_heads,
+    "is_global": lambda layer: getattr(layer.self_attn, "sliding_window", None) is None,
+}
+
+read_head_weights = make_head_weights(**HEAD_LAYOUT)
+
+read_gemma_head_weights = make_head_weights(**HEAD_LAYOUT, out_norm="post_attention_layernorm")

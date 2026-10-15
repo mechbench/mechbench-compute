@@ -76,3 +76,32 @@ def test_the_same_stored_adapter_moves_the_same_weights_on_mlx_and_torch(name):
         moved_mlx = mlx_after[name] - mlx_before[name]
         assert np.allclose(moved_torch, moved_mlx, atol=1e-5), name
         assert bool(moved_mlx.any()) == (int(stem.split(".")[2]) in (0, 2)), name
+
+
+def read_circuit_values(out) -> list[tuple]:
+    rows = []
+    for it in out["items"]:
+        sides = [(t["token"], t["score"]) for side in ("left", "right") for t in it.get(side, [])]
+        rows.append((it["id"], it.get("kv_group"), it.get("strength", it.get("score")), sides))
+    return rows
+
+
+@pytest.mark.parametrize("name", [n for n, _ in PAIRS])
+@pytest.mark.parametrize("circuit", ["ov", "qk", "composition"])
+def test_weights_circuit_reads_the_same_heads_on_mlx_and_torch(name, circuit):
+    from mechbench_compute.ops.weights.circuit import read_head_circuits
+
+    on_torch = build_tiny_model(name)
+    on_mlx = build_on_mlx(on_torch)
+    last = on_torch.arch.n_layers - 1
+    params = ({"circuit": circuit, "head": {"layer": last, "index": 1}} if circuit == "composition"
+              else {"circuit": circuit, "components": 3, "top_k": 5})
+    want = read_circuit_values(read_head_circuits(on_mlx, params))
+    got = read_circuit_values(read_head_circuits(on_torch, params))
+    assert len(want) == len(got) > 0
+    for (id_a, group_a, a, sides_a), (id_b, group_b, b, sides_b) in zip(want, got, strict=True):
+        assert (id_a, group_a) == (id_b, group_b)
+        assert abs(a - b) <= TOLERANCE * max(1.0, abs(a)), f"{name} {id_a}: {a} vs {b}"
+        assert [t for t, _ in sides_a] == [t for t, _ in sides_b], f"{name} {id_a}"
+        for (_, x), (_, y) in zip(sides_a, sides_b, strict=True):
+            assert abs(x - y) <= TOLERANCE * max(1.0, abs(x)), f"{name} {id_a}: {x} vs {y}"

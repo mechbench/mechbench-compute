@@ -5,6 +5,7 @@ from typing import Any
 import mlx.core as mx
 
 from mechbench_compute._arch import Arch
+from mechbench_compute.head_weights import make_head_weights
 
 
 def load_vlm(model_id: str, **config: Any) -> tuple[Any, Any]:
@@ -15,6 +16,13 @@ def load_vlm(model_id: str, **config: Any) -> tuple[Any, Any]:
 
 def read_language_model(model):
     return model.language_model
+
+
+read_vlm_head_weights = make_head_weights(
+    lambda model: model.language_model.model.layers,
+    read_n_heads=lambda attn: attn.n_heads,
+    is_global=lambda layer: not layer.self_attn.is_sliding,
+    out_norm="post_attention_layernorm")
 
 
 def make_vlm_cache(model):

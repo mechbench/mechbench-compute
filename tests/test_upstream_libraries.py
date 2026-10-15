@@ -59,11 +59,12 @@ def test_a_quantized_k_eq_v_layer_reads_dense_weights_and_values_from_k_proj():
     o, o_ref = _quantized(d, 2 * head_dim, 3)
     attn = SimpleNamespace(
         head_dim=head_dim, n_heads=2, n_kv_heads=1, use_k_eq_v=True,
-        q_proj=q, k_proj=k, o_proj=o, layer_type="full_attention",
+        q_proj=q, k_proj=k, o_proj=o, layer_type="full_attention", is_sliding=False,
         is_kv_shared_layer=False)
     language_model = SimpleNamespace(
-        model=SimpleNamespace(layers=[SimpleNamespace(self_attn=attn)]))
-    spec = gemma4.read_head_spec(SimpleNamespace(language_model=language_model), 0, 1)
+        model=SimpleNamespace(layers=[SimpleNamespace(
+            self_attn=attn, input_layernorm=None, post_attention_layernorm=None)]))
+    spec = gemma4.ARCH.head_weights(SimpleNamespace(language_model=language_model), 0, 1)
     assert spec.W_Q.shape == (head_dim, d) and spec.W_O.shape == (d, head_dim)
     assert np.allclose(spec.W_Q, q_ref[head_dim:], atol=0.01)
     assert np.allclose(spec.W_K, k_ref, atol=0.01)
