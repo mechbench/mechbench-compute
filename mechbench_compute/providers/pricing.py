@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 
-TABLE_VERSION = "2026-09-30"
+TABLE_VERSION = "2026-10-15"
 
 PROVIDER_PAGES: dict[str, str] = {
     "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing",
@@ -132,7 +132,13 @@ PRICES: dict[str, dict[str, Price]] = {
         "claude-opus-5-5": _anthropic(4.0, 20.0, 0.20, 5.0, 8.0, shutdown="2027-09-22"),
         "claude-sonnet-5-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, shutdown="2027-09-28"),
         "claude-sonnet-5": _anthropic(2.0, 10.0, 0.20, 2.5, 4.0, status="legacy", shutdown="2027-06-30"),
-        "claude-haiku-4-5": _anthropic(1.0, 5.0, 0.10, 1.25, 2.0, shutdown="2026-10-15"),
+        "claude-haiku-5-5": _anthropic(0.10, 0.50, 0.01, 0.125, 0.20, checked="2026-10-15", shutdown="2027-10-07",
+                                       long_context=LongContext(100000, 0.50, 2.50, 0.05, 0.625),
+                                       note="priced by prompt length: a request whose prompt is over 100,000 tokens pays the "
+                                            "higher rates on all of it (its 1h cache write is 1.0 there); features unrecorded"),
+        "claude-haiku-4-5": _anthropic(1.0, 5.0, 0.10, 1.25, 2.0, checked="2026-10-15",
+                                       note="active; the deprecations page's floor, not sooner than 2026-10-15, has passed "
+                                            "with no retirement announced, so no date is recorded"),
         "claude-fable-5": _anthropic(10.0, 50.0, 1.0, 12.5, 20.0, status="legacy", shutdown="2027-06-09"),
         "claude-opus-5": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2027-07-24"),
         "claude-opus-4-8": _anthropic(5.0, 25.0, 0.5, 6.25, 10.0, status="legacy", shutdown="2027-05-28"),

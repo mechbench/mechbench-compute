@@ -27,6 +27,20 @@ _None._
 
 _None._
 
+## 0.206.1 — 2026-10-15
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- The provider table (`TABLE_VERSION` 2026-10-15): `anthropic/claude-haiku-4-5` records no shutdown date — the deprecations page's floor, not sooner than 2026-10-15, has passed with the model still active and no retirement announced, and the release gate refused the past date; `anthropic/claude-haiku-5-5` is priced from the pricing page (0.10 / 0.50 per million, cache 0.125 / 0.20 / 0.01; the higher rates on a prompt over 100,000 tokens as a `long_context` row), with image input and prompt caching recorded and its effort levels left unrecorded until the page names them. Prices of every other row are unchanged.
+
 ## 0.206.0 — 2026-10-15
 
 ### Changes that raise

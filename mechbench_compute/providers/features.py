@@ -35,6 +35,7 @@ FEATURES: dict[str, dict[str, Features]] = {
         "claude-opus-4-6": Features(_CLAUDE_4_6_EFFORT, _SUMMARIZED, True, images=True),
         "claude-sonnet-4-6": Features(_CLAUDE_4_6_EFFORT, _SUMMARIZED, True, images=True),
         "claude-opus-4-5": Features(("low", "medium", "high"), (), True, images=True),
+        "claude-haiku-5-5": Features((), (), True, images=True),
         "claude-haiku-4-5": Features((), (), True, images=True),
         "claude-sonnet-4-5": Features(images=True),
     },
