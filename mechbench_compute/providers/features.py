@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 PROMPT_CACHES = ("5m", "1h")
+SAMPLING = ("temperature", "top_p", "top_k")
 
 
 @dataclass(frozen=True)
@@ -11,6 +12,7 @@ class Features:
     reasoning_displays: tuple[str, ...] = ()
     prompt_cache: bool = False
     images: bool = False
+    sampling: bool = True
 
 
 _CLAUDE_EFFORT = ("low", "medium", "high", "xhigh", "max")
@@ -24,18 +26,18 @@ _DEEPSEEK = ("low", "high", "max")
 
 FEATURES: dict[str, dict[str, Features]] = {
     "anthropic": {
-        "claude-fable-5-1": Features(_CLAUDE_EFFORT, _UPDATES, True, images=True),
-        "claude-opus-5-5": Features(_CLAUDE_EFFORT, _UPDATES, True, images=True),
-        "claude-fable-5": Features(_CLAUDE_EFFORT, _UPDATES, True, images=True),
-        "claude-sonnet-5-5": Features(_CLAUDE_EFFORT, _UPDATES, True, images=True),
-        "claude-sonnet-5": Features(_CLAUDE_EFFORT, _SUMMARIZED, True, images=True),
-        "claude-opus-5": Features(_CLAUDE_EFFORT, _SUMMARIZED, True, images=True),
-        "claude-opus-4-8": Features(_CLAUDE_EFFORT, _SUMMARIZED, True, images=True),
-        "claude-opus-4-7": Features(_CLAUDE_EFFORT, _SUMMARIZED, True, images=True),
+        "claude-fable-5-1": Features(_CLAUDE_EFFORT, _UPDATES, True, images=True, sampling=False),
+        "claude-opus-5-5": Features(_CLAUDE_EFFORT, _UPDATES, True, images=True, sampling=False),
+        "claude-fable-5": Features(_CLAUDE_EFFORT, _UPDATES, True, images=True, sampling=False),
+        "claude-sonnet-5-5": Features(_CLAUDE_EFFORT, _UPDATES, True, images=True, sampling=False),
+        "claude-sonnet-5": Features(_CLAUDE_EFFORT, _SUMMARIZED, True, images=True, sampling=False),
+        "claude-opus-5": Features(_CLAUDE_EFFORT, _SUMMARIZED, True, images=True, sampling=False),
+        "claude-opus-4-8": Features(_CLAUDE_EFFORT, _SUMMARIZED, True, images=True, sampling=False),
+        "claude-opus-4-7": Features(_CLAUDE_EFFORT, _SUMMARIZED, True, images=True, sampling=False),
         "claude-opus-4-6": Features(_CLAUDE_4_6_EFFORT, _SUMMARIZED, True, images=True),
         "claude-sonnet-4-6": Features(_CLAUDE_4_6_EFFORT, _SUMMARIZED, True, images=True),
         "claude-opus-4-5": Features(("low", "medium", "high"), (), True, images=True),
-        "claude-haiku-5-5": Features((), (), True, images=True),
+        "claude-haiku-5-5": Features((), (), True, images=True, sampling=False),
         "claude-haiku-4-5": Features((), (), True, images=True),
         "claude-sonnet-4-5": Features(images=True),
     },

@@ -17,7 +17,8 @@ KIND = Kind(
     key=("id",),
     header={"name": "A label for the collection.", "description": "Free text beside the name.",
             "fidelity": "`text`, `segments` or `trace`: how much of each document was kept.",
-            "summary": "For a remote run: calls, cost, cache hits.", "spend": "What the run bought from providers."},
+            "summary": "For a remote run: calls, cost, cache hits.", "spend": "What the run bought from providers.",
+            "omitted": "The sampling parameters the provider's model does not accept, each with why, left out of the request."},
     renderer={"primitive": "text", "field_map": {"text": "text"}},
     doc="What `text/generate` and `text/chat` write, one per completion. The collection's `fidelity` says how "
         "much was kept: `text` alone, `segments` (which spans are prompt and which are body), or `trace` (the "

@@ -72,7 +72,7 @@ resumability and per-call provenance; a local model is the cheap first test.
            "`text_b` for a pairwise scale. A document collection is read the "
            "same way.", many=True),
     ),
-    output=Output('eval/verdict', collection=True, doc='One item per subject: `id`, `coords`, the verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or `winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every `vote`, `unparsed: true` when no vote could be read, and `unjudged: true` with the `missing` field names when there was nothing to judge. The header carries `judge` (who graded and how), `summary` (mean/median/stdev or counts, `n_unparsed`, `n_unjudged` and which, `first_shown_win_rate` for pairwise) and `spend`.'),
+    output=Output('eval/verdict', collection=True, doc='One item per subject: `id`, `coords`, the verdict (`score`/`spread`/`min`/`max`, or `label`/`counts`/`agreement`, or `winner`/`counts`/`agreement`), `rationale`, `n_votes`, `n_parsed`, every `vote`, `unparsed: true` when no vote could be read, and `unjudged: true` with the `missing` field names when there was nothing to judge. The header carries `judge` (who graded and how), `summary` (mean/median/stdev or counts, `n_unparsed`, `n_unjudged` and which, `first_shown_win_rate` for pairwise), `spend`, and `omitted` when the judge\'s model does not accept a sampling parameter the node set (`{"temperature": "not accepted by claude-sonnet-5-5"}`): the request went without it.'),
     params=(
         P("judge", "object",
           "Who grades: `{\"model\": …, \"system\": rubric, \"max_tokens\": "
@@ -80,12 +80,16 @@ resumability and per-call provenance; a local model is the cheap first test.
           "\"provider_options\": …}`. `model` is required; `rubric`, when "
           "given, is appended to `system`. `temperature` is sent only if "
           "you name one — a judge's steadiness comes from `n_votes` and "
-          "is reported as `agreement`, and some models refuse the "
-          "parameter outright.", fields=(
+          "is reported as `agreement` — and only to a model that accepts "
+          "it: Claude 4.7 and later get the request without it, and the "
+          "header's `omitted` says so.", fields=(
               P("model", "model", "The judge's model."),
               P("system", "string", "The judge's system prompt; `rubric` is appended to it.", ""),
               P("max_tokens", "int", "The longest verdict, in tokens.", 512),
-              P("temperature", "float", "Sampling temperature, sent only when named.", None),
+              P("temperature", "float",
+                "Sampling temperature, sent only when named, and left out of the request "
+                "(the header's `omitted` says so) for a model that does not accept it.",
+                None),
               P("budget_usd", "float", "The spend cap, when the node sets none.", None),
               P("provider_options", "map[string, map[string, json]]", _PROVIDER_OPTIONS_DOC, None),
           )),
@@ -128,7 +132,7 @@ resumability and per-call provenance; a local model is the cheap first test.
           "skip", choices=("error", "skip")),
     ),
     example={
-        "judge": {"model": {"provider": "anthropic", "model": "claude-sonnet-5"},
+        "judge": {"model": {"provider": "anthropic", "model": "claude-sonnet-5-5"},
                   "system": "You grade short stories for originality."},
         "rubric": "1 = a stock plot told plainly; 5 = a premise you have not seen before.",
         "scale": {"type": "numeric", "min": 1, "max": 5},
@@ -466,4 +470,5 @@ def run_judge(params: Mapping[str, Any], *, inputs: Mapping[str, Any] | None = N
                "rubric": rubric[:2000]},
         summary=summarize(rows, scale=scale, votes=all_votes),
         spend=graded.get("spend") or None,
+        omitted=graded.get("omitted") or None,
     )

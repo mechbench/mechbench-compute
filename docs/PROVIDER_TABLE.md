@@ -64,6 +64,14 @@ a model's memory of a price is not a source.
   it stays false, and the platform sends that model no pictures. Every
   priced model has a row in `FEATURES`, so each one's `images` is a
   decision rather than a default.
+- Whether it accepts the sampling parameters `temperature`, `top_p` and
+  `top_k` (`sampling`): false where the provider's page says setting
+  them is refused. Anthropic's model deprecations page ("API parameter
+  deprecations", read 2026-10-15) lists all three as deprecated on
+  Claude 4.7 and later, which return HTTP 400 when one is set to a
+  non-default value, so every Anthropic row from Opus 4.7 on is false
+  and 4.6 and earlier stay true. Compute sends such a model the request
+  without them and the op's header records it as `omitted`.
 
 Batch, flex, priority and regional rates are not recorded: compute
 calls the standard tier.

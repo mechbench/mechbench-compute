@@ -25,7 +25,22 @@ _None._
 
 ### Other
 
-_None._
+- A model that does not accept `temperature`, `top_p` or `top_k` gets
+  the request without them, where before the provider refused it and
+  the node failed: Claude 4.7 and later (Opus 4.7 and 4.8, Opus 5 and
+  5.5, Sonnet 5 and 5.5, Fable 5 and 5.1, Haiku 5.5) answer HTTP 400
+  "temperature is deprecated for this model" to any of them set, per
+  Anthropic's model deprecations page (read 2026-10-15). The provider
+  table records it per model as `sampling`; `text/chat` and
+  `eval/judge` write the header's new `omitted`
+  (`{"temperature": "not accepted by claude-sonnet-5-5"}`), each
+  provider call records it under `call.omitted`, and an item's
+  `metadata.sampling.temperature` reads null when none was sent. A
+  `top_k` under `provider_options.anthropic` is left out the same way.
+  Claude 4.6 and earlier, and every other provider, are sent what the
+  node set, as before; a refusal of any other kind still fails the
+  node. No number changes: a run this changes failed before. The two
+  ops' examples name `claude-sonnet-5-5`.
 
 ## 0.206.1 — 2026-10-15
 

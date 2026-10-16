@@ -26,7 +26,8 @@ KIND = Kind(
     key=("id",),
     header={"judge": "Who graded, on what scale, with what rubric.",
             "summary": "For a judge: mean/median/stdev or counts, `n_unparsed`, the position-bias diagnostic. For an expectation: `pass_rate`, `n_pass`, `n_judged`, `n_unjudgeable`.",
-            "spend": "What the judging cost.", "name": "A label for the collection.", "description": "Free text beside the name."},
+            "spend": "What the judging cost.",
+            "omitted": "The sampling parameters the judge's model does not accept, each with why, left out of the request.", "name": "A label for the collection.", "description": "Free text beside the name."},
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
     doc="One kind for every evaluation, so a verdict from a judge and one from an expectation sit in one table "
         "and one rate. A judge's verdict keeps every vote with the order the options were shown in, so a "

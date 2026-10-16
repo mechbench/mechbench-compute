@@ -67,6 +67,8 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
     block_runner = params.get("_block_runner")
 
     specs = build_toolbox(tool_specs).specs()
+    omitted = transport.read_omitted(build_request({}, params, model=ref.base,
+                                                   provider_options=options, api=api))
 
     recs = read_records(records)
     if on_start:
@@ -118,7 +120,8 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
             ])
         item = build_item(rec, k, out.text, model_wire=model_wire, params=params,
                           parts=out.parts, call=out.call.to_wire(),
-                          sampling={"temperature": params.get("temperature"),
+                          sampling={"temperature": (None if "temperature" in omitted
+                                                    else params.get("temperature")),
                                     "max_tokens": int(params.get("max_tokens", 1024)),
                                     "seed": req.seed, "index": k,
                                     "ended": read_ending(provider, out.stop_reason,
@@ -185,4 +188,5 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                "ids": [str(it.get("id")) for it in empties],
                "policy": on_empty},
         ended=count_endings(items),
+        omitted=omitted or None,
     )

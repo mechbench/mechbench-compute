@@ -181,7 +181,7 @@ name.
            "scales this one.",
            required=False),
     ),
-    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text` (the reply's prose, never its reasoning), `reasoning` when the model reasoned (a list of `{text, redacted?, provider, model, native?}` in the order written: `text` the readable reasoning, empty when the provider withheld it; `redacted` when there is no readable text; `native` the provider's own block, signature or encrypted payload, verbatim, which is what lets the same model be handed the turn back), `metadata.turn` (the order of the reply's parts, and any signature a text part carried) when it did, `coords` (the record's plus `sample`), `metadata.sampling` (with `ended`: how the reply ended, the same word local or remote — `end` the model ended its turn, `stop` at one of the `stop` strings, `max_tokens` cut off at the token limit, `tool_call` a tool call left unanswered when the tool rounds ran out, `filtered` ended by the provider's filter or a refusal with some prose left, `empty` no prose and no tool call, with `metadata.empty` saying why, `other` a provider reason none of these names; a remote provider's own word stays in `metadata.call.stop_reason`, and OpenAI, xAI, DeepSeek and Gemini report a stop string as a natural stop, so there it reads `end`), `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. A remote reply with no prose and no tool call carries `metadata.empty` (`{cause, message}`). The header carries `fidelity`, `ended` (the items counted by ending, every ending present and zero when none, so a glance says whether any reply was cut off; a header without it was stored before the count existed, and its items have no `ended` either: unknown, not natural), `spend` (calls, cost, cache hits), for a remote model `empty` (`{count, by_cause, ids, policy}`, present with a count of 0 when every reply had content), and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause)."),
+    output=Output('text/document', collection=True, doc="`n` items per record, ids `<record id>-s<k>`: `text` (the reply's prose, never its reasoning), `reasoning` when the model reasoned (a list of `{text, redacted?, provider, model, native?}` in the order written: `text` the readable reasoning, empty when the provider withheld it; `redacted` when there is no readable text; `native` the provider's own block, signature or encrypted payload, verbatim, which is what lets the same model be handed the turn back), `metadata.turn` (the order of the reply's parts, and any signature a text part carried) when it did, `coords` (the record's plus `sample`), `metadata.sampling` (with `ended`: how the reply ended, the same word local or remote — `end` the model ended its turn, `stop` at one of the `stop` strings, `max_tokens` cut off at the token limit, `tool_call` a tool call left unanswered when the tool rounds ran out, `filtered` ended by the provider's filter or a refusal with some prose left, `empty` no prose and no tool call, with `metadata.empty` saying why, `other` a provider reason none of these names; a remote provider's own word stays in `metadata.call.stop_reason`, and OpenAI, xAI, DeepSeek and Gemini report a stop string as a natural stop, so there it reads `end`), `metadata.call` (provider, model version, usage, cost, latency — remote only), tool runs and sandbox calls when any, and any `keep_fields` copied from the record. A remote reply with no prose and no tool call carries `metadata.empty` (`{cause, message}`). The header carries `fidelity`, `ended` (the items counted by ending, every ending present and zero when none, so a glance says whether any reply was cut off; a header without it was stored before the count existed, and its items have no `ended` either: unknown, not natural), `spend` (calls, cost, cache hits), for a remote model `empty` (`{count, by_cause, ids, policy}`, present with a count of 0 when every reply had content), and, when tools were declared, `tools` (the dialect, how many responses called one, every error with its cause), and `omitted` when the model does not accept a sampling parameter the node set (`{\"temperature\": \"not accepted by claude-sonnet-5-5\"}`): the request went without it."),
     params=(
         P("budget_usd", "float",
           "The most this node may spend on provider calls, in US dollars. "
@@ -310,11 +310,15 @@ name.
           0),
         P("temperature", "float",
           "Sampling temperature. Local default 0.9; remote default is the "
-          "provider's.",
+          "provider's. A model that does not accept it (Claude 4.7 and "
+          "later) gets the request without it, and the header's `omitted` "
+          "says so.",
           None),
         P("top_p", "float",
           "Nucleus sampling threshold. Local default 0.95; remote default is "
-          "the provider's.",
+          "the provider's. A model that does not accept it (Claude 4.7 and "
+          "later) gets the request without it, and the header's `omitted` "
+          "says so; likewise a `top_k` under `provider_options`.",
           None),
         P("max_tokens", "int", "The longest reply, in tokens.", 1024),
         P("effort", "string",
@@ -437,7 +441,7 @@ name.
           None),
     ),
     example={
-        "model": {"provider": "anthropic", "model": "claude-sonnet-5"},
+        "model": {"provider": "anthropic", "model": "claude-sonnet-5-5"},
         "budget_usd": 5.0,
         "n": 2,
         "max_tokens": 400,

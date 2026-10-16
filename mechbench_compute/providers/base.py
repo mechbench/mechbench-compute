@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from mechbench_compute.providers import messages as msg
@@ -111,6 +111,7 @@ class CallRecord:
     rate_limits: dict[str, Any] = field(default_factory=dict)
     request: dict[str, Any] | None = None
     empty: dict[str, str] | None = None
+    omitted: dict[str, str] = field(default_factory=dict)
 
     def to_wire(self) -> dict[str, Any]:
         out = {k: v for k, v in asdict(self).items()
@@ -244,9 +245,28 @@ class Transport(ABC):
                     "this provider caches long prompts on its own, or not at all; "
                     "drop prompt_cache")
 
+    def read_omitted(self, req: msg.ChatRequest) -> dict[str, str]:
+        from mechbench_compute.providers.features import SAMPLING, find_features
+
+        if find_features(self.name, req.model).sampling:
+            return {}
+        opts = req.options_for(self.name)
+        asked = {"temperature": req.temperature, "top_p": req.top_p}
+        return {name: f"not accepted by {req.model}" for name in SAMPLING
+                if asked.get(name) is not None or name in opts}
+
+    def drop_omitted(self, req: msg.ChatRequest) -> tuple[msg.ChatRequest, dict[str, str]]:
+        omitted = self.read_omitted(req)
+        if not omitted:
+            return req, omitted
+        opts = {k: v for k, v in req.options_for(self.name).items() if k not in omitted}
+        return replace(req, temperature=None, top_p=None,
+                       provider_options={**req.provider_options, self.name: opts}), omitted
+
     def chat(self, req: msg.ChatRequest, *, budget: Budget | None = None,
              limiter: Limiter | None = None, scope: str = "default",
              on_token=None, record_request: bool = False) -> Completion:
+        req, omitted = self.drop_omitted(req)
         self.check_supported(req)
         limiter = limiter or NullLimiter()
         started = self._clock()
@@ -312,6 +332,7 @@ class Transport(ABC):
             rate_limits=limits.to_wire(),
             request=msg.canonical(req, provider=self.name) if record_request else None,
             empty=resp.empty.to_wire() if resp.empty is not None else None,
+            omitted=omitted,
         )
         parts = tuple(resp.parts)
         return Completion(
