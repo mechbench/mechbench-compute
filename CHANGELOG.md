@@ -17,15 +17,48 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- `dictionary/train` trains `derivation: "crosscoder"`, which it refused
+  by name before: one dictionary over the same layer and point of two
+  models on the same tokens, `model` (the organism, a reference carrying
+  its adapters) and the new param `against` (by default that reference
+  without its adapters; otherwise `model` with the adapters after its
+  first few taken off, and anything else is refused by name, since both
+  run on the one loaded checkpoint). It shares the autoencoder's
+  streaming, buffer, trainers, progress, checkpoints and resume. The
+  encoder reads both models' activations, each through its own block;
+  each feature has a decoder row per model, the two together kept at
+  unit length; each model's activations are scaled on their own and the
+  scale folded back into its weights. The emitted `direction/dictionary`
+  keeps the autoencoder's item fields for `model` and adds
+  `against_vector`, `against_encoder`, `against_norm` and the model diff
+  on the held-out tokens: `difference` (the decoder lengths, `model`'s
+  minus `against`'s over their sum, +1 only in `model`, −1 only in
+  `against`), `frequency` and `mean_activation`. The header's `reads`
+  and `writes` name both models with their `adapters`, it adds
+  `against_b_dec`, `trained.against`, a `scale` per model, and
+  `fidelity.reads`, each model's variance explained and spliced loss.
+  The kind `direction/dictionary` declares the new fields. On the tiny
+  kit model with one direction planted by an operator, the planted
+  direction comes out as the feature with `difference` 0.84 (cosine
+  0.997 to the planted direction), every other live feature within
+  0.08 of 0.
+- `dictionary/encode`, `logits/attribute`, `activations/examples` and the
+  feature readers refuse a crosscoder with a message that says so (its
+  encoder reads two models at once), where before they refused every
+  derivation but `sae` with one message.
+- `dictionary/train` refuses `against` under any derivation but
+  `crosscoder`, and a saved training state from the other derivation.
 
 ### Changes that alter results without raising
 
-_None._
+_None._ An autoencoder's weights, items and header are byte for byte
+what they were.
 
 ### Other
 
-_None._
+- `lora.unfused_stack` takes a stack of adapters (LoRAs and operators)
+  off a model for the length of a block and puts the same weights and
+  modules back.
 
 ## 0.207.1 — 2026-10-15
 

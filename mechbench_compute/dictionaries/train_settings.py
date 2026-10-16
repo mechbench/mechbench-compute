@@ -5,9 +5,9 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any
 
-DERIVATIONS = ("sae",)
+DERIVATIONS = ("sae", "crosscoder")
 
-LATER_DERIVATIONS = ("transcoder", "crosscoder")
+LATER_DERIVATIONS = ("transcoder",)
 
 TRAINERS = ("batchtopk", "jumprelu")
 
@@ -61,6 +61,11 @@ class Settings:
     rows: int
     heldout_windows: int
     curve_every: int
+    derivation: str = "sae"
+
+    @property
+    def models(self) -> int:
+        return 2 if self.derivation == "crosscoder" else 1
 
     def lr_at(self, step: int) -> float:
         warm = min(1.0, step / self.warmup_steps) if self.warmup_steps else 1.0
@@ -77,7 +82,7 @@ class Settings:
         return max(1, min(self.width, d // 2))
 
     def hyperparameters(self) -> dict[str, Any]:
-        own = {k: v for k, v in asdict(self).items() if k != "corpus"}
+        own = {k: v for k, v in asdict(self).items() if k not in ("corpus", "derivation")}
         return {**own, "adam": {"betas": list(ADAM_BETAS), "eps": ADAM_EPS},
                 "aux_coefficient": AUX_COEFFICIENT if self.activation == "batchtopk" else None,
                 "threshold_decay": THRESHOLD_DECAY if self.activation == "batchtopk" else None,
@@ -101,6 +106,9 @@ def read_settings(params: Mapping[str, Any]) -> Settings:
     if derivation not in DERIVATIONS:
         raise ValueError(f"dictionary/train: `derivation` is one of {', '.join(DERIVATIONS + LATER_DERIVATIONS)}, "
                          f"not {derivation!r}")
+    if params.get("against") is not None and derivation != "crosscoder":
+        raise ValueError("dictionary/train: `against` names a crosscoder's second model; a "
+                         f"{derivation!r} reads one model")
     activation = params.get("activation") or "batchtopk"
     if activation not in TRAINERS:
         raise ValueError(f"dictionary/train: `activation` is one of {', '.join(TRAINERS)}, not {activation!r}")
@@ -142,4 +150,5 @@ def read_settings(params: Mapping[str, Any]) -> Settings:
         rows=max(1, batch_tokens // context),
         heldout_windows=-(-heldout_tokens // (context - 1)),
         curve_every=max(1, -(-steps // CURVE_POINTS)),
+        derivation=derivation,
     )

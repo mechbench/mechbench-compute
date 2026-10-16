@@ -38,20 +38,38 @@ def harvest(model: Any, name: str, windows: Sequence[Sequence[int]], bos: int | 
     return kept
 
 
+def harvest_sides(model: Any, name: str, windows: Sequence[Sequence[int]], bos: int | None,
+                  sides: Sequence[Callable[[], Any] | None]) -> Any:
+    parts = []
+    for side in sides:
+        if side is None:
+            parts.append(harvest(model, name, windows, bos))
+            continue
+        with side():
+            parts.append(harvest(model, name, windows, bos))
+    if len(parts) == 1:
+        return parts[0]
+    joined = mx.concatenate(parts, axis=1)
+    mx.eval(joined)
+    return joined
+
+
 def fill(model: Any, name: str, stream: Any, *, needed: int, rows: int, bos: int | None,
-         unit: int, on_unit: Callable[[], None] | None, on_windows: Callable[[list], None] | None = None) -> Any:
+         unit: int, on_unit: Callable[[], None] | None, on_windows: Callable[[list], None] | None = None,
+         sides: Sequence[Callable[[], Any] | None] = (None,)) -> Any:
     parts: list[Any] = []
     have = reported = 0
     while have < needed:
         windows = [stream.next_window() for _ in range(rows)]
         if on_windows is not None:
             on_windows(windows)
-        part = harvest(model, name, windows, bos)
+        part = harvest_sides(model, name, windows, bos, sides)
         parts.append(part)
         have += int(part.shape[0])
         while on_unit is not None and reported < min(have, needed) // unit:
             reported += 1
-            on_unit()
+            for _ in sides:
+                on_unit()
     x = mx.concatenate(parts, axis=0)[:needed] if len(parts) > 1 else parts[0][:needed]
     mx.eval(x)
     return x

@@ -25,6 +25,17 @@ KIND = Kind(
         "norm": F("number", "The decoder row's length."),
         "b_enc": F("number", "The feature's encoder bias."),
         "threshold": F("number", "Under `jumprelu`: the pre-activation the feature must exceed to fire."),
+        "against_vector": F("array", "In a crosscoder: the feature's decoder row in the second model, `against`; "
+                            "`vector` is the row in `model`.", items={"type": "number"}),
+        "against_encoder": F("array", "In a crosscoder: the encoder block that reads the second model.",
+                             items={"type": "number"}),
+        "against_norm": F("number", "In a crosscoder: the length of `against_vector`."),
+        "difference": F("number", "In a crosscoder: the two decoder rows' lengths in the space the trainer "
+                        "saw, `model`'s minus `against`'s over their sum: +1 only in `model`, −1 only in "
+                        "`against`, 0 shared."),
+        "frequency": F("number", "In a trained crosscoder: the share of the held-out tokens the feature fires on."),
+        "mean_activation": F("number", "In a trained crosscoder: the feature's mean activation on the held-out "
+                             "tokens it fires on."),
         "label": F("string", "What the feature responds to, in a few words, when something has described it."),
         "examples": F("array", "The records and positions it fires most on, when something has collected them.",
                       items={"type": "object"}),
@@ -45,6 +56,7 @@ KIND = Kind(
                       "or `{fn: topk, k}`; a trained dictionary adds the `training` that made it (`batchtopk` "
                       "with its `k`, or `jumprelu` with its `l0`).",
         "b_dec": "The decoder bias, `d_out` numbers.",
+        "against_b_dec": "In a crosscoder: the decoder bias in the second model, `against`.",
         "published": "What the source says of itself: its own `l0`, measured on its training data.",
         "trained": "For a dictionary `dictionary/train` made, in place of `source` and `published`: the corpus "
                    "(each source's dataset, revision, commit and documents read), the hashes of the first "

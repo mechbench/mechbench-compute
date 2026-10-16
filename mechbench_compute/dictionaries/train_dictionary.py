@@ -9,7 +9,15 @@ from typing import Any
 import numpy as np
 
 from mechbench_compute._mlx import mx
+from mechbench_compute.dictionaries.train_against import Against
 from mechbench_compute.dictionaries.train_corpus import open_stream
+from mechbench_compute.dictionaries.train_crosscoder import (
+    emit_crosscoder,
+    measure_crosscoder,
+    read_decoder,
+    read_scales,
+    spread_scales,
+)
 from mechbench_compute.dictionaries.train_fidelity import measure
 from mechbench_compute.dictionaries.train_harvest import fill, read_point_name
 from mechbench_compute.dictionaries.train_sae import Trainer, fold, init_params
@@ -41,16 +49,21 @@ def train_dictionary(model: Any, records: Sequence[Mapping[str, Any]], params: M
                      on_item: Callable[..., None] | None = None,
                      on_checkpoint: Callable[[dict[str, Any]], None] | None = None,
                      resume_state: Mapping[str, Any] | None = None,
-                     on_step: Callable[[dict[str, float]], None] | None = None) -> dict[str, Any]:
+                     on_step: Callable[[dict[str, float]], None] | None = None,
+                     against: Against | None = None) -> dict[str, Any]:
     from mechbench_compute import __version__
 
     s = read_settings(params)
+    if (s.models > 1) != (against is not None):
+        raise ValueError(f"dictionary/train: a {s.derivation!r} reads {s.models} model"
+                         f"{'s' if s.models > 1 else ''}, and {'one' if against is None else 'two'} reached it")
+    sides = (None,) if against is None else (None, against.swap)
     name = read_point_name(model, s.point, s.layer)
     tokenizer = model.tokenizer
     bos = getattr(tokenizer, "bos_token_id", None)
     stream = open_stream(s.corpus, records, tokenizer, seed=s.seed, context=s.context)
     rng = np.random.default_rng([s.seed, 1])
-    total = 2 * s.steps + 3 * s.heldout_windows
+    total = (1 + s.models) * s.steps + 3 * s.models * s.heldout_windows
     if on_start:
         on_start(total)
     trainer: Trainer | None = None
@@ -62,7 +75,7 @@ def train_dictionary(model: Any, records: Sequence[Mapping[str, Any]], params: M
         scale, tokens, curve = restored["scale"], restored["tokens"], restored["curve"]
         heldout, first_chunk = restored["heldout"], restored["first_chunk"]
         if on_item:
-            for _ in range(2 * trainer.step):
+            for _ in range((1 + s.models) * trainer.step):
                 on_item(None, None, True)
     else:
         heldout = np.asarray([stream.next_window() for _ in range(s.heldout_windows)], dtype=np.int64)
@@ -76,14 +89,18 @@ def train_dictionary(model: Any, records: Sequence[Mapping[str, Any]], params: M
         n_steps = min(s.steps_per_chunk, s.steps - (trainer.step if trainer else 0))
         seen: list[list[int]] = []
         x = fill(model, name, stream, needed=n_steps * s.batch_tokens, rows=s.rows, bos=bos,
-                 unit=s.batch_tokens, on_unit=unit, on_windows=seen.extend if trainer is None else None)
+                 unit=s.batch_tokens, on_unit=unit, on_windows=seen.extend if trainer is None else None,
+                 sides=sides)
         if trainer is None:
             first_chunk = hash_windows(seen)
-            scale = math.sqrt(x.shape[1] / float(mx.mean(mx.sum(x * x, axis=-1)).item()))
-            x = x * scale
+            if against is None:
+                scale = math.sqrt(x.shape[1] / float(mx.mean(mx.sum(x * x, axis=-1)).item()))
+            else:
+                scale = read_scales(x, s.models)
+            x = scaled(x, scale)
             trainer = Trainer(s, init_params(s, x, s.seed), int(x.shape[1]))
         else:
-            x = x * scale
+            x = scaled(x, scale)
         x = x[mx.array(rng.permutation(int(x.shape[0])).astype(np.int32))]
         mx.eval(x)
         for j in range(n_steps):
@@ -100,12 +117,24 @@ def train_dictionary(model: Any, records: Sequence[Mapping[str, Any]], params: M
                 and tokens // s.checkpoint_tokens > (tokens - chunk) // s.checkpoint_tokens):
             on_checkpoint(capture_state(trainer, stream, rng, scale=scale, tokens=tokens, heldout=heldout,
                                         first_chunk=first_chunk, curve=curve))
-    folded = fold(trainer.params, trainer.thresholds(), scale)
-    fidelity = measure(model, name, heldout.tolist(), folded, bos, on_unit=unit)
-    return emit(model, s, folded, params.get("model"), stream, fidelity, trained={
-        "tokens": tokens, "steps": trainer.step, "scale": scale, "seed": s.seed,
-        "first_chunk_sha256": first_chunk.hex(), "heldout_sha256": hash_windows(heldout).hex(),
-        "heldout_windows": len(heldout), "curve": curve, "compute": __version__})
+    trained = {"tokens": tokens, "steps": trainer.step, "scale": scale, "seed": s.seed,
+               "first_chunk_sha256": first_chunk.hex(), "heldout_sha256": hash_windows(heldout).hex(),
+               "heldout_windows": len(heldout), "curve": curve, "compute": __version__}
+    if against is None:
+        folded = fold(trainer.params, trainer.thresholds(), scale)
+        fidelity = measure(model, name, heldout.tolist(), folded, bos, on_unit=unit)
+        return emit(model, s, folded, params.get("model"), stream, fidelity, trained=trained)
+    folded = fold(trainer.params, trainer.thresholds(), spread_scales(scale, int(trainer.d)))
+    fidelity, readout = measure_crosscoder(model, name, heldout.tolist(), folded, bos, against, on_unit=unit)
+    trained["scale"] = [float(v) for v in scale]
+    return emit_crosscoder(model, s, folded, read_decoder(trainer), params.get("model"), against,
+                           stream, fidelity, readout, model_id=read_model_id(model), trained=trained)
+
+
+def scaled(x: Any, scale: float | np.ndarray) -> Any:
+    if np.ndim(scale) == 0:
+        return x * scale
+    return x * mx.array(spread_scales(scale, int(x.shape[1])).astype(np.float32))
 
 
 def emit(model: Any, s: Settings, folded: Mapping[str, np.ndarray], ref: Any, stream: Any,

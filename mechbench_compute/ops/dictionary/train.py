@@ -7,6 +7,7 @@ from mechbench_compute.api import (
     P,
     Resume,
     items_of,
+    read_against,
     read_train_settings,
     train_dictionary,
 )
@@ -16,8 +17,8 @@ OP = Op(
     needs=frozenset({"model.forward", "network:huggingface.co"}),
     resume=Resume("state-restorable"),
     summary=(
-        "Train a sparse autoencoder on a model's activations at one layer, streamed from a corpus and "
-        "never stored, and emit it as a dictionary that every feature operation reads."
+        "Train a sparse autoencoder on a model's activations at one layer, or a crosscoder over the same "
+        "layer of two models, streamed from a corpus and never stored, and emit it as a dictionary."
     ),
     description="""\
 The corpus is a pinned Hugging Face dataset, read from its parquet files
@@ -69,13 +70,43 @@ dictionary's reconstruction spliced in at the point, beside the loss
 with the point zeroed as the scale (`recovered` is one minus their
 ratio).
 
-Sparse autoencoders train today. A transcoder or a crosscoder is the
-same kind with another derivation, and is refused by name until this
-operation trains them.
+`derivation` `crosscoder` reads the same layer and point of two models
+on the same tokens and learns one set of features over both: `model`,
+the organism, a reference carrying its adapters, and `against`, by
+default that reference without them (Lindsey et al., 2024, "Sparse
+Crosscoders"; trained as BatchTopK, as Minder et al., 2025). The encoder
+reads both models' activations, each through its own block, summed into
+one pre-activation; each feature has a decoder row per model. Each
+model's activations are scaled on their own, and the scale folded back
+into that model's weights. A feature's two decoder rows together are
+kept at unit length, so the trainer keeps the features with the largest
+activations times their decoder length, with no penalty that favours a
+feature living in one model, and each model's share of a feature is
+free to move. Both models run on the one loaded checkpoint: `against`
+is `model` with the adapters after its first few taken off, and the
+node takes them off and puts them back around each read of `against`.
+
+A crosscoder's item keeps an autoencoder's fields for `model`
+(`vector`, `encoder`, `norm`) and adds `against`'s (`against_vector`,
+`against_encoder`, `against_norm`) and the model diff, measured on the
+held-out tokens: `difference`, the two decoder rows' lengths in the
+scaled space the trainer saw, `model`'s minus `against`'s over their
+sum (+1 a feature only `model` has, −1 one only `against` has, 0 one
+they share); `frequency`, the share of the held-out tokens it fires on;
+and `mean_activation` when it fires. The header's `fidelity` adds
+`reads`, one entry per model in the order of the header's `reads`,
+each with its `variance_explained`, `mse` and `loss`, the
+reconstruction spliced into that model alone. `dictionary/encode` and
+the feature operations read one model at a time and refuse a
+crosscoder by name.
+
+A transcoder is the same kind with another derivation, and is refused
+by name until this operation trains it.
 """,
     params=(
         P("derivation", "string",
-          "What to train: a sparse autoencoder, which reads and writes one space.",
+          "What to train: a sparse autoencoder, which reads and writes one space, or a crosscoder, which "
+          "reads and writes the same space of two models.",
           "sae", choices=("sae", "transcoder", "crosscoder")),
         P("layer", "int", "The layer the dictionary reads."),
         P("point", "string",
@@ -109,6 +140,10 @@ operation trains them.
           "`files` (a glob) replaces the config's own; pin `revision` to a commit for a corpus that "
           "cannot move. Leave it out when `records` is bound.",
           None),
+        P("against", "model",
+          "Under `crosscoder`: the second model, `model` with the adapters after its first few taken off "
+          "(its base, by default).",
+          None),
     ),
     inputs=(
         In("records", "records/record",
@@ -125,7 +160,12 @@ operation trains them.
                       "seed, scale, hyperparameters, the training curve and the compute version) and "
                       "`fidelity` on the held-out tokens (`variance_explained`, `l0`, `mse`, `dead`, "
                       "`dense`, and `loss`: `clean`, `spliced`, `zero`, `delta`, `zero_delta`, "
-                      "`recovered`)."),
+                      "`recovered`). A crosscoder's item adds `against_vector`, `against_encoder`, "
+                      "`against_norm`, `difference`, `frequency` and, for a feature that fired, "
+                      "`mean_activation`; its header `reads` and `writes` name both models, each space with "
+                      "its `adapters`, `model`'s first, adds `against_b_dec`, and its `trained` the "
+                      "`against` reference and a `scale` per model, and `fidelity.reads` one entry per "
+                      "model."),
     example={"model": {"$param": "model"}, "layer": 17, "corpus": [
         {"hub": {"repo": "HuggingFaceFW/fineweb-edu", "config": "sample-10BT", "split": "train",
                  "field": "text"}, "weight": 1},
@@ -135,8 +175,10 @@ operation trains them.
 
 
 def run(ctx, inputs, params):
-    read_train_settings(params)
+    settings = read_train_settings(params)
     model = ctx.model(params.get("model"))
+    against = (read_against(model, params.get("model"), params.get("against"), ctx.fused)
+               if settings.models > 1 else None)
     return train_dictionary(model, items_of(inputs.get("records") or []), params,
                             on_start=ctx.on_start, on_item=ctx.on_item, on_checkpoint=ctx.on_checkpoint,
-                            resume_state=ctx.resume_state)
+                            resume_state=ctx.resume_state, against=against)

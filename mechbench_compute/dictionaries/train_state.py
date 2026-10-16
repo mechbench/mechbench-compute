@@ -23,7 +23,7 @@ def capture_state(trainer: Any, stream: Any, rng: np.random.Generator, *, scale:
     opt["first_chunk"] = np.frombuffer(first_chunk, dtype=np.uint8).copy()
     opt["curve"] = np.array([[p[f] for f in CURVE_FIELDS] for p in curve], dtype=np.float64).reshape(
         -1, len(CURVE_FIELDS))
-    opt["scale"] = float(scale)
+    opt["scale"] = float(scale) if np.ndim(scale) == 0 else np.asarray(scale, dtype=np.float64)
     opt["tokens"] = int(tokens)
     opt["threshold"] = float(trainer.threshold)
     return {"step": int(trainer.step),
@@ -59,6 +59,12 @@ def restore_state(trainer: Any, stream: Any, rng: np.random.Generator, state: Ma
              for row in np.asarray(opt["curve"], dtype=np.float64).reshape(-1, len(CURVE_FIELDS))]
     for p in curve:
         p["step"], p["tokens"] = int(p["step"]), int(p["tokens"])
-    return {"scale": float(scalar(opt["scale"])), "tokens": int(scalar(opt["tokens"])),
+    scale = np.asarray(opt["scale"], dtype=np.float64)
+    if (scale.size > 1) != (trainer.settings.models > 1):
+        saved = "crosscoder" if scale.size > 1 else "sae"
+        raise ValueError(f"dictionary/train: the saved training state is a {saved!r}'s and this node trains "
+                         f"a {trainer.settings.derivation!r}: its `derivation` differs from the run that saved "
+                         "it; restart the node")
+    return {"scale": float(scalar(scale)) if scale.size == 1 else scale, "tokens": int(scalar(opt["tokens"])),
             "heldout": np.asarray(opt["heldout"], dtype=np.int64),
             "first_chunk": np.asarray(opt["first_chunk"], dtype=np.uint8).tobytes(), "curve": curve}

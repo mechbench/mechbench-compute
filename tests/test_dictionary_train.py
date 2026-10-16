@@ -338,10 +338,9 @@ class TestHubCorpus:
 
 
 class TestRefusals:
-    @pytest.mark.parametrize("derivation", ["transcoder", "crosscoder"])
-    def test_later_derivations_are_refused_by_name(self, derivation):
-        with pytest.raises(ValueError, match=f"the derivation '{derivation}' is not trained yet"):
-            train_op.run(Context(), {}, {**SMALL, "derivation": derivation})
+    def test_a_later_derivation_is_refused_by_name(self):
+        with pytest.raises(ValueError, match="the derivation 'transcoder' is not trained yet"):
+            train_op.run(Context(), {}, {**SMALL, "derivation": "transcoder"})
 
     def test_records_and_a_corpus_together(self, tiny):
         with pytest.raises(ValueError, match="this node gives both"):

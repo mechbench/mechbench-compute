@@ -19,6 +19,7 @@ __all__ = [
     "restore",
     "save_adapter",
     "unfused",
+    "unfused_stack",
 ]
 
 
@@ -266,3 +267,25 @@ def restore_adapter_stack(lm, handles):
             detach_operators(lm, handle)
         else:
             restore(lm, handle)
+
+
+@contextlib.contextmanager
+def unfused_stack(lm, handles) -> Iterator[None]:
+    from mechbench_compute.adapters.attach_operators import (
+        OperatorHandle,
+        attach_operators,
+    )
+
+    fused: dict[tuple[int, str, str], mx.array] = {}
+    for handle in handles:
+        if not isinstance(handle, OperatorHandle):
+            for i, c, p in handle:
+                fused.setdefault((i, c, p), getattr(getattr(lm.model.layers[i], c), p).weight)
+    restore_adapter_stack(lm, handles)
+    try:
+        yield
+    finally:
+        for handle in handles:
+            if isinstance(handle, OperatorHandle):
+                attach_operators(lm, dict(handle.attached))
+        restore(lm, fused)

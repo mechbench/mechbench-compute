@@ -151,12 +151,13 @@ class Trainer:
         return np.full(self.settings.width, max(self.threshold, 0.0), dtype=np.float64)
 
 
-def fold(params: Mapping[str, Any], thresholds: np.ndarray, scale: float) -> dict[str, np.ndarray]:
+def fold(params: Mapping[str, Any], thresholds: np.ndarray, scale: float | np.ndarray) -> dict[str, np.ndarray]:
     w_enc = np.array(params["w_enc"], dtype=np.float64)
     b_enc = np.array(params["b_enc"], dtype=np.float64)
     w_dec = np.array(params["w_dec"], dtype=np.float64)
     b_dec = np.array(params["b_dec"], dtype=np.float64)
-    return {"w_enc": (w_enc * scale).astype(np.float32),
+    rows = scale if np.ndim(scale) == 0 else np.asarray(scale, dtype=np.float64)[:, None]
+    return {"w_enc": (w_enc * rows).astype(np.float32),
             "b_enc": (b_enc - b_dec @ w_enc).astype(np.float32),
             "threshold": thresholds.astype(np.float32),
             "w_dec": (w_dec / scale).astype(np.float32),
