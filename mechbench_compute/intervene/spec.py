@@ -15,6 +15,7 @@ from mechbench_compute.intervene.build_rows_matrix import build_rows_matrix
 from mechbench_compute.intervene.compile_operator import compile_operator
 from mechbench_compute.intervene.operator_refused import OperatorRefused
 from mechbench_compute.intervene.read_mask import read_mask
+from mechbench_compute.intervene.read_match import read_match
 from mechbench_compute.intervene.spec_error import SpecError
 from mechbench_compute.points import LAYOUT as _LAYOUT
 
@@ -119,6 +120,7 @@ class Spec:
                            if item.get("direction2") is not None else None)
         self.source = item.get("source")
         self.row = item.get("row")
+        self.match = read_match(self.row, op, self.source)
         cond = item.get("condition")
         self.condition = None
         if cond:
@@ -140,6 +142,31 @@ class Spec:
                 "source and none arrived on the node's `source` port", construct=bind[0])
         self._rng = np.random.default_rng(self.seed)
 
+    def _source_rows(self, layer: int | None,
+                     record: Mapping[str, Any] | None) -> np.ndarray:
+        src_layer, src_point = layer, self.point
+        if self.patch_from is not None:
+            src_layer = self.patch_from.get("layer", layer)
+            src_point = self.patch_from.get("point", self.point)
+        match = None
+        if self.match is not None:
+            match = (self.match, None if record is None else record.get(self.match))
+        try:
+            return build_rows_matrix(self.source, src_layer, src_point, match=match)
+        except SpecError:
+            return build_rows_matrix(self.source, src_layer, match=match)
+
+    def unmatched_layers(self, record: Mapping[str, Any]) -> list[int | None]:
+        if self.match is None:
+            return []
+        missing: list[int | None] = []
+        for layer in self.layers:
+            try:
+                self._source_rows(layer, record)
+            except SpecError:
+                missing.append(layer)
+        return missing
+
     def hook_names(self) -> list[str]:
         return [self.point if layer is None else f"blocks.{layer}.{self.point}"
                 for layer in self.layers]
@@ -155,16 +182,12 @@ class Spec:
         heads, neurons = self.heads, self.neurons
         op, strength = self.op, self.strength
         cond = self.condition
-        rows = None
-        if self.source is not None:
-            src_layer, src_point = layer, self.point
-            if self.patch_from is not None:
-                src_layer = self.patch_from.get("layer", layer)
-                src_point = self.patch_from.get("point", self.point)
-            try:
-                rows = build_rows_matrix(self.source, src_layer, src_point)
-            except SpecError:
-                rows = build_rows_matrix(self.source, src_layer)
+        rows = None if self.source is None else self._source_rows(layer, record)
+        if self.match is not None and len(rows) > 1:
+            raise SpecError(
+                f"`row.match` on {self.match!r} finds {len(rows)} `source` rows for record "
+                f"{record.get(self.match)!r} at layer {layer}; it patches with one: capture the "
+                "source at one position, or filter it to one row per record and layer")
         rng = self._rng
 
         def _positions(L: int, offset: int, selector: Any = _SAME) -> list[int]:

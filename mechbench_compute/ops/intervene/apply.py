@@ -9,6 +9,7 @@ from mechbench_compute import shapes as S
 from mechbench_compute.arrays import read_f32
 from mechbench_compute.intervene.cell import Cell
 from mechbench_compute.intervene.compile import compile
+from mechbench_compute.intervene.drop_unmatched import drop_unmatched
 from mechbench_compute.intervene.read_spec_items import read_spec_items
 from mechbench_compute.intervene.serialize_spec import serialize_spec
 from mechbench_compute.intervene.spec_error import SpecError
@@ -74,7 +75,7 @@ cell.
 | `feature` | object | — | `{"index": 3071}`: a feature of the dictionary on the node's `dictionary` port, in place of `direction`, `point` and `layers` — see *Steering on a feature*. |
 | `direction2` | direction | — | The second axis of the plane for `rotate`. |
 | `source` | collection | — | A collection of `activations/vector` — a capture, intervened or not — supplying replacement activations for `mean`, `resample` and `patch`; items are matched to the item's layer (and point). May instead arrive on the node's `source` port. |
-| `row` | object | — | For `patch`: which row of `source` to write in, e.g. `{"index": 0}`. |
+| `row` | object | — | For `patch`: which row of `source` to write in — `{"index": 0}`, the same row into every record, or `{"match": "id"}`, each record's own: the row whose `id` equals the record's — see *Patching record for record*. |
 | `condition` | object | — | Apply the item only at positions whose activation projects onto a direction above (or below) a threshold: `{"direction": …, "threshold": 0.0, "above": true}`. |
 | `except` | bool | `false` | Invert each set this item names, on its own: every layer, head or neuron BUT these. |
 | `from` | object | — | For `patch`: `{"layer": 8, "point": "resid_post"}` — where the row is READ, when that differs from where it is written. |
@@ -89,7 +90,7 @@ The ops:
 | `zero` | Set the activation to zero. | — |
 | `mean` | Replace it with the mean of the `source` rows. | `source` |
 | `resample` | Replace it with a row drawn at random from `source`. | `source` |
-| `patch` | Replace it with one specific `source` row, or with `direction` itself. | `source` + `row`, or `direction` |
+| `patch` | Replace it with one specific `source` row (`row.index`), each record's own row (`row.match`), or `direction` itself. | `source` + `row`, or `direction` |
 | `add` | Add `strength × direction`. | `direction` |
 | `scale` | Multiply it by `strength`. | — |
 | `clamp` | Clip its component along `direction` into [−\\|`strength`\\|, \\|`strength`\\|]. | `direction` |
@@ -191,6 +192,22 @@ reads there instead, which is the patchscope: take a hidden state from one
 prompt's layer 8 and write it into an explanation prompt's layer 20, then
 see what the model says about it.
 
+### Patching record for record
+
+`row: {"match": "id"}` patches each record with the `source` row whose
+`id` is the record's own (any field the rows and records share may be
+named). Capture a battery on one model, then run it through another with
+that capture as `source`, and each prompt receives its own activation
+back. The row is also matched to the layer it is written at: an item over
+`layers: [20, 21]` writes the record's layer‑20 row at 20 and its
+layer‑21 row at 21, so a capture over many layers is one `source` for
+one item per layer, or for one item over them all (`layers: "all"` needs
+a row at every layer). `neurons`, `heads` and `positions` restrict what
+is written as they do for `index`. A record with no row at one of the
+item's layers is not run: it has no rows in the output, control
+included, and the header's `unmatched` lists its id. Two rows for one
+record at one layer (a capture at several positions) are refused.
+
 ### Editing a weight instead of an activation
 
 A spec item that names a **`parameter`** rather than a `point` edits the
@@ -241,6 +258,8 @@ one item can zero every layer's `o_proj`.
         In("source", "activations/vector | intervene/readout",
            "A collection of `activations/vector` — a capture, intervened or "
            "not — that fills any `mean`/`resample`/`patch` item without one. "
+           "Under `row: {\"match\": \"id\"}` each record is patched with its "
+           "own row, captured on the same prompt. "
            "A capture readout stored before 0.110.0 is read too.",
            many=True, required=False),
         In("adapter", "adapter/lora",
@@ -252,7 +271,7 @@ one item can zero every layer's `o_proj`.
            required=False),
     ),
     output=Output('intervene/readout', collection=True,
-                  doc='For a decision readout, one item per record per factor: `id`, `coords`, `factor`, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp, rank, variants}` for the answers asked about: `p` and `logp` of each answer\'s spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling\'s own `{token, p, logp}`; on a model with a final softcap also `logit`, `precap_logit` and `saturated`, as `logits/read` reports them). A capture readout is a capture: an `activations/vector` collection with one item per record per factor per hook point — `id`, `coords`, `factor`, `position`, `token`, `space` (at most 4096 values) — the shape `activations/capture` emits, so `geometry/compare`, `direction/regress` and another intervention\'s `source` read it unchanged. Either way the header carries `spec` (the list as run, with directions, sources and a feature\'s dictionary replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf), `sweep` (the factors, including `0.0` when a control was added) and `readout`, and a decision readout on a model with a final softcap `softcap`.',
+                  doc='For a decision readout, one item per record per factor: `id`, `coords`, `factor`, `entropy_bits`, `top` (the most likely next tokens, each `{token, p, logp}`) and `tracked` (name → `{token, p, logp, rank, variants}` for the answers asked about: `p` and `logp` of each answer\'s spellings with and without a leading space together, `token` the spelling that row prefers, `variants` each spelling\'s own `{token, p, logp}`; on a model with a final softcap also `logit`, `precap_logit` and `saturated`, as `logits/read` reports them). A capture readout is a capture: an `activations/vector` collection with one item per record per factor per hook point — `id`, `coords`, `factor`, `position`, `token`, `space` (at most 4096 values) — the shape `activations/capture` emits, so `geometry/compare`, `direction/regress` and another intervention\'s `source` read it unchanged. Either way the header carries `spec` (the list as run, with directions, sources and a feature\'s dictionary replaced by their provenance), `weights` (the parameter edits, when any — so a reader knows the model was not the one on the shelf), `sweep` (the factors, including `0.0` when a control was added) and `readout`, `unmatched` (the ids of the records a `row.match` found no `source` row for, which have no rows) when any, and a decision readout on a model with a final softcap `softcap`.',
                   otherwise=(Otherwise("activations/vector", collection=True, param="readout.type", equals="capture"),)),
     params=(
         P("spec", "list[object]",
@@ -294,8 +313,14 @@ one item can zero every layer's `o_proj`.
                 "For `mean`, `resample` and `patch`, and an `f` constant bound from it: the "
                 "replacement activations, or they arrive on the node's `source` port.",
                 None),
-              P("row", "object", "For `patch`: which row of `source` to write in.", None,
-                fields=(P("index", "int", "The row's index.", 0),)),
+              P("row", "object",
+                "For `patch`: which row of `source` to write in — one row by `index` into every "
+                "record, or each record's own by `match`, at the layer it is written.", None,
+                fields=(P("index", "int", "The row's index.", 0),
+                        P("match", "string",
+                          "The field, such as `id`, a record and its `source` row share; a record "
+                          "with no row at one of the item's layers is skipped and listed in the "
+                          "header's `unmatched`.", None))),
               P("condition", "object",
                 "Act only where the activation projects onto a direction above (or below) a threshold.", None,
                 fields=(
@@ -480,6 +505,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
     top_k = int(readout.get("top_k", params.get("top_k", 5)))
     if not records:
         raise SpecError("intervene needs at least one record")
+    records, unmatched = drop_unmatched(compiled, records, cells)
     if on_start:
         on_start(len(records) * len(cells))
 
@@ -558,6 +584,7 @@ def run_intervene(model, records: Sequence[Mapping[str, Any]], params: Mapping[s
         sweep=sweep_as_run(params.get("sweep") or {}, cells),
         readout=rk,
         softcap=softcap,
+        unmatched=unmatched or None,
         **({"model": mid, "position": str(readout.get("position", "last")),
             "points": [str(p) for p in readout.get("points", [])]} if rk == "capture" else {}),
         description=(

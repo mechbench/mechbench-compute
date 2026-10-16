@@ -115,7 +115,11 @@ positions with the most weight, `[{position, token, weight}]`.
 
 Every item carries its `space` (`{model, layer, point, head?, d}`) and the
 record's `coords`, which is what `geometry/compare`, `geometry/span` and
-`direction/*` group on (their `axis` names the coordinate).
+`direction/*` group on (their `axis` names the coordinate). Its `id` is
+the record's, so the same battery captured on two models patches record
+for record: one model's capture is the `source` of `intervene/apply` on
+the other, whose `patch` item with `row: {"match": "id"}` writes each
+prompt's own vector back.
 
 With `source: "queries"` or `"keys"` the block captures attention Q or K
 vectors instead of the residual, one row per (layer, head).

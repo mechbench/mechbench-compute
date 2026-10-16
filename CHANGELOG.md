@@ -27,6 +27,34 @@ _None._
 
 _None._
 
+## 0.206.0 — 2026-10-15
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- `intervene/apply`'s `patch` patches record for record: `row:
+  {"match": "id"}` writes into each record the `source` row whose `id`
+  is the record's own (any field the two share may be named), at the
+  layer it is written, so one capture over many layers is the source
+  of one item per layer or of one item over them all. A battery
+  captured on one model patches into the same battery on another in
+  one node, where before it took a `records/map` and one node per
+  prompt. A record with no row at one of the item's layers is not run
+  (no rows, control included) and the header's new `unmatched` lists
+  its id; when no record matches, the node refuses. Two rows for one
+  record at one layer are refused, as are `match` beside `index`, on
+  an op other than `patch`, or without a `source`. `neurons`, `heads`
+  and `positions` restrict the write as they do under `index`, which
+  stays the default: no stored protocol changes. `activations/capture`'s
+  description names the pairing.
+
 ## 0.205.1 — 2026-10-15
 
 ### Changes that raise

@@ -30,6 +30,8 @@ KIND = Kind(
             "top": "How many of each vector's largest coordinates its `top` holds, when asked for.",
             "model": "The model's wire form.",
             "skipped_empty": "Records dropped for having no text, when any.",
+            "unmatched": "When made by `intervene/apply`: the records a `patch` item's `row.match` found no "
+                         "`source` row for, which were not run; when any.",
             "segments": "When made by `records/union`: the ports and how many each contributed."},
     renderer={"primitive": "table", "field_map": {"rows": "items"}},
     doc="A grouping is a coordinate (`coords.genre`), never a `label` field; the ops that group take an `axis`. "

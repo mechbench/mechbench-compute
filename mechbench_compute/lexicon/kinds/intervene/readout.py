@@ -17,6 +17,7 @@ KIND = Kind(
     header={"spec": "The intervention items as run, with objects replaced by their provenance; an operator's `f` in its canonical form, its `mask` by the directions' provenance.",
             "sweep": "The sweep as run: each axis (`strength`, and any of `layers`, `heads`, `positions`, `neurons`) and the values it took, `strength` including the 0 of an added control.",
             "readout": "`decision` or `capture`.",
+            "unmatched": "The ids of the records a `patch` item's `row.match` found no `source` row for, which were not run; when any.",
             "layer": "For a steer sweep: the injection layer.",
             "direction": "For a steer sweep: the axis and values, norm and counts of the direction built.",
             "softcap": "For a decision readout on a model whose final logits pass through a softcap, `c·tanh(x/c)`, the cap `c`; each tracked answer then also carries `logit`, `precap_logit` and `saturated`."},
