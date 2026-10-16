@@ -7,6 +7,8 @@ from mechbench_compute.lexicon._base import DEFAULT_OUTPUT
 from mechbench_compute.protocol.is_remote import is_remote
 from mechbench_compute.protocol.named_outputs import read_edge_output
 from mechbench_compute.protocol.sort_edges import sort_edges
+from mechbench_compute.protocol.stop import Stop
+from mechbench_compute.resume import stops_at_items
 
 MAX_PARALLEL_NODES = 8
 
@@ -49,7 +51,8 @@ class Remote:
         if len(ready) == 1:
             return {nid: self._dispatch_remote(
                 block, inputs, params, secrets,
-                on_item=item_reporter(nid), on_start=expand, **resume_kwargs)}
+                on_item=item_reporter(nid, stops_at_items(block)), on_start=expand,
+                **resume_kwargs)}
 
         node_view["parallel"] = [n for n, _b, _i, _p in ready]
         report()
@@ -59,13 +62,13 @@ class Remote:
         with ThreadPoolExecutor(max_workers=len(ready)) as pool:
             futures = {
                 pool.submit(self._dispatch_remote, b, i, p, secrets,
-                            on_item=item_reporter(n),
+                            on_item=item_reporter(n, stops_at_items(b)),
                             on_start=(expand if n == nid else None)): n
                 for n, b, i, p in ready}
             for fut, name in futures.items():
                 try:
                     out[name] = fut.result()
-                except Exception as exc:  # noqa: BLE001
+                except (Exception, Stop) as exc:  # noqa: BLE001
                     out[name] = exc
         node_view.pop("parallel", None)
         return out

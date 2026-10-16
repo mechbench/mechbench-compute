@@ -17,6 +17,7 @@ from mechbench_compute.distill import encode
 from mechbench_compute.ops import Context
 from mechbench_compute.ops.adapter import train as train_op
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
+from tests.checkpoint_offers import due_only
 from tests.tiny_models import MODEL_TYPES, build_tiny_model
 from tests.tiny_tokenizer import CHAT_TEMPLATE
 
@@ -300,7 +301,7 @@ class TestTraining:
                 raise KeyboardInterrupt
 
         with pytest.raises(KeyboardInterrupt):
-            train_op.run(Context(loaded=build_model(), on_checkpoint=interrupt), records, params)
+            train_op.run(Context(loaded=build_model(), on_checkpoint=due_only(interrupt)), records, params)
         ticks: list[tuple] = []
         resumed = train_op.run(Context(loaded=build_model(), resume_state=states[-1],
                                        on_item=lambda *a: ticks.append(a)), records, params)["out"]

@@ -17,15 +17,42 @@ nothing said so.
 
 ### Changes that raise
 
-_None._
+- The checkpoint hook an op is lent changed shape:
+  `ctx.on_checkpoint(capture, *, due)`, where `capture` is a zero-arg
+  callable returning the training state and `due` says the op's own
+  cadence has come round. A trainer offers at every safe point (every
+  step but the last for `adapter/train`, LoRA or operator, on either
+  backend; every chunk boundary but the last for `dictionary/train`),
+  and the executor captures and spools only when `due` or when a stop is
+  asked for. The same holds for `train_soft_ce` (MLX and torch) and
+  `train_dictionary` called directly. An extension that called
+  `ctx.on_checkpoint(state)` now raises `TypeError`. The executor's own
+  `on_checkpoint(node, state)` hook is unchanged.
 
 ### Changes that alter results without raising
 
-_None._
+_None._ An unpaused run spools exactly the checkpoints and items it
+spooled before, and a stopped run resumes to a result identical to an
+uninterrupted one.
 
 ### Other
 
-_None._
+- A run can be stopped at its next safe point and resumed:
+  `ProtocolExecutor.run(spec, ..., stop=callable)` asks `stop()` after
+  each new item of an op whose items are its resume (spooled first, so
+  nothing is lost or doubled; never for a replayed item), and at each
+  training offer, where the state is captured and spooled first. Either
+  raises `Stop` (`mechbench_compute.protocol.Stop`, a `BaseException`
+  carrying `node` and `reason`), which no node turns into a missing
+  node; the model is evicted as on any failure. A `Stop` raised in a
+  remote wave's worker reaches the caller, and once one is raised every
+  other worker stops after the item it has in hand. `ctx` gained no
+  member, so no op's resume level moved.
+- `text/chat` against a provider cancels its queued calls when its run
+  is stopped or fails, rather than letting them run to no purpose.
+- `bench.watch` returns on `paused` as on `interrupted`
+  (`bench.TERMINAL`), and `bench.cancel` names `paused` among the
+  states it withdraws.
 
 ## 0.208.0 — 2026-10-16
 

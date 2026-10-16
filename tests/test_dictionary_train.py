@@ -23,6 +23,7 @@ from mechbench_compute.dictionaries.train_settings import read_settings
 from mechbench_compute.ops import Context
 from mechbench_compute.ops.dictionary import encode as encode_op
 from mechbench_compute.ops.dictionary import train as train_op
+from tests.checkpoint_offers import due_only
 from tests.tiny_models import build_tiny_model
 from tests.tiny_tokenizer import build_tokenizer
 
@@ -177,7 +178,7 @@ class TestResume:
             raise Interrupted
 
         with pytest.raises(Interrupted):
-            train_dictionary(tiny, make_records(), SMALL, on_checkpoint=interrupt)
+            train_dictionary(tiny, make_records(), SMALL, on_checkpoint=due_only(interrupt))
         assert saved[0]["step"] == 8
         restored = []
         resumed = train_dictionary(tiny, make_records(), SMALL, resume_state=saved[0],
@@ -191,12 +192,12 @@ class TestResume:
 
     def test_checkpoints_fall_at_the_end_of_a_buffer(self, tiny):
         steps = []
-        train_dictionary(tiny, make_records(), SMALL, on_checkpoint=lambda st: steps.append(st["step"]))
+        train_dictionary(tiny, make_records(), SMALL, on_checkpoint=due_only(lambda st: steps.append(st["step"])))
         assert steps == [8, 16, 24]
 
     def test_a_state_from_another_trainer_is_refused(self, tiny, tmp_path):
         saved = []
-        train_dictionary(tiny, make_records(), {**SMALL, "tokens": 2048}, on_checkpoint=saved.append)
+        train_dictionary(tiny, make_records(), {**SMALL, "tokens": 2048}, on_checkpoint=due_only(saved.append))
         with pytest.raises(ValueError, match="its `activation` differs"):
             train_dictionary(tiny, make_records(), {**SMALL, "activation": "jumprelu"}, resume_state=saved[0])
 

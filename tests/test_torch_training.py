@@ -28,6 +28,7 @@ from mechbench_compute.torch_backend.lora import (
     restore_adapter_stack,
 )
 from mechbench_compute.torch_backend.train_timing import time_training
+from tests.checkpoint_offers import due_only
 from tests.tiny_torch_models import KIT_MODELS, build_tiny_model
 
 MODELS = tuple(name for name, _ in KIT_MODELS)
@@ -47,7 +48,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def train(model, params=DECISION, **ctx):
     states: list[dict] = []
-    out = train_op.run(Context(loaded=model, on_checkpoint=states.append, **ctx),
+    out = train_op.run(Context(loaded=model, on_checkpoint=due_only(states.append), **ctx),
                        {"records": RECORDS, "anchors": ANCHORS}, params)
     return SimpleNamespace(adapter=out["out"], kept=(out.get("checkpoints") or {}).get("items", []), states=states)
 

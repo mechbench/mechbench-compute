@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from mechbench_compute import backends, ops
 from mechbench_compute.protocol.is_remote import is_remote
+from mechbench_compute.protocol.stop import Stop
 from mechbench_compute.registry import REGISTRY
 
 
@@ -9,6 +10,9 @@ def read_ahead(state, nid):
     done = state.ahead.pop(nid)
     if isinstance(done, BaseException):
         raise done
+    stopped = next((v for v in state.ahead.values() if isinstance(v, Stop)), None)
+    if stopped is not None:
+        raise stopped
     return done
 
 

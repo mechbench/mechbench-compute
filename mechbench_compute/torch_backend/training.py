@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Mapping
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -98,7 +99,7 @@ def train_soft_ce(model: Any, groups: Mapping[str, list[Any]], batch_sizes: Mapp
                   steps: int, lr: float = 1e-4, seed: int = 7,
                   factories: Mapping[str, Callable[[np.random.Generator], list[Any]]] | None = None,
                   on_step: Callable[[int, float], None] | None = None, checkpoint_every: int = 0,
-                  on_checkpoint: Callable[[dict], None] | None = None,
+                  on_checkpoint: Callable[..., None] | None = None,
                   resume_state: Mapping | None = None, loss_fn: Callable | None = None,
                   checkpointing: bool | None = None, deterministic: bool = True,
                   parameters: Mapping[str, torch.nn.Parameter] | None = None,
@@ -116,7 +117,7 @@ def train_measured(model: Any, groups: Mapping[str, list[Any]], batch_sizes: Map
                    steps: int, lr: float = 1e-4, seed: int = 7,
                    factories: Mapping[str, Callable[[np.random.Generator], list[Any]]] | None = None,
                    on_step: Callable[[int, float], None] | None = None, checkpoint_every: int = 0,
-                   on_checkpoint: Callable[[dict], None] | None = None,
+                   on_checkpoint: Callable[..., None] | None = None,
                    resume_state: Mapping | None = None, loss_fn: Callable | None = None,
                    checkpointing: bool | None = None, deterministic: bool = True,
                    parameters: Mapping[str, torch.nn.Parameter] | None = None,
@@ -152,9 +153,9 @@ def train_measured(model: Any, groups: Mapping[str, list[Any]], batch_sizes: Map
                 after_update(opt)
             if on_step:
                 on_step(step, loss_val)
-            if (checkpoint_every and on_checkpoint is not None
-                    and step % int(checkpoint_every) == 0 and step < int(steps)):
-                on_checkpoint(capture_training_state(params, opt, step, rng))
+            if on_checkpoint is not None and step < int(steps):
+                on_checkpoint(partial(capture_training_state, params, opt, step, rng),
+                              due=bool(checkpoint_every) and step % int(checkpoint_every) == 0)
     synchronize(device)
     seconds = time.perf_counter() - started
     ran = max(0, int(steps) - start + 1)

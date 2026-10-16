@@ -3,11 +3,15 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
+from mechbench_compute.protocol.stop import StopCheck
+
 
 class Progress:
-    def __init__(self, on_progress, node_count: int, on_spool_item=None) -> None:
+    def __init__(self, on_progress, node_count: int, on_spool_item=None,
+                 stops: StopCheck | None = None) -> None:
         self.on_progress = on_progress
         self.on_spool_item = on_spool_item
+        self.stops = stops or StopCheck(None)
         self.total_units = node_count
         self.done_units = 0
         self.node_view: dict[str, Any] = {"index": 0, "count": node_count,
@@ -46,12 +50,15 @@ class Progress:
         self.expanded = False
         self.report()
 
-    def open_items(self, nid: str):
+    def open_items(self, nid: str, stops: bool = False):
         def on_item(key=None, item=None, reused=False):
             self.node_view["done"] += 1
             self.bump(1)
-            if (self.on_spool_item is not None and key is not None
-                    and not reused):
+            if key is None or reused:
+                return
+            if self.on_spool_item is not None:
                 self.on_spool_item(nid, key, item)
+            if stops:
+                self.stops.at_item(nid, key)
 
         return on_item

@@ -454,11 +454,13 @@ def train_soft_ce(
                                      list[Example]]] | None = None,
     on_step: Callable[[int, float], None] | None = None,
     checkpoint_every: int = 0,
-    on_checkpoint: Callable[[dict], None] | None = None,
+    on_checkpoint: Callable[..., None] | None = None,
     resume_state: Mapping | None = None,
     after_update: Callable[[optim.Optimizer], None] | None = None,
     loss_fn: Callable[[Any, list[Any]], mx.array] = soft_ce,
 ) -> float:
+    from functools import partial
+
     import mlx.core as mx
     import mlx.optimizers as optim
     from mlx import nn
@@ -490,7 +492,7 @@ def train_soft_ce(
         loss_val = float(loss)
         if on_step:
             on_step(step, loss_val)
-        if (checkpoint_every and on_checkpoint is not None
-                and step % int(checkpoint_every) == 0 and step < int(steps)):
-            on_checkpoint(capture_training_state(lm, opt, step, rng))
+        if on_checkpoint is not None and step < int(steps):
+            on_checkpoint(partial(capture_training_state, lm, opt, step, rng),
+                          due=bool(checkpoint_every) and step % int(checkpoint_every) == 0)
     return loss_val

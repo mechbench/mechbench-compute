@@ -65,6 +65,12 @@ def item_resumable(block: str) -> bool:
     return bool(mod is not None and mod.OP.resume.items)
 
 
+def stops_at_items(block: str) -> bool:
+    mod = _declared(block)
+    return bool(mod is not None and mod.OP.resume.items
+                and mod.OP.resume.level != "state-restorable")
+
+
 def satisfies(offered: str, required: str) -> bool:
     if required not in _RANK or offered not in _RANK:
         raise ValueError(f"unknown resume level: {required!r} / {offered!r}")

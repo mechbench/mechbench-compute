@@ -135,7 +135,7 @@ resume state, paths, run params — is lent to every operation.
 | `ctx.evict_model()` | drop the resident model, for an operation that changed its weights in place, on every exit, a failed one included |
 | `ctx.on_start`, `ctx.on_item` | progress: one call when the count is known, one per item |
 | `ctx.on_token` | streaming: one call per generated token (`text/generate`, `text/chat`) |
-| `ctx.on_checkpoint` | for an operation that checkpoints (`adapter/train`) |
+| `ctx.on_checkpoint(capture, *, due)` | for an operation that checkpoints (`adapter/train`, `dictionary/train`): offered at every safe point but the last, with `capture` a zero-arg callable returning the state and `due` true where the op's own cadence falls; the executor captures and spools when `due` or when the run is being stopped, and then raises `Stop` |
 | `ctx.resume_items`, `ctx.resume_state` | what an interrupted run already finished |
 | `ctx.secrets` | the owner's provider credentials |
 | `ctx.input_paths` | the stored label each input arrived from |

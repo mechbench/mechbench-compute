@@ -428,7 +428,7 @@ def list_prefix_hashes(prefix: str, *, api_url: str | None = None,
         return {}
 
 
-TERMINAL = ("done", "done_with_missing", "failed", "cancelled", "interrupted")
+TERMINAL = ("done", "done_with_missing", "failed", "cancelled", "interrupted", "paused")
 
 
 def launch(protocol: str, *,
@@ -688,7 +688,7 @@ def cancel(job_id: str, *, reason: str = "", api_url: str | None = None,
            api_key: str | None = None) -> dict:
     """Withdraw a job nobody is running, the counterpart of `launch`:
     `POST /jobs/:id/cancel`. Works while no compute is being spent
-    (`queued`, `preparing`, `interrupted`); refused for a running job,
+    (`queued`, `preparing`, `interrupted`, `paused`); refused for a running job,
     which a server cannot stop. Idempotent, with `alreadyCancelled` set,
     so two people draining a queue do not race. Returns `{ok, status,
     from}`."""
@@ -716,7 +716,8 @@ def _progress_sig(j: dict) -> tuple:
 
 def watch(jobs: list[str], *, interval: float = 4.0, api_url: str | None = None,
           api_key: str | None = None):
-    """Poll jobs to a terminal state, yielding `(job_id, job)` each time a
+    """Poll jobs until each is finished or waits on someone (`interrupted`,
+    or `paused`, which are not terminal), yielding `(job_id, job)` each time a
     job's progress CHANGES, never the same state twice. A transient fetch
     error yields `(job_id, {"status": None, "error": <str>})` and the poll
     continues. It prints nothing: `last = dict(bench.watch(jobs))` keeps

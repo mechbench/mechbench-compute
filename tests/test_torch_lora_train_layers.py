@@ -22,6 +22,7 @@ from mechbench_compute.ops.adapter.measure import measure_adapter
 from mechbench_compute.protocol import ProtocolExecutor
 from mechbench_compute.torch_backend import lora_layers
 from mechbench_compute.torch_backend.lora import fuse, restore
+from tests.checkpoint_offers import due_only
 from tests.tiny_torch_models import MODEL_TYPES, build_tiny_model
 
 RECORDS = [{"id": "a", "user": "the cat sat on a"}, {"id": "b", "user": "the dog ran on a"}]
@@ -160,7 +161,7 @@ def test_a_resume_from_a_run_on_other_layers_refuses():
     tiny = build_tiny_model("llama")
     states: list[dict] = []
     params = {**PARAMS, "steps": 4, "checkpoint_every": 2, "lora": {"rank": 2, "alpha": 4, "layers": [0]}}
-    train_op.run(Context(loaded=tiny, on_checkpoint=states.append), {"records": RECORDS}, params)
+    train_op.run(Context(loaded=tiny, on_checkpoint=due_only(states.append)), {"records": RECORDS}, params)
     with pytest.raises(ValueError, match=r"holds 4 weights on layers 0 and this node's adapter 4 weights on layers 3:"):
         train_op.run(Context(loaded=tiny, resume_state=states[0]), {"records": RECORDS},
                      {**params, "lora": {"rank": 2, "alpha": 4, "layers": [-1]}})

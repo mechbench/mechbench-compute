@@ -10,14 +10,15 @@ from mechbench_compute.protocol.gather_inputs import gather_inputs
 from mechbench_compute.protocol.missing_upstream import MissingUpstream
 from mechbench_compute.protocol.named_outputs import read_edge_hash, split_outputs
 from mechbench_compute.protocol.progress import Progress
-from mechbench_compute.protocol.release import release_frames
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 from mechbench_compute.protocol.read_resume_entry import read_resume_entry
+from mechbench_compute.protocol.release import release_frames
 from mechbench_compute.protocol.resolver import Resolver
 from mechbench_compute.protocol.restore_node import restore_node
 from mechbench_compute.protocol.run_state import RunState
 from mechbench_compute.protocol.serialize_params import serialize_params
 from mechbench_compute.protocol.sort_edges import sort_edges
+from mechbench_compute.protocol.stop import StopCheck
 from mechbench_compute.protocol.store_result import store_result
 from mechbench_compute.registry import REGISTRY
 from mechbench_compute.spans import open_span
@@ -25,7 +26,7 @@ from mechbench_compute.spans import open_span
 
 class Pipeline:
     def _run_pipeline(self, spec: ProtocolSpec, on_progress=None,
-                      secrets=None, resume=None) -> Any:
+                      secrets=None, resume=None, stop=None) -> Any:
         from datetime import datetime
 
         import mechbench_schema as ms
@@ -38,8 +39,9 @@ class Pipeline:
             bound_params=state.bound_params, secrets=secrets,
             on_download=self._on_download,
             on_download_bytes=self._on_download_bytes)
+        stops = StopCheck(stop)
         progress = Progress(on_progress, len(state.order),
-                            on_spool_item=self._on_spool_item)
+                            on_spool_item=self._on_spool_item, stops=stops)
         current = {"nid": ""}
 
         for pos, nid in enumerate(state.order):
@@ -59,7 +61,7 @@ class Pipeline:
                 continue
             inputs, input_paths, inline_hashes = gathered
             current["nid"] = nid
-            on_item = progress.open_items(nid)
+            on_item = progress.open_items(nid, resume_mod.stops_at_items(block))
             self._current = current
             from mechbench_compute.block_params import check_inputs, check_params
             check_params(block, serialize_params(params))
@@ -86,10 +88,8 @@ class Pipeline:
                 resume_kwargs["resume_items"] = dict(entry["items"])
             if entry and entry.get("checkpoint") is not None:
                 resume_kwargs["resume_state"] = entry["checkpoint"]
-            on_checkpoint = (
-                (lambda st, _n=nid: self._on_checkpoint(_n, st))
-                if self._on_checkpoint is not None else None
-            )
+            on_checkpoint = (stops.offer(nid, self._on_checkpoint)
+                             if self._on_checkpoint is not None or stop is not None else None)
             try:
                 with open_span() as span:
                     state.results[nid], named = split_outputs(block, self._run_node(

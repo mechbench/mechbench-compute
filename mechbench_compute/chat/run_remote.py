@@ -159,13 +159,18 @@ def run_remote(ref, records, params, *, secrets=None, cassette=None,
                 futures = [pool.submit(one, e) for e in plan]
                 from concurrent.futures import as_completed
 
-                for fut in as_completed(futures):
-                    if fut.cancelled():
-                        continue
-                    land(fut.result())
-                    if failed:
-                        for f in futures:
-                            f.cancel()
+                try:
+                    for fut in as_completed(futures):
+                        if fut.cancelled():
+                            continue
+                        land(fut.result())
+                        if failed:
+                            for f in futures:
+                                f.cancel()
+                except BaseException:
+                    for f in futures:
+                        f.cancel()
+                    raise
     if failed:
         raise failed[0]
 

@@ -22,6 +22,7 @@ from mechbench_compute.ops.activations.capture import capture_residual_vectors
 from mechbench_compute.ops.adapter import train as train_op
 from mechbench_compute.points import LAYOUT
 from mechbench_compute.tools import build_toolbox
+from tests.checkpoint_offers import due_only
 from tests.kit_backends import KIT_MODULES, WINDOW, list_kit_params, load_kit
 
 IDS = [1, 5, 9, 2, 7, 3, 11, 4]
@@ -485,7 +486,7 @@ def train_once(model, *, dies: bool) -> None:
     def die(state):
         raise RuntimeError(f"the training died at step {state['step']}")
 
-    ctx = Context(loaded=model, on_checkpoint=die if dies else None)
+    ctx = Context(loaded=model, on_checkpoint=due_only(die) if dies else None)
     params = {"model": "tiny", "objective": "sft", "steps": 4, "lr": 0.05, "seed": 3,
               "lora": {"rank": 2, "alpha": 4}, "batch": {"record": 1}, "checkpoint_every": 2}
     try:

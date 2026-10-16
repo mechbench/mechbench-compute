@@ -21,6 +21,7 @@ from mechbench_compute.dictionaries.train_settings import read_settings
 from mechbench_compute.ops import Context
 from mechbench_compute.ops.dictionary import encode as encode_op
 from mechbench_compute.protocol import ProtocolExecutor
+from tests.checkpoint_offers import due_only
 from tests.test_adapter_layers import build_payload
 from tests.test_dictionary_train import (
     Interrupted,
@@ -228,7 +229,7 @@ class TestResume:
             raise Interrupted
 
         with pytest.raises(Interrupted):
-            train_dictionary(tiny, make_records(), params, on_checkpoint=interrupt,
+            train_dictionary(tiny, make_records(), params, on_checkpoint=due_only(interrupt),
                              against=read_against(tiny, ref, None, stack))
         assert saved[0]["step"] == 8
         restored = []
@@ -245,7 +246,7 @@ class TestResume:
         ref, stack = fused
         saved = []
         train_dictionary(tiny, make_records(), {**SMALL, "derivation": "sae", "tokens": 2048},
-                         on_checkpoint=saved.append)
+                         on_checkpoint=due_only(saved.append))
         with pytest.raises(ValueError, match="its `derivation` differs"):
             train_dictionary(tiny, make_records(), {**SMALL, "model": ref}, resume_state=saved[0],
                              against=read_against(tiny, ref, None, stack))

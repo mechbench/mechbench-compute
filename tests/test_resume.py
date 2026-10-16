@@ -13,7 +13,7 @@ from mechbench_compute.distill import Example
 from mechbench_compute.finetune import train_soft_ce
 from mechbench_compute.lora import apply_lora
 from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
-
+from tests.checkpoint_offers import due_only
 
 
 def _declare_resume(monkeypatch, name, level, *, items):
@@ -332,13 +332,13 @@ class TestTrainingCheckpointResume:
         lm_b = _fresh_lm()
         train_soft_ce(lm_b, _examples(), {"target": 1, "anchor": 1, "seq": 1},
                       steps=3, lr=1e-2, seed=3, factories={"seq": _factory},
-                      checkpoint_every=3, on_checkpoint=checkpoints.append)
+                      checkpoint_every=3, on_checkpoint=due_only(checkpoints.append))
         assert checkpoints == []
         lm_c = _fresh_lm()
         got = []
         train_soft_ce(lm_c, _examples(), {"target": 1, "anchor": 1, "seq": 1},
                       steps=6, lr=1e-2, seed=3, factories={"seq": _factory},
-                      checkpoint_every=3, on_checkpoint=got.append)
+                      checkpoint_every=3, on_checkpoint=due_only(got.append))
         assert [c["step"] for c in got] == [3]
         state = got[0]
         assert state["mx_key"] is None or hasattr(state["mx_key"], "shape")
@@ -361,7 +361,7 @@ class TestTrainingCheckpointResume:
         got = []
         train_soft_ce(lm, _examples(), {"target": 1, "anchor": 1},
                       steps=10, lr=1e-2, seed=3,
-                      checkpoint_every=4, on_checkpoint=got.append)
+                      checkpoint_every=4, on_checkpoint=due_only(got.append))
         assert [c["step"] for c in got] == [4, 8]
         assert set(got[0]) == {"step", "weights", "opt_state", "np_rng", "mx_key"}
 

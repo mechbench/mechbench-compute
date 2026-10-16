@@ -4,6 +4,7 @@ import hashlib
 import math
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -47,7 +48,7 @@ def hash_windows(windows: Sequence[Sequence[int]]) -> bytes:
 def train_dictionary(model: Any, records: Sequence[Mapping[str, Any]], params: Mapping[str, Any], *,
                      on_start: Callable[..., None] | None = None,
                      on_item: Callable[..., None] | None = None,
-                     on_checkpoint: Callable[[dict[str, Any]], None] | None = None,
+                     on_checkpoint: Callable[..., None] | None = None,
                      resume_state: Mapping[str, Any] | None = None,
                      on_step: Callable[[dict[str, float]], None] | None = None,
                      against: Against | None = None) -> dict[str, Any]:
@@ -113,10 +114,10 @@ def train_dictionary(model: Any, records: Sequence[Mapping[str, Any]], params: M
                 on_step(metrics)
             unit()
         chunk = n_steps * s.batch_tokens
-        if (on_checkpoint is not None and trainer.step < s.steps
-                and tokens // s.checkpoint_tokens > (tokens - chunk) // s.checkpoint_tokens):
-            on_checkpoint(capture_state(trainer, stream, rng, scale=scale, tokens=tokens, heldout=heldout,
-                                        first_chunk=first_chunk, curve=curve))
+        if on_checkpoint is not None and trainer.step < s.steps:
+            on_checkpoint(partial(capture_state, trainer, stream, rng, scale=scale, tokens=tokens,
+                                  heldout=heldout, first_chunk=first_chunk, curve=curve),
+                          due=tokens // s.checkpoint_tokens > (tokens - chunk) // s.checkpoint_tokens)
     trained = {"tokens": tokens, "steps": trainer.step, "scale": scale, "seed": s.seed,
                "first_chunk_sha256": first_chunk.hex(), "heldout_sha256": hash_windows(heldout).hex(),
                "heldout_windows": len(heldout), "curve": curve, "compute": __version__}

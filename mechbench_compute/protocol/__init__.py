@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from mechbench_compute import backends
@@ -14,6 +15,7 @@ from mechbench_compute.protocol.protocol_spec import ProtocolSpec
 from mechbench_compute.protocol.remote import Remote
 from mechbench_compute.protocol.serialize_params import serialize_params  # noqa: F401
 from mechbench_compute.protocol.sort_edges import sort_edges  # noqa: F401
+from mechbench_compute.protocol.stop import Stop  # noqa: F401
 from mechbench_compute.protocol.sub import Sub
 from mechbench_compute.protocol.summarize_node import summarize_node  # noqa: F401
 
@@ -44,7 +46,8 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
         self._on_token = on_token
 
     def run(self, spec: ProtocolSpec, on_progress=None,
-            secrets=None, resume=None, budget=None) -> Any:
+            secrets=None, resume=None, budget=None,
+            stop: Callable[[], bool] | None = None) -> Any:
         required = (spec.extra or {}).get("requirements")
         self._backend = backends.read_required(required)
         self._accelerator = (required or {}).get("accelerator")
@@ -58,7 +61,7 @@ class ProtocolExecutor(Dispatch, LegacyKinds, Memo, ModelLoading, Pipeline,
             if budget is not None:
                 self._budget = budget
             return self._run_pipeline(spec, on_progress, secrets=secrets,
-                                      resume=resume)
+                                      resume=resume, stop=stop)
         if spec.kind == "replay":
             if budget is not None:
                 self._budget = budget

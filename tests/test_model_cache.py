@@ -24,6 +24,7 @@ from mechbench_compute.protocol import ProtocolExecutor, ProtocolSpec
 from mechbench_compute.protocol.model_cache_stale import ModelCacheStale
 from mechbench_compute.protocol.model_fingerprint import read_applied
 from mechbench_compute.weights import edit_parameters
+from tests.checkpoint_offers import due_only
 from tests.test_circuits import build_adapter
 from tests.test_dictionary import load as load_dictionary
 from tests.test_dictionary import write_dictionary
@@ -169,7 +170,7 @@ class TestATrainingThatDiesMidRun:
         model = build_tiny_model("llama")
         marks, values = lora.mark_weights(model.lm), read_values(model)
         with pytest.raises(RuntimeError, match="GPU Timeout"):
-            train_op.run(Context(loaded=model, on_checkpoint=Watchdog(4)),
+            train_op.run(Context(loaded=model, on_checkpoint=due_only(Watchdog(4))),
                          {"records": [DOCUMENT]}, {"model": "tiny", **SFT})
         assert_untouched(model, marks, values)
 
@@ -187,7 +188,7 @@ class TestATrainingThatDiesMidRun:
     def test_an_operator_that_dies_is_detached(self, when):
         model = build_tiny_model("gemma3")
         marks, values = lora.mark_weights(model.lm), read_values(model)
-        lent = {"on_start": die} if when == "before-the-first-step" else {"on_checkpoint": Watchdog(2)}
+        lent = {"on_start": die} if when == "before-the-first-step" else {"on_checkpoint": due_only(Watchdog(2))}
         with pytest.raises(RuntimeError, match="GPU Timeout"):
             train_op.run(Context(loaded=model, **lent), {"records": RECORDS},
                          {"model": "tiny", "target": {"uniform": ["cat", "dog"]}, "closer": " mat",

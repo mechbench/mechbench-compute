@@ -14,6 +14,7 @@ from mechbench_compute.ops import Context
 from mechbench_compute.ops.adapter import train as train_op
 from mechbench_compute.ops.adapter.measure import measure_adapter
 from mechbench_compute.peft import peft_export, peft_import
+from tests.checkpoint_offers import due_only
 from tests.test_adapter_layers import SHARD, adapted, hold, read, write_snapshot
 from tests.tiny_models import MODEL_TYPES, build_tiny_model
 
@@ -200,7 +201,7 @@ class TestRunsOnOtherLayersAreOtherRuns:
         tiny = build_tiny_model("llama")
         states: list[dict] = []
         params = {**PARAMS, "steps": 4, "checkpoint_every": 2, "lora": {"rank": 2, "alpha": 4, "layers": [0]}}
-        train_op.run(Context(loaded=tiny, on_checkpoint=states.append), {"records": RECORDS}, params)
+        train_op.run(Context(loaded=tiny, on_checkpoint=due_only(states.append)), {"records": RECORDS}, params)
         with pytest.raises(ValueError, match=r"saved training state holds 4 weights on layers 0 and "
                                              r"this node's adapter 8 weights on layers 0, 1: its `lora` differs"):
             train_op.run(Context(loaded=tiny, resume_state=states[0]), {"records": RECORDS},
@@ -211,6 +212,6 @@ class TestRunsOnOtherLayersAreOtherRuns:
         tiny = build_tiny_model("llama")
         states: list[dict] = []
         params = {**PARAMS, "steps": 4, "checkpoint_every": 2, "lora": {"rank": 2, "alpha": 4, "layers": [-1]}}
-        whole = train_op.run(Context(loaded=tiny, on_checkpoint=states.append), {"records": RECORDS}, params)
+        whole = train_op.run(Context(loaded=tiny, on_checkpoint=due_only(states.append)), {"records": RECORDS}, params)
         resumed = train_op.run(Context(loaded=tiny, resume_state=states[0]), {"records": RECORDS}, params)
         assert resumed["out"]["data"] == whole["out"]["data"]

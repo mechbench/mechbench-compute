@@ -319,7 +319,7 @@ class TestWatch:
         assert seen[-1][1]["status"] == "done"
 
     @pytest.mark.parametrize("status", ["done", "done_with_missing", "failed",
-                                        "cancelled", "interrupted"])
+                                        "cancelled", "interrupted", "paused"])
     def test_every_finished_state_the_api_reports_ends_the_watch(self, fake, status):
         fake.add("GET", "/jobs/j", Seq([
             {"status": status},

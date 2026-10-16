@@ -16,6 +16,7 @@ torch = pytest.importorskip("torch")
 from mechbench_compute.ops import Context
 from mechbench_compute.ops.adapter import train as train_op
 from mechbench_compute.torch_backend import determinism
+from tests.checkpoint_offers import due_only
 from tests.test_torch_training import ANCHORS, DECISION, RECORDS
 from tests.tiny_torch_models import build_tiny_model
 
@@ -29,7 +30,7 @@ OPERATOR = {"model": "tiny", "target": {"uniform": ["mat", "dog", "cat"]}, "clos
 
 def train(model, params=PARAMS, **ctx):
     states: list[dict] = []
-    out = train_op.run(Context(loaded=model, on_checkpoint=states.append, **ctx),
+    out = train_op.run(Context(loaded=model, on_checkpoint=due_only(states.append), **ctx),
                        {"records": RECORDS, "anchors": ANCHORS}, params)
     kept = {i["id"]: i for i in (out.get("checkpoints") or {}).get("items", [])}
     return SimpleNamespace(out=out["out"], kept=kept, states=states)
