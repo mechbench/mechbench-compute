@@ -241,22 +241,18 @@ def chat(nid):
             "inputs": {"records": [{"id": f"{nid}-r", "user": f"hello from {nid}"}]}}
 
 
-def read_texts(out) -> dict[str, list[tuple[str, str]]]:
-    return {nid: [(i["id"], i["text"]) for i in coll["items"]]
-            for nid, coll in out.payload["outputs"].items()}
-
-
 class TestAStopInARemoteWave:
     def test_the_stop_reaches_the_caller_and_the_workers_go_quiet(self, monkeypatch):
         from mechbench_compute.protocol import dispatch
         from mechbench_compute.providers import mock as mock_mod
 
         real = mock_mod.MockTransport._chat
-        in_flight, peak = [], [0]
+        in_flight, peak, in_flight_calls = [], [0], []
         lock = threading.Lock()
 
         def slow(self, req, **kw):
             with lock:
+                in_flight_calls.append(1)
                 in_flight.append(1)
                 peak[0] = max(peak[0], len(in_flight))
             time.sleep(0.05)
@@ -279,21 +275,34 @@ class TestAStopInARemoteWave:
         nodes = [chat("left"), chat("right")]
 
         whole = _Spool()
-        reference = read_texts(whole.executor().run(_wave(nodes)))
+        reference = whole.executor().run(_wave(nodes))
 
         stopped = _Spool()
         with pytest.raises(Stop):
             stopped.executor().run(_wave(nodes), stop=After(1, once=True))
         assert peak[0] == 2, "the two branches did not overlap"
         assert len(reads) == 1 and isinstance(reads[0], Stop)
-        spooled = {nid: len(items) for nid, items in stopped.items.items()}
-        assert sum(spooled.values()) <= 2, spooled
-        assert all(n <= 1 for n in spooled.values()), spooled
+        assert {nid: len(items) for nid, items in stopped.items.items()} == {"left": 1, "right": 1}
+        assert stopped.fingerprints == whole.fingerprints
 
-        resume = {nid: {"fingerprint": whole.fingerprints[nid], "items": dict(items)}
-                  for nid, items in stopped.items.items()}
-        resumed = read_texts(_Spool().executor().run(_wave(nodes), resume=resume))
-        assert resumed == reference
+        calls_before = len(in_flight_calls)
+        resumed = _Spool()
+        out = resumed.executor().run(
+            _wave(nodes), resume={nid: stopped.resume_map(nid)[nid] for nid in stopped.items})
+        assert len(in_flight_calls) - calls_before == 6, "the peers' spooled items were not reused"
+        assert _digest(read_items(out)) == _digest(read_items(reference))
+        assert resumed.done["right"][1] == whole.done["right"][1]
+
+
+def read_items(out):
+    def strip(value):
+        if isinstance(value, dict):
+            return {k: strip(v) for k, v in value.items() if k != "latency_ms"}
+        if isinstance(value, list):
+            return [strip(v) for v in value]
+        return value
+
+    return {nid: strip(out.payload["outputs"][nid]["items"]) for nid in ("left", "right")}
 
 
 def _wave(nodes):

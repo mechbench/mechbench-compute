@@ -17,7 +17,7 @@ class Remote:
     def _run_remote_wave(self, nid, block, inputs, params, secrets, *,
                          nodes, edges, order, results, missing,
                          resolve_params, resolve_value, item_reporter, expand,
-                         node_view, report, resume, resume_kwargs):
+                         node_view, report, resume, resume_kwargs, begin=None):
         from concurrent.futures import ThreadPoolExecutor
 
         ready: list[tuple[str, str, dict, dict]] = [(nid, block, inputs, params)]
@@ -54,6 +54,9 @@ class Remote:
                 on_item=item_reporter(nid, stops_at_items(block)), on_start=expand,
                 **resume_kwargs)}
 
+        if begin is not None:
+            for peer, _b, _i, _p in ready[1:]:
+                begin(peer)
         node_view["parallel"] = [n for n, _b, _i, _p in ready]
         report()
         print(f"[graph] {len(ready)} remote nodes in flight: "

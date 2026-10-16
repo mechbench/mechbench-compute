@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from mechbench_compute import backends, ops
 from mechbench_compute.protocol.is_remote import is_remote
+from mechbench_compute.protocol.read_fingerprint import read_peer_fingerprint
 from mechbench_compute.protocol.stop import Stop
 from mechbench_compute.registry import REGISTRY
 
@@ -34,7 +35,8 @@ class Dispatch:
                 resolve_value=resolver.resolve_value,
                 item_reporter=progress.open_items, expand=progress.expand,
                 node_view=progress.node_view, report=progress.report,
-                resume=state.resume, resume_kwargs=resume_kwargs))
+                resume=state.resume, resume_kwargs=resume_kwargs,
+                begin=lambda peer: self._begin_peer(state, peer, resolver)))
             return read_ahead(state, nid)
         backends.check_op(self._backend, resolved.name, resolved.op.needs, resolved.tier)
         return self._run_op(
@@ -48,6 +50,10 @@ class Dispatch:
             resume_items=resume_kwargs.get("resume_items"),
             resume_state=resume_kwargs.get("resume_state"),
             on_token=self._node_on_token(nid), node=nid)
+
+    def _begin_peer(self, state, nid, resolver) -> None:
+        if self._on_node_start is not None:
+            self._on_node_start(nid, read_peer_fingerprint(state, nid, resolver))
 
     def _node_on_token(self, nid):
         sink = getattr(self, "_on_token", None)

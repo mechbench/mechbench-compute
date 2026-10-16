@@ -8,9 +8,10 @@ from mechbench_compute.protocol.build_manifest import build_manifest
 from mechbench_compute.protocol.check_failures import check_failures
 from mechbench_compute.protocol.gather_inputs import gather_inputs
 from mechbench_compute.protocol.missing_upstream import MissingUpstream
-from mechbench_compute.protocol.named_outputs import read_edge_hash, split_outputs
+from mechbench_compute.protocol.named_outputs import split_outputs
 from mechbench_compute.protocol.progress import Progress
 from mechbench_compute.protocol.protocol_spec import ProtocolSpec
+from mechbench_compute.protocol.read_fingerprint import read_fingerprint
 from mechbench_compute.protocol.read_resume_entry import read_resume_entry
 from mechbench_compute.protocol.release import release_frames
 from mechbench_compute.protocol.resolver import Resolver
@@ -69,13 +70,7 @@ class Pipeline:
             resolved = REGISTRY.resolve(block)
             if resolved.pin is not None:
                 resolver.resolved.setdefault("extensions", {})[resolved.pin["address"]] = resolved.pin
-            fingerprint = resume_mod.node_fingerprint(
-                block=resolved.pinned, params=serialize_params(params),
-                input_hashes=[read_edge_hash(state, e)
-                              for e in in_edges] + inline_hashes,
-                core_version=core_version,
-                model=str(serialize_params(params).get("model", "")),
-            )
+            fingerprint = read_fingerprint(state, block, params, in_edges, inline_hashes)
             if self._on_node_start is not None:
                 self._on_node_start(nid, fingerprint)
             entry = read_resume_entry(state, nid, fingerprint)

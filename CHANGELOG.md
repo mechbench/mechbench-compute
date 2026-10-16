@@ -62,6 +62,11 @@ uninterrupted one.
   remote wave's worker reaches the caller, and once one is raised every
   other worker stops after the item it has in hand. `ctx` gained no
   member, so no op's resume level moved.
+- A remote wave fires `on_node_start(node, fingerprint)` for each of its
+  peers before any of their items is spooled, with the fingerprint the
+  pipeline computes when it reaches that node, so the spool holds what a
+  resume needs for every node a stopped wave touched. Before, a peer's
+  items could land under its id while its fingerprint was still unknown.
 - `text/chat` against a provider cancels its queued calls when its run
   is stopped or fails, rather than letting them run to no purpose.
 - `bench.watch` returns on `paused` as on `interrupted`
