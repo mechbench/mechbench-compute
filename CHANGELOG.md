@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.208.0 — 2026-10-16
+
+### Changes that raise
+
 - `dictionary/train` trains `derivation: "crosscoder"`, which it refused
   by name before: one dictionary over the same layer and point of two
   models on the same tokens, `model` (the organism, a reference carrying
