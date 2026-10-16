@@ -27,6 +27,20 @@ _None._
 
 _None._
 
+## 0.207.1 — 2026-10-15
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+- The features table records that `anthropic/claude-haiku-5-5` takes all five effort levels (`low` to `max`, default `medium`; Anthropic's effort page, read 2026-10-15), so `effort` on it is accepted instead of refused by name. Its reasoning display stays unrecorded.
+
 ## 0.207.0 — 2026-10-15
 
 ### Changes that raise
