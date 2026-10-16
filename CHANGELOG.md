@@ -25,6 +25,20 @@ _None._
 
 ### Other
 
+_None._
+
+## 0.207.0 — 2026-10-15
+
+### Changes that raise
+
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
 - A model that does not accept `temperature`, `top_p` or `top_k` gets
   the request without them, where before the provider refused it and
   the node failed: Claude 4.7 and later (Opus 4.7 and 4.8, Opus 5 and
