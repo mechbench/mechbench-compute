@@ -17,6 +17,20 @@ nothing said so.
 
 ### Changes that raise
 
+_None._
+
+### Changes that alter results without raising
+
+_None._
+
+### Other
+
+_None._
+
+## 0.209.0 — 2026-10-16
+
+### Changes that raise
+
 - The checkpoint hook an op is lent changed shape:
   `ctx.on_checkpoint(capture, *, due)`, where `capture` is a zero-arg
   callable returning the training state and `due` says the op's own
